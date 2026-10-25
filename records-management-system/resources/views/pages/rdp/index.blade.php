@@ -1730,7 +1730,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                                         <div style="font-size: 10.5px; color: #64748b; margin-top: 2px;">
                                             <span>{{ (int)($cluster->total_items ?? 0) }} item(s)</span>
                                             @if(!empty($cluster->created_at))
-                                                &bull; {{ Carbon::parse($cluster->created_at)->format('M d, Y') }}
+                                                &bull; {{ \App\Helpers\RegisterQueryHelper::formatSmartDate($cluster->created_at) }}
                                             @endif
                                         </div>
                                     </td>

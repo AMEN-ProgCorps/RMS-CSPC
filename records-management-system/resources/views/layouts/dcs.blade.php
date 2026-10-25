@@ -122,7 +122,7 @@
         @vite(['resources/css/dcs/recycle-bin.css', 'resources/css/dcs/update.css'])
     @elseif(request()->routeIs('dcs.review'))
         @vite(['resources/css/dcs/review.css', 'resources/js/dcs/review-pdf.js'])
-    @elseif(request()->routeIs('dcs.reports.*'))
+    @elseif(request()->routeIs('dcs.reports.*') || request()->routeIs('dcs.monitoring*'))
         @vite(['resources/css/dcs/reports.css'])
     @elseif(request()->routeIs('dcs.stamping.index'))
         @vite(['resources/css/dcs/stamping.css'])

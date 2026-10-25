@@ -152,8 +152,8 @@ trait InteractsWithDcsReport
         if ($this->period === 'custom') {
             $from = $this->dateFrom !== '' ? $this->dateFrom : null;
             $to = $this->dateTo !== '' ? $this->dateTo : null;
-            $fromLabel = $from ? \Carbon\Carbon::parse($from)->format('M j, Y') : '…';
-            $toLabel = $to ? \Carbon\Carbon::parse($to)->format('M j, Y') : '…';
+            $fromLabel = $from ? \App\Helpers\RegisterQueryHelper::formatSmartDate($from) : '…';
+            $toLabel = $to ? \App\Helpers\RegisterQueryHelper::formatSmartDate($to) : '…';
 
             return [
                 'from' => $from,
@@ -167,7 +167,7 @@ trait InteractsWithDcsReport
             return [
                 'from' => null,
                 'to' => $end->toDateString(),
-                'label' => 'Everything dated on or before '.$end->format('M j, Y'),
+                'label' => 'Everything dated on or before '.\App\Helpers\RegisterQueryHelper::formatSmartDate($end),
                 'dateLabel' => 'Up to',
             ];
         }
@@ -182,7 +182,7 @@ trait InteractsWithDcsReport
         return [
             'from' => $start->toDateString(),
             'to' => $end->toDateString(),
-            'label' => $start->format('M j, Y').' – '.$end->format('M j, Y'),
+            'label' => \App\Helpers\RegisterQueryHelper::formatSmartDate($start).' – '.\App\Helpers\RegisterQueryHelper::formatSmartDate($end),
             'dateLabel' => match ($this->period) {
                 'weekly' => 'Week ending',
                 'monthly' => 'Month ending',

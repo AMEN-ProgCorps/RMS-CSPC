@@ -142,27 +142,106 @@ class OfficeIntakeHelper
         ];
     }
 
-    public static function assertOwnsDrf(object $drf): void
+    /**
+     * Limit My DRF/DCN to forms linked to the current office, or forms the user created
+     * that have no source-office links yet. RFIO browse-all skips this.
+     */
+    public static function applyOwnOfficeIntakeScope($query, string $alias, string $type): void
     {
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
             return;
         }
+
+        $type = strtolower($type);
+        $userId = (int) auth()->id();
+        $officeId = (int) (RegisterQueryHelper::currentOfficeId() ?? 0);
+        $linkTable = $type === 'dcn' ? self::DCN_OFFICES_TABLE : self::DRF_OFFICES_TABLE;
+        $linkFk = $type === 'dcn' ? 'office_intake_dcn_id' : 'office_intake_drf_id';
+
+        $query->where(function ($q) use ($alias, $userId, $officeId, $linkTable, $linkFk) {
+            if ($officeId > 0 && Schema::hasTable($linkTable)) {
+                $q->whereExists(function ($officeQ) use ($alias, $officeId, $linkTable, $linkFk) {
+                    $officeQ->select(DB::raw(1))
+                        ->from($linkTable.' as ofi_lnk')
+                        ->whereColumn('ofi_lnk.'.$linkFk, $alias.'.id')
+                        ->where('ofi_lnk.office_id', $officeId);
+                });
+            }
+
+            // Own drafts/forms with no office links yet (still creating).
+            $q->orWhere(function ($own) use ($alias, $userId, $linkTable, $linkFk) {
+                if ($userId > 0) {
+                    $own->where($alias.'.created_by', $userId);
+                } else {
+                    $own->whereRaw('1 = 0');
+                }
+
+                if (Schema::hasTable($linkTable)) {
+                    $own->whereNotExists(function ($anyLink) use ($alias, $linkTable, $linkFk) {
+                        $anyLink->select(DB::raw(1))
+                            ->from($linkTable.' as ofi_any')
+                            ->whereColumn('ofi_any.'.$linkFk, $alias.'.id');
+                    });
+                }
+            });
+        });
+    }
+
+    public static function userCanAccessOfficeIntakeRecord(object $record, string $type): bool
+    {
+        if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+            return true;
+        }
+
+        $userId = (int) auth()->id();
+        if ($userId > 0 && (int) ($record->created_by ?? 0) === $userId) {
+            $officeId = (int) (RegisterQueryHelper::currentOfficeId() ?? 0);
+            $type = strtolower($type);
+            $linkTable = $type === 'dcn' ? self::DCN_OFFICES_TABLE : self::DRF_OFFICES_TABLE;
+            $linkFk = $type === 'dcn' ? 'office_intake_dcn_id' : 'office_intake_drf_id';
+            $recordId = (int) ($record->id ?? 0);
+
+            if ($officeId > 0 && $recordId > 0 && Schema::hasTable($linkTable)) {
+                $linkedIds = DB::table($linkTable)->where($linkFk, $recordId)->pluck('office_id')->map(fn ($id) => (int) $id)->all();
+                if ($linkedIds !== [] && ! in_array($officeId, $linkedIds, true)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        $officeId = (int) (RegisterQueryHelper::currentOfficeId() ?? 0);
+        if ($officeId < 1) {
+            return false;
+        }
+
+        $type = strtolower($type);
+        $linkTable = $type === 'dcn' ? self::DCN_OFFICES_TABLE : self::DRF_OFFICES_TABLE;
+        $linkFk = $type === 'dcn' ? 'office_intake_dcn_id' : 'office_intake_drf_id';
+        $recordId = (int) ($record->id ?? 0);
+        if ($recordId < 1 || ! Schema::hasTable($linkTable)) {
+            return false;
+        }
+
+        return DB::table($linkTable)->where($linkFk, $recordId)->where('office_id', $officeId)->exists();
+    }
+
+    public static function assertOwnsDrf(object $drf): void
+    {
         abort_unless(
-            (int) ($drf->created_by ?? 0) === (int) auth()->id(),
+            self::userCanAccessOfficeIntakeRecord($drf, 'drf'),
             403,
-            'You can only view Document Request Forms you created.'
+            'You can only view Document Request Forms from your office.'
         );
     }
 
     public static function assertOwnsDcn(object $dcn): void
     {
-        if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            return;
-        }
         abort_unless(
-            (int) ($dcn->created_by ?? 0) === (int) auth()->id(),
+            self::userCanAccessOfficeIntakeRecord($dcn, 'dcn'),
             403,
-            'You can only view Document Change Notices you created.'
+            'You can only view Document Change Notices from your office.'
         );
     }
 
@@ -208,10 +287,7 @@ class OfficeIntakeHelper
         self::reconcileClaimedIntakesWithRegistrations();
 
         $query = DB::table('dcs_office_intake_drf as drf');
-
-        if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            $query->where('drf.created_by', auth()->id());
-        }
+        self::applyOwnOfficeIntakeScope($query, 'drf', 'drf');
 
         $rows = $query->orderByDesc('drf.id')->get($cols);
 
@@ -255,10 +331,7 @@ class OfficeIntakeHelper
         self::reconcileClaimedIntakesWithRegistrations();
 
         $query = DB::table('dcs_office_intake_dcn as dcn');
-
-        if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            $query->where('dcn.created_by', auth()->id());
-        }
+        self::applyOwnOfficeIntakeScope($query, 'dcn', 'dcn');
 
         $rows = $query->orderByDesc('dcn.id')->get($cols);
         $linkedDrfIds = self::linkedDrfIdsForOfficeDcns(
@@ -2082,6 +2155,110 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Last DRF signatories for the current office / creator (for create-form suggestions).
+     *
+     * @return array{
+     *     prepared_by_name: string,
+     *     prepared_by_designation: string,
+     *     reviewed_by_name: string,
+     *     reviewed_by_designation: string,
+     *     approved_by_name: string,
+     *     approved_by_designation: string
+     * }|null
+     */
+    public static function previousDrfSignatories(): ?array
+    {
+        if (! Schema::hasTable(self::DRF_TABLE)) {
+            return null;
+        }
+
+        $query = DB::table(self::DRF_TABLE.' as drf')->select([
+            'drf.prepared_by_name',
+            'drf.prepared_by_designation',
+            'drf.reviewed_by_name',
+            'drf.reviewed_by_designation',
+            'drf.approved_by_name',
+            'drf.approved_by_designation',
+        ]);
+        self::applyOwnOfficeIntakeScope($query, 'drf', 'drf');
+        $row = $query->orderByDesc('drf.id')->first();
+        if (! $row) {
+            return null;
+        }
+
+        $payload = [
+            'prepared_by_name' => trim((string) ($row->prepared_by_name ?? '')),
+            'prepared_by_designation' => trim((string) ($row->prepared_by_designation ?? '')),
+            'reviewed_by_name' => trim((string) ($row->reviewed_by_name ?? '')),
+            'reviewed_by_designation' => trim((string) ($row->reviewed_by_designation ?? '')),
+            'approved_by_name' => trim((string) ($row->approved_by_name ?? '')),
+            'approved_by_designation' => trim((string) ($row->approved_by_designation ?? '')),
+        ];
+
+        $hasAny = false;
+        foreach ($payload as $value) {
+            if ($value !== '') {
+                $hasAny = true;
+                break;
+            }
+        }
+
+        return $hasAny ? $payload : null;
+    }
+
+    /**
+     * Last DCN reviewers + approvals for the current office / creator.
+     *
+     * @return array{reviewers: list<array{name: string, date: string|null}>, approvals: list<array{position: string, name: string, date: string|null}>}
+     */
+    public static function previousDcnSignatories(): array
+    {
+        $empty = ['reviewers' => [], 'approvals' => []];
+        if (! Schema::hasTable(self::DCN_TABLE)) {
+            return $empty;
+        }
+
+        $query = DB::table(self::DCN_TABLE.' as dcn')->select('dcn.id');
+        self::applyOwnOfficeIntakeScope($query, 'dcn', 'dcn');
+        $dcnId = (int) ($query->orderByDesc('dcn.id')->value('id') ?? 0);
+        if ($dcnId < 1) {
+            return $empty;
+        }
+
+        $reviewers = array_values(array_filter(
+            array_map(function (array $row) {
+                $name = trim((string) ($row['name'] ?? ''));
+                if ($name === '') {
+                    return null;
+                }
+
+                return ['name' => $name, 'date' => $row['date'] ?? null];
+            }, self::loadDcnReviewers($dcnId))
+        ));
+
+        $approvals = array_values(array_filter(
+            array_map(function (array $row) {
+                $position = trim((string) ($row['position'] ?? ''));
+                $name = trim((string) ($row['name'] ?? ''));
+                if ($position === '' && $name === '') {
+                    return null;
+                }
+
+                return [
+                    'position' => $position,
+                    'name' => $name,
+                    'date' => $row['date'] ?? null,
+                ];
+            }, self::loadDcnApprovals($dcnId))
+        ));
+
+        return [
+            'reviewers' => $reviewers,
+            'approvals' => $approvals,
+        ];
+    }
+
+    /**
      * @return list<array{name: string, date: string|null, label: string}>
      */
     public static function loadDcnReviewers(int $dcnId, ?object $dcn = null): array
@@ -2398,7 +2575,7 @@ class OfficeIntakeHelper
             try {
                 $parsed = \Carbon\Carbon::parse($dcn->department_on);
                 $dateIso = $parsed->format('Y-m-d');
-                $dateLabel = $parsed->format('M d, Y');
+                $dateLabel = \App\Helpers\RegisterQueryHelper::formatSmartDate($parsed);
             } catch (\Throwable) {
                 $dateIso = '';
                 $dateLabel = '';
@@ -4494,7 +4671,6 @@ class OfficeIntakeHelper
 
     /**
      * A Save and Appraise registration stays out of Incoming until the admin forwards it.
-     * A plain save has no appraisal opt-in, so the office only marks it received.
      */
     protected static function excludeUnforwardedAppraisal($query): void
     {
@@ -4543,7 +4719,13 @@ class OfficeIntakeHelper
                 ->where('rdp_hold.source_subsystem', 'DCS')
                 ->where('rdp_hold.status', 'pending')
                 ->whereRaw('LOWER(rdp_hold.target_office) = ?', [strtolower(trim($officeCode))])
-                ->whereColumn('rdp_hold.document_code', 'ml.doc_no');
+                ->where(function ($match) {
+                    $match->whereColumn('rdp_hold.document_code', 'ml.doc_no')
+                        ->orWhereRaw("COALESCE(rdp_hold.metadata->>'dcs_request_id', '') = ml.request_id::text")
+                        ->orWhereRaw(
+                            "rdp_hold.document_code = CONCAT('DCS-REQ-', ml.request_id::text)"
+                        );
+                });
         });
     }
 
@@ -4702,7 +4884,7 @@ class OfficeIntakeHelper
                 'doc_title' => (string) ($ml->doc_title ?? ''),
                 'pages' => $pages,
                 'effectivity_date' => $ml->effectivity_date
-                    ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date)
+                    ? RegisterQueryHelper::formatRdpPeriodDate($ml->effectivity_date)
                     : null,
                 'can_receive' => $requestId > 0 && $receipt !== null && $receivedAt === null,
                 'received_at' => $receivedAt,
@@ -4825,17 +5007,26 @@ class OfficeIntakeHelper
         if ($officeCode) {
             $perms = auth()->user()?->permissions;
             $canAppraise = $perms && ($perms->is_sadm || $perms->can_access_rdp);
-            $appraisalWaiting = $canAppraise && $docNo !== '' && Schema::hasTable('rdp_received_documents')
-                && DB::table('rdp_received_documents')
+            $appraisalWaiting = false;
+            if ($canAppraise && Schema::hasTable('rdp_received_documents')) {
+                $intakeCode = \App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo);
+                $appraisalWaiting = DB::table('rdp_received_documents')
                     ->where('source_subsystem', 'DCS')
                     ->where('status', 'pending')
-                    ->whereRaw('LOWER(document_code) = ?', [strtolower($docNo)])
                     ->whereRaw('LOWER(target_office) = ?', [strtolower($officeCode)])
+                    ->where(function ($q) use ($docNo, $intakeCode, $requestId) {
+                        if ($docNo !== '') {
+                            $q->orWhereRaw('LOWER(document_code) = ?', [strtolower($docNo)]);
+                        }
+                        $q->orWhereRaw('LOWER(document_code) = ?', [strtolower($intakeCode)])
+                            ->orWhereRaw("COALESCE(metadata->>'dcs_request_id', '') = ?", [(string) $requestId]);
+                    })
                     ->exists();
+            }
             if ($appraisalWaiting) {
                 DcsNotificationService::notifyAppraisalStillWaiting(
                     $officeCode,
-                    $docNo,
+                    $docNo !== '' ? $docNo : \App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo),
                     $title !== '' ? $title : null
                 );
             }

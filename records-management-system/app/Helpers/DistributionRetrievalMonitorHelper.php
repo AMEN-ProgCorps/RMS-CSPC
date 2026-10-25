@@ -554,7 +554,7 @@ class DistributionRetrievalMonitorHelper
             return '';
         }
         try {
-            return \Carbon\Carbon::parse($value)->format('M d, Y');
+            return RegisterQueryHelper::formatSmartDate($value);
         } catch (\Throwable) {
             return '';
         }

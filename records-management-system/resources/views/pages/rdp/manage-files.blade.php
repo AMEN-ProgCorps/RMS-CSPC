@@ -1163,7 +1163,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                                 {{ $file->document_name }}
                             </div>
                             <div class="file-card-meta">
-                                <span>{{ \Carbon\Carbon::parse($file->date_added)->format('M d, Y') }}</span>
+                                <span>{{ \App\Helpers\RegisterQueryHelper::formatSmartDate($file->date_added) }}</span>
                                 @if($file->office_name)
                                     <span class="office-badge">{{ $file->office_name }}</span>
                                 @endif

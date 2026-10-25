@@ -82,9 +82,9 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
             ? OfficeIntakeHelper::listOfficeDocuments($active, null, 'received_for_appraisal')
             : [];
         $appraisalUrls = $canAppraise
-            ? RdpIntakeService::pendingUrlsForOffice(
+            ? RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
                 RegisterQueryHelper::currentOfficeCode(),
-                array_column($receivedRows, 'doc_no')
+                $receivedRows
             )
             : [];
         $seen = [];
@@ -93,7 +93,10 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
         }
         foreach ($receivedRows as $row) {
             $requestId = (int) ($row['request_id'] ?? 0);
-            $url = $appraisalUrls[$row['doc_no'] ?? ''] ?? null;
+            $docNo = trim((string) ($row['doc_no'] ?? ''));
+            $url = ($docNo !== '' ? ($appraisalUrls[$docNo] ?? null) : null)
+                ?? ($appraisalUrls['request:'.$requestId] ?? null)
+                ?? ($appraisalUrls[RdpIntakeService::documentCodeForRequest($requestId, $docNo)] ?? null);
             if ($requestId < 1 || isset($seen[$requestId]) || $url === null) {
                 continue;
             }

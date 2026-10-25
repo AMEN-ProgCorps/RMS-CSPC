@@ -1054,10 +1054,11 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <button type="button" id="btnSaveAndAppraise" class="reg-btn reg-btn-appraise" onclick="window.__openAppraisalAfterSave=true; confirmSave()" title="Save, then send this document to Appraisal. Office intake will appraise after receive.">
                         <i class="fa-solid fa-clipboard-check"></i> Save and Appraise
                     </button>
-                    @endif
-                    <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="window.__openAppraisalAfterSave=false; confirmSave()" title="{{ !empty($isDraftDoc) ? 'Save only. Office intake marks it received — no Appraisal.' : 'Update this document. Appraisal is not changed.' }}">
-                        <i class="fa-solid fa-floppy-disk"></i> {{ !empty($isDraftDoc) ? 'Save Document' : 'Update Document' }}
+                    @else
+                    <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="window.__openAppraisalAfterSave=false; confirmSave()" title="Update this document. Appraisal is not changed.">
+                        <i class="fa-solid fa-floppy-disk"></i> Update Document
                     </button>
+                    @endif
                     @endunless
                 </div>
             </div>
@@ -3013,21 +3014,53 @@ async function bridgeDcnPickToMasterlist(docNo, options = {}) {
         const docTypeId = document.getElementById('docType').value;
         const subTypeId = document.getElementById('subType').value;
         const excludeRequestId = document.getElementById('requestId')?.value || '';
-        const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
-                    (docTypeId ? '&doc_type_id=' + docTypeId : '') +
-                    (subTypeId ? '&sub_type_id=' + subTypeId : '') +
-                    (excludeRequestId ? '&exclude_request_id=' + excludeRequestId : '') +
-                    '&include_drafts=1';
-        const res = await fetch(url);
+        const params = new URLSearchParams({ include_drafts: '1' });
+        if (docNo) params.set('doc_no', docNo);
+        if (options.requestId) params.set('request_id', String(options.requestId));
+        if (options.masterlistId) params.set('masterlist_id', String(options.masterlistId));
+        if (docTypeId) params.set('doc_type_id', docTypeId);
+        if (subTypeId) params.set('sub_type_id', subTypeId);
+        if (excludeRequestId) params.set('exclude_request_id', excludeRequestId);
+        const res = await fetch('/dcs/register/check-docno?' + params.toString());
         const data = await res.json();
-        if (data.exists && !otherLinkedRevisionDocuments(docNo)) {
-            applyRevisedDocumentContext(data, { docNo, hintEl, revField, forceNextRev: true });
+        if (data.exists && (!docNo || !otherLinkedRevisionDocuments(docNo))) {
+            applyRevisedDocumentContext(data, { docNo: docNo || '', hintEl, revField, forceNextRev: true });
+            if (options.masterlistId) {
+                const idInput = document.getElementById('supersedeMasterlistId');
+                if (idInput && !idInput.value) idInput.value = String(options.masterlistId);
+            }
         }
         return data;
     } catch (e) {
         console.error('DCN pick check-docno failed:', e);
         return null;
     }
+}
+
+async function applyRecurPickToMasterlist(doc) {
+    if (!doc) return null;
+    const title = String(doc.doc_title || doc.title || '').trim();
+    const originator = String(doc.originator_name || '').trim();
+    const effectivity = doc.effectivity_date || doc.effectivity || '';
+    const titleField = document.getElementById('masterlistDocTitle');
+    if (titleField && title) titleField.value = title;
+    const effectivityField = document.getElementById('masterlistEffectivityDate');
+    if (effectivityField && effectivity) {
+        const raw = String(effectivity);
+        effectivityField.value = /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : raw;
+    }
+    if (originator && window.__sourceWidgets?.masterlistOriginator) {
+        window.__sourceWidgets.masterlistOriginator.reset();
+        window.__sourceWidgets.masterlistOriginator.seedFromString(originator, true);
+    }
+    const idInput = document.getElementById('supersedeMasterlistId');
+    if (idInput && doc.masterlist_id) idInput.value = String(doc.masterlist_id);
+    const fromInput = document.getElementById('revisedFromDocNo');
+    if (fromInput) fromInput.value = doc.doc_no || '';
+    return bridgeDcnPickToMasterlist(doc.doc_no || '', {
+        requestId: doc.request_id,
+        masterlistId: doc.masterlist_id,
+    });
 }
 
 // ══════════════════════════════════════════════
@@ -3248,7 +3281,7 @@ async function showSupersedeDocumentHistory(doc, options) {
     if (!revisions.length) {
         try {
             if (doc.request_id) {
-                const params = new URLSearchParams({ request_id: String(doc.request_id), lineage: '1' });
+                const params = new URLSearchParams({ request_id: String(doc.request_id) });
                 if (doc.doc_no) params.set('doc_no', doc.doc_no);
                 const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(r => r.json());
                 if (Array.isArray(raw)) revisions = raw;
@@ -3258,6 +3291,18 @@ async function showSupersedeDocumentHistory(doc, options) {
         }
     }
     if (!revisions.length) revisions = [doc];
+    const pickId = String(doc.masterlist_id || '');
+    const pickReq = String(doc.request_id || '');
+    const pickTitle = String(doc.doc_title || doc.title || '').trim().toLowerCase();
+    if (pickReq || pickId || pickTitle) {
+        revisions = revisions.filter(function (row) {
+            if (pickReq && String(row.request_id || '') === pickReq) return true;
+            if (pickId && String(row.masterlist_id || '') === pickId) return true;
+            const rowTitle = String(row.doc_title || row.title || '').trim().toLowerCase();
+            return pickTitle !== '' && rowTitle === pickTitle;
+        });
+        if (!revisions.length) revisions = [doc];
+    }
     if (!options.excludeRequestId) {
         const openId = document.getElementById('requestId')?.value;
         if (openId) options.excludeRequestId = openId;
@@ -3350,7 +3395,7 @@ async function restoreSupersedeHistory() {
     if (!requestId || !fromNo) return;
     let revisions = [];
     try {
-        const params = new URLSearchParams({ request_id: String(requestId), doc_no: fromNo, lineage: '1' });
+        const params = new URLSearchParams({ request_id: String(requestId), doc_no: fromNo });
         const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(r => r.json());
         if (Array.isArray(raw)) revisions = raw;
     } catch (e) {
@@ -3404,6 +3449,11 @@ function bindSupersedeFinder() {
     let timer = null;
 
     async function runSearch(activeValue) {
+        if (noInput.readOnly || window.__recurSelectionLocked || window.__recurFromDatabase) {
+            dd.style.display = 'none';
+            dd.innerHTML = '';
+            return;
+        }
         const parts = supersedeFinderParts();
         const q = (activeValue || parts.no || parts.title || parts.originator).trim();
         if (q.length < 1) {
@@ -3428,6 +3478,10 @@ function bindSupersedeFinder() {
             });
             if (subTypeId) params.set('sub_type_id', subTypeId);
             const raw = await fetch('/dcs/api/documents/search?' + params.toString()).then(r => r.json());
+            if (noInput.readOnly || window.__recurSelectionLocked) {
+                dd.style.display = 'none';
+                return;
+            }
             const data = (Array.isArray(raw) ? raw : []).filter(function (doc) {
                 const status = String(doc.revision_status || 'latest').toLowerCase();
                 return (status === 'latest' || status === '') && supersedeDocMatches(doc, parts);
@@ -3443,8 +3497,18 @@ function bindSupersedeFinder() {
 
     [noInput, titleInput, originInput].forEach(function (input) {
         input.addEventListener('input', function () {
+            if (input.readOnly || window.__recurSelectionLocked || window.__recurFromDatabase) {
+                clearTimeout(timer);
+                dd.style.display = 'none';
+                return;
+            }
             clearTimeout(timer);
             timer = setTimeout(function () { runSearch(input.value.trim()); }, 250);
+        });
+        input.addEventListener('focus', function () {
+            if (input.readOnly || window.__recurSelectionLocked || window.__recurFromDatabase) {
+                dd.style.display = 'none';
+            }
         });
     });
     dd.addEventListener('click', async function (e) {
@@ -3487,6 +3551,9 @@ function bindSupersedeFinder() {
             picked.textContent = (doc.doc_no || '') + ' — ' + (doc.doc_title || 'Untitled')
                 + ' · ' + originLabel
                 + ' (Rev ' + (doc.revise_no ?? 0) + ') will be superseded.';
+        }
+        if (typeof applyRecurPickToMasterlist === 'function') {
+            await applyRecurPickToMasterlist(doc);
         }
         await showSupersedeDocumentHistory(doc);
         dd.style.display = 'none';
@@ -3918,8 +3985,10 @@ window.pickRevisionDocument = async function (key, idx) {
             return [];
         })
         : Promise.resolve([]);
-    const checkPromise = (isDcnSectionVisible() && doc.doc_no)
-        ? bridgeDcnPickToMasterlist(doc.doc_no)
+    const checkPromise = isDcnSectionVisible()
+        ? (doc.doc_no
+            ? bridgeDcnPickToMasterlist(doc.doc_no)
+            : applyRecurPickToMasterlist(doc))
         : Promise.resolve(null);
 
     try {
@@ -8031,8 +8100,20 @@ function collectMissingFields() {
 
     if (sectionVisible("section-3")) {
         if (!window.__isSyllabiMode) {
-            checkText("Masterlist", "masterlistDocNo", "Document No.");
+            // Document No. stays optional for New and Recur (and Revised of a no-number source).
             checkText("Masterlist", "masterlistDocTitle", "Document Title");
+        }
+        if (typeof isRecurringMode === 'function' && isRecurringMode()) {
+            const supersedeId = (document.getElementById('supersedeMasterlistId')?.value || '').trim();
+            const fromNo = (document.getElementById('revisedFromDocNo')?.value || '').trim();
+            const hasRevisionRow = [...document.querySelectorAll('#revisionTableBody tr')].some((row) => {
+                const title = row.querySelector('input[name="documentTitle[]"]');
+                const no = row.querySelector('input[name="documentNo[]"]');
+                return (title && title.value.trim()) || (no && no.value.trim());
+            });
+            if (!supersedeId && !fromNo && !hasRevisionRow) {
+                missing.push('Recur: pick the document to continue');
+            }
         }
         checkText("Masterlist", "masterlistEffectivityDate", "Effectivity Date");
         checkText("Masterlist", "masterlistNoOfPages", "No. of Pages");
@@ -8142,10 +8223,10 @@ function formatSmartDateValue(val) {
     if (!val) return "";
     const date = new Date(val + "T00:00:00");
     if (isNaN(date.getTime())) return val;
-    if (date.getDate() === 1) {
-        return date.toLocaleDateString("en-US", { year: "numeric", month: "short" });
-    }
-    return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const dd = String(date.getDate()).padStart(2, "0");
+    const yyyy = String(date.getFullYear());
+    return mm + "-" + dd + "-" + yyyy;
 }
 function formatInputDate(id) {
     return formatSmartDateValue(getInputVal(id));

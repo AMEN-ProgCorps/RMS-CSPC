@@ -19,11 +19,14 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
     {
         $office = OfficeIntakeHelper::currentUserOfficeForDcn();
 
+        $prevSignatories = OfficeIntakeHelper::previousDcnSignatories();
+
         return [
             'userOfficeId' => $office['id'],
             'userOfficeCode' => $office['code'],
             'userOfficeName' => $office['name'],
             'userOfficeLabel' => $office['label'] !== '' ? $office['label'] : 'Your office',
+            'prevDcnSignatories' => $prevSignatories,
         ];
     }
 }; ?>
@@ -107,6 +110,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                                 </div>
                             </div>
                             @php
+                                $prevDcn = $prevDcnSignatories ?? ['reviewers' => [], 'approvals' => []];
                                 $oldNames = old('reviewedByName');
                                 $oldDates = old('reviewedByOn');
                                 $reviewerRows = [];
@@ -136,22 +140,39 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                                     }
                                 }
                             @endphp
-                            @include('pages.dcs.office.partials.dcn-reviewers-fields', ['reviewerRows' => $reviewerRows])
+                            @if(! empty($prevDcn['reviewers']))
+                                <div class="ofi-suggest" id="dcnPrevReviewersSuggest">
+                                    <p class="ofi-suggest-label">Press Tab in an empty Reviewer name to use your last DCN reviewers.</p>
+                                </div>
+                            @endif
+                            @include('pages.dcs.office.partials.dcn-reviewers-fields', [
+                                'reviewerRows' => $reviewerRows,
+                                'prevReviewerPlaceholder' => $prevDcn['reviewers'][0]['name'] ?? '',
+                            ])
                             @php
                                 $oldPositions = old('approvalPosition', []);
-                                $oldNames = old('approvalName', []);
+                                $oldApprNames = old('approvalName', []);
                                 $oldDates = old('approvalDate', []);
                                 $approvalRows = [];
-                                $count = max(count($oldPositions), count($oldNames), count($oldDates), 1);
+                                $count = max(count($oldPositions), count($oldApprNames), count($oldDates), 1);
                                 for ($i = 0; $i < $count; $i++) {
                                     $approvalRows[] = [
                                         'position' => $oldPositions[$i] ?? '',
-                                        'name' => $oldNames[$i] ?? '',
+                                        'name' => $oldApprNames[$i] ?? '',
                                         'date' => $oldDates[$i] ?? '',
                                     ];
                                 }
                             @endphp
-                            @include('pages.dcs.office.partials.dcn-approvals-fields', ['approvalRows' => $approvalRows])
+                            @if(! empty($prevDcn['approvals']))
+                                <div class="ofi-suggest" id="dcnPrevApprovalsSuggest">
+                                    <p class="ofi-suggest-label">Press Tab in an empty Position to use your last DCN approvals.</p>
+                                </div>
+                            @endif
+                            @include('pages.dcs.office.partials.dcn-approvals-fields', [
+                                'approvalRows' => $approvalRows,
+                                'prevApprovalPositionPlaceholder' => $prevDcn['approvals'][0]['position'] ?? '',
+                                'prevApprovalNamePlaceholder' => $prevDcn['approvals'][0]['name'] ?? '',
+                            ])
                         </div>
                     </div>
                 </div>
@@ -181,6 +202,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
 </div>
 
 <script>
+window.__ofiPrevDcnSignatories = @json($prevDcnSignatories ?? ['reviewers' => [], 'approvals' => []]);
 (function () {
     const form = document.getElementById('ofiDcnForm');
     const confirmBox = document.getElementById('ofiConfirmData');
@@ -227,3 +249,72 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
 @include('pages.dcs.office.partials.dcn-docno-script')
 @include('pages.dcs.office.partials.dcn-reviewers-script')
 @include('pages.dcs.office.partials.dcn-approvals-script')
+<script>
+(function () {
+    const prev = window.__ofiPrevDcnSignatories || { reviewers: [], approvals: [] };
+
+    function fillReviewers(rows) {
+        const list = document.getElementById('ofiReviewersList');
+        const addBtn = document.getElementById('ofiAddReviewer');
+        const tpl = document.getElementById('ofiReviewerRowTpl');
+        if (!list || !tpl || !Array.isArray(rows) || !rows.length) return;
+        list.innerHTML = '';
+        rows.forEach(function (row) {
+            const node = tpl.content.cloneNode(true);
+            const input = node.querySelector('input[name="reviewedByName[]"]');
+            if (input) input.value = (row && row.name) ? String(row.name) : '';
+            list.appendChild(node);
+        });
+        const items = Array.from(list.querySelectorAll('[data-reviewer-row]'));
+        items.forEach(function (row, i) {
+            const badge = row.querySelector('[data-reviewer-index]');
+            if (badge) badge.textContent = String(i + 1);
+            const remove = row.querySelector('[data-reviewer-remove]');
+            if (remove) remove.hidden = i === 0 || items.length < 2;
+            const nameInput = row.querySelector('input[name="reviewedByName[]"]');
+            if (nameInput) nameInput.required = true;
+        });
+        if (addBtn) addBtn.hidden = items.length >= 9;
+    }
+
+    function fillApprovals(rows) {
+        const list = document.getElementById('ofiApprovalsList');
+        const addBtn = document.getElementById('ofiAddApproval');
+        const tpl = document.getElementById('ofiApprovalRowTpl');
+        if (!list || !tpl || !Array.isArray(rows) || !rows.length) return;
+        list.innerHTML = '';
+        rows.forEach(function (row) {
+            const node = tpl.content.cloneNode(true);
+            const pos = node.querySelector('input[name="approvalPosition[]"]');
+            const name = node.querySelector('input[name="approvalName[]"]');
+            if (pos) pos.value = (row && row.position) ? String(row.position) : '';
+            if (name) name.value = (row && row.name) ? String(row.name) : '';
+            list.appendChild(node);
+        });
+        const items = Array.from(list.querySelectorAll('[data-approval-row]'));
+        items.forEach(function (row) {
+            const remove = row.querySelector('[data-approval-remove]');
+            if (remove) remove.hidden = items.length < 2;
+        });
+        if (addBtn) addBtn.hidden = items.length >= 9;
+    }
+
+    document.getElementById('ofiReviewersList')?.addEventListener('keydown', function (e) {
+        if (e.key !== 'Tab' || e.shiftKey) return;
+        const input = e.target;
+        if (!input || !input.matches || !input.matches('input[name="reviewedByName[]"]')) return;
+        if (input.value.trim() !== '' || !prev.reviewers.length) return;
+        e.preventDefault();
+        fillReviewers(prev.reviewers);
+    });
+
+    document.getElementById('ofiApprovalsList')?.addEventListener('keydown', function (e) {
+        if (e.key !== 'Tab' || e.shiftKey) return;
+        const input = e.target;
+        if (!input || !input.matches || !input.matches('input[name="approvalPosition[]"]')) return;
+        if (input.value.trim() !== '' || !prev.approvals.length) return;
+        e.preventDefault();
+        fillApprovals(prev.approvals);
+    });
+})();
+</script>

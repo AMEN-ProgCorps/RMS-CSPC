@@ -59,7 +59,7 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
     $isInternal = $kind === 'internal';
     $isExternal = $kind === 'external';
     $drfDate = $drf->drf_date
-        ? \Carbon\Carbon::parse($drf->drf_date)->format('M d, Y')
+        ? \App\Helpers\RegisterQueryHelper::formatSmartDate($drf->drf_date)
         : '—';
 @endphp
 

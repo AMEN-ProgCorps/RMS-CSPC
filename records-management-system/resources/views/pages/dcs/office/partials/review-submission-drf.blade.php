@@ -10,7 +10,7 @@ DCS file: Read-only DRF summary on the admin request screen. Comma-separated ori
         default => 'Not specified',
     };
     $drfDate = $drf->drf_date
-        ? \Carbon\Carbon::parse($drf->drf_date)->format('M d, Y')
+        ? \App\Helpers\RegisterQueryHelper::formatSmartDate($drf->drf_date)
         : '—';
 @endphp
 

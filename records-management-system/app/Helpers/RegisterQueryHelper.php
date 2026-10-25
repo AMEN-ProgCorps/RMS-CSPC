@@ -737,8 +737,9 @@ class RegisterQueryHelper
     }
 
     /**
-     * Display dates: the 1st of a month is month + year only (Jan 2025).
-     * Any other day keeps the full date (Jan 2, 2025).
+     * Display dates as MM-DD-YYYY (e.g. 10-22-2026).
+     * Storage and date inputs stay Y-m-d.
+     * When $longMonth is true: 1st of month → "Jan 2025"; other days → "Feb 23, 2026".
      */
     public static function formatSmartDate(mixed $val, string $empty = '', bool $longMonth = false): string
     {
@@ -752,11 +753,21 @@ class RegisterQueryHelper
             return trim((string) $val);
         }
 
-        if ((int) $date->day === 1) {
-            return $date->format($longMonth ? 'F Y' : 'M Y');
+        if ($longMonth) {
+            if ((int) $date->format('j') === 1) {
+                return $date->format('M Y');
+            }
+
+            return $date->format('M j, Y');
         }
 
-        return $date->format($longMonth ? 'F j, Y' : 'M d, Y');
+        return $date->format('m-d-Y');
+    }
+
+    /** RDP / office-intake period display (Jan 2025 · Feb 23, 2026). */
+    public static function formatRdpPeriodDate(mixed $val, string $empty = '—'): string
+    {
+        return self::formatSmartDate($val, $empty, true);
     }
 
     public static function formatTime(mixed $val): string
@@ -768,10 +779,10 @@ class RegisterQueryHelper
         return Carbon::parse($val)->format('H:i');
     }
 
-    /** Display dates: 1st of month → September 2026; other days → September 2, 2026. */
+    /** Display dates as MM-DD-YYYY (e.g. 10-22-2026). */
     public static function formatDisplayDate(mixed $val, string $empty = ''): string
     {
-        return self::formatSmartDate($val, $empty, true);
+        return self::formatSmartDate($val, $empty);
     }
 
     /** Display times with AM/PM (e.g. 8:36 AM). */
@@ -862,6 +873,91 @@ class RegisterQueryHelper
         $code = auth()->user()?->details?->office?->office_code ?? null;
 
         return $code !== null && $code !== '' ? strtoupper(trim((string) $code)) : null;
+    }
+
+    /**
+     * office_own / recorded_at_office value that satisfies the sys_office FK.
+     * Prefer the account's office_id row; otherwise match a candidate code exactly as stored.
+     */
+    public static function rdpOfficeOwnCode(?string $preferred = null): ?string
+    {
+        $details = auth()->user()?->details;
+        $officeId = (int) ($details?->office_id ?? $details?->office?->id ?? 0);
+        if ($officeId > 0) {
+            $fromId = self::resolveSysOfficeCode(null, $officeId);
+            if ($fromId !== null) {
+                return $fromId;
+            }
+        }
+
+        foreach ([$preferred, self::currentOfficeCode(), $details?->office?->office_code ?? null] as $candidate) {
+            $exact = self::resolveSysOfficeCode($candidate);
+            if ($exact !== null) {
+                return $exact;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Exact sys_office.office_code for FK columns (office_own, rdp_duplication_section, …).
+     * Never uppercase a code before insert — PostgreSQL FK match is case-sensitive.
+     */
+    public static function resolveSysOfficeCode(?string $codeOrName = null, ?int $officeId = null): ?string
+    {
+        $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        if ($officeId !== null && $officeId > 0) {
+            $fromId = DB::table($officeTable)->where('id', $officeId)->value('office_code');
+            if (is_string($fromId) && trim($fromId) !== '') {
+                return trim($fromId);
+            }
+        }
+
+        $candidate = trim((string) $codeOrName);
+        if ($candidate === '') {
+            return null;
+        }
+
+        $exact = DB::table($officeTable)
+            ->whereRaw('UPPER(TRIM(office_code)) = ?', [mb_strtoupper($candidate)])
+            ->value('office_code');
+        if (is_string($exact) && trim($exact) !== '') {
+            return trim($exact);
+        }
+
+        $byName = DB::table($officeTable)
+            ->whereRaw('UPPER(TRIM(office_name)) = ?', [mb_strtoupper($candidate)])
+            ->value('office_code');
+        if (is_string($byName) && trim($byName) !== '') {
+            return trim($byName);
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  list<string|null>  $codes
+     * @return list<string>
+     */
+    public static function resolveSysOfficeCodes(array $codes): array
+    {
+        $out = [];
+        $seen = [];
+        foreach ($codes as $code) {
+            $exact = self::resolveSysOfficeCode(is_string($code) ? $code : null);
+            if ($exact === null) {
+                continue;
+            }
+            $key = mb_strtoupper($exact);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = $exact;
+        }
+
+        return $out;
     }
 
     /** Canonical / alias codes for the Records & FOI unit (seed used RFIO; live data often uses RFOIU). */
@@ -1553,10 +1649,18 @@ class RegisterQueryHelper
         );
     }
 
-    /** Full DCS operators with review-intake clearance may open any office intake form by ID. */
+    /**
+     * Global Request queue / open any office intake by ID.
+     * Super Admin or RFIO Document Controllers only — campus Admin DCS stays on My DRF/DCN.
+     */
     public static function canBrowseAllOfficeIntake(): bool
     {
-        return self::canAccessDcsModule('review_intake');
+        $perms = auth()->user()?->permissions;
+        if (! empty($perms?->is_sadm)) {
+            return true;
+        }
+
+        return self::isFullDcsUser() && self::isRfioOffice();
     }
 
     public static function normalizedOriginatorName(?string $name = null): string
@@ -3641,7 +3745,7 @@ class RegisterQueryHelper
                     : '—',
                 'deleted_by' => $deletedBy,
                 'deleted_reason' => trim((string) ($doc->deleted_reason ?? '')) ?: null,
-                'expires_at' => $expiresAt ? $expiresAt->format('M d, Y') : '—',
+                'expires_at' => $expiresAt ? self::formatSmartDate($expiresAt) : '—',
                 'days_left' => $daysLeft,
             ];
         })->all();
@@ -5778,29 +5882,77 @@ class RegisterQueryHelper
             }
         }
 
+        $anchorSelect = ['ml.id as masterlist_id', 'ml.doc_no', 'ml.revise_no', 'dr.doc_type_id', 'dr.sub_type_id'];
+        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            $anchorSelect[] = 'ml.stack_group';
+        }
         $anchor = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->where('ml.request_id', $requestId)
-            ->select('ml.doc_no', 'ml.revise_no', 'dr.doc_type_id', 'dr.sub_type_id')
+            ->select($anchorSelect)
             ->first();
 
-        if (!$anchor || !trim((string) ($anchor->doc_no ?? ''))) {
+        if (! $anchor) {
             return [];
         }
 
         $docNo = trim((string) $request->input('doc_no', ''));
         if ($docNo === '') {
-            $docNo = trim((string) $anchor->doc_no);
+            $docNo = trim((string) ($anchor->doc_no ?? ''));
         }
 
         $docTypeId = (int) $anchor->doc_type_id;
         $subTypeId = $anchor->sub_type_id ? (int) $anchor->sub_type_id : null;
-        $chain = self::revisionFamilyDocNos($docNo, $docTypeId, $subTypeId, $visibleIds);
-
         $merged = [];
-        foreach ($chain as $chainDocNo) {
-            foreach (self::masterlistRevisionsForDocNo($chainDocNo, $docTypeId, $subTypeId, $visibleIds) as $row) {
-                $merged[] = $row;
+
+        if ($docNo !== '') {
+            $chain = self::revisionFamilyDocNos($docNo, $docTypeId, $subTypeId, $visibleIds);
+            foreach ($chain as $chainDocNo) {
+                foreach (self::masterlistRevisionsForDocNo($chainDocNo, $docTypeId, $subTypeId, $visibleIds) as $row) {
+                    $merged[] = $row;
+                }
+            }
+        } else {
+            // No document number: resolve the family by stack / this request.
+            $stack = trim((string) ($anchor->stack_group ?? ''));
+            $query = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->whereIn('ml.request_id', $visibleIds)
+                ->where('dr.doc_type_id', $docTypeId);
+            if ($subTypeId) {
+                $query->where('dr.sub_type_id', $subTypeId);
+            } else {
+                $query->whereNull('dr.sub_type_id');
+            }
+            $query->where(function ($family) use ($stack, $requestId, $anchor) {
+                $family->where('ml.request_id', $requestId);
+                if ($stack !== '') {
+                    $family->orWhere('ml.stack_group', $stack);
+                }
+                $family->orWhere('ml.id', (int) ($anchor->masterlist_id ?? 0));
+            });
+            self::applyNotDeleted($query, 'dr');
+            $cols = [
+                'ml.id as masterlist_id',
+                'ml.request_id',
+                'ml.doc_no',
+                'ml.doc_title',
+                'ml.revise_no',
+                'ml.effectivity_date',
+                'ml.scanned_masterlist',
+            ];
+            if (self::supportsRevisionStatus()) {
+                $cols[] = 'ml.revision_status';
+            }
+            if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+                $cols[] = 'ml.originator_name';
+            }
+            if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+                $cols[] = 'ml.stack_group';
+            }
+            $rows = $query->orderByDesc('ml.revise_no')->orderByDesc('ml.id')->get($cols);
+            foreach ($rows as $row) {
+                $merged[] = self::mapDocumentRevisionRow($row);
             }
         }
 
@@ -7051,14 +7203,107 @@ class RegisterQueryHelper
 
     public static function checkDocNo(Request $request)
     {
-        $docNo = $request->input('doc_no');
+        $docNo = trim((string) $request->input('doc_no'));
         $docTypeId = (int) $request->input('doc_type_id');
         $subTypeId = $request->input('sub_type_id');
         $excludeRequestId = (int) $request->input('exclude_request_id', 0);
         $relatedFrom = trim((string) $request->input('related_from', ''));
 
-        if (!$docNo) {
-            return ['exists' => false, 'message' => 'No document number provided.'];
+        if ($docNo === '') {
+            $requestId = (int) $request->input('request_id');
+            $masterlistId = (int) $request->input('masterlist_id');
+            $latest = null;
+            if ($masterlistId > 0) {
+                $latest = DB::table('dcs_masterlist_registration')->where('id', $masterlistId)->first();
+            } elseif ($requestId > 0) {
+                $latest = DB::table('dcs_masterlist_registration')
+                    ->where('request_id', $requestId)
+                    ->orderByDesc('revise_no')
+                    ->orderByDesc('id')
+                    ->first();
+            }
+            if (! $latest) {
+                return ['exists' => false, 'message' => 'No document number provided.'];
+            }
+            $resolvedNo = trim((string) ($latest->doc_no ?? ''));
+            if ($resolvedNo !== '') {
+                $request->merge(['doc_no' => $resolvedNo]);
+
+                return self::checkDocNo($request);
+            }
+
+            self::attachOriginatorNames([$latest]);
+            $sourceOffices = DB::table('dcs_masterlist_source_offices as s')
+                ->leftJoin((Schema::hasTable('sys_office') ? 'sys_office' : 'office').' as o', 'o.id', '=', 's.office_id')
+                ->where('s.masterlist_id', $latest->id)
+                ->get(['o.office_name']);
+            $latestDistribution = DB::table('dcs_document_distribution')
+                ->where('request_id', $latest->request_id)
+                ->first();
+            $latestDistributionOffices = [];
+            if ($latestDistribution) {
+                $latestDistributionOffices = DB::table('dcs_distribution_offices as d')
+                    ->leftJoin((Schema::hasTable('sys_office') ? 'sys_office' : 'office').' as o', 'o.id', '=', 'd.office_id')
+                    ->where('d.distribution_id', $latestDistribution->id)
+                    ->orderBy('d.sort_order')
+                    ->orderBy('d.id')
+                    ->get(['d.office_id', 'o.office_name', 'd.copies'])
+                    ->map(fn ($o) => [
+                        'office_id' => $o->office_id,
+                        'office_name' => $o->office_name ?? 'Unknown Office',
+                        'copies' => $o->copies ?? 1,
+                    ])
+                    ->values();
+            }
+
+            return [
+                'exists' => true,
+                'allows_revision' => self::effectiveTypeAllowsRevision(
+                    $docTypeId,
+                    $subTypeId ? (int) $subTypeId : null
+                ),
+                'same_family' => true,
+                'message' => 'Document found.',
+                'next_rev' => ((int) ($latest->revise_no ?? 0)) + 1,
+                'latest_rev' => (int) ($latest->revise_no ?? 0),
+                'taken_revs' => [(int) ($latest->revise_no ?? 0)],
+                'revision_scans' => [],
+                'latest_scanned_copy_url' => $latest->scanned_masterlist
+                    ? self::scanUrl($latest->scanned_masterlist)
+                    : null,
+                'existing_request_id' => (int) $latest->request_id,
+                'copies' => [[
+                    'request_id' => (int) $latest->request_id,
+                    'doc_title' => $latest->doc_title,
+                    'revise_no' => (int) ($latest->revise_no ?? 0),
+                    'originator_name' => $latest->originator_name ?? null,
+                    'revision_status' => strtolower(trim((string) ($latest->revision_status ?? 'latest'))),
+                    'effectivity_date' => $latest->effectivity_date
+                        ? Carbon::parse($latest->effectivity_date)->format('m-d-Y')
+                        : null,
+                ]],
+                'revision_status' => strtolower(trim((string) ($latest->revision_status ?? 'latest'))),
+                'latest_title' => $latest->doc_title,
+                'latest_originator' => $latest->originator_name ?? null,
+                'revision_count' => 1,
+                'latest_distribution_offices' => $latestDistributionOffices,
+                'already_retrieved_offices' => [],
+                'latest_source_unit' => $sourceOffices->pluck('office_name')->filter()->implode(', '),
+                'latest_effectivity_date' => $latest->effectivity_date
+                    ? Carbon::parse($latest->effectivity_date)->format('Y-m-d')
+                    : null,
+                'latest_no_pages' => $latest->no_pages,
+                'latest_deadline' => $latest->deadline
+                    ? Carbon::parse($latest->deadline)->format('Y-m-d')
+                    : null,
+                'latest_brief_purpose' => null,
+                'latest_keywords' => $latest->keywords ?? null,
+                'latest_related_documents' => [],
+                'latest_approval_status' => null,
+                'latest_approval_body_id' => null,
+                'latest_approval_no' => null,
+                'masterlist_id' => (int) $latest->id,
+            ];
         }
 
         $result = RegisterPersistHelper::findMatchingRegistrationRows(
@@ -7253,7 +7498,7 @@ class RegisterQueryHelper
                                 'revise_no' => (int) ($row->revise_no ?? 0),
                                 'originator_name' => $row->originator_name ?? null,
                                 'revision_status' => strtolower(trim((string) ($row->revision_status ?? 'latest'))),
-                                'effectivity_date' => $date ? Carbon::parse($date)->format('M j, Y') : null,
+                                'effectivity_date' => $date ? self::formatSmartDate($date) : null,
                             ];
                         })->values();
                     })(),
@@ -7816,7 +8061,7 @@ class RegisterQueryHelper
      */
     public static function recurPreviousDocuments(?object $ml, ?object $docRequest): array
     {
-        if (! $ml || ! $docRequest || trim((string) ($ml->doc_no ?? '')) === '') {
+        if (! $ml || ! $docRequest) {
             return [];
         }
         $versionName = strtolower((string) DB::table('dcs_version_type')->where('id', $docRequest->version_id ?? 0)->value('version_name'));
@@ -7824,16 +8069,18 @@ class RegisterQueryHelper
             return [];
         }
 
-        $docNo = trim((string) $ml->doc_no);
+        $docNo = trim((string) ($ml->doc_no ?? ''));
         $title = trim((string) ($ml->doc_title ?? ''));
         $stack = trim((string) ($ml->stack_group ?? ''));
+        $fromNo = trim((string) ($ml->revised_from_doc_no ?? ''));
         $docTypeId = (int) $docRequest->doc_type_id;
         $subTypeId = ! empty($docRequest->sub_type_id) ? (int) $docRequest->sub_type_id : null;
         $visibleIds = self::isLimitedDcsUser()
             ? self::visibleOriginatorRequestIds()
             : self::visibleRequestIds();
-        $familyNos = self::revisionFamilyDocNos($docNo, $docTypeId, $subTypeId, $visibleIds);
-        $fromNo = trim((string) ($ml->revised_from_doc_no ?? ''));
+        $familyNos = $docNo !== ''
+            ? self::revisionFamilyDocNos($docNo, $docTypeId, $subTypeId, $visibleIds)
+            : [];
         if ($fromNo !== '' && strcasecmp($fromNo, $docNo) !== 0) {
             foreach (self::revisionFamilyDocNos($fromNo, $docTypeId, $subTypeId, $visibleIds) as $olderNo) {
                 $familyNos[] = $olderNo;
@@ -7848,6 +8095,9 @@ class RegisterQueryHelper
             $seenNos[mb_strtolower($familyNo)] = $familyNo;
         }
         $familyNos = array_values($seenNos);
+        if ($familyNos === [] && $stack === '' && $title === '' && $fromNo === '') {
+            return [];
+        }
         $query = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->where('dr.doc_type_id', $docTypeId)
@@ -7855,21 +8105,46 @@ class RegisterQueryHelper
             ->where(function ($draft) {
                 $draft->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
             })
-            ->where(function ($family) use ($stack, $docNo, $title, $familyNos) {
+            ->where(function ($family) use ($stack, $docNo, $title, $familyNos, $fromNo) {
+                $started = false;
                 if ($familyNos !== []) {
                     $family->whereIn('ml.doc_no', $familyNos);
+                    $started = true;
                 }
                 if ($stack !== '') {
-                    $family->orWhere('ml.stack_group', $stack);
+                    $started ? $family->orWhere('ml.stack_group', $stack) : $family->where('ml.stack_group', $stack);
+                    $started = true;
                 }
-                $family->orWhere(function ($older) use ($docNo, $title) {
-                    $older->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)])
-                        ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)])
-                        ->where(function ($empty) {
-                            $empty->whereNull('ml.stack_group')->orWhere('ml.stack_group', '');
-                        })
-                        ->whereIn('ml.revision_status', ['obsolete', 'superseded']);
-                });
+                if ($fromNo !== '') {
+                    $clause = function ($older) use ($fromNo, $title) {
+                        $older->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($fromNo)]);
+                        if ($title !== '') {
+                            $older->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)]);
+                        }
+                    };
+                    $started ? $family->orWhere($clause) : $family->where($clause);
+                    $started = true;
+                }
+                if ($docNo !== '' && $title !== '') {
+                    $clause = function ($older) use ($docNo, $title) {
+                        $older->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)])
+                            ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)])
+                            ->where(function ($empty) {
+                                $empty->whereNull('ml.stack_group')->orWhere('ml.stack_group', '');
+                            })
+                            ->whereIn('ml.revision_status', ['obsolete', 'superseded']);
+                    };
+                    $started ? $family->orWhere($clause) : $family->where($clause);
+                } elseif ($docNo === '' && $title !== '') {
+                    $clause = function ($older) use ($title) {
+                        $older->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)])
+                            ->where(function ($empty) {
+                                $empty->whereNull('ml.doc_no')->orWhere('ml.doc_no', '');
+                            })
+                            ->whereIn('ml.revision_status', ['obsolete', 'superseded', 'latest']);
+                    };
+                    $started ? $family->orWhere($clause) : $family->where($clause);
+                }
             });
         self::applyNotDeleted($query, 'dr');
 

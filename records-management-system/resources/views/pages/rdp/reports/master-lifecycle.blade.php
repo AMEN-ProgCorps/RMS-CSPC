@@ -731,7 +731,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             $isRevised = isset($revisedRecordIds[$r->id]);
             if (!$isRevised) {
                 $dLow = mb_strtolower((string)$r->description);
-                if (str_contains($dLow, '[revised]') || str_contains($dLow, '(revised)') || preg_match('/\b(revised|superseded)\b/i', $dLow)) {
+                if (str_contains($dLow, '[revised]') || str_contains($dLow, '(revised)')) {
                     $isRevised = true;
                 }
             }

@@ -899,7 +899,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $docNo = $ml ? trim((string) $ml->doc_no) : '';
         $canEdit = ! $isDeleted;
         $canRevise = $canEdit
-            && $docNo !== ''
             && strtolower((string) $status) === 'latest';
         $reviseParams = [
             'type' => 'revised',
@@ -934,7 +933,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'revise_url' => $canRevise ? route('dcs.register.create', $reviseParams, false) : null,
             'recur_url' => $canRevise ? route('dcs.register.create', $recurParams, false) : null,
             'is_deleted' => $isDeleted,
-            'deleted_at' => $isDeleted ? Carbon::parse($doc->deleted_at)->format('M d, Y h:i A') : null,
+            'deleted_at' => $isDeleted ? (RegisterQueryHelper::formatSmartDate($doc->deleted_at) . ' ' . Carbon::parse($doc->deleted_at)->format('h:i A')) : null,
             'revised_from_doc_no' => $ml->revised_from_doc_no ?? null,
             'pdf_path' => ($ml && $ml->scanned_masterlist) ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false) : null,
             'source_unit' => $sourceUnitName,

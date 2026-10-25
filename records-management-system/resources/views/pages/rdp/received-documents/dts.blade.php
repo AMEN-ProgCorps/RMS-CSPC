@@ -1055,7 +1055,7 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
                                 <span style="font-weight: 500; color: #334155;">{{ $doc->origin_office ?: 'N/A' }}</span>
                             </td>
                             <td>
-                                <span style="color: #64748b;">{{ $doc->date_received ? Carbon::parse($doc->date_received)->format('M d, Y') : '—' }}</span>
+                                <span style="color: #64748b;">{{ $doc->date_received ? \App\Helpers\RegisterQueryHelper::formatSmartDate($doc->date_received) : '—' }}</span>
                             </td>
                             <td>
                                 @if($doc->status === 'pending')
@@ -1144,7 +1144,7 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
 
                         <div class="card-meta">
                             <div><strong>Origin:</strong> {{ $doc->origin_office ?: 'Unspecified' }}</div>
-                            <div><strong>Received:</strong> {{ $doc->date_received ? Carbon::parse($doc->date_received)->format('M d, Y') : '—' }}</div>
+                            <div><strong>Received:</strong> {{ $doc->date_received ? \App\Helpers\RegisterQueryHelper::formatSmartDate($doc->date_received) : '—' }}</div>
                             @if(!empty($doc->file_name))
                                 <div style="color: #2563eb;"><strong>File:</strong> {{ Str::limit($doc->file_name, 25) }}</div>
                             @endif

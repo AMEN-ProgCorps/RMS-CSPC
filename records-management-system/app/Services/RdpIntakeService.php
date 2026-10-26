@@ -404,6 +404,20 @@ class RdpIntakeService
                 'appraised_record_id' => $recordId,
                 'updated_at' => now(),
             ]);
+            if (class_exists(\App\Helpers\OfficeIntakeHelper::class)) {
+                \App\Helpers\OfficeIntakeHelper::notifyPendingIntakeRegistrationAfterAppraisal($requestId);
+            }
+        }
+    }
+
+    /** Call after any rdp_received_documents row becomes appraised for a DCS request. */
+    public static function afterDcsRequestAppraised(int $requestId): void
+    {
+        if ($requestId < 1) {
+            return;
+        }
+        if (class_exists(\App\Helpers\OfficeIntakeHelper::class)) {
+            \App\Helpers\OfficeIntakeHelper::notifyPendingIntakeRegistrationAfterAppraisal($requestId);
         }
     }
 

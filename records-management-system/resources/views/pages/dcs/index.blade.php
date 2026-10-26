@@ -236,6 +236,7 @@ document.addEventListener('alpine:init', () => {
                 </div>
                 <div class="ofi-dash-hero-actions">
                     <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> New DRF</a>
+                    <a href="{{ route('dcs.office.drf.create', ['mode' => 'recurring'], absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-rotate"></i> Recurring DRF</a>
                     <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> New DCN</a>
                 </div>
             </div>

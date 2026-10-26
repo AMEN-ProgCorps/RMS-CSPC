@@ -139,7 +139,8 @@
             return selected.some((i) => String(i.id) === String(id));
         }
 
-        function syncInputText() {
+        function syncInputText(options) {
+            const quiet = !!(options && options.quiet);
             const inputEl = document.getElementById(opts.inputId);
             if (!inputEl || opts.inlineChips) return;
             if (selected.length === 0) {
@@ -147,8 +148,12 @@
                 return;
             }
             inputEl.value = selected.map((i) => i.label).join(', ') + ', ';
+            // setSelectionRange scrolls the focused control into view — skip when seeding quietly.
+            if (quiet || document.activeElement !== inputEl) return;
             const len = inputEl.value.length;
-            inputEl.setSelectionRange(len, len);
+            try {
+                inputEl.setSelectionRange(len, len);
+            } catch (_) { /* ignore */ }
         }
 
         function renderChipList() {
@@ -196,18 +201,47 @@
             }
         }
 
-        function render() {
+        function writeHiddenInputs() {
+            const form = document.getElementById('ofiDrfForm') || document.getElementById('ofiDcnForm');
             const widget = document.getElementById(opts.widgetId);
-            if (!widget) return;
-            widget.querySelectorAll('input[data-source-hidden]').forEach((el) => el.remove());
+            // Always write into the form so PHP receives distributeToOffice[] on submit.
+            const host = form || widget;
+            if (!host) return;
+            host.querySelectorAll('input[data-source-hidden][data-ofi-key="' + opts.key + '"]').forEach((el) => el.remove());
+            // Also clear legacy hiddens that lacked data-ofi-key (same field name under this widget).
+            if (widget) {
+                widget.querySelectorAll('input[data-source-hidden]').forEach((el) => {
+                    if (el.name === opts.officeFieldName) el.remove();
+                });
+            }
+            if (form && widget && form !== widget) {
+                widget.querySelectorAll('input[data-source-hidden][data-ofi-key="' + opts.key + '"]').forEach((el) => el.remove());
+            }
             selected.forEach((item) => {
                 const input = document.createElement('input');
                 input.type = 'hidden';
                 input.dataset.sourceHidden = 'true';
+                input.dataset.ofiKey = opts.key;
                 input.name = opts.officeFieldName;
-                input.value = item.id;
-                widget.appendChild(input);
+                input.value = String(item.id);
+                host.appendChild(input);
             });
+            // Backup CSV so server validation can recover if array posts empty.
+            if (form && opts.key === 'distribute') {
+                let backup = form.querySelector('input[name="distributeToOfficeBackup"]');
+                if (!backup) {
+                    backup = document.createElement('input');
+                    backup.type = 'hidden';
+                    backup.name = 'distributeToOfficeBackup';
+                    form.appendChild(backup);
+                }
+                backup.value = selected.map((item) => String(item.id)).join(',');
+            }
+        }
+
+        function render(options) {
+            const quiet = !!(options && options.quiet);
+            writeHiddenInputs();
 
             const inlineEl = opts.inlineChipsId ? document.getElementById(opts.inlineChipsId) : null;
             if (inlineEl) {
@@ -224,7 +258,9 @@
             }
 
             updateSelectedCount();
-            window.__sourceWidgets[opts.key]?.onSelectionChange?.();
+            if (!quiet) {
+                window.__sourceWidgets[opts.key]?.onSelectionChange?.();
+            }
         }
 
         function getCurrentQuery(input) {
@@ -318,27 +354,94 @@
         }
 
         function addOffice(itemId) {
-            const item = offices.find((o) => Number(o.office_id) === Number(itemId));
+            const item = offices.find((o) => Number(o.office_id ?? o.id) === Number(itemId));
             if (!item || isSelected(itemId)) return;
             selected.push({
                 type: 'office',
-                id: item.office_id,
+                id: item.office_id ?? item.id,
                 label: officeChipLabel(item, opts.labelFormat),
             });
             render();
         }
 
-        function pick(itemId) {
+        function pick(itemId, pickOpts) {
+            const quiet = !!(pickOpts && pickOpts.quiet);
             addOffice(itemId);
             const inputEl = document.getElementById(opts.inputId);
-            if (inputEl) {
-                if (opts.inlineChips) {
-                    inputEl.value = '';
-                }
-                inputEl.focus();
+            if (inputEl && opts.inlineChips) {
+                inputEl.value = '';
             }
-            syncInputText();
-            document.getElementById(opts.resultsId).style.display = 'none';
+            // Never focus during quiet seeding — focus scrolls the page to distribution.
+            if (!quiet && inputEl) {
+                inputEl.focus({ preventScroll: true });
+            }
+            syncInputText({ quiet: quiet });
+            const results = document.getElementById(opts.resultsId);
+            if (results) results.style.display = 'none';
+        }
+
+        /** Clear every selected office without focusing the search input. */
+        function clear() {
+            selected = [];
+            render({ quiet: true });
+            syncInputText({ quiet: true });
+            const dropdown = document.getElementById(opts.resultsId);
+            if (dropdown) dropdown.style.display = 'none';
+            if (typeof closePanel === 'function') closePanel();
+            window.__sourceWidgets[opts.key]?.onSelectionChange?.();
+        }
+
+        /**
+         * Replace selection with the given office ids. Does not focus the search
+         * input (avoids scrolling the page to the distribute widget).
+         */
+        function seedQuiet(ids) {
+            const list = Array.isArray(ids) ? ids.map(Number).filter((id) => id > 0) : [];
+            selected = [];
+            list.forEach((itemId) => {
+                const item = offices.find(
+                    (o) =>
+                        Number(o.office_id) === Number(itemId) ||
+                        Number(o.id) === Number(itemId)
+                );
+                if (!item) return;
+                const oid = item.office_id ?? item.id;
+                if (selected.some((s) => String(s.id) === String(oid))) return;
+                selected.push({
+                    type: 'office',
+                    id: oid,
+                    label: officeChipLabel(item, opts.labelFormat),
+                });
+            });
+            render({ quiet: true });
+            // Show selected office names in the input (quiet: no focus / caret / scroll).
+            const inputEl = document.getElementById(opts.inputId);
+            if (inputEl) {
+                inputEl.placeholder = 'Type to search offices...';
+                if (selected.length === 0) {
+                    inputEl.value = '';
+                } else {
+                    inputEl.value = selected.map((i) => i.label).join(', ') + ', ';
+                }
+            }
+            const dropdown = document.getElementById(opts.resultsId);
+            if (dropdown) dropdown.style.display = 'none';
+            // Sync cluster chip labels without focusing the search input.
+            const prevActive = document.activeElement;
+            window.__sourceWidgets[opts.key]?.onSelectionChange?.();
+            if (prevActive && document.activeElement !== prevActive && typeof prevActive.focus === 'function') {
+                try {
+                    prevActive.focus({ preventScroll: true });
+                } catch (_) { /* ignore */ }
+            }
+            writeHiddenInputs();
+        }
+
+        /** Ensure hidden inputs match selected — call before submit validation. */
+        function syncHiddenInputs() {
+            writeHiddenInputs();
+            updateSelectedCount();
+            return selected.map((s) => s.id);
         }
 
         function removeItem(type, id) {
@@ -416,9 +519,15 @@
         });
         function jumpCaretToEnd() {
             if (opts.inlineChips) return;
+            // Only move the caret when the user is actually in this field — otherwise
+            // setSelectionRange can scroll the page down to the distribute widget.
+            if (document.activeElement !== inputEl) return;
             setTimeout(() => {
+                if (document.activeElement !== inputEl) return;
                 const len = inputEl.value.length;
-                inputEl.setSelectionRange(len, len);
+                try {
+                    inputEl.setSelectionRange(len, len);
+                } catch (_) { /* ignore */ }
             }, 0);
         }
         inputEl.addEventListener('focus', function () {
@@ -448,7 +557,15 @@
 
         ensureResultsDropdown();
 
-        const api = { pick, removeItem, onSelectionChange: null, get selected() { return selected; } };
+        const api = {
+            pick,
+            removeItem,
+            clear,
+            seedQuiet,
+            syncHiddenInputs,
+            onSelectionChange: null,
+            get selected() { return selected; },
+        };
         window.__sourceWidgets[opts.key] = api;
 
         // Seed from old input / optional default office
@@ -537,9 +654,13 @@
                         if (isFullySelected) {
                             widget.removeItem('office', office.office_id);
                         } else {
-                            widget.pick(office.office_id);
+                            // Quiet pick — avoid focusing Distribute (scrolls the page).
+                            widget.pick(office.office_id, { quiet: true });
                         }
                     });
+                    if (typeof widget.syncHiddenInputs === 'function') {
+                        widget.syncHiddenInputs();
+                    }
                     syncClusterButtons();
                 });
             });

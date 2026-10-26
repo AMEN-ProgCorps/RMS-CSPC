@@ -236,21 +236,21 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         applyingMatch = false;
     }
 
-    function showDoYouMean(suggestions) {
+    function showMatchList(matches) {
         if (!suggestEl) return;
         suggestEl.hidden = false;
         suggestEl.innerHTML = '';
         const label = document.createElement('p');
         label.className = 'ofi-suggest-label';
-        label.textContent = 'Do you mean…';
+        label.textContent = matches.length === 1
+            ? 'Select this document to continue:'
+            : 'Select the document that matches your copy:';
         suggestEl.appendChild(label);
-        suggestions.forEach(function (item) {
+        matches.forEach(function (item) {
             const rev = item.revise_no != null && item.revise_no !== '' ? ('Rev ' + item.revise_no) : '';
-            const bits = [item.document_no, item.current_title, item.originator, rev].filter(Boolean);
+            const type = (item.doc_type || '').trim();
+            const bits = [item.document_no, item.current_title, item.originator, type, rev].filter(Boolean);
             suggestEl.appendChild(suggestionButton(bits.join(' · '), function () {
-                if (item.document_no) finderNo.value = item.document_no;
-                if (item.current_title) finderTitle.value = item.current_title;
-                if (item.originator) finderOriginator.value = item.originator;
                 applyMatch(item);
             }));
         });
@@ -266,7 +266,17 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
             return;
         }
         if (findBtn) findBtn.disabled = true;
+        const scrollY = window.scrollY || window.pageYOffset || 0;
         try {
+            // Clear previous selection only — keep the typed finder values.
+            showDuplicate('');
+            confirmed.value = '';
+            storedNo.value = '';
+            if (reviseInput) reviseInput.value = '';
+            if (typeInput) typeInput.value = '';
+            clearSuggestions();
+            clearFieldSuggestions();
+            lockFinder(false);
             const params = new URLSearchParams({
                 documentNo: docNo,
                 currentTitle: title,
@@ -277,24 +287,25 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 credentials: 'same-origin',
             });
-            const data = res.ok ? await res.json() : { found: false };
-            if (data && data.found === true) {
-                applyMatch(data);
-                return;
+            const data = res.ok ? await res.json() : { found: false, matches: [] };
+            const matches = Array.isArray(data.matches) && data.matches.length
+                ? data.matches.slice()
+                : (Array.isArray(data.suggestions) ? data.suggestions.slice() : []);
+            if (!matches.length && data && data.found === true && data.document_no) {
+                matches.push(data);
             }
-            clearMatch();
-            const suggestions = Array.isArray(data && data.suggestions) ? data.suggestions : [];
-            if (suggestions.length) {
-                setStatus('No exact match. Select the document below if it is the one on your copy.', false);
-                showDoYouMean(suggestions);
-                return;
+            if (matches.length) {
+                setStatus('Select a document from the list below.', true);
+                showMatchList(matches);
+            } else {
+                setStatus('No document matched those details.', false);
             }
-            setStatus('No document matched those details.', false);
         } catch (err) {
             clearMatch();
             setStatus('Could not check the document. Try again.', false);
         } finally {
             if (findBtn) findBtn.disabled = false;
+            window.scrollTo(0, scrollY);
         }
     }
 

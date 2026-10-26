@@ -43,9 +43,14 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                 @endif
             </div>
             @unless($isReviewer ?? false)
-                <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary">
-                    <i class="fa-solid fa-plus"></i> New DRF
-                </a>
+                <div class="ofi-toolbar-actions" style="display:flex;gap:.5rem;flex-wrap:wrap;">
+                    <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary">
+                        <i class="fa-solid fa-plus"></i> New DRF
+                    </a>
+                    <a href="{{ route('dcs.office.drf.create', ['mode' => 'recurring'], absolute: false) }}" class="ofi-btn primary">
+                        <i class="fa-solid fa-rotate"></i> Recurring DRF
+                    </a>
+                </div>
             @endunless
         </div>
 

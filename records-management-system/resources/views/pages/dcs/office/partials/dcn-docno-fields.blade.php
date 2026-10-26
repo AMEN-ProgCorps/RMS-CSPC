@@ -16,7 +16,7 @@ DCS file: DCN finder. The office types the current document number, title, and o
         <span>Find the document to revise</span>
     </div>
     <div class="reg-card-body">
-        <p class="ofi-hint ofi-dcn-finder-lead">Type the document number, title, and originator printed on the controlled copy. Only the latest revision can be revised.</p>
+        <p class="ofi-hint ofi-dcn-finder-lead">Type the document number, title, and originator printed on the controlled copy, then Find document. Pick the matching document from the list. Only the latest revision can be revised.</p>
         <div class="ofi-dcn-finder-grid">
             <div class="reg-field">
                 <label for="dcnFinderDocumentNo">Registered document no. <span class="ofi-req">*</span></label>

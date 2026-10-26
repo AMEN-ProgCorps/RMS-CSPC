@@ -1754,6 +1754,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         'appraised_record_id' => $adminRecordId,
                         'updated_at' => now(),
                     ]);
+                    $forwardedRequestId = (int) ($metadata['dcs_request_id'] ?? 0);
+                    if ($forwardedRequestId > 0) {
+                        \App\Services\RdpIntakeService::afterDcsRequestAppraised($forwardedRequestId);
+                    }
                 }
                 continue;
             }
@@ -2955,7 +2959,18 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 ]);
             }
 
+            $draftAppraisedRequestId = (int) ($this->dcsRequestId ?? 0);
+            if ($draftAppraisedRequestId < 1 && $this->prefill_intake_id) {
+                $intakeMeta = DB::table('rdp_received_documents')->where('id', $this->prefill_intake_id)->value('metadata');
+                $metaArr = is_string($intakeMeta) ? (json_decode($intakeMeta, true) ?: []) : (array) ($intakeMeta ?? []);
+                $draftAppraisedRequestId = (int) ($metaArr['dcs_request_id'] ?? 0);
+            }
+
             DB::commit();
+
+            if ($draftAppraisedRequestId > 0 && $firstRecordId) {
+                \App\Services\RdpIntakeService::afterDcsRequestAppraised($draftAppraisedRequestId);
+            }
 
             $count = count($itemsToProcess);
             $this->successMessage = ($this->entryMode === 'multi' && $count > 1) 
@@ -3388,18 +3403,25 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 ]);
             }
 
+            $appraisedDcsRequestId = 0;
             if ($this->dcsRequestId) {
                 $this->syncMasterlistEffectivityFromPeriod((int) $this->dcsRequestId);
+                $appraisedDcsRequestId = (int) $this->dcsRequestId;
             } elseif ($this->prefill_intake_id) {
                 $intakeMeta = DB::table('rdp_received_documents')->where('id', $this->prefill_intake_id)->value('metadata');
                 $metaArr = is_string($intakeMeta) ? (json_decode($intakeMeta, true) ?: []) : (array) ($intakeMeta ?? []);
                 $linkedRequestId = (int) ($metaArr['dcs_request_id'] ?? 0);
                 if ($linkedRequestId > 0) {
                     $this->syncMasterlistEffectivityFromPeriod($linkedRequestId);
+                    $appraisedDcsRequestId = $linkedRequestId;
                 }
             }
 
             DB::commit();
+
+            if ($appraisedDcsRequestId > 0) {
+                \App\Services\RdpIntakeService::afterDcsRequestAppraised($appraisedDcsRequestId);
+            }
 
             if ($isSpread) {
                 $seriesTitle = !empty($this->selectedSeriesTitle) ? $this->selectedSeriesTitle : 'Inventory Record';
@@ -4093,7 +4115,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                             @if($isAppraising)
                                 <span class="ia-locked-badge">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                                    LOCKED (From DTS)
+                                    @php
+                                        $descLockSource = ($dcsOfficeLock || $dcsAdminForward || strtoupper((string) ($prefill_source ?? '')) === 'DCS')
+                                            ? 'DCS'
+                                            : 'DTS';
+                                    @endphp
+                                    LOCKED (From {{ $descLockSource }})
                                 </span>
                             @endif
                         </div>
@@ -4492,7 +4519,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     @if($dcsAdminForward || $dcsOfficeLock || $isAppraising)
                         <span class="ia-locked-badge">
                             <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                            {{ $dcsAdminForward || $dcsOfficeLock ? 'LOCKED (From Distribution)' : 'LOCKED (From DTS)' }}
+                            @if($dcsAdminForward || $dcsOfficeLock)
+                                LOCKED (From Distribution)
+                            @elseif(strtoupper((string) ($prefill_source ?? '')) === 'DCS')
+                                LOCKED (From DCS)
+                            @else
+                                LOCKED (From DTS)
+                            @endif
                         </span>
                     @endif
                 </div>

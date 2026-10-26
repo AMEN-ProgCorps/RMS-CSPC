@@ -2083,6 +2083,33 @@ async function applyOfficeIntakePrefill(prefill) {
 
     window.__officeIntakePrefill = prefill;
 
+    // Force Version Type from office intake (Recurring DRF → Recurring, DCN → Revised).
+    const versionEl = document.getElementById('versionType');
+    const modeEl = document.getElementById('registrationMode');
+    const wantedVersion = String(prefill.versionType || '').toLowerCase();
+    if (versionEl && wantedVersion) {
+        let match = null;
+        if (wantedVersion === 'recurring') {
+            match = [...versionEl.options].find((o) => /recur/i.test(o.textContent || ''));
+            if (modeEl) modeEl.value = 'recurring';
+        } else if (wantedVersion === 'revised') {
+            match = [...versionEl.options].find((o) => /revis/i.test(o.textContent || ''));
+            if (modeEl) modeEl.value = 'revised';
+        } else if (wantedVersion === 'new') {
+            match = [...versionEl.options].find((o) => /new/i.test(o.textContent || '') && !/revis/i.test(o.textContent || ''));
+            if (modeEl) modeEl.value = 'new';
+        }
+        if (match && match.value) {
+            versionEl.value = match.value;
+            versionEl.dataset.lastValid = match.value;
+            if (typeof handleVersionChange === 'function') {
+                handleVersionChange();
+            } else if (typeof updateRegistrationMode === 'function') {
+                updateRegistrationMode();
+            }
+        }
+    }
+
     // Document type (Internal / External) when intake specified a kind.
     const docTypeEl = document.getElementById('docType');
     if (docTypeEl && prefill.docTypeId) {
@@ -2127,7 +2154,72 @@ async function applyOfficeIntakePrefill(prefill) {
 
     applyOfficeIntakeChecklistAndFields(prefill);
 
-    if (prefill.revisionRequestId && prefill.revisionDocNo && typeof applyRevisionDocumentPick === 'function') {
+    if (prefill.versionType === 'recurring' && prefill.revisionRequestId && prefill.revisionDocNo) {
+        window.__recurFromDatabase = true;
+        if (typeof syncRecurFinder === 'function') syncRecurFinder();
+        if (typeof setSupersedeLoading === 'function') setSupersedeLoading(true);
+        try {
+            const picked = {
+                request_id: prefill.revisionRequestId,
+                doc_no: prefill.revisionDocNo,
+                doc_title: prefill.revisionDocTitle || prefill.masterlistDocTitle || prefill.drfTitle || '',
+                revise_no: prefill.revisionReviseNo || 0,
+                masterlist_id: prefill.supersedeMasterlistId || null,
+                originator_name: prefill.originatorName || '',
+            };
+            const familyPromise = typeof loadSupersedeFamily === 'function'
+                ? loadSupersedeFamily(picked)
+                : Promise.resolve([picked]);
+            const [rows] = await Promise.all([familyPromise]);
+            const match = (rows || []).find((row) => String(row.request_id) === String(picked.request_id))
+                || (rows || []).find((row) => String(row.masterlist_id || '') === String(picked.masterlist_id || ''))
+                || (rows || [])[0]
+                || picked;
+            if (match.doc_title && !picked.doc_title) picked.doc_title = match.doc_title;
+            if (match.originator_name && !picked.originator_name) picked.originator_name = match.originator_name;
+            if (match.masterlist_id && !picked.masterlist_id) picked.masterlist_id = match.masterlist_id;
+            if (match.revise_no != null && picked.revise_no == null) picked.revise_no = match.revise_no;
+
+            const revNoInput = document.querySelector('#revisionTableBody tr input[name="documentNo[]"]');
+            if (revNoInput) revNoInput.value = picked.doc_no || '';
+            const fromInput = document.getElementById('revisedFromDocNo');
+            if (fromInput) fromInput.value = picked.doc_no || prefill.reviseFromDocNo || '';
+            const idInput = document.getElementById('supersedeMasterlistId');
+            if (idInput && picked.masterlist_id) idInput.value = String(picked.masterlist_id);
+            if (typeof fillSupersedeFinder === 'function') fillSupersedeFinder(picked);
+            if (typeof applyRecurPickToMasterlist === 'function') {
+                await applyRecurPickToMasterlist(picked);
+            }
+            // Populate Previous documents immediately (same as inventory Recur) — do not wait for refresh.
+            if (typeof showSupersedeDocumentHistory === 'function') {
+                await showSupersedeDocumentHistory(picked, {
+                    revisions: rows && rows.length ? rows : [picked],
+                });
+            }
+            if (typeof lockSupersedeFinderInputs === 'function') lockSupersedeFinderInputs(true);
+            if (typeof unlockChecklist === 'function') unlockChecklist();
+            const setAfter = (id, value) => {
+                if (value === null || value === undefined || value === '') return;
+                const el = document.getElementById(id);
+                if (el) el.value = value;
+            };
+            setAfter('masterlistDocTitle', prefill.masterlistDocTitle || prefill.drfTitle || prefill.documentTitle || picked.doc_title);
+            setAfter('drfTitle', prefill.drfTitle);
+            if (prefill.originatorName && window.__sourceWidgets?.masterlistOriginator) {
+                if (typeof window.__sourceWidgets.masterlistOriginator.reset === 'function') {
+                    window.__sourceWidgets.masterlistOriginator.reset();
+                }
+                window.__sourceWidgets.masterlistOriginator.seedFromString(prefill.originatorName, true);
+            }
+            const sources = Array.isArray(prefill.sourceOffices) ? prefill.sourceOffices : [];
+            if (sources.length && typeof officeIntakeSeedSource === 'function') {
+                officeIntakeSeedSource('drf', sources);
+                officeIntakeSeedSource('masterlist', sources);
+            }
+        } finally {
+            if (typeof setSupersedeLoading === 'function') setSupersedeLoading(false);
+        }
+    } else if (prefill.revisionRequestId && prefill.revisionDocNo && typeof applyRevisionDocumentPick === 'function') {
         const revRow = document.querySelector('#revisionTableBody tr');
         if (revRow) {
             await applyRevisionDocumentPick(revRow, {
@@ -2183,7 +2275,9 @@ async function applyOfficeIntakePrefill(prefill) {
         }
     } catch (_) { /* ignore */ }
 
-    if (prefill.intake === 'dcn' || prefill.versionType === 'revised') {
+    if (prefill.versionType === 'recurring') {
+        lockRecurRegistrationIdentity();
+    } else if (prefill.intake === 'dcn' || prefill.versionType === 'revised') {
         lockOfficeIntakeRegistrationIdentity();
     }
 }
@@ -2197,21 +2291,19 @@ function applyOfficeIntakeChecklistAndFields(prefill) {
     const checklistIds = Array.isArray(prefill.checklistIds)
         ? prefill.checklistIds.map((id) => parseInt(id, 10)).filter((id) => !Number.isNaN(id))
         : [];
+    // From office Request the sections are already defined — check and lock them.
     if (checklistIds.length) {
         const wanted = new Set(checklistIds);
         document.querySelectorAll('#dynamicCheckboxes input[name="checklists[]"]').forEach((cb) => {
             const id = parseInt(cb.value, 10);
-            if (id === 3) {
-                return;
-            }
             const on = wanted.has(id);
             cb.dataset.lastChecked = on ? 'true' : 'false';
             cb.checked = on;
             toggleSection(id, on);
         });
-        if (wanted.has(3) && typeof lockMasterlistChecklistOn === 'function') {
-            lockMasterlistChecklistOn();
-        }
+    }
+    if (typeof lockOfficeIntakeChecklistsOn === 'function') {
+        lockOfficeIntakeChecklistsOn();
     }
 
     const setVal = (id, value) => {
@@ -6047,11 +6139,14 @@ function renderChecklists(checklists, disabled) {
         });
 
         cb.addEventListener("change", function () {
-            if (parseInt(this.value, 10) === 3) {
+            const id = parseInt(this.value, 10);
+            // Locked from office Request (or always-on Masterlist) — cannot uncheck.
+            if (this.dataset.officeIntakeLocked === '1' || id === 3) {
                 this.checked = true;
                 this.dataset.lastChecked = "true";
-                toggleSection(3, true);
-                syncMasterlistChecklistHidden();
+                toggleSection(id, true);
+                if (id === 3) syncMasterlistChecklistHidden();
+                syncOfficeIntakeChecklistHiddens();
                 return;
             }
             if (!userTouched) {
@@ -6060,7 +6155,7 @@ function renderChecklists(checklists, disabled) {
             }
             userTouched = false;
             this.dataset.lastChecked = this.checked ? "true" : "false";
-            toggleSection(parseInt(this.value), this.checked);
+            toggleSection(id, this.checked);
         });
 
         container.appendChild(label);
@@ -6093,9 +6188,64 @@ function syncMasterlistChecklistHidden() {
     container.appendChild(hidden);
 }
 
+/** Hidden posts for office-Request locked checklists if a box is disabled. */
+function syncOfficeIntakeChecklistHiddens() {
+    const container = document.getElementById("dynamicCheckboxes");
+    if (!container) return;
+    container.querySelectorAll('input[type="hidden"][data-office-intake-checklist]').forEach((el) => el.remove());
+    container.querySelectorAll('input[name="checklists[]"][data-office-intake-locked="1"]').forEach((cb) => {
+        if (!cb.checked) return;
+        // Enabled locked boxes already post with the form.
+        if (!cb.disabled) return;
+        const hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = 'checklists[]';
+        hidden.value = String(cb.value);
+        hidden.dataset.officeIntakeChecklist = 'true';
+        container.appendChild(hidden);
+    });
+}
+
+/**
+ * From office Request: DRF / Masterlist / Distribution are already defined —
+ * keep them checked and non-interactive (same lock look as Masterlist).
+ */
+function lockOfficeIntakeChecklistsOn() {
+    if (!window.__officeIntakePrefill) return;
+    const container = document.getElementById("dynamicCheckboxes");
+    if (!container) return;
+
+    const raw = Array.isArray(window.__officeIntakePrefill.checklistIds)
+        ? window.__officeIntakePrefill.checklistIds.map((id) => parseInt(id, 10)).filter((id) => !Number.isNaN(id))
+        : [];
+    const wanted = new Set(raw.length ? raw : [1, 3, 5]);
+
+    container.querySelectorAll('input[name="checklists[]"]').forEach((cb) => {
+        const id = parseInt(cb.value, 10);
+        if (!wanted.has(id)) {
+            delete cb.dataset.officeIntakeLocked;
+            return;
+        }
+        cb.checked = true;
+        cb.disabled = false;
+        cb.removeAttribute('disabled');
+        cb.dataset.lastChecked = 'true';
+        cb.dataset.officeIntakeLocked = '1';
+        cb.closest('label')?.classList.add('reg-check-locked');
+        toggleSection(id, true);
+    });
+    syncMasterlistChecklistHidden();
+    syncOfficeIntakeChecklistHiddens();
+}
+
 function lockMasterlistChecklistOn() {
     const container = document.getElementById("dynamicCheckboxes");
     if (!container) return;
+    // Office Request locks the whole defined checklist set (DRF + Masterlist + Distribution).
+    if (window.__officeIntakePrefill) {
+        lockOfficeIntakeChecklistsOn();
+        return;
+    }
     const cb = container.querySelector('input[type="checkbox"][value="3"]');
     if (!cb) return;
     cb.checked = true;
@@ -6113,10 +6263,12 @@ function lockChecklist() {
         cb.disabled = true;
         cb.checked = false;
         cb.dataset.lastChecked = "false";
+        delete cb.dataset.officeIntakeLocked;
         cb.closest("label")?.classList.remove("reg-check-locked");
         toggleSection(parseInt(cb.value), false);
     });
     container.querySelectorAll('input[type="hidden"][data-masterlist-checklist]').forEach(el => el.remove());
+    container.querySelectorAll('input[type="hidden"][data-office-intake-checklist]').forEach(el => el.remove());
     hideFormActions();
     disableApproval();
 
@@ -6144,6 +6296,7 @@ function unlockChecklist() {
         const id = parseInt(cb.value, 10);
         const isMasterlist = id === 3;
         cb.disabled = false;
+        cb.removeAttribute('disabled');
         // External / Forms / Logbooks:
         //   New → Masterlist + Distribution (DRF optional)
         //   Revised → DCN + Masterlist + Retrieval + Distribution
@@ -6154,6 +6307,9 @@ function unlockChecklist() {
         toggleSection(id, cb.checked);
     });
     lockMasterlistChecklistOn();
+    if (window.__officeIntakePrefill && typeof lockOfficeIntakeChecklistsOn === 'function') {
+        lockOfficeIntakeChecklistsOn();
+    }
     showFormActions();
     enableApproval();
     setTimeout(initFileInputs, 100);
@@ -7616,10 +7772,13 @@ function formatSmartDateValue(val) {
     if (!val) return "";
     const date = new Date(val + "T00:00:00");
     if (isNaN(date.getTime())) return val;
-    const mm = String(date.getMonth() + 1).padStart(2, "0");
-    const dd = String(date.getDate()).padStart(2, "0");
-    const yyyy = String(date.getFullYear());
-    return mm + "-" + dd + "-" + yyyy;
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const mon = months[date.getMonth()];
+    const day = date.getDate();
+    const yyyy = date.getFullYear();
+    // Day 1 → "Jan 2020"; other days → "Feb 20, 2020"
+    if (day === 1) return mon + " " + yyyy;
+    return mon + " " + day + ", " + yyyy;
 }
 
 function formatInputDate(id) {

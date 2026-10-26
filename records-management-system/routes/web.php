@@ -558,6 +558,13 @@ Route::middleware(['auth'])
 
             $filename = basename($path);
             $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+            $sampleHead = substr($content, 0, 500);
+            $isHtml = in_array($ext, ['html', 'htm'])
+                || str_contains($sampleHead, '<html')
+                || str_contains($sampleHead, '<table')
+                || str_contains($sampleHead, '<!DOCTYPE');
+
             $mimeType = match ($ext) {
                 'pdf' => 'application/pdf',
                 'png' => 'image/png',
@@ -565,13 +572,22 @@ Route::middleware(['auth'])
                 'gif' => 'image/gif',
                 'webp' => 'image/webp',
                 'svg' => 'image/svg+xml',
-                'txt' => 'text/plain',
-                default => 'application/octet-stream',
+                'txt', 'log', 'sql', 'md' => 'text/plain; charset=utf-8',
+                'csv' => 'text/csv; charset=utf-8',
+                'json' => 'application/json',
+                'html', 'htm' => 'text/html; charset=utf-8',
+                default => ($isHtml ? 'text/html; charset=utf-8' : 'application/octet-stream'),
             };
+
+            if ($isHtml && !$request->boolean('download')) {
+                $mimeType = 'text/html; charset=utf-8';
+            }
+
+            $disposition = $request->boolean('download') ? 'attachment' : 'inline';
 
             return response($content, 200)
                 ->header('Content-Type', $mimeType)
-                ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
+                ->header('Content-Disposition', $disposition . '; filename="' . $filename . '"');
         })->name('rdp.view-document');
 
         // Pending Subsystem

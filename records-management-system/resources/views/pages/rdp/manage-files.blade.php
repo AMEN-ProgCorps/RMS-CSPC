@@ -24,6 +24,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
     public ?string $selectedFileId = null;
     public bool $showMetadataModal = false;
     public ?string $metadataDocId = null;
+    public bool $showDocumentModal = false;
+    public ?string $previewDocId = null;
 
     public function openMetadataModal(?string $docId = null): void
     {
@@ -37,6 +39,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
     {
         $this->showMetadataModal = false;
         $this->metadataDocId = null;
+    }
+
+    public function openDocumentModal(?string $docId = null): void
+    {
+        $this->previewDocId = $docId ?: $this->selectedFileId;
+        if ($this->previewDocId) {
+            $this->showDocumentModal = true;
+        }
+    }
+
+    public function closeDocumentModal(): void
+    {
+        $this->showDocumentModal = false;
+        $this->previewDocId = null;
     }
 
     public function setTab(string $tab): void
@@ -382,9 +398,86 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             }
         }
 
+        $documentPreviewDetails = null;
+        if ($this->showDocumentModal && $this->previewDocId) {
+            $docTbl = Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data';
+            $offTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+            $accTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+            $previewDoc = DB::table("{$docTbl} as d")
+                ->leftJoin("{$offTbl} as o", 'd.user_office', '=', 'o.office_code')
+                ->leftJoin("{$accTbl} as a", 'd.uploaded_by', '=', 'a.account_id')
+                ->select(
+                    'd.*',
+                    'o.office_name',
+                    'a.first_name',
+                    'a.last_name'
+                )
+                ->where('d.document_id', $this->previewDocId)
+                ->first();
+
+            if ($previewDoc) {
+                $ext = strtolower(pathinfo($previewDoc->document_name ?? $previewDoc->document_path ?? '', PATHINFO_EXTENSION));
+
+                $isPdf = $ext === 'pdf';
+                $isImage = in_array($ext, ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']);
+                $isSpreadsheet = in_array($ext, ['xls', 'xlsx', 'csv', 'ods']);
+                $isWord = in_array($ext, ['doc', 'docx', 'rtf', 'odt']);
+                $isHtml = in_array($ext, ['html', 'htm']);
+                $isText = in_array($ext, ['txt', 'csv', 'json', 'log', 'sql', 'md', 'xml']);
+
+                if ($isSpreadsheet) {
+                    try {
+                        $sample = \App\Services\DocumentStorageService::getFileContent($previewDoc->document_path);
+                        if (!$sample) {
+                            $cleanPath = ltrim(str_replace(['\\'], '/', $previewDoc->document_path), '/');
+                            if (\Illuminate\Support\Facades\Storage::disk('local')->exists($cleanPath)) {
+                                $sample = \Illuminate\Support\Facades\Storage::disk('local')->get($cleanPath);
+                            }
+                        }
+                        if ($sample) {
+                            $sampleHead = substr($sample, 0, 500);
+                            if (str_contains($sampleHead, '<html') || str_contains($sampleHead, '<table') || str_contains($sampleHead, '<!DOCTYPE')) {
+                                $isHtml = true;
+                            }
+                        }
+                    } catch (\Throwable) {}
+                }
+
+                $bytes = (float) ($previewDoc->file_size ?? 0);
+                if ($bytes >= 1048576) {
+                    $formattedSize = number_format($bytes / 1048576, 2) . ' MB';
+                } elseif ($bytes >= 1024) {
+                    $formattedSize = number_format($bytes / 1024, 2) . ' KB';
+                } elseif ($bytes > 0) {
+                    $formattedSize = $bytes . ' B';
+                } else {
+                    $formattedSize = 'Unknown';
+                }
+
+                $viewUrl = !empty($previewDoc->document_path)
+                    ? route('rdp.view-document', ['path' => $previewDoc->document_path, 'id' => $previewDoc->document_id])
+                    : null;
+
+                $documentPreviewDetails = [
+                    'doc' => $previewDoc,
+                    'ext' => $ext,
+                    'isPdf' => $isPdf,
+                    'isImage' => $isImage,
+                    'isSpreadsheet' => $isSpreadsheet,
+                    'isWord' => $isWord,
+                    'isHtml' => $isHtml,
+                    'isText' => $isText,
+                    'formattedSize' => $formattedSize,
+                    'viewUrl' => $viewUrl,
+                ];
+            }
+        }
+
         return [
             'files' => $files,
             'metadataDetails' => $metadataDetails,
+            'documentPreviewDetails' => $documentPreviewDetails,
             'offices' => $offices,
             'canViewAll' => $canViewAll,
             'userOfficeCode' => $userOfficeCode,
@@ -839,6 +932,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
         }
         .btn-action-block {
             width: 100%;
+            box-sizing: border-box;
             padding: 10px 14px;
             font-size: 13px;
             font-weight: 700;
@@ -1598,21 +1692,21 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                 <button type="button" 
                         class="btn-action-block" 
                         wire:click="openMetadataModal('{{ $selectedFile->document_id }}')"
-                        style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+                        style="display: flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box; width: 100%;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                     <span>View Metadata</span>
                 </button>
 
                 @if(!empty($selectedFile->document_path))
-                    <a href="{{ route('rdp.view-document', ['path' => $selectedFile->document_path, 'id' => $selectedFile->document_id]) }}" 
-                       target="_blank" 
-                       class="btn-action-block" 
-                       style="display: flex; align-items: center; justify-content: center; gap: 6px; background: #059669; text-decoration: none; margin-top: 8px;"
-                       onmouseover="this.style.background='#047857'"
-                       onmouseout="this.style.background='#059669'">
+                    <button type="button" 
+                            wire:click="openDocumentModal('{{ $selectedFile->document_id }}')"
+                            class="btn-action-block" 
+                            style="display: flex; align-items: center; justify-content: center; gap: 6px; background: #059669; margin-top: 8px; box-sizing: border-box; width: 100%;"
+                            onmouseover="this.style.background='#047857'"
+                            onmouseout="this.style.background='#059669'">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                         <span>Open Document</span>
-                    </a>
+                    </button>
                 @endif
             </div>
         @endif
@@ -1681,10 +1775,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                         </div>
 
                         @if(!empty($metadataDetails['viewUrl']))
-                            <a href="{{ $metadataDetails['viewUrl'] }}" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; background: #2563eb; color: #ffffff; text-decoration: none; padding: 8px 16px; border-radius: 8px; font-size: 12.5px; font-weight: 700; transition: background 0.15s; white-space: nowrap;">
+                            <button type="button" 
+                                    wire:click="openDocumentModal('{{ $mDoc->document_id }}')" 
+                                    style="display: inline-flex; align-items: center; gap: 6px; background: #059669; color: #ffffff; border: none; cursor: pointer; padding: 8px 16px; border-radius: 8px; font-size: 12.5px; font-weight: 700; transition: background 0.15s; white-space: nowrap;"
+                                    onmouseover="this.style.background='#047857'"
+                                    onmouseout="this.style.background='#059669'">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                 <span>Open Document</span>
-                            </a>
+                            </button>
                         @endif
                     </div>
 
@@ -1886,6 +1984,125 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                     <button type="button" wire:click="closeMetadataModal" class="btn-action-block" style="width: auto; padding: 8px 20px; margin: 0; font-size: 13px;">
                         Close
                     </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- ═══════ Cockpit Document Preview Modal ═══════ -->
+    @if($showDocumentModal && $documentPreviewDetails)
+        @php
+            $pDoc = $documentPreviewDetails['doc'];
+            $pExt = $documentPreviewDetails['ext'];
+            $pViewUrl = $documentPreviewDetails['viewUrl'];
+            $pSize = $documentPreviewDetails['formattedSize'];
+            $pIsPdf = $documentPreviewDetails['isPdf'];
+            $pIsImage = $documentPreviewDetails['isImage'];
+            $pIsHtml = $documentPreviewDetails['isHtml'];
+            $pIsSpreadsheet = $documentPreviewDetails['isSpreadsheet'];
+            $pIsWord = $documentPreviewDetails['isWord'];
+            $pCanEmbed = $pIsPdf || $pIsImage || $pIsHtml || in_array($pExt, ['txt', 'csv', 'json', 'log', 'xml']);
+        @endphp
+        <div class="cockpit-modal-overlay" wire:click.self="closeDocumentModal">
+            <div class="cockpit-modal-card" style="width: 1050px; max-width: 96vw; height: 90vh; max-height: 94vh; display: flex; flex-direction: column;">
+                <!-- Modal Header -->
+                <div class="cockpit-modal-header" style="flex-shrink: 0; padding: 14px 22px;">
+                    <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+                        <div style="width: 38px; height: 38px; border-radius: 10px; background: {{ $pIsPdf ? '#fee2e2' : ($pIsSpreadsheet ? '#dcfce7' : ($pIsImage ? '#f3e8ff' : '#e0f2fe')) }}; color: {{ $pIsPdf ? '#dc2626' : ($pIsSpreadsheet ? '#16a34a' : ($pIsImage ? '#9333ea' : '#0284c7')) }}; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;">
+                            @if($pIsPdf)
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                            @elseif($pIsSpreadsheet)
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>
+                            @elseif($pIsImage)
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                            @else
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                            @endif
+                        </div>
+                        <div style="min-width: 0;">
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <h3 style="margin: 0; font-size: 15px; font-weight: 800; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px;" title="{{ $pDoc->document_name }}">
+                                    {{ $pDoc->document_name }}
+                                </h3>
+                                <span style="font-size: 10.5px; font-weight: 700; background: #e0e7ff; color: #3730a3; padding: 2px 7px; border-radius: 4px; font-family: monospace;">
+                                    {{ $pDoc->document_id }}
+                                </span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: #64748b; margin-top: 2px;">
+                                <span>Size: <strong style="color: #334155;">{{ $pSize }}</strong></span>
+                                <span>•</span>
+                                <span>Type: <strong style="color: #334155; text-transform: uppercase;">{{ $pExt ?: 'Document' }}</strong></span>
+                                <span>•</span>
+                                <span>Office: <strong style="color: #334155;">{{ $pDoc->office_name ?? $pDoc->user_office }}</strong></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                        @if(!empty($pViewUrl))
+                            <a href="{{ $pViewUrl }}&download=1" download="{{ $pDoc->document_name }}" style="display: inline-flex; align-items: center; gap: 6px; background: #f1f5f9; color: #334155; text-decoration: none; padding: 7px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; border: 1px solid #cbd5e1; transition: all 0.15s;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                <span>Download</span>
+                            </a>
+                            <a href="{{ $pViewUrl }}" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; background: #f1f5f9; color: #334155; text-decoration: none; padding: 7px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; border: 1px solid #cbd5e1; transition: all 0.15s;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                                <span>New Tab</span>
+                            </a>
+                        @endif
+                        <button type="button" wire:click="closeDocumentModal" class="cockpit-modal-close" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%;">&times;</button>
+                    </div>
+                </div>
+
+                <!-- Modal Body: Document Preview -->
+                <div style="flex: 1; background: #f8fafc; position: relative; overflow: hidden; display: flex; flex-direction: column;">
+                    @if($pCanEmbed && !empty($pViewUrl))
+                        @if($pIsImage)
+                            <div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px; overflow: auto; background: #0f172a0a;">
+                                <img src="{{ $pViewUrl }}" alt="{{ $pDoc->document_name }}" style="max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); background: #ffffff;">
+                            </div>
+                        @else
+                            <iframe src="{{ $pViewUrl }}" style="width: 100%; height: 100%; border: none; background: #ffffff;"></iframe>
+                        @endif
+                    @else
+                        <!-- Non-embeddable File Card (e.g. binary .xlsx, .docx, .zip) -->
+                        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; text-align: center; background: #f8fafc;">
+                            <div style="width: 76px; height: 76px; border-radius: 20px; background: {{ $pIsSpreadsheet ? '#dcfce7' : ($pIsWord ? '#dbeafe' : '#f1f5f9') }}; color: {{ $pIsSpreadsheet ? '#16a34a' : ($pIsWord ? '#2563eb' : '#64748b') }}; display: flex; align-items: center; justify-content: center; font-size: 34px; margin-bottom: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                                @if($pIsSpreadsheet)
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>
+                                @elseif($pIsWord)
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                                @else
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                                @endif
+                            </div>
+                            <h3 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 800; color: #0f172a;">{{ $pDoc->document_name }}</h3>
+                            <p style="margin: 0 0 20px 0; font-size: 13px; color: #64748b; max-width: 480px; line-height: 1.5;">
+                                This file is a <strong>{{ strtoupper($pExt) }}</strong> document ({{ $pSize }}). Web browsers cannot embed binary office files directly without downloading. Click below to download and open it on your device.
+                            </p>
+                            @if(!empty($pViewUrl))
+                                <a href="{{ $pViewUrl }}&download=1" download="{{ $pDoc->document_name }}" style="display: inline-flex; align-items: center; gap: 8px; background: #059669; color: #ffffff; text-decoration: none; padding: 10px 24px; border-radius: 10px; font-size: 13px; font-weight: 700; box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25); transition: background 0.15s;" onmouseover="this.style.background='#047857'" onmouseout="this.style.background='#059669'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                    <span>Download File ({{ $pSize }})</span>
+                                </a>
+                            @endif
+                        </div>
+                    @endif
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="cockpit-modal-footer" style="flex-shrink: 0; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; background: #ffffff; border-top: 1px solid #e2e8f0;">
+                    <div style="font-size: 11.5px; color: #64748b;">
+                        Path: <code style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-family: monospace; color: #334155;">{{ $pDoc->document_path }}</code>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" wire:click="openMetadataModal('{{ $pDoc->document_id }}')" style="background: #f1f5f9; color: #2563eb; border: 1px solid #cbd5e1; padding: 7px 14px; border-radius: 8px; font-size: 12.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                            <span>View Full Metadata</span>
+                        </button>
+                        <button type="button" wire:click="closeDocumentModal" class="btn-action-block" style="width: auto; padding: 7px 18px; margin: 0; font-size: 12.5px; background: #64748b;" onmouseover="this.style.background='#475569'" onmouseout="this.style.background='#64748b'">
+                            Close
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

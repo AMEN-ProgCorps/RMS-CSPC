@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Distribution and Retrieval. Column widths are fixed. The subtype column is omitted when no row in the group has a subtype. Opening ?doc= selects that document.
+ */
+
 use App\Helpers\DistributionRetrievalMonitorHelper;
 use App\Helpers\RegisterQueryHelper;
 use App\Support\ErrorDiagnosis;
@@ -271,7 +275,7 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
 
 <div class="rpt-page">
     <header class="rpt-hdr">
-        <div>
+        <div class="rpt-hdr-copy">
             <div class="rpt-crumb">Document Control System / Monitoring /<span> Distribution &amp; Retrieval</span></div>
             <h1>Distribution &amp; Retrieval</h1>
         </div>
@@ -414,7 +418,7 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
         <div class="drt-modal" wire:keydown.escape.window="closeRevision" role="dialog" aria-modal="true" aria-labelledby="drtModalTitle">
             <button type="button" class="drt-modal-backdrop" wire:click="closeRevision" aria-label="Close offices"></button>
             <div class="drt-modal-dialog">
-                <header>
+                <header class="drt-modal-hdr">
                     <div>
                         <h2 id="drtModalTitle">{{ $open['doc_no'] }}</h2>
                         <p>{{ $open['doc_title'] !== '' ? $open['doc_title'] : 'Untitled' }}</p>

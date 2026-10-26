@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Blocks office-intake accounts from Admin DCS screens. Office users stay on the intake allowlist.
+ */
+
 namespace App\Http\Middleware;
 
 use App\Helpers\RegisterPersistHelper;

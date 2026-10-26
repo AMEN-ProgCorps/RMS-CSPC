@@ -1,3 +1,6 @@
+{{--
+DCS file: Same print-ready poll for the lock icons on My DRF and My DCN.
+--}}
 <script>
 (function () {
     var nodes = Array.prototype.slice.call(document.querySelectorAll('[data-print-locked]'));
@@ -7,10 +10,10 @@
     function pending() {
         return Array.prototype.slice.call(document.querySelectorAll('[data-print-locked]'));
     }
-    var timer = setInterval(async function () {
+    async function tick() {
         var left = pending();
         if (!left.length) {
-            clearInterval(timer);
+            if (timer) clearInterval(timer);
             return;
         }
         var ids = left.map(function (node) { return node.getAttribute('data-intake-id'); }).filter(Boolean).join(',');
@@ -32,6 +35,8 @@
                 node.replaceWith(link);
             });
         } catch (e) {}
-    }, 2000);
+    }
+    var timer = setInterval(tick, 1000);
+    tick();
 })();
 </script>

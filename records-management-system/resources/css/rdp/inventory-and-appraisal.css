@@ -276,7 +276,7 @@ select.ia-input {
     outline: none;
     text-transform: uppercase;
     transition: var(--ia-transition);
-    background: var(--ia-slate-50);
+    background: var(--ia-white);
     color: var(--ia-slate-900);
     box-sizing: border-box;
 }
@@ -291,9 +291,18 @@ textarea.ia-input {
     outline: none;
     text-transform: none !important;
     transition: var(--ia-transition);
-    background: var(--ia-slate-50);
+    background: var(--ia-white);
     color: var(--ia-slate-900);
     box-sizing: border-box;
+}
+.ia-input:disabled,
+.ia-input[readonly],
+select.ia-input:disabled,
+textarea.ia-input:disabled,
+.ia-input-disabled {
+    background: var(--ia-slate-50) !important;
+    color: var(--ia-slate-500);
+    cursor: not-allowed;
 }
 .ia-input::placeholder {
     color: var(--ia-slate-300);
@@ -2124,4 +2133,29 @@ textarea.ia-input {
 [data-theme="dark"] .ia-verification-sheet {
     background: #ffffff !important;
     color: #000000 !important;
+}
+
+/* Records Location stays editable for office appraisal; Period Covered + other fields stay locked. */
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) input,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) select,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) textarea,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) button,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) label {
+    pointer-events: none;
+}
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) input,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) select,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) textarea {
+    background: #f8fafc !important;
+    color: #64748b !important;
+    cursor: not-allowed;
+}
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) .ia-label-required::after {
+    content: none;
+}
+[data-theme="dark"] .ia-dcs-office-lock .ia-form-row:not(.ia-location-row) input,
+[data-theme="dark"] .ia-dcs-office-lock .ia-form-row:not(.ia-location-row) select,
+[data-theme="dark"] .ia-dcs-office-lock .ia-form-row:not(.ia-location-row) textarea {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
 }

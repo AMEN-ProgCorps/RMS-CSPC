@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Office DRF and DCN requests waiting for Admin DCS. Proceed to Registration is what links the intake to the document that gets saved.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
@@ -139,7 +143,7 @@ new #[Layout('layouts.dcs')] #[Title('Request — CSPC DCS')] class extends Comp
                                     {{ $row->title }}
                                 </a>
                             </td>
-                            <td>{{ !empty($row->form_date) ? \Carbon\Carbon::parse($row->form_date)->format('M d, Y') : '—' }}</td>
+                            <td>{{ !empty($row->form_date) ? \App\Helpers\RegisterQueryHelper::formatRdpPeriodDate($row->form_date) : '—' }}</td>
                             <td>
                                 @if(!empty($row->received))
                                     <span class="ofi-status-pill is-received">Received</span>
@@ -147,7 +151,7 @@ new #[Layout('layouts.dcs')] #[Title('Request — CSPC DCS')] class extends Comp
                                     <span class="ofi-status-pill is-pending">Pending</span>
                                 @endif
                             </td>
-                            <td>{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A') : '—' }}</td>
+                            <td>{{ $row->created_at ? \App\Helpers\RegisterQueryHelper::formatRdpPeriodDate(\Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')) . ' ' . \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('g:i A') : '—' }}</td>
                             <td>
                                 <div class="upd-actions">
                                     <a class="ofi-request-review-btn" href="{{ route('dcs.requests.show', [$row->type, $row->id], absolute: false) }}" title="Review">

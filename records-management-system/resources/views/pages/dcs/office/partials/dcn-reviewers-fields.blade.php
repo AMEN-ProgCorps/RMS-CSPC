@@ -1,8 +1,12 @@
+{{--
+DCS file: Repeatable reviewer name rows on the office DCN.
+--}}
 @php
     $reviewerRows = $reviewerRows ?? [];
     if ($reviewerRows === []) {
         $reviewerRows = [['name' => '', 'date' => '']];
     }
+    $prevReviewerPlaceholder = trim((string) ($prevReviewerPlaceholder ?? ''));
 @endphp
 <div class="ofi-reviewers" id="ofiReviewers" data-max="9">
     <div class="ofi-reviewers-list" id="ofiReviewersList">
@@ -19,7 +23,7 @@
                     <input type="text" name="reviewedByName[]" value="{{ $rev['name'] ?? '' }}"
                         @if($i === 0) required @endif
                         maxlength="255"
-                        placeholder="Reviewer name"
+                        placeholder="{{ ($i === 0 && $prevReviewerPlaceholder !== '') ? $prevReviewerPlaceholder : 'Reviewer name' }}"
                         autocomplete="name">
                 </div>
             </div>

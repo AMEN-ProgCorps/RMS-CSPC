@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Admin Random Check schedule and results. Visits are June and December.
+ */
+
 use App\Helpers\RandomCheckHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
@@ -979,7 +983,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
             <label>
                 Visit date
                 <input type="date" wire:model="scheduleDate">
-                <small>Recommended on or after {{ \Carbon\Carbon::parse($minNoticeDate)->format('M d, Y') }}</small>
+                <small>Recommended on or after {{ \App\Helpers\RegisterQueryHelper::formatSmartDate($minNoticeDate) }}</small>
             </label>
         </div>
 

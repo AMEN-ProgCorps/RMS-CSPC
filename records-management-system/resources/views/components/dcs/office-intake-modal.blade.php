@@ -1,3 +1,6 @@
+{{--
+DCS file: Modal shell for starting or reviewing an office intake from another DCS screen.
+--}}
 <div
     id="ofi-intake-modal"
     class="ofi-intake-modal-overlay ofi-intake-modal-overlay--review"

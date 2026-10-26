@@ -42,7 +42,7 @@ if (!empty($matched)) {
     $users[] = [
         'account_id'          => (int) $user['account_id'],
         'full_name'           => $user['full_name'],
-        'is_chatify_verified' => (bool) ($user['is_chatify_verified'] ?? false),
+        'is_chatify_verified' => filter_var($user['is_chatify_verified'] ?? false, FILTER_VALIDATE_BOOLEAN),
     ];
 }
 

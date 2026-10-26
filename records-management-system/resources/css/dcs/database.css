@@ -1,3 +1,4 @@
+/* DCS file: Document database table. */
 @import './tokens.css';
 
 [x-cloak] { display: none !important; }
@@ -276,7 +277,8 @@ body {
     border-right: 1px solid var(--db-border);
     white-space: nowrap;
     vertical-align: middle;
-    background-clip: padding-box;
+    /* border-box keeps rowspan borders continuous (STATUS | PDF FILE gap). */
+    background-clip: border-box;
 }
 .db-head-primary th:last-child,
 .db-head-secondary th:last-child,
@@ -288,6 +290,12 @@ body {
     top: 0;
     z-index: 30;
     background: #f1f5f9;
+}
+/* Rowspan headers (STATUS, PDF FILE, …): keep a solid divider — no mid-row seam. */
+.db-head-primary th[rowspan] {
+    z-index: 32;
+    box-shadow: inset -1px 0 0 var(--db-border);
+    border-right-color: transparent;
 }
 .db-head-secondary th {
     top: var(--header-row1-h, 36px);
@@ -499,11 +507,11 @@ td.col-bg-retrieval {
     padding: 8px 10px;
     border-bottom: 1px solid var(--db-border);
     border-right: 1px solid var(--db-border);
-    vertical-align: top;
+    vertical-align: middle;
     white-space: nowrap;
     overflow: hidden;
     max-width: 300px;
-    background-clip: padding-box;
+    background-clip: border-box;
     line-height: 1.4;
 }
 
@@ -584,6 +592,17 @@ td.col-group-summary-body {
     vertical-align: middle;
 }
 
+th.db-source-unit-col,
+td.db-source-unit-col,
+th.db-related-col,
+td.db-related-col {
+    max-width: 200px;
+    min-width: 128px;
+    width: 200px;
+    overflow: hidden;
+    vertical-align: middle;
+}
+
 .db-offices-cell,
 .db-title-cell {
     max-width: 400px;
@@ -596,6 +615,7 @@ td.col-group-summary-body {
     max-width: var(--sticky-4-w);
     min-width: var(--sticky-4-w);
     width: var(--sticky-4-w);
+    vertical-align: top;
 }
 
 .db-offices-clamp {

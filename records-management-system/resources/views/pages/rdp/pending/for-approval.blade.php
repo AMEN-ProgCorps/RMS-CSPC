@@ -975,7 +975,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                         </div>
                     </div>
                     <div class="card-footer">
-                        <span style="font-size: 12px; color: #94a3b8;">{{ \Carbon\Carbon::parse($pc->created_at)->format('M d, Y') }}</span>
+                        <span style="font-size: 12px; color: #94a3b8;">{{ \App\Helpers\RegisterQueryHelper::formatSmartDate($pc->created_at) }}</span>
                         <div>
                             <button wire:click="openApprovalModal({{ $pc->cluster_id }}, '{{ $pc->form_code }}')" class="btn-action-review">Evaluate</button>
                             <button wire:click="openPrintModal({{ $pc->cluster_id }}, '{{ $pc->form_code }}')" class="btn-print">Print</button>

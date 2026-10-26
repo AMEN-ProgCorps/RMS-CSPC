@@ -1,3 +1,6 @@
+{{--
+DCS file: Scan link cell for the database table.
+--}}
 @if(!empty($url))
     <a href="{{ $url }}" class="db-pdf-link" target="_blank" rel="noopener" title="Open scanned PDF" aria-label="Open scanned PDF">
         <i class="fa-solid fa-file-pdf"></i>

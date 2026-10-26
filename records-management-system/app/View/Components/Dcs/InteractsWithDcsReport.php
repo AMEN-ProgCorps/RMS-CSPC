@@ -10,7 +10,9 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Shared report browser for Generate Report and Monitoring.
- * Loaded with the other DCS component files under resources/views/components/dcs.
+ * DCS file: InteractsWithDcsReport in app/View/Components/Dcs so Composer autoloads it.
+ * The table markup is resources/views/pages/dcs/partials/report-browser.blade.php.
+ * Monitoring and Generate Report both use this trait. Do not move it back into a Blade file.
  */
 trait InteractsWithDcsReport
 {
@@ -150,8 +152,8 @@ trait InteractsWithDcsReport
         if ($this->period === 'custom') {
             $from = $this->dateFrom !== '' ? $this->dateFrom : null;
             $to = $this->dateTo !== '' ? $this->dateTo : null;
-            $fromLabel = $from ? \Carbon\Carbon::parse($from)->format('M j, Y') : '…';
-            $toLabel = $to ? \Carbon\Carbon::parse($to)->format('M j, Y') : '…';
+            $fromLabel = $from ? \App\Helpers\RegisterQueryHelper::formatSmartDate($from) : '…';
+            $toLabel = $to ? \App\Helpers\RegisterQueryHelper::formatSmartDate($to) : '…';
 
             return [
                 'from' => $from,
@@ -165,7 +167,7 @@ trait InteractsWithDcsReport
             return [
                 'from' => null,
                 'to' => $end->toDateString(),
-                'label' => 'Everything dated on or before '.$end->format('M j, Y'),
+                'label' => 'Everything dated on or before '.\App\Helpers\RegisterQueryHelper::formatSmartDate($end),
                 'dateLabel' => 'Up to',
             ];
         }
@@ -180,7 +182,7 @@ trait InteractsWithDcsReport
         return [
             'from' => $start->toDateString(),
             'to' => $end->toDateString(),
-            'label' => $start->format('M j, Y').' – '.$end->format('M j, Y'),
+            'label' => \App\Helpers\RegisterQueryHelper::formatSmartDate($start).' – '.\App\Helpers\RegisterQueryHelper::formatSmartDate($end),
             'dateLabel' => match ($this->period) {
                 'weekly' => 'Week ending',
                 'monthly' => 'Month ending',

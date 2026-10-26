@@ -1,3 +1,4 @@
+/* DCS file: Shared DCS colors, type, and spacing. Page stylesheets import this first. */
 /* Shared DCS design tokens — imported by chrome + every page stylesheet. */
 :root {
     --dcs-font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

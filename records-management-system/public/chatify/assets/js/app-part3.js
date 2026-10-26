@@ -58,9 +58,16 @@
       const displayName = u.name || u.full_name || '';
       const initials = getInitials(displayName || '?');
       const avatarUrl = u.avatar_url || '';
+      if (avatarUrl) {
+        chatHeaderAvatar.style.background = 'transparent';
+        chatHeaderAvatar.style.backgroundColor = 'transparent';
+      } else {
+        chatHeaderAvatar.style.background = '';
+        chatHeaderAvatar.style.backgroundColor = '';
+      }
       // Cache last-rendered values so re-syncing on every poll doesn't
       // needlessly rebuild the <img> (and re-trigger its network load).
-      if (chatHeaderAvatar.dataset.avatarUrl === avatarUrl && chatHeaderAvatar.dataset.initials === initials && chatHeaderAvatar.style.display === 'flex') {
+      if (chatHeaderAvatar.dataset.avatarUrl === avatarUrl && chatHeaderAvatar.dataset.initials === initials && chatHeaderAvatar.style.display === 'flex' && (!avatarUrl || chatHeaderAvatar.querySelector('img'))) {
         return;
       }
       chatHeaderAvatar.innerHTML = avatarInnerHtml(u.avatar_url, initials);
@@ -74,6 +81,7 @@
         headerImg.ondragstart = function() { return false; };
       }
     }
+    window.applyHeaderAvatar = applyHeaderAvatar;
 
     // ── Verified badge on the chat header (1-on-1 DM title) ──
     // Re-checks every time so switching between conversations correctly adds/removes the badge.
@@ -354,14 +362,9 @@
       openImageViewer(img.dataset.fullSrc || img.src, img.alt);
     });
 
-    // Close: X button, clicking the dark backdrop, or Escape key.
+    // Close: X button or Escape key.
     if (imageViewerCloseBtn) {
       imageViewerCloseBtn.addEventListener('click', closeImageViewer);
-    }
-    if (imageViewerModal) {
-      imageViewerModal.addEventListener('click', function(e) {
-        if (e.target === imageViewerModal) closeImageViewer();
-      });
     }
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape' && imageViewerModal && imageViewerModal.classList.contains('active')) {
@@ -563,7 +566,7 @@
       // Never snap or jump scroll position while the user is actively touch-dragging or scrolling
       if (isUserScrollingOrTouching && !force) return;
 
-      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
       if (viewingOlder && !force) return;
 
       cancelActiveScrollAnimation();
@@ -653,36 +656,40 @@
     }
 
     function showScrollIndicator(newCount = 0) {
-      if (!chatBox || !chatFullyLoaded || isMobileVirtualKeyboardActive()) {
+      if (!chatBox) return;
+      if (!window.replyJumpActive && (!chatFullyLoaded || isMobileVirtualKeyboardActive())) {
         hideScrollIndicator();
         return;
       }
 
+      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
+
       const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-      if (distance <= 100 && newCount === 0) {
+      if (!viewingOlder && distance <= 100 && newCount === 0) {
         hideScrollIndicator();
         return;
       }
 
       if (newCount > 0) {
         unreadCount += newCount;
-        unreadBadge.textContent = unreadCount;
+        unreadBadge.textContent = unreadCount > 99 ? '99+' : unreadCount;
         scrollIndicatorText.textContent = unreadCount === 1 ? 'new message' : 'new messages';
         scrollIndicator.classList.add('has-unread');
-      } else if (!scrollIndicator.classList.contains('visible')) {
-        if (!scrollIndicator.classList.contains('has-unread')) {
-          scrollIndicatorText.textContent = 'Go to bottom';
-        }
+      } else if (unreadCount === 0) {
+        scrollIndicator.classList.remove('has-unread');
+        unreadBadge.textContent = '';
+        scrollIndicatorText.textContent = 'Go to bottom';
       }
 
-      if (distance > 200 || scrollIndicator.classList.contains('has-unread')) {
+      if (viewingOlder || distance > 150 || scrollIndicator.classList.contains('has-unread')) {
         scrollIndicator.classList.add('visible');
       } else {
         scrollIndicator.classList.remove('visible');
       }
     }
 
-    function hideScrollIndicator() {
+    function hideScrollIndicator(force = false) {
+      if (window.replyJumpActive && !force) return;
       scrollIndicator.classList.remove('visible', 'has-unread');
       unreadCount = 0;
       unreadBadge.textContent = '';
@@ -708,14 +715,6 @@
       document.body.style.overflow = '';
     }
 
-    // Close logout modal when clicking outside modal-content
-    if (logoutModal) {
-      logoutModal.addEventListener('click', function(e) {
-        if (e.target === logoutModal) {
-          closeLogoutModal();
-        }
-      });
-    }
 
     // Logout modal buttons
     if (logoutConfirmBtn) {
@@ -783,10 +782,9 @@
       return false;
     }
 
-    // Event delegation for double click to edit chat message
-    chatBox.addEventListener('dblclick', function (e) {
-      const container = e.target.closest('.message-container.sent');
-      if (!container) return; // only edit messages sent by you
+    // Handler to open edit mode for a message container
+    function triggerEditForContainer(container) {
+      if (!container || !container.classList.contains('sent')) return; // only edit messages sent by you
       
       const msgId = container.getAttribute('data-msg-id');
       if (!msgId) return;
@@ -808,12 +806,13 @@
       const contentEl = container.querySelector('.message-bubble .message-content');
       if (!contentEl) return;
       
-      // If it contains an attachment (like an anchor link or image or audio), do not edit.
-      // Scoped to .bubble-wrapper (not the whole .message-container) so the
-      // sender's own avatar <img> — rendered separately in .message-avatar —
-      // is never mistaken for an image/file attachment.
+      // If it contains a real attachment (like an anchor link or uploaded image or audio), do not edit.
+      // Exclude img.reply-quote-image so messages replying to an image can still be edited!
       const bubbleWrapperEl = container.querySelector('.bubble-wrapper');
-      if (contentEl.querySelector('a') || (bubbleWrapperEl && bubbleWrapperEl.querySelector('img, audio'))) {
+      const hasRealAttachment = container.querySelector('.message-media, .chat-attachment-container') ||
+                                contentEl.querySelector('a') ||
+                                (bubbleWrapperEl && bubbleWrapperEl.querySelector('img:not(.reply-quote-image), audio, video'));
+      if (hasRealAttachment) {
         return;
       }
       
@@ -846,6 +845,268 @@
       scrollToBottom(true, true);
 
       messageInput.focus({ preventScroll: true });
+    }
+
+    // Event delegation for double click to edit chat message
+    chatBox.addEventListener('dblclick', function (e) {
+      const container = e.target.closest('.message-container.sent');
+      if (!container) return;
+      if (e.target.closest('.reply-quote')) return;
+      triggerEditForContainer(container);
+    });
+
+    // Mobile double-tap on message bubble to edit
+    let lastMsgTapTime = 0;
+    let lastMsgTapContainer = null;
+    let lastMsgTapX = 0;
+    let lastMsgTapY = 0;
+
+    chatBox.addEventListener('touchend', function (e) {
+      if (e.changedTouches.length !== 1) return;
+      const touch = e.changedTouches[0];
+      const container = e.target.closest('.message-container.sent');
+      if (!container) {
+        lastMsgTapTime = 0;
+        lastMsgTapContainer = null;
+        return;
+      }
+
+      // Do not trigger edit if tapped directly on a link, reply quote, reaction badge, or media
+      if (e.target.closest('a, .reply-quote, .reaction-badge, .reaction-picker-btn, .chat-viewable-image')) {
+        return;
+      }
+
+      const now = Date.now();
+      const dist = Math.hypot(touch.clientX - lastMsgTapX, touch.clientY - lastMsgTapY);
+
+      if (now - lastMsgTapTime < 350 && container === lastMsgTapContainer && dist < 30) {
+        e.preventDefault();
+        lastMsgTapTime = 0;
+        lastMsgTapContainer = null;
+        triggerEditForContainer(container);
+      } else {
+        lastMsgTapTime = now;
+        lastMsgTapContainer = container;
+        lastMsgTapX = touch.clientX;
+        lastMsgTapY = touch.clientY;
+      }
+    }, { passive: false });
+
+    // Click on a reply quote (text quote or image quote): scroll to original quoted message and blink it AFTER arrival.
+    // Uses IntersectionObserver so the blink fires only once the target is truly visible.
+    // WeakMap tracks the active remove-timer per element so rapid clicks always restart cleanly.
+    const blinkTimers = new WeakMap();
+
+    // Cleans up any pending blink state for a given element (observer + timers).
+    // activeScrollObservers maps element → { observer, safetyTimer, fired } so a
+    // new click cancels any in-flight scroll+observe cycle for the same element.
+    const activeScrollObservers = new WeakMap();
+
+    function triggerBlinkOn(el) {
+      // Cancel any pending remove-timer from a previous blink on this element
+      const prev = blinkTimers.get(el);
+      if (prev) clearTimeout(prev);
+
+      el.classList.remove('reply-target-blink');
+      void el.offsetWidth; // force reflow so animation restarts
+      el.classList.add('reply-target-blink');
+
+      const t = setTimeout(function() {
+        el.classList.remove('reply-target-blink');
+        blinkTimers.delete(el);
+      }, 1400);
+      blinkTimers.set(el, t);
+    }
+
+    function cancelScrollObserve(el) {
+      const state = activeScrollObservers.get(el);
+      if (!state) return;
+      state.fired = true;                    // prevent late IO/safety callbacks
+      if (state.safetyTimer) clearTimeout(state.safetyTimer);
+      try { state.observer.disconnect(); } catch (_) {}
+      activeScrollObservers.delete(el);
+    }
+
+    // Scroll chatBox to the target element then blink it once it's visible.
+    function scrollAndBlinkTarget(targetMsg) {
+      cancelScrollObserve(targetMsg);
+
+      window.replyJumpActive = true;
+      shouldAutoScroll = false;
+      userScrolledUp   = true;
+
+      const chatRect   = chatBox.getBoundingClientRect();
+      const targetRect = targetMsg.getBoundingClientRect();
+      const isVisible  =
+        targetRect.top    >= chatRect.top    + 40 &&
+        targetRect.bottom <= chatRect.bottom - 40;
+
+      if (isVisible) {
+        triggerBlinkOn(targetMsg);
+        showScrollIndicator(0);
+        return;
+      }
+
+      const state = { observer: null, safetyTimer: null, fired: false };
+      activeScrollObservers.set(targetMsg, state);
+
+      const finish = function() {
+        if (state.fired) return;
+        state.fired = true;
+        try { state.observer.disconnect(); } catch (_) {}
+        if (state.safetyTimer) clearTimeout(state.safetyTimer);
+        activeScrollObservers.delete(targetMsg);
+        triggerBlinkOn(targetMsg);
+        showScrollIndicator(0);
+      };
+
+      state.observer = new IntersectionObserver(function(entries) {
+        if (entries[0].isIntersecting) finish();
+      }, {
+        root: chatBox,
+        threshold: 0.35
+      });
+
+      state.observer.observe(targetMsg);
+      state.safetyTimer = setTimeout(finish, 900);
+      targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      // Always show the down arrow right away
+      showScrollIndicator(0);
+    }
+
+    // Build the URL for an around_uuid jump fetch based on which chat type is active.
+    function buildAroundUuidUrl(aroundUuid) {
+      const limit = typeof BACKREAD_BATCH !== 'undefined' ? BACKREAD_BATCH : 50;
+      if (activeAdminConv) {
+        return 'load_dm_admin.php?conv_id=' + encodeURIComponent(activeAdminConv)
+             + '&around_uuid=' + encodeURIComponent(aroundUuid)
+             + '&limit=' + limit;
+      }
+      if (isGlobalChat) {
+        const convId = (typeof getActiveChannelConvId === 'function')
+          ? getActiveChannelConvId()
+          : (window.activeChannel === 'office' && window.currentOfficeInfo && window.currentOfficeInfo.conv_id
+              ? window.currentOfficeInfo.conv_id
+              : 'global');
+        return 'load.php?around_uuid=' + encodeURIComponent(aroundUuid)
+             + '&conv_id=' + encodeURIComponent(convId)
+             + '&limit=' + limit;
+      }
+      if (activeDM && activeDMAccountId) {
+        return 'load_dm.php?target_id=' + encodeURIComponent(activeDMAccountId)
+             + '&target_user=' + encodeURIComponent(activeDM)
+             + '&around_uuid=' + encodeURIComponent(aroundUuid)
+             + '&limit=' + limit;
+      }
+      return null;
+    }
+
+    // Replace the current chat window with a jump-fetched batch, then scroll+blink.
+    // Returns false if a fetch cannot be made (no active chat), true otherwise.
+    let jumpFetchInFlight = false;
+    function jumpToUnloadedMessage(aroundUuid) {
+      if (jumpFetchInFlight) return;
+      const url = buildAroundUuidUrl(aroundUuid);
+      if (!url) return;
+
+      jumpFetchInFlight = true;
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.onload = function() {
+        jumpFetchInFlight = false;
+        if (this.status !== 200) return;
+        let data;
+        try { data = JSON.parse(this.responseText); } catch(e) { return; }
+        const newHtml = data.html || '';
+        if (!newHtml.trim()) return;
+
+        // Replace current chat window content (keep sending-overlay placeholders)
+        const sendingPlaceholders = Array.from(chatBox.querySelectorAll('[data-sending-uid],[data-upload-uid]'));
+        chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
+
+        const temp = document.createElement('div');
+        temp.innerHTML = newHtml;
+        const newItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
+        const frag = document.createDocumentFragment();
+        newItems.forEach(el => frag.appendChild(el));
+        // Insert before any pending sending placeholders
+        const firstPlaceholder = sendingPlaceholders.find(el => chatBox.contains(el));
+        if (firstPlaceholder) {
+          chatBox.insertBefore(frag, firstPlaceholder);
+        } else {
+          chatBox.appendChild(frag);
+        }
+
+        // Update pagination state so load-older still works from this new window
+        const cursor = data.nextCursor || '';
+        if (activeAdminConv) {
+          if (typeof adminConvCursor !== 'undefined')  adminConvCursor  = cursor;
+          if (typeof adminConvHasMore !== 'undefined') adminConvHasMore = data.hasMore || false;
+          if (typeof adminConvViewingOlder !== 'undefined') adminConvViewingOlder = true;
+        } else if (isGlobalChat) {
+          gcCursor       = cursor;
+          gcHasMore      = data.hasMore || false;
+          gcViewingOlder = true;
+        } else if (activeDM) {
+          if (typeof dmCursor !== 'undefined')       dmCursor       = cursor;
+          if (typeof dmHasMore !== 'undefined')      dmHasMore      = data.hasMore || false;
+          if (typeof dmViewingOlder !== 'undefined') dmViewingOlder = true;
+        }
+
+        shouldAutoScroll = false;
+        userScrolledUp   = true;
+
+        if (data.hasMore) {
+          if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
+        } else {
+          showNoMoreOlderNotice();
+        }
+
+        applyAdminBadges();
+        applyEmojiOnly();
+        attachImageLoadListeners();
+
+        // Always show the arrow down / "Go to bottom" button since we are now in an older message window
+        showScrollIndicator(0);
+
+        // Now scroll+blink the target
+        const targetMsg = chatBox.querySelector(`.message-container[data-msg-id="${aroundUuid}"]`);
+        if (targetMsg) {
+          // Use rAF so the DOM has been painted before we measure positions
+          requestAnimationFrame(function() {
+            scrollAndBlinkTarget(targetMsg);
+            showScrollIndicator(0);
+          });
+        } else {
+          showScrollIndicator(0);
+        }
+      };
+      xhr.onerror = function() { jumpFetchInFlight = false; };
+      xhr.send();
+    }
+
+    chatBox.addEventListener('click', function(e) {
+      if (typeof longPressJustFired !== 'undefined' && longPressJustFired) return;
+      const rq = e.target.closest('.reply-quote[data-reply-to]');
+      if (!rq) return;
+
+      const replyToMsgId = rq.getAttribute('data-reply-to');
+      if (!replyToMsgId) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      window.replyJumpActive = true;
+      const targetMsg = chatBox.querySelector(`.message-container[data-msg-id="${replyToMsgId}"]`);
+      if (targetMsg) {
+        // Message is in the DOM — scroll+blink in place
+        scrollAndBlinkTarget(targetMsg);
+        showScrollIndicator(0);
+      } else {
+        // Message not loaded yet — fetch a window centred on it
+        jumpToUnloadedMessage(replyToMsgId);
+      }
     });
 
     // X cancel-edit button
@@ -1196,12 +1457,6 @@
       if (closeBtn) {
         closeBtn.addEventListener('click', closeReactionsModal);
       }
-
-      modal.addEventListener('click', function(e) {
-        if (e.target === modal) {
-          closeReactionsModal();
-        }
-      });
 
       return modal;
     }
@@ -1674,7 +1929,7 @@
     // Monitor scroll position
     chatBox.addEventListener('scroll', function() {
       const atBottom = isAtBottom();
-      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
       
       if (atBottom && !viewingOlder) {
         shouldAutoScroll = true;
@@ -1691,9 +1946,9 @@
           // so the user can easily jump back to latest messages anytime.
           showScrollIndicator(0);
         } else if (chatFullyLoaded && !isMobileVirtualKeyboardActive()) {
-          // Show scroll button when initial load is done AND user has scrolled up > 200px away from bottom
+          // Show scroll button when initial load is done AND user has scrolled up away from bottom
           const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-          if (distance > 200) {
+          if (distance > 150) {
             const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
             if (hasMessages) {
               showScrollIndicator(0);
@@ -1703,7 +1958,7 @@
           }
         } else if (chatFullyLoaded) {
           const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-          if (distance <= 100) {
+          if (distance <= 100 && !viewingOlder) {
             hideScrollIndicator();
           }
         }
@@ -1714,7 +1969,7 @@
     chatBox.addEventListener('load', function(event) {
       if (isUserScrollingOrTouching) return;
       if (event.target.tagName === 'IMG') {
-        const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+        const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
         if (viewingOlder) return; // Never auto-scroll to bottom when user is viewing older messages
         if (shouldAutoScroll || !userScrolledUp || isAtBottom()) {
           scrollToBottom(true, true);
@@ -1886,14 +2141,15 @@
       sessionStorage.removeItem('chatScrollHeight_' + activeKey);
     }
 
-    // Click scroll indicator to go to bottom
-    scrollIndicator.addEventListener('click', function() {
+    // Return to the latest live conversation at the bottom.
+    // If user was viewing older history (e.g. jumped or backread), cleans up
+    // stale cursor state, clears older messages, and reloads the latest batch.
+    function returnToLatestChat() {
+      window.replyJumpActive = false;
       shouldAutoScroll = true;
       userScrolledUp = false;
+      hideScrollIndicator(true);
 
-      // If the user has loaded an older window, "Go to bottom" snaps back to
-      // the latest INITIAL_LOAD messages instead of just scrolling within the
-      // (now stale) older batch that's on screen.
       if (isGlobalChat && gcViewingOlder) {
         gcViewingOlder = false;
         gcCursor = '';
@@ -1904,7 +2160,7 @@
         isFirstLoad = true;
         chatFullyLoaded = false;
         loadGlobalChat(false, false);
-        return;
+        return true;
       }
       if (!isGlobalChat && activeAdminConv && adminConvViewingOlder) {
         adminConvViewingOlder = false;
@@ -1915,7 +2171,7 @@
         isFirstLoad = true;
         chatFullyLoaded = false;
         loadAdminConv(activeAdminConv, false, false);
-        return;
+        return true;
       }
       if (!isGlobalChat && !activeAdminConv && activeDM && dmViewingOlder) {
         dmViewingOlder = false;
@@ -1929,10 +2185,26 @@
         isFirstLoad = true;
         chatFullyLoaded = false;
         loadChat(false, false, true);
-        return;
+        return true;
       }
 
-      scrollToBottom(true);
+      scrollToBottom(true, true);
+      hideScrollIndicator(true);
+      if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
+        markRead(activeDM);
+      }
+      return false;
+    }
+
+    // Click scroll indicator to go to bottom
+    scrollIndicator.addEventListener('click', function() {
+      returnToLatestChat();
+    });
+    scrollIndicator.addEventListener('keydown', function(e) {
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        returnToLatestChat();
+      }
     });
 
     // ── Auto-load older messages on backread (replaces the old floating
@@ -2188,12 +2460,14 @@
       }
 
       if (rec.type === 'append') {
+        let actuallyAddedCount = 0;
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
             if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
               return;
             }
+            actuallyAddedCount++;
             if (chatFullyLoaded && !isFirstLoad) {
               const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
               el.classList.add(animClass);
@@ -2206,12 +2480,13 @@
           if (isFirstLoad) {
             isFirstLoad = false;
             handleFirstLoadScroll();
-          } else if (wasAtBottom || !userScrolledUp) {
+          } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
             scrollToBottom(true, true);
-          } else if (userScrolledUp) {
-            const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
-            if (newlyAppendedCount > 0) {
-              showScrollIndicator(newlyAppendedCount);
+          } else if (userScrolledUp || window.replyJumpActive) {
+            if (actuallyAddedCount > 0) {
+              showScrollIndicator(actuallyAddedCount);
+            } else if (window.replyJumpActive) {
+              showScrollIndicator(0);
             }
           }
         }
@@ -2222,10 +2497,16 @@
 
       // Full re-render (only when we truly can't reconcile, e.g. chat was cleared)
       const prevST = chatBox.scrollTop; const prevSH = chatBox.scrollHeight;
+      const curMsgIdSet = new Set(
+        Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'))
+          .map(el => el.getAttribute('data-msg-id'))
+      );
       const curKeySet = new Set(curKeys);
-      const genuinelyNewCount = newMessages.filter(el =>
-        el.classList.contains('message-container') && !curKeySet.has(getMessageKey(el))
-      ).length;
+      const genuinelyNewCount = newMessages.filter(el => {
+        if (!el.classList.contains('message-container')) return false;
+        const msgId = el.getAttribute('data-msg-id');
+        return msgId ? !curMsgIdSet.has(msgId) : !curKeySet.has(getMessageKey(el));
+      }).length;
       chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       // Deduplicate newMessages during full re-render
@@ -2245,12 +2526,14 @@
         isFirstLoad = false;
         handleFirstLoadScroll();
       } else if (!gcViewingOlder) {
-        if (wasAtBottom || !userScrolledUp) {
+        if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
           scrollToBottom(true, true);
         } else {
           chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
-          if (userScrolledUp && genuinelyNewCount > 0) {
+          if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCount > 0) {
             showScrollIndicator(genuinelyNewCount);
+          } else if (window.replyJumpActive) {
+            showScrollIndicator(0);
           }
         }
       }
@@ -2333,7 +2616,7 @@
     function loadGlobalChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (!isGlobalChat) return;
       if (isLoadingGC && !force) return;
-      if (isAutoPoll && !loadOlderMode && gcViewingOlder) return;
+      if (isAutoPoll && !loadOlderMode && (gcViewingOlder || window.replyJumpActive)) return;
 
       if (!loadOlderMode && !isAutoPoll) {
         if (globalChatPrefetchedData) {
@@ -2403,12 +2686,20 @@
           if (cachedObj._raw) cachedObj._raw.readUpTo = data.readUpTo;
         }
       } else {
-        dmReadUpTo = null;
-        if (typeof dmReadUpToMap !== 'undefined') dmReadUpToMap.set(requestedUser, null);
-        const cachedObj = typeof dmMessageCache !== 'undefined' ? dmMessageCache.get(requestedUser) : null;
-        if (cachedObj) {
-          cachedObj.readUpTo = null;
-          if (cachedObj._raw) cachedObj._raw.readUpTo = null;
+        const existingMarker = (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(requestedUser))
+          ? dmReadUpToMap.get(requestedUser)
+          : null;
+        if (existingMarker) {
+          dmReadUpTo = existingMarker;
+          if (typeof data === 'object' && data !== null) data.readUpTo = existingMarker;
+        } else {
+          dmReadUpTo = null;
+          if (typeof dmReadUpToMap !== 'undefined') dmReadUpToMap.set(requestedUser, null);
+          const cachedObj = typeof dmMessageCache !== 'undefined' ? dmMessageCache.get(requestedUser) : null;
+          if (cachedObj) {
+            cachedObj.readUpTo = null;
+            if (cachedObj._raw) cachedObj._raw.readUpTo = null;
+          }
         }
       }
 
@@ -2512,12 +2803,14 @@
       }
 
       if (rec.type === 'append') {
+        let actuallyAddedCount = 0;
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
             if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
               return;
             }
+            actuallyAddedCount++;
             if (chatFullyLoaded && !isFirstLoad) {
               const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
               el.classList.add(animClass);
@@ -2534,12 +2827,13 @@
           if (isFirstLoad) {
             isFirstLoad = false;
             handleFirstLoadScroll();
-          } else if (wasAtBottom || !userScrolledUp) {
+          } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
             scrollToBottom(true, true);
-          } else if (userScrolledUp) {
-            const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
-            if (newlyAppendedCount > 0) {
-              showScrollIndicator(newlyAppendedCount);
+          } else if (userScrolledUp || window.replyJumpActive) {
+            if (actuallyAddedCount > 0) {
+              showScrollIndicator(actuallyAddedCount);
+            } else if (window.replyJumpActive) {
+              showScrollIndicator(0);
             }
           }
         }
@@ -2549,10 +2843,16 @@
 
       // Full re-render (only when we truly can't reconcile, e.g. chat was cleared)
       const prevSTF = chatBox.scrollTop; const prevSHF = chatBox.scrollHeight;
+      const curMsgIdSetF = new Set(
+        Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'))
+          .map(el => el.getAttribute('data-msg-id'))
+      );
       const curKeySetF = new Set(curKeys);
-      const genuinelyNewCountF = newMessages.filter(el =>
-        el.classList.contains('message-container') && !curKeySetF.has(getMessageKey(el))
-      ).length;
+      const genuinelyNewCountF = newMessages.filter(el => {
+        if (!el.classList.contains('message-container')) return false;
+        const msgId = el.getAttribute('data-msg-id');
+        return msgId ? !curMsgIdSetF.has(msgId) : !curKeySetF.has(getMessageKey(el));
+      }).length;
       chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       const renderedIdsF = new Set();
@@ -2575,12 +2875,14 @@
         isFirstLoad = false;
         handleFirstLoadScroll();
       } else if (!dmViewingOlder) {
-        if (wasAtBottom || !userScrolledUp) {
+        if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
           scrollToBottom(true, true);
         } else {
           chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-          if (userScrolledUp && genuinelyNewCountF > 0) {
+          if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCountF > 0) {
             showScrollIndicator(genuinelyNewCountF);
+          } else if (window.replyJumpActive) {
+            showScrollIndicator(0);
           }
         }
       }
@@ -2591,7 +2893,7 @@
     function loadChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (isAdminAllChatsView || activeAdminConv) return;
       if (!activeDM) return;
-      if (isAutoPoll && !loadOlderMode && dmViewingOlder) return;
+      if (isAutoPoll && !loadOlderMode && (dmViewingOlder || window.replyJumpActive)) return;
 
       // Consume preloaded snapshot from hover cache if available on initial open for instant paint,
       // but do NOT return early so we still perform background fetch from load_dm.php to reconcile new messages.
@@ -2733,7 +3035,8 @@
         if (this.status === 200) {
           shouldAutoScroll = true;
           userScrolledUp = false;
-          hideScrollIndicator();
+          window.replyJumpActive = false;
+          hideScrollIndicator(true);
           // Capture conv identifiers before resetToHome() nulls them
           const clearedDM       = activeDM;
           if (clearedDM) dmMessageCache.delete(clearedDM); // this conversation's snapshot is now stale
@@ -2752,22 +3055,53 @@
             chatFullyLoaded = false;
             isLoadingGC = false;
             loadGlobalChat(false, false, true);
+          } else if (clearedAdminConv) {
+            if (clearedAdminConv === 'global' || clearedAdminConv.startsWith('office_')) {
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              isFirstLoad = true;
+              chatFullyLoaded = false;
+              isLoadingAdminConv = false;
+              loadAdminConv(clearedAdminConv, false);
+            } else if (clearedAdminConv.startsWith('gc_')) {
+              // Custom GC spy mode clear — reset all loading flags before reloading
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              isFirstLoad = true;
+              chatFullyLoaded = false;
+              isLoadingAdminConv = false;
+              if (typeof adminConvXhr !== 'undefined' && adminConvXhr) {
+                try { adminConvXhr.abort(); } catch(e) {}
+                adminConvXhr = null;
+              }
+              adminConvCursor = '';
+              adminConvHasMore = false;
+              adminConvViewingOlder = false;
+              // Immediately update spy list item count in memory
+              if (typeof adminSpyConvs !== 'undefined' && Array.isArray(adminSpyConvs)) {
+                const foundConv = adminSpyConvs.find(c => c.convId === clearedAdminConv);
+                if (foundConv) {
+                  foundConv.msgCount = 0;
+                  if (typeof renderAdminConvs === 'function') renderAdminConvs();
+                }
+              }
+              loadAdminConv(clearedAdminConv, false);
+              // Refresh the admin convs list from server so the message count updates
+              if (typeof window.fetchAdminConvs === 'function' && window.adminSpyTargetUser) {
+                window.fetchAdminConvs('', 0, false, window.adminSpyTargetUser.account_id);
+              } else if (typeof window.fetchAdminConvs === 'function') {
+                const _adminQ = document.getElementById('adminSearchInput');
+                if (_adminQ && _adminQ.value.trim() !== '') window.fetchAdminConvs(_adminQ.value.trim(), 0, false, 0);
+              }
+            } else {
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              isLoadingAdminConv = false;
+              loadAdminConv(clearedAdminConv, false);
+              fetchUsers();
+            }
           } else if (typeof resetToHome === 'function') {
             resetToHome();
           } else {
             if (clearedDM) {
               loadChat();
-            } else if (clearedAdminConv) {
-              if (clearedAdminConv === 'global' || clearedAdminConv.startsWith('office_')) {
-                chatBox.innerHTML = '<div class="empty-chat"></div>';
-                isFirstLoad = true;
-                chatFullyLoaded = false;
-                isLoadingAdminConv = false;
-                loadAdminConv(clearedAdminConv, false);
-              } else {
-                loadAdminConv(clearedAdminConv, false);
-                fetchUsers();
-              }
             }
           }
 
@@ -2779,11 +3113,13 @@
               const targetConvId = (typeof getActiveChannelConvId === 'function')
                 ? getActiveChannelConvId()
                 : (window.activeChannel === 'office' ? (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) : 'global');
+              const isCustomGcClear = targetConvId && targetConvId.startsWith('gc_');
+              const isOfficeClear   = targetConvId && targetConvId.startsWith('office_');
               ws.send(JSON.stringify({
                 type: 'chat_cleared',
-                chat_type: (targetConvId && targetConvId.startsWith('office_')) ? 'office_gc' : 'global',
+                chat_type: isCustomGcClear ? 'custom_gc' : (isOfficeClear ? 'office_gc' : 'global'),
                 conv_id: targetConvId || 'global',
-                office_id: (targetConvId && targetConvId.startsWith('office_')) ? (window.currentOfficeInfo && window.currentOfficeInfo.office_id) : null,
+                office_id: isOfficeClear ? (window.currentOfficeInfo && window.currentOfficeInfo.office_id) : null,
                 sender_id: wsConfig.accountId
               }));
             } else if (clearedDM && clearedDMAccId) {
@@ -2792,6 +3128,7 @@
                 type: 'chat_cleared',
                 chat_type: 'private',
                 recipient_id: clearedDMAccId,
+                conv_id: `${Math.min(myId, clearedDMAccId)}_${Math.max(myId, clearedDMAccId)}`,
                 user_a: Math.min(myId, clearedDMAccId),
                 user_b: Math.max(myId, clearedDMAccId)
               }));
@@ -2805,11 +3142,19 @@
                   office_id: targetOfficeId,
                   sender_id: wsConfig.accountId
                 }));
+              } else if (clearedAdminConv.startsWith('gc_')) {
+                ws.send(JSON.stringify({
+                  type: 'chat_cleared',
+                  chat_type: 'custom_gc',
+                  conv_id: clearedAdminConv,
+                  sender_id: wsConfig.accountId
+                }));
               } else {
                 const clearedParts = clearedAdminConv.split('_').map(Number);
                 ws.send(JSON.stringify({
                   type: 'chat_cleared',
                   chat_type: 'admin_conv',
+                  conv_id: clearedAdminConv,
                   user_a: clearedParts[0],
                   user_b: clearedParts[1]
                 }));
@@ -2833,16 +3178,22 @@
 
       let params = "secret=" + encodeURIComponent(secret);
       if (isGlobalChat) {
-        params += "&global=1";
         const targetConvId = (typeof getActiveChannelConvId === 'function')
           ? getActiveChannelConvId()
           : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
-        params += "&conv_id=" + encodeURIComponent(targetConvId);
+        // Custom GC — do NOT send global=1, just send the gc_ conv_id directly
+        if (targetConvId && targetConvId.startsWith('gc_')) {
+          params += "&conv_id=" + encodeURIComponent(targetConvId);
+        } else {
+          params += "&global=1";
+          params += "&conv_id=" + encodeURIComponent(targetConvId);
+        }
       } else if (activeDMAccountId) {
         params += "&target_id=" + encodeURIComponent(activeDMAccountId) + "&target_user=" + encodeURIComponent(activeDM);
       } else if (activeDM) {
         params += "&target_user=" + encodeURIComponent(activeDM);
       } else if (activeAdminConv) {
+        // Custom GC spy mode — send conv_id directly (no global flag)
         params += "&conv_id=" + encodeURIComponent(activeAdminConv);
       }
       xhr.send(params);
@@ -3242,6 +3593,8 @@
       const activeReply = (replyState && !editingMsgId) ? replyState : null;
       hideReplyBanner();
 
+      const wasViewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+
       // Disable send button momentarily to prevent double-tap
       isSending = true;
       sendButton.classList.add('sending');
@@ -3296,6 +3649,7 @@
         const overlay3 = getSendingOverlay();
         if (overlay3) overlay3.appendChild(sendingBubble);
         else chatBox.appendChild(sendingBubble);
+        window.replyJumpActive = false;
         shouldAutoScroll = true;
         userScrolledUp = false;
         // Always scroll for the user's own outgoing message — isAtBottom() can read
@@ -3303,6 +3657,7 @@
         // reflowing), which silently blocked this scroll and left the new message
         // hidden below the fold when the keyboard was up.
         scrollToBottom(true, true);
+        hideScrollIndicator(true);
       }
 
       const xhr = new XMLHttpRequest();
@@ -3460,91 +3815,102 @@
             hideEditBanner();
           }
 
-          // Convert optimistic sending bubble in-place immediately without full chat reload
+          // Convert optimistic sending bubble in-place immediately without full chat reload.
+          // If the user was viewing older history (e.g. jumped to a distant reply),
+          // returning to latest chat resets the view and snaps cleanly to the live bottom.
           if (!editingMsgId && sendIndId) {
-            const sendingBubble = document.getElementById(sendIndId);
-            if (sendingBubble) {
-              if (confirmedMsg && confirmedMsg.id) {
-                const existingInChatBox = chatBox.querySelector(`.message-container[data-msg-id="${confirmedMsg.id}"]`);
-                if (existingInChatBox) {
-                  if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
-                  updateSeenIndicator();
-                } else {
-                  sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
-                  sendingBubble.setAttribute('data-created-at', new Date().toISOString());
-                  sendingBubble.setAttribute('data-edit-count', '0');
-                  const replyUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid) ? confirmedMsg.reply_to_msg_uuid : (activeReply ? activeReply.msgId : null);
-                  if (replyUuid) {
-                    sendingBubble.setAttribute('data-reply-to', replyUuid);
-                  }
-                  sendingBubble.removeAttribute('id');
-                  sendingBubble.removeAttribute('data-sending-uid');
-                
-                // Move from floating sending overlay to main chatBox if needed
-                if (sendingBubble.parentNode && sendingBubble.parentNode !== chatBox) {
-                  sendingBubble.parentNode.removeChild(sendingBubble);
-                  chatBox.appendChild(sendingBubble);
-                }
-
-                const msgContent = confirmedMsg.plaintext || message;
-                const d = new Date();
-                const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
-                const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
-                const fullTimeDisplay = `${dateStr} at ${timeStr}`;
-                const senderLabel = (name || 'you').toLowerCase();
-
-                sendingBubble.className = 'message-container sent';
-                const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
-                const replyQuoteHtml = (() => {
-                  let snippetText = (confirmedMsg && (confirmedMsg.reply_snippet || confirmedMsg.reply_message))
-                    ? (confirmedMsg.reply_snippet || confirmedMsg.reply_message)
-                    : (activeReply && activeReply.snippet ? activeReply.snippet : '');
-                  if (!snippetText && replyUuid) {
-                    const targetContainer = chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`);
-                    if (targetContainer && typeof getReplySnippet === 'function') {
-                      snippetText = getReplySnippet(targetContainer);
+            if (wasViewingOlder) {
+              if (typeof clearSendingOverlay === 'function') clearSendingOverlay();
+              const ind = document.getElementById(sendIndId);
+              if (ind && ind.parentNode) ind.parentNode.removeChild(ind);
+              returnToLatestChat();
+            } else {
+              const sendingBubble = document.getElementById(sendIndId);
+              if (sendingBubble) {
+                if (confirmedMsg && confirmedMsg.id) {
+                  const existingInChatBox = chatBox.querySelector(`.message-container[data-msg-id="${confirmedMsg.id}"]`);
+                  if (existingInChatBox) {
+                    if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
+                    updateSeenIndicator();
+                  } else {
+                    sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
+                    sendingBubble.setAttribute('data-created-at', new Date().toISOString());
+                    sendingBubble.setAttribute('data-edit-count', '0');
+                    const replyUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid) ? confirmedMsg.reply_to_msg_uuid : (activeReply ? activeReply.msgId : null);
+                    if (replyUuid) {
+                      sendingBubble.setAttribute('data-reply-to', replyUuid);
                     }
+                    sendingBubble.removeAttribute('id');
+                    sendingBubble.removeAttribute('data-sending-uid');
+                  
+                  // Move from floating sending overlay to main chatBox if needed
+                  if (sendingBubble.parentNode && sendingBubble.parentNode !== chatBox) {
+                    sendingBubble.parentNode.removeChild(sendingBubble);
+                    chatBox.appendChild(sendingBubble);
                   }
-                  if (!replyUuid || !snippetText) return '';
-                  if (String(snippetText).startsWith('image:')) {
-                    const imgFile = String(snippetText).slice(6);
-                    const imgSrc  = 'uploads/' + imgFile;
-                    return `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(replyUuid)}"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
-                  }
-                  return `<div class="reply-quote" data-reply-to="${escapeHtml(replyUuid)}"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
-                })();
-                sendingBubble.innerHTML = `
-                  <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
-                  <div class="bubble-wrapper">
-                    <div class="message-click-timestamp">${fullTimeDisplay}</div>
-                    ${replyQuoteHtml}
-                    <div class="message-bubble${emojiOnlyClass}">
-                      <div class="message-content">${escapeHtml(msgContent)}</div>
+
+                  const msgContent = confirmedMsg.plaintext || message;
+                  const d = new Date();
+                  const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
+                  const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
+                  const fullTimeDisplay = `${dateStr} at ${timeStr}`;
+                  const senderLabel = (name || 'you').toLowerCase();
+
+                  sendingBubble.className = 'message-container sent';
+                  const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
+                  const replyQuoteHtml = (() => {
+                    let snippetText = (confirmedMsg && (confirmedMsg.reply_snippet || confirmedMsg.reply_message))
+                      ? (confirmedMsg.reply_snippet || confirmedMsg.reply_message)
+                      : (activeReply && activeReply.snippet ? activeReply.snippet : '');
+                    if (!snippetText && replyUuid) {
+                      const targetContainer = chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`);
+                      if (targetContainer && typeof getReplySnippet === 'function') {
+                        snippetText = getReplySnippet(targetContainer);
+                      }
+                    }
+                    if (!replyUuid || !snippetText) return '';
+                    if (String(snippetText).startsWith('image:')) {
+                      const imgFile = String(snippetText).slice(6);
+                      const imgSrc  = 'uploads/' + imgFile;
+                      return `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(replyUuid)}"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
+                    }
+                    return `<div class="reply-quote" data-reply-to="${escapeHtml(replyUuid)}"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
+                  })();
+                  sendingBubble.innerHTML = `
+                    <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
+                    <div class="bubble-wrapper">
+                      <div class="message-click-timestamp">${fullTimeDisplay}</div>
+                      ${replyQuoteHtml}
+                      <div class="message-bubble${emojiOnlyClass}">
+                        <div class="message-content">${escapeHtml(msgContent)}</div>
+                      </div>
                     </div>
-                  </div>
-                `;
-                  const contentEl = sendingBubble.querySelector('.message-content');
-                  if (contentEl) {
-                    linkifyContent(contentEl);
-                    applyReadMoreToElement(contentEl);
+                  `;
+                    const contentEl = sendingBubble.querySelector('.message-content');
+                    if (contentEl) {
+                      linkifyContent(contentEl);
+                      applyReadMoreToElement(contentEl);
+                    }
+                    applyAdminBadges();
+                    // The optimistic bubble just became a real, permanent
+                    // .message-container inside chatBox — cap the window at
+                    // MAX_WINDOW just like any other real-time append.
+                    if (!gcViewingOlder && !dmViewingOlder) {
+                      const trimmed = trimChatMessages(MAX_WINDOW);
+                      if (trimmed) refreshCursorAfterTopTrim();
+                    }
+                    // Always scroll to bottom for confirmed message
+                    window.replyJumpActive = false;
+                    shouldAutoScroll = true;
+                    userScrolledUp = false;
+                    scrollToBottom(true, true);
+                    hideScrollIndicator(true);
+                    updateSeenIndicator();
                   }
-                  applyAdminBadges();
-                  // The optimistic bubble just became a real, permanent
-                  // .message-container inside chatBox — cap the window at
-                  // MAX_WINDOW just like any other real-time append.
-                  if (!gcViewingOlder && !dmViewingOlder) {
-                    const trimmed = trimChatMessages(MAX_WINDOW);
-                    if (trimmed) refreshCursorAfterTopTrim();
-                  }
-                  // Always scroll for the user's own confirmed message — see note
-                  // above the optimistic-bubble scroll for why isAtBottom() is
-                  // unreliable while the virtual keyboard is open.
-                  scrollToBottom(true, true);
-                  updateSeenIndicator();
+                } else {
+                  // If confirmedMsg is missing or invalid, remove the optimistic sending bubble so it doesn't float stuck!
+                  if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
                 }
-              } else {
-                // If confirmedMsg is missing or invalid, remove the optimistic sending bubble so it doesn't float stuck!
-                if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
               }
             }
           }
@@ -3552,13 +3918,21 @@
           // Broadcast notification via WebSocket so other clients patch DOM.
           if (ws && ws.readyState === WebSocket.OPEN) {
             const wasEditing = !!capturedEditingMsgId;
+            const targetConvId = (typeof getActiveChannelConvId === 'function')
+              ? getActiveChannelConvId()
+              : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+            const isOffice = isGlobalChat && Boolean(targetConvId && targetConvId.startsWith('office_'));
+            const isCustomGc = isGlobalChat && Boolean(targetConvId && targetConvId.startsWith('gc_'));
+            const effectiveChatType = isGlobalChat ? (isCustomGc ? 'custom_gc' : (isOffice ? 'office_gc' : 'global')) : 'private';
+
             if (wasEditing) {
               ws.send(JSON.stringify({
                 type: 'message_edited',
                 msg_uuid: capturedEditingMsgId,
                 message: message,
                 edit_count: newEditCount,
-                chat_type: isGlobalChat ? 'global' : 'private',
+                chat_type: effectiveChatType,
+                conv_id: isGlobalChat ? targetConvId : null,
                 recipient_id: activeDMAccountId || null
               }));
             } else {
@@ -3571,7 +3945,8 @@
               const replySnippet = activeReply ? activeReply.snippet : null;
               ws.send(JSON.stringify({
                 type: 'message',
-                chat_type: isGlobalChat ? 'global' : 'private',
+                chat_type: effectiveChatType,
+                conv_id: isGlobalChat ? targetConvId : null,
                 recipient_id: activeDMAccountId || null,
                 msg_uuid: (confirmedMsg && confirmedMsg.id) ? confirmedMsg.id : null,
                 message: message,
@@ -3586,16 +3961,30 @@
           // Fallback only if confirmedMsg missing (optimistic bubble already converted above)
           if (!confirmedMsg) {
             if (typeof clearSendingOverlay === 'function') clearSendingOverlay();
-            if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
-            else loadChatForced();
+            if (wasViewingOlder) {
+              returnToLatestChat();
+            } else {
+              window.replyJumpActive = false;
+              userScrolledUp = false;
+              shouldAutoScroll = true;
+              scrollToBottom(true, true);
+              hideScrollIndicator(true);
+              if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
+              else loadChatForced();
+            }
           }
 
           // Bump the conversation to the top of the sidebar after a successful send.
           // No fetch needed — we just move the user row up in-place.
-          if (!isGlobalChat && activeDM) {
-            if (!bumpSidebarUser(activeDM, {})) {
-              // Conversation partner isn't in the currently loaded/filtered
-              // sidebar list (e.g. still under a search filter).
+          if (isGlobalChat) {
+            const targetConvId = (typeof getActiveChannelConvId === 'function')
+              ? getActiveChannelConvId()
+              : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+            if (targetConvId && (targetConvId.startsWith('gc_') || targetConvId.startsWith('office_'))) {
+              bumpSidebarUser(targetConvId, { lastMessage: message });
+            }
+          } else if (activeDM) {
+            if (!bumpSidebarUser(activeDM, { lastMessage: message })) {
               fetchUsers();
             }
           }
@@ -3979,11 +4368,6 @@
       closeCommSettingsModal();
     };
 
-    // Backdrop click listener for closing comm settings modal
-    document.getElementById('commSettingsModal')?.addEventListener('click', function(e) {
-      if (e.target === this) closeCommSettingsModal();
-    });
-
     // Attach click listener directly to settings button
     const commBtn = document.getElementById('commSettingsBtn');
     if (commBtn) {
@@ -4019,11 +4403,6 @@
       }
     };
 
-    // Backdrop click closes the modal
-    document.getElementById('userVerificationModal')?.addEventListener('click', function(e) {
-      if (e.target === this) closeUserVerificationModal();
-    });
-
     // Search on input with 400ms debounce — no fetch-all
     const verifyInput = document.getElementById('verifySearchInput');
     if (verifyInput) {
@@ -4049,6 +4428,7 @@
               users.forEach(u => {
                 const row = document.createElement('div');
                 row.dataset.accountId = u.account_id;
+                row.setAttribute('data-account-id', u.account_id);
                 row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
 
                 // Name + badge
@@ -4240,7 +4620,8 @@
     }
 
     window._syncVerifyModalRow = function(accountId, isVerified) {
-      const row = document.querySelector(`#verifySearchResults [data-account-id="${accountId}"]`);
+      const row = document.querySelector(`#verifySearchResults [data-account-id="${accountId}"]`) ||
+        Array.from(document.querySelectorAll('#verifySearchResults > div')).find(el => Number(el.dataset?.accountId || el.getAttribute?.('data-account-id')) === Number(accountId));
       if (!row) return;
 
       const chk = row.querySelector('input[type="checkbox"]');
@@ -4403,12 +4784,6 @@
         xhr.send('secretKey=' + encodeURIComponent(secretInput.value));
       });
       
-      // Close modal when clicking outside
-      confirmModal.addEventListener("click", function(e) {
-        if (e.target === confirmModal) {
-          closeModal();
-        }
-      });
     }
 
     // ── "/backup" modal wiring (mirrors the /clear wiring above) ──────────────
@@ -4475,18 +4850,9 @@
         }
         runBackup();
       });
-
-      backupConfirmModalEl.addEventListener('click', function(e) {
-        if (e.target === backupConfirmModalEl) closeBackupConfirmModal();
-      });
     }
 
     const backupAlreadyDoneModalEl = document.getElementById('backupAlreadyDoneModal');
-    if (backupAlreadyDoneModalEl) {
-      backupAlreadyDoneModalEl.addEventListener('click', function(e) {
-        if (e.target === backupAlreadyDoneModalEl) closeBackupAlreadyDoneModal();
-      });
-    }
 
     // User Mention Autocomplete System Completely Removed
 
@@ -4513,12 +4879,10 @@
         }
       }
       
-      // Press Space or Enter when scroll indicator is visible to scroll to bottom
-      if ((e.key === ' ' || e.key === 'Enter') && scrollIndicator.classList.contains('visible')) {
+      // Press Space or Enter only when scroll indicator itself is focused and visible
+      if ((e.key === ' ' || e.key === 'Enter') && document.activeElement === scrollIndicator && scrollIndicator.classList.contains('visible')) {
         e.preventDefault();
-        shouldAutoScroll = true;
-        userScrolledUp = false;
-        scrollToBottom(true);
+        returnToLatestChat();
       }
       
       // Prevent clear chat shortcuts for non-admins
@@ -5092,15 +5456,6 @@
     window.showEditLimitModal = showEditLimitModal;
     window.closeEditExpiredModal = closeEditExpiredModal;
 
-    const editExpiredModalEl = document.getElementById('editExpiredModal');
-    if (editExpiredModalEl) {
-      editExpiredModalEl.addEventListener('click', function(e) {
-        if (e.target === editExpiredModalEl) {
-          closeEditExpiredModal();
-        }
-      });
-    }
-
     // ── Scroll anchoring for content that resizes above the viewport ──────
     // The backread "glitch": messages are prepended above the current
     // scroll position, and their image thumbnails don't have a reserved
@@ -5306,11 +5661,28 @@
           if (this.status === 200) {
             let resData = null;
             try { resData = JSON.parse(this.responseText); } catch(e) {}
-            if (isGlobalChat) {
-              isLoadingGC = false;
-              loadGlobalChat(false);
-            } else if (activeDM) {
-              loadChatForced();
+            const wasViewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+            if (wasViewingOlder) {
+              returnToLatestChat();
+            } else {
+              window.replyJumpActive = false;
+              userScrolledUp = false;
+              shouldAutoScroll = true;
+              scrollToBottom(true, true);
+              hideScrollIndicator(true);
+              if (isGlobalChat) {
+                isLoadingGC = false;
+                loadGlobalChat(false);
+                const targetConvId = (typeof getActiveChannelConvId === 'function')
+                  ? getActiveChannelConvId()
+                  : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+                if (targetConvId && (targetConvId.startsWith('gc_') || targetConvId.startsWith('office_'))) {
+                  bumpSidebarUser(targetConvId, { lastMessage: 'Sent a file' });
+                }
+              } else if (activeDM) {
+                loadChatForced();
+                bumpSidebarUser(activeDM, { lastMessage: 'Sent a file' });
+              }
             }
           } else {
             showUploadErrorModal('Failed to save uploaded file message.');
@@ -5350,61 +5722,78 @@
     var iosFooter          = document.querySelector('.input-area');
     var iosBlurSuppressed  = false; // true while we're about to refocus after send
 
-    let keyboardAnimRaf = null;
+    let lastViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    let isKeyboardOpen = false;
+    let keyboardOpening = false;
+    let wasNearBottomOnFocus = true;
+    let keyboardOpenTimer = null;
 
-    function smoothKeepScrollAtBottom(durationMs = 400) {
-      if (!chatBox) return;
-      userScrolledUp = false;
-      shouldAutoScroll = true;
-      hideScrollIndicator();
+    function handleKeyboardResize(currentHeight) {
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+      const diff = lastViewportHeight - currentHeight;
 
-      if (keyboardAnimRaf) {
-        cancelAnimationFrame(keyboardAnimRaf);
-        keyboardAnimRaf = null;
-      }
-
-      const startTime = performance.now();
-
-      function step(now) {
-        if (!chatBox) return;
-        chatBox.scrollTop = chatBox.scrollHeight;
-        if (now - startTime < durationMs) {
-          keyboardAnimRaf = requestAnimationFrame(step);
-        } else {
-          keyboardAnimRaf = null;
+      // Keyboard opening/extending: viewport shrinks by > 60px
+      if (diff > 60 || (keyboardOpening && diff > 20)) {
+        isKeyboardOpen = true;
+        keyboardOpening = false;
+        if (wasNearBottomOnFocus && chatBox) {
           chatBox.scrollTop = chatBox.scrollHeight;
         }
+        if (keyboardOpenTimer) clearTimeout(keyboardOpenTimer);
+        keyboardOpenTimer = setTimeout(function() {
+          if (isKeyboardOpen && wasNearBottomOnFocus && chatBox) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+          }
+        }, 200);
+      } else if (diff < -60) {
+        // Keyboard closing/retracting: viewport expands
+        isKeyboardOpen = false;
+        keyboardOpening = false;
+        if (keyboardOpenTimer) clearTimeout(keyboardOpenTimer);
       }
 
-      keyboardAnimRaf = requestAnimationFrame(step);
-    }
-
-    function applyIOSViewport() {
-      smoothKeepScrollAtBottom(250);
-    }
-
-    function resetIOSViewport() {
-      if (!userScrolledUp && isAtBottom()) {
-        smoothKeepScrollAtBottom(250);
-      }
+      lastViewportHeight = currentHeight;
     }
 
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', function() {
-        if (!userScrolledUp && isAtBottom()) {
-          smoothKeepScrollAtBottom(250);
-        }
+        handleKeyboardResize(window.visualViewport.height);
+      });
+      window.visualViewport.addEventListener('scroll', function() {
+        if (window.scrollY !== 0) window.scrollTo(0, 0);
       });
     }
 
-    messageInput.addEventListener('focus', function () {
-      if (!userScrolledUp && isAtBottom()) {
-        smoothKeepScrollAtBottom(350);
+    window.addEventListener('resize', function() {
+      if (!window.visualViewport) {
+        handleKeyboardResize(window.innerHeight);
       }
     });
 
+    window.addEventListener('scroll', function() {
+      if (window.scrollY !== 0) {
+        window.scrollTo(0, 0);
+      }
+    }, { passive: true });
+
+    messageInput.addEventListener('focus', function () {
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+      if (!isKeyboardOpen) {
+        keyboardOpening = true;
+        wasNearBottomOnFocus = !userScrolledUp || (typeof isAtBottom === 'function' ? isAtBottom(120) : true);
+        setTimeout(function() {
+          if (keyboardOpening && wasNearBottomOnFocus && chatBox) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+          }
+        }, 120);
+      }
+      // When isKeyboardOpen is already true, do not touch scroll so the chat UI stays steady!
+    });
+
     messageInput.addEventListener('blur', function () {
-      // Intentionally do not force scroll on blur: keeps conversation steady when tapping Read More or scrolling
+      keyboardOpening = false;
+      isKeyboardOpen = false;
+      if (keyboardOpenTimer) clearTimeout(keyboardOpenTimer);
     });
 
     // ── Mobile keyboard: keep input-area always above the virtual keyboard ──
@@ -5482,6 +5871,7 @@
       window._startSidebarPoll = startSidebarPoll;
       startSidebarPoll();
       fetchUsers();
+      if (typeof loadCustomGcs === 'function') loadCustomGcs();
 
       // One-shot catch-up for any notify/mention toasts that arrived while we
       // were offline (e.g. a missed WS push before this tab connected). Live
@@ -5503,10 +5893,19 @@
         }
 
         // 2. Immediately catch up on any messages missed while hidden (only if not backreading)
+        const isBackreading = (gcViewingOlder || userScrolledUp || (typeof isAtBottom === 'function' && !isAtBottom(60)));
         if (isGlobalChat) {
-          if (!gcViewingOlder) loadGlobalChat(false);
+          if (!isBackreading) {
+            // Reset the scroll indicator unread count before reloading so the
+            // reconcile computes a fresh genuinely-new count from the DOM diff
+            // rather than stacking on top of WS-push increments that fired
+            // while the tab was hidden / WS was reconnecting.
+            hideScrollIndicator(true);
+            loadGlobalChat(false);
+          }
         } else if (activeDM) {
-          if (!dmViewingOlder) {
+          const isDmBackreading = (dmViewingOlder || userScrolledUp || (typeof isAtBottom === 'function' && !isAtBottom(60)));
+          if (!isDmBackreading) {
             loadChat(false);
             if (typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
               markRead(activeDM);
@@ -5518,6 +5917,7 @@
 
         // 3. Also refresh sidebar so unread badges are current
         fetchUsers();
+        if (typeof loadCustomGcs === 'function') loadCustomGcs();
 
         // 3b. Catch up immediately on session validity + own-name changes,
         // since checkSession()/refreshOwnName() now skip ticks while hidden.
@@ -5722,3 +6122,491 @@
       const wsAlive = ws && ws.readyState === WebSocket.OPEN;
       if (!wsAlive) refreshOwnName();
     }, 15000);
+
+    // =========================================================================
+    // Custom Group Chat (GC) Modals & Interactions
+    // =========================================================================
+
+    window._gcSelectedMembers = new Map(); // account_id -> { account_id, full_name, avatar_url, is_chatify_verified }
+    let _gcSearchTimer = null;
+    let _addGcSearchTimer = null;
+
+    function updateGcSelectedCountBadge() {
+      const badge = document.getElementById('gcSelectedCountBadge');
+      const count = window._gcSelectedMembers ? window._gcSelectedMembers.size : 0;
+      if (badge) {
+        if (count > 0) {
+          badge.textContent = count > 99 ? '99+' : String(count);
+          badge.style.display = 'inline-block';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+
+      // Update Create button state: disabled (not blue) unless both name and members are present
+      const submitBtn = document.getElementById('createCustomGcSubmitBtn');
+      const nameInput = document.getElementById('gcNameInput');
+      const hasName = nameInput ? Boolean(nameInput.value.trim()) : false;
+      const hasMembers = count > 0;
+      if (submitBtn) {
+        submitBtn.disabled = !(hasName && hasMembers);
+      }
+    }
+
+    function renderGcSelectedChips() {
+      // Selected chips display removed per UI update
+    }
+
+    window.openCreateCustomGcModal = function() {
+      if (typeof closeCommSettingsModal === 'function') closeCommSettingsModal();
+      const modal = document.getElementById('createCustomGcModal');
+      if (!modal) return;
+
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+
+      const nameInput = document.getElementById('gcNameInput');
+      if (nameInput) {
+        nameInput.value = '';
+        setTimeout(() => nameInput.focus(), 80);
+      }
+      const searchInput = document.getElementById('gcMemberSearchInput');
+      if (searchInput) searchInput.value = '';
+
+      const results = document.getElementById('gcMemberSearchResults');
+      if (results) results.innerHTML = '';
+
+      window._gcSelectedMembers.clear();
+      updateGcSelectedCountBadge();
+    };
+
+    window.closeCreateCustomGcModal = function() {
+      const modal = document.getElementById('createCustomGcModal');
+      if (!modal) return;
+      modal.classList.remove('active');
+      modal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    };
+
+    // Monitor group name input to toggle Create button state
+    const gcNameInput = document.getElementById('gcNameInput');
+    if (gcNameInput) {
+      gcNameInput.addEventListener('input', updateGcSelectedCountBadge);
+    }
+
+    // Search user for Create Custom GC (max 3 results)
+    const gcSearchInput = document.getElementById('gcMemberSearchInput');
+    if (gcSearchInput) {
+      gcSearchInput.addEventListener('input', function() {
+        clearTimeout(_gcSearchTimer);
+        const q = this.value.trim();
+        const resultsEl = document.getElementById('gcMemberSearchResults');
+        if (!resultsEl) return;
+
+        if (q === '') {
+          resultsEl.innerHTML = '';
+          return;
+        }
+
+        _gcSearchTimer = setTimeout(() => {
+          resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Searching...</div>';
+          fetch('search_users_gc.php?q=' + encodeURIComponent(q))
+            .then(r => r.json())
+            .then(data => {
+              const users = (data.users || []).slice(0, 1);
+              if (users.length === 0) {
+                resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">No users found.</div>';
+                return;
+              }
+              resultsEl.innerHTML = '';
+              users.forEach(u => {
+                const isSelected = window._gcSelectedMembers.has(u.account_id);
+                const row = document.createElement('div');
+                row.dataset.accountId = u.account_id;
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
+
+                const nameSpan = document.createElement('span');
+                nameSpan.style.cssText = 'flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
+
+                const nameTextSpan = document.createElement('span');
+                nameTextSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                nameTextSpan.textContent = u.full_name;
+                nameTextSpan.title = u.full_name;
+                nameSpan.appendChild(nameTextSpan);
+
+                if (u.is_chatify_verified) {
+                  const b = document.createElement('span');
+                  b.className = 'verified-badge';
+                  b.style.cssText = 'flex-shrink:0;';
+                  b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                  nameSpan.appendChild(b);
+                }
+
+                // Toggle switch
+                const label = document.createElement('label');
+                label.style.cssText = 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;';
+                const chk = document.createElement('input');
+                chk.type = 'checkbox';
+                chk.checked = isSelected;
+                chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
+                const slider = document.createElement('span');
+                slider.className = 'slider-bg';
+                slider.style.cssText = `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${chk.checked ? '#1b74e4' : 'var(--border-color)'};`;
+                const knob = document.createElement('span');
+                knob.className = 'slider-knob';
+                knob.style.cssText = `position:absolute;top:3px;left:${chk.checked ? '21px' : '3px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
+                slider.appendChild(knob);
+                label.appendChild(chk);
+                label.appendChild(slider);
+
+                chk.addEventListener('change', function() {
+                  const checked = this.checked;
+                  slider.style.background = checked ? '#1b74e4' : 'var(--border-color)';
+                  knob.style.left = checked ? '21px' : '3px';
+                  if (checked) {
+                    window._gcSelectedMembers.set(u.account_id, u);
+                  } else {
+                    window._gcSelectedMembers.delete(u.account_id);
+                  }
+                  updateGcSelectedCountBadge();
+                });
+
+                row.appendChild(nameSpan);
+                row.appendChild(label);
+                resultsEl.appendChild(row);
+              });
+            })
+            .catch(() => {
+              resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Error searching users.</div>';
+            });
+        }, 300);
+      });
+    }
+
+    window.submitCreateCustomGc = function() {
+      const nameInput = document.getElementById('gcNameInput');
+      const groupName = nameInput ? nameInput.value.trim() : '';
+
+      if (groupName === '') {
+        alert('Please enter a group chat name.');
+        if (nameInput) nameInput.focus();
+        return;
+      }
+
+      if (groupName.length > 50) {
+        alert('Group chat name must be 50 characters or less.');
+        if (nameInput) nameInput.focus();
+        return;
+      }
+
+      if (!window._gcSelectedMembers || window._gcSelectedMembers.size === 0) {
+        alert('Please select at least one member to add to the group chat.');
+        return;
+      }
+
+      const submitBtn = document.getElementById('createCustomGcSubmitBtn');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating...';
+      }
+
+      const memberIds = Array.from(window._gcSelectedMembers.keys());
+      const bodyData = new FormData();
+      bodyData.append('name', groupName);
+      bodyData.append('member_ids', JSON.stringify(memberIds));
+
+      fetch('create_custom_gc.php', {
+        method: 'POST',
+        body: bodyData,
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Create';
+          }
+          if (!data || !data.success) {
+            alert(data.error || 'Failed to create group chat.');
+            return;
+          }
+
+          closeCreateCustomGcModal();
+
+          // Immediately unshift new GC to allUsersData and render at top of sidebar
+          const nowTs = Math.floor(Date.now() / 1000);
+          const newGc = {
+            is_custom_gc: true,
+            gc_id: data.group_id,
+            conv_id: data.conv_id,
+            name: data.name,
+            full_name: data.name,
+            username: 'gc_' + data.group_id,
+            member_count: memberIds.length + 1,
+            creator_id: wsConfig.accountId,
+            lastMessage: '',
+            lastTimestamp: nowTs,
+            unreadCount: 0,
+            is_newly_added: false,
+            is_chatify_verified: true,
+            avatar_url: 'cspc.webp'
+          };
+          if (Array.isArray(allUsersData)) {
+            const existingIdx = allUsersData.findIndex(u => u.is_custom_gc && Number(u.gc_id) === Number(data.group_id));
+            if (existingIdx !== -1) {
+              allUsersData.splice(existingIdx, 1);
+            }
+            allUsersData.unshift(newGc);
+            renderSidebarUsers();
+          }
+
+          if (typeof loadCustomGcs === 'function') {
+            loadCustomGcs();
+          }
+
+          // Open the new group chat
+          if (typeof selectCustomGc === 'function') {
+            selectCustomGc(newGc);
+          }
+        })
+        .catch(err => {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Create';
+          }
+          alert('Network error while creating group chat.');
+        });
+    };
+
+    // =========================================================================
+    // Add Members to Existing Custom GC Modal (Same look as User Verification)
+    // =========================================================================
+
+    window.openAddGcMembersModal = function() {
+      if (!window.activeCustomGc) return;
+      const myId = (typeof wsConfig !== 'undefined' && wsConfig.accountId) ? Number(wsConfig.accountId) : 0;
+      const creatorId = window.activeCustomGc ? Number(window.activeCustomGc.creator_id) : 0;
+      const isCreator = (myId > 0 && creatorId > 0 && myId === creatorId);
+      const isGcAdmin = isCreator || Boolean(window.activeCustomGcGroupInfo && window.activeCustomGcGroupInfo.is_gc_admin) || (Array.isArray(window.activeCustomGcMembers) && window.activeCustomGcMembers.some(x => Number(x.account_id) === myId && Boolean(x.is_admin || x.is_creator)));
+      if (!isGcAdmin) {
+        const addBtn = document.getElementById('officeMembersAddUserBtn');
+        if (addBtn) addBtn.style.display = 'none';
+        return;
+      }
+      const modal = document.getElementById('addGcMembersModal');
+      if (!modal) return;
+
+      const subEl = document.getElementById('addGcModalSubtitle');
+      if (subEl) {
+        const rawName = window.activeCustomGc.name || 'Group Chat';
+        subEl.textContent = rawName.length > 25 ? (rawName.slice(0, 25).trimEnd() + '...') : rawName;
+        subEl.title = rawName;
+      }
+
+      const searchInput = document.getElementById('addGcSearchInput');
+      if (searchInput) {
+        searchInput.value = '';
+        setTimeout(() => searchInput.focus(), 80);
+      }
+
+      const results = document.getElementById('addGcSearchResults');
+      if (results) results.innerHTML = '';
+
+      window._addGcNewlyAddedCount = 0;
+      const addBadge = document.getElementById('addGcSelectedCountBadge');
+      if (addBadge) addBadge.style.display = 'none';
+
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+
+      // Fetch fresh members for this specific GC so isAlreadyInGc is always accurate
+      const gcId = window.activeCustomGc.gc_id;
+      fetch('fetch_custom_gc_members.php?group_id=' + encodeURIComponent(gcId))
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.success) {
+            window.activeCustomGcMembers = data.members || [];
+          }
+        })
+        .catch(() => {});
+    };
+
+    window.closeAddGcMembersModal = function() {
+      const modal = document.getElementById('addGcMembersModal');
+      if (!modal) return;
+      modal.classList.remove('active');
+      modal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+
+      // Refresh members modal if open
+      if (typeof reloadOfficeMembersList === 'function') {
+        reloadOfficeMembersList(false);
+      }
+      if (typeof loadCustomGcs === 'function') {
+        loadCustomGcs();
+      }
+    };
+
+    const addGcSearchInput = document.getElementById('addGcSearchInput');
+    if (addGcSearchInput) {
+      addGcSearchInput.addEventListener('input', function() {
+        clearTimeout(_addGcSearchTimer);
+        const q = this.value.trim();
+        const resultsEl = document.getElementById('addGcSearchResults');
+        if (!resultsEl) return;
+
+        if (q === '') {
+          resultsEl.innerHTML = '';
+          return;
+        }
+
+        _addGcSearchTimer = setTimeout(() => {
+          resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Searching...</div>';
+          const gcId = window.activeCustomGc ? window.activeCustomGc.gc_id : 0;
+          fetch('search_users_gc.php?q=' + encodeURIComponent(q) + (gcId ? '&group_id=' + encodeURIComponent(gcId) : ''))
+            .then(r => r.json())
+            .then(data => {
+              const currentMembers = Array.isArray(window.activeCustomGcMembers) ? window.activeCustomGcMembers : [];
+              const rawUsers = data.users || [];
+              const availableUsers = rawUsers.filter(u => !currentMembers.some(m => Number(m.account_id) === Number(u.account_id)));
+              const users = availableUsers.slice(0, 1); // max 1 result only
+              if (users.length === 0) {
+                resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">No users found.</div>';
+                return;
+              }
+
+              resultsEl.innerHTML = '';
+
+              users.forEach(u => {
+                const isAlreadyInGc = false;
+                const row = document.createElement('div');
+                row.dataset.accountId = u.account_id;
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
+
+                const nameSpan = document.createElement('span');
+                nameSpan.style.cssText = 'flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
+
+                const nameTextSpan = document.createElement('span');
+                nameTextSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                nameTextSpan.textContent = u.full_name;
+                nameTextSpan.title = u.full_name;
+                nameSpan.appendChild(nameTextSpan);
+
+                if (u.is_chatify_verified) {
+                  const b = document.createElement('span');
+                  b.className = 'verified-badge';
+                  b.style.cssText = 'flex-shrink:0;';
+                  b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                  nameSpan.appendChild(b);
+                }
+
+                row.appendChild(nameSpan);
+
+                const isCreator = (window.activeCustomGc && Number(window.activeCustomGc.creator_id) === Number(u.account_id));
+
+                // Toggle switch
+                const label = document.createElement('label');
+                label.style.cssText = 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;';
+                const chk = document.createElement('input');
+                chk.type = 'checkbox';
+                chk.checked = false;
+                if (isCreator) chk.disabled = true;
+                chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
+                const slider = document.createElement('span');
+                slider.className = 'slider-bg';
+                slider.style.cssText = 'position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:var(--border-color);';
+                const knob = document.createElement('span');
+                knob.className = 'slider-knob';
+                knob.style.cssText = 'position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);';
+                slider.appendChild(knob);
+                label.appendChild(chk);
+                label.appendChild(slider);
+                row.appendChild(label);
+
+                chk.addEventListener('change', function() {
+                  if (!window.activeCustomGc) return;
+                  // Only allow adding (checking ON) in this modal — cannot uncheck
+                  if (!this.checked) {
+                    // Prevent unchecking: snap back to checked
+                    this.checked = true;
+                    slider.style.background = '#1b74e4';
+                    knob.style.left = '21px';
+                    return;
+                  }
+                  const targetId = Number(u.account_id);
+                  const groupId = window.activeCustomGc.gc_id;
+
+                  this.disabled = true;
+                  label.style.cursor = 'not-allowed';
+                  slider.style.background = '#1b74e4';
+                  knob.style.left = '21px';
+
+                  const bodyData = new FormData();
+                  bodyData.append('group_id', groupId);
+                  bodyData.append('member_ids', JSON.stringify([targetId]));
+
+                  fetch('add_custom_gc_members.php', {
+                    method: 'POST',
+                    body: bodyData,
+                  })
+                    .then(r => r.json())
+                    .then(res => {
+                      if (res && res.success) {
+                        // Keep permanently checked and disabled — added successfully
+                        chk.disabled = true;
+                        label.title = 'Already added';
+                        slider.style.background = '#1b74e4'; // blue = confirmed added
+
+                        window._addGcNewlyAddedCount = (window._addGcNewlyAddedCount || 0) + 1;
+                        const addBadge = document.getElementById('addGcSelectedCountBadge');
+                        if (addBadge) {
+                          addBadge.textContent = window._addGcNewlyAddedCount > 99 ? '99+' : String(window._addGcNewlyAddedCount);
+                          addBadge.style.display = 'inline-block';
+                        }
+                        if (!Array.isArray(window.activeCustomGcMembers)) {
+                          window.activeCustomGcMembers = [];
+                        }
+                        if (!window.activeCustomGcMembers.some(m => Number(m.account_id) === targetId)) {
+                          window.activeCustomGcMembers.push({
+                            account_id: u.account_id,
+                            full_name: u.full_name,
+                            avatar_url: u.avatar_url,
+                            is_chatify_verified: u.is_chatify_verified
+                          });
+                        }
+                        if (typeof reloadOfficeMembersList === 'function') {
+                          reloadOfficeMembersList(true);
+                        }
+                        if (typeof loadGlobalChat === 'function') {
+                          loadGlobalChat(false, false, true);
+                        }
+                      } else {
+                        // Failed — reset to unchecked so they can retry
+                        chk.disabled = false;
+                        chk.checked = false;
+                        label.style.cursor = 'pointer';
+                        slider.style.background = 'var(--border-color)';
+                        knob.style.left = '3px';
+                        alert(res?.error || 'Failed to add member.');
+                      }
+                    })
+                    .catch(() => {
+                      chk.disabled = false;
+                      chk.checked = false;
+                      label.style.cursor = 'pointer';
+                      slider.style.background = 'var(--border-color)';
+                      knob.style.left = '3px';
+                      alert('Network error adding member.');
+                    });
+                });
+
+                resultsEl.appendChild(row);
+              });
+            })
+            .catch(() => {
+              resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Error searching users.</div>';
+            });
+        }, 300);
+      });
+    }

@@ -1056,7 +1056,7 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
                             </td>
                             <td>
                                 <div style="font-size: 12px; font-weight: 600; color: #334155;">
-                                    {{ Carbon::parse($rec->created_at)->format('M d, Y') }}
+                                    {{ \App\Helpers\RegisterQueryHelper::formatSmartDate($rec->created_at) }}
                                 </div>
                                 <div style="font-size: 11px; color: #94a3b8;">
                                     {{ Carbon::parse($rec->created_at)->format('h:i A') }}

@@ -1,1 +1,0 @@
-<livewire:components.session-guard />

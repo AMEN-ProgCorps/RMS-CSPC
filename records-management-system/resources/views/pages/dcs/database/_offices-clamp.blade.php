@@ -1,3 +1,6 @@
+{{--
+DCS file: Office list clamped to two lines, with See more when the rest does not fit.
+--}}
 {{-- Truncate at last complete office that fits in 2 lines; See more sits after that office. --}}
 @php
     $officesRaw = trim((string) ($officesText ?? ''));

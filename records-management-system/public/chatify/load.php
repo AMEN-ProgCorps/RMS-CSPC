@@ -5,10 +5,13 @@
 // GET params:
 //   before_uuid (string, optional) — msg_uuid of the oldest message already shown;
 //                                     omit to load the latest messages.
+//   around_uuid (string, optional) — msg_uuid of a target message to jump to;
+//                                     fetches a window of messages ending at that
+//                                     message (used by reply-quote jump feature).
 //   limit       (int, optional)    — messages per page, default 50, max 100.
 //
 // Returns JSON:
-//   { html: string, hasMore: bool, nextCursor: string|null }
+//   { html: string, hasMore: bool, nextCursor: string|null, jumpMode?: bool }
 //
 // Uses KEYSET (cursor) pagination — no OFFSET, no COUNT(*).  The DB returns
 // rows newest-first; array_reverse() re-orders for display.
@@ -43,6 +46,7 @@ if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret)
 $requestedLimit = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
 $limit          = min(max(1, $requestedLimit), 100);
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
+$aroundUuid = isset($_GET['around_uuid']) && $_GET['around_uuid'] !== '' ? (string) $_GET['around_uuid'] : null;
 
 $convId = trim($_GET['conv_id'] ?? '');
 $userOfficeId = (int) ($_SESSION['office_id'] ?? 0);
@@ -64,18 +68,50 @@ if ($isOfficeGc && $targetOfficeId) {
         echo json_encode(['error' => 'You do not belong to this office group chat.']);
         exit;
     }
+    // Mark office GC messages as read for this user (only for real members, not spy mode)
+    if (!Auth::isAdmin($myAccountId) || $userOfficeId === $targetOfficeId) {
+        OfficeChatManager::markAsRead($targetOfficeId, $myAccountId);
+    }
+}
+
+// Custom GC authorization: verify user is a member
+$isCustomGc    = str_starts_with($convId, 'gc_');
+$customGcId    = 0;
+if ($isCustomGc) {
+    $customGcId = (int) substr($convId, 3);
+    if ($customGcId <= 0 || (!Auth::isAdmin($myAccountId) && !CustomGroupManager::isMember($customGcId, $myAccountId))) {
+        http_response_code(403);
+        echo json_encode(['error' => 'You are not a member of this group chat.']);
+        exit;
+    }
+    // Mark messages as read for this user
+    CustomGroupManager::markAsRead($customGcId, $myAccountId);
+}
+
+$customGcMemberIds = [];
+if ($isCustomGc && $customGcId > 0) {
+    $gcMembers = CustomGroupManager::getMembers($customGcId);
+    $customGcMemberIds = array_map('intval', array_column($gcMembers, 'account_id'));
 }
 
 // ── Load data ────────────────────────────────────────────────────────────────
 // Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
-$rawMessages = GlobalChatManager::loadRaw($limit + 1, $beforeUuid, $convId);
-$hasMore     = count($rawMessages) > $limit;
-if ($hasMore) {
-    array_pop($rawMessages); // discard the extra sentinel row
+$jumpMode = false;
+if ($aroundUuid !== null) {
+    // Jump-to-message mode: load a window ending at (and including) $aroundUuid.
+    $around  = GlobalChatManager::loadAroundUuid($aroundUuid, $limit, $convId);
+    $rawMessages = $around['rows'];   // already in chronological order
+    $hasMore     = $around['hasMore'];
+    $jumpMode    = true;
+} else {
+    $rawMessages = GlobalChatManager::loadRaw($limit + 1, $beforeUuid, $convId);
+    $hasMore     = count($rawMessages) > $limit;
+    if ($hasMore) {
+        array_pop($rawMessages); // discard the extra sentinel row
+    }
+    // DB returns newest-first; flip for chronological display.
+    $rawMessages = array_reverse($rawMessages);
 }
-
-// DB returns newest-first; flip for chronological display.
-$rawMessages = array_reverse($rawMessages);
 
 // Scope reaction loading to just this page's UUIDs — avoids loading the
 // entire channel's reaction history on every request.
@@ -259,19 +295,54 @@ for ($i = 0; $i < $msgCount; $i++) {
         $senderOfficeId = $userOfficeId;
     }
     $isUserMoved = ($isOfficeGc && $targetOfficeId && $senderOfficeId !== $targetOfficeId);
+    $isUserRemovedFromGc = ($isCustomGc && !empty($customGcMemberIds) && !in_array($senderId, $customGcMemberIds, true));
 
-    if ($isUserMoved) {
-        $noticeText = ($senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+    // Reply quote — a small bubble showing what this message is replying
+    // to. Intentionally has NO sender name attached, just the quoted
+    // content (per product requirement), and disappears on its own if
+    // the original message was later removed/archived (reply_to_msg_uuid
+    // gets nulled out by the FK's ON DELETE SET NULL in that case).
+    $replyQuoteHtml = '';
+    if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
+        $replySenderStatus = false;
+        if ($isOfficeGc && $targetOfficeId && !empty($msg['reply_sender_id'])) {
+            $rSenderId = (int) $msg['reply_sender_id'];
+            if (!isset($senderInfoCache[$rSenderId])) {
+                $senderInfoCache[$rSenderId] = UserResolver::getUserInfo($rSenderId);
+            }
+            $rSenderInfo = $senderInfoCache[$rSenderId];
+            $rSenderOfficeId = isset($rSenderInfo['office_id']) ? (int) $rSenderInfo['office_id'] : 0;
+            if ($rSenderId === $myAccountId && $userOfficeId > 0 && $userOfficeId === $targetOfficeId) {
+                $rSenderOfficeId = $userOfficeId;
+            }
+            if ($rSenderOfficeId !== $targetOfficeId) {
+                $replySenderStatus = ($rSenderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+            }
+        } elseif ($isCustomGc && !empty($msg['reply_sender_id']) && !empty($customGcMemberIds)) {
+            $rSenderId = (int) $msg['reply_sender_id'];
+            if (!in_array($rSenderId, $customGcMemberIds, true)) {
+                $replySenderStatus = 'This user has been removed from the group';
+            }
+        }
+        $replyQuoteHtml = gcBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid'], $replySenderStatus);
+    }
+
+    if ($isUserMoved || $isUserRemovedFromGc) {
+        $noticeText = $isUserRemovedFromGc
+            ? 'This user has been removed from the group'
+            : (($senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office');
         $rawTimestamp = htmlspecialchars($msg['timestamp'] ?? '', ENT_QUOTES);
         $replyToAttr  = !empty($msg['reply_to_msg_uuid']) ? " data-reply-to='" . htmlspecialchars($msg['reply_to_msg_uuid'], ENT_QUOTES) . "'" : '';
         $html .= "<div class='message-container {$msgClass} user-moved' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}'{$replyToAttr}>";
         $html .= "<div class='message-avatar'>{$avatarInner}</div>";
         $html .= "<div class='bubble-wrapper'>";
         $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
+        $html .= $replyQuoteHtml;
         $html .= "<div class='message-bubble'>";
         $html .= "<div class='message-content' style='font-style:italic;opacity:0.85;'>{$noticeText}</div>";
         $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
         $html .= "</div>"; // .message-bubble
+        $html .= Reactions::buildBadgesHtml($reactions[$msgId] ?? [], $myAccountId);
         $html .= "</div>"; // .bubble-wrapper
         $html .= "</div>"; // .message-container
         continue;
@@ -287,31 +358,6 @@ for ($i = 0; $i < $msgCount; $i++) {
         // Decrypt message content
         $content = safeDecrypt($msg['message'] ?? '');
         $contentEsc = htmlspecialchars($content, ENT_QUOTES);
-
-        // Reply quote — a small bubble showing what this message is replying
-        // to. Intentionally has NO sender name attached, just the quoted
-        // content (per product requirement), and disappears on its own if
-        // the original message was later removed/archived (reply_to_msg_uuid
-        // gets nulled out by the FK's ON DELETE SET NULL in that case).
-        $replyQuoteHtml = '';
-        if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
-            $replySenderStatus = false;
-            if ($isOfficeGc && $targetOfficeId && !empty($msg['reply_sender_id'])) {
-                $rSenderId = (int) $msg['reply_sender_id'];
-                if (!isset($senderInfoCache[$rSenderId])) {
-                    $senderInfoCache[$rSenderId] = UserResolver::getUserInfo($rSenderId);
-                }
-                $rSenderInfo = $senderInfoCache[$rSenderId];
-                $rSenderOfficeId = isset($rSenderInfo['office_id']) ? (int) $rSenderInfo['office_id'] : 0;
-                if ($rSenderId === $myAccountId && $userOfficeId > 0 && $userOfficeId === $targetOfficeId) {
-                    $rSenderOfficeId = $userOfficeId;
-                }
-                if ($rSenderOfficeId !== $targetOfficeId) {
-                    $replySenderStatus = ($rSenderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
-                }
-            }
-            $replyQuoteHtml = gcBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid'], $replySenderStatus);
-        }
 
         $html .= "<div class='bubble-wrapper'>";
         $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
@@ -470,6 +516,10 @@ if ($html === '') {
         $offCode = trim($off['office_code'] ?? '');
         $chatTitle = $off ? htmlspecialchars($offCode !== '' ? $offCode : $off['office_name'], ENT_QUOTES) : 'Office Group Chat';
         $emptySubtitle = 'No messages yet. Say hello to your office team!';
+    } elseif ($isCustomGc && $customGcId > 0) {
+        $gcRow = CustomGroupManager::getGroup($customGcId);
+        $chatTitle = $gcRow ? htmlspecialchars($gcRow['name'], ENT_QUOTES) : 'Group Chat';
+        $emptySubtitle = 'No messages yet. Start the conversation!';
     }
     $html = "<div class='empty-chat'>
                 <div class='chat-icon'>
@@ -477,7 +527,7 @@ if ($html === '') {
                         <path d='M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z'/>
                     </svg>
                 </div>
-                <h3>{$chatTitle}</h3>
+                <h3 style='word-break:break-word;overflow-wrap:anywhere;max-width:100%;'>{$chatTitle}</h3>
                 <p>{$emptySubtitle}</p>
             </div>";
 }
@@ -488,4 +538,6 @@ echo json_encode([
     'nextCursor'      => $nextCursor,   // pass as before_uuid for next "load older" request
     'conv_id'         => $convId,
     'is_office_admin' => Auth::isAdmin($myAccountId),
+    'jumpMode'        => $jumpMode,     // true when fetched via around_uuid (reply-quote jump)
+    'jumpTarget'      => $aroundUuid,   // the UUID the client should scroll+blink to
 ]);

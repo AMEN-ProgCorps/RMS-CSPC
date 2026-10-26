@@ -133,16 +133,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 ->where('rdp_record.is_active', true)
                 ->where('rdp_record.transferred_to_nap3', false);
 
+            // NAP Form 1 lists inventory owned by this office only.
+            // Being listed under another office's Duplicate chips must not pull that row in.
             if ($effectiveOffice) {
-                $query->where(function($q) use ($effectiveOffice) {
-                    $q->where('rdp_record.office_own', $effectiveOffice)
-                      ->orWhereExists(function($sub) use ($effectiveOffice) {
-                          $sub->select(DB::raw(1))
-                              ->from('rdp_duplication_section')
-                              ->whereColumn('rdp_duplication_section.dup_id_manager', 'rdp_record.duplication_id')
-                              ->where('rdp_duplication_section.office_code', $effectiveOffice);
-                      });
-                });
+                $query->whereRaw('UPPER(TRIM(rdp_record.office_own)) = ?', [mb_strtoupper(trim((string) $effectiveOffice))]);
             }
 
             if (!empty($this->search)) {
@@ -929,7 +923,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
             try {
                 $c = Carbon::parse($token);
-                $text = (in_array($c->month, [6, 7])) ? $c->format('F Y') : $c->format('M Y');
+                $text = \App\Helpers\RegisterQueryHelper::formatRdpPeriodDate($c);
                 return ['text' => $text, 'year' => $c->year, 'carbon' => $c, 'has_month' => true];
             } catch (\Throwable) {
                 return ['text' => $token, 'year' => null, 'carbon' => null, 'has_month' => false];
@@ -1142,9 +1136,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         }
                     }
                 }
+                // Only structured markers — titles containing the word "REVISED" are not DCS revisions.
                 if (!$isRecRevised) {
                     $dLow = mb_strtolower((string)$r->description);
-                    if (str_contains($dLow, '[revised]') || str_contains($dLow, '(revised)') || preg_match('/\b(revised|superseded)\b/i', $dLow)) {
+                    if (str_contains($dLow, '[revised]') || str_contains($dLow, '(revised)')) {
                         $isRecRevised = true;
                     }
                 }
@@ -1267,7 +1262,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     }
                     if (!$isGpRecRevised) {
                         $dLow = mb_strtolower((string)($p->description ?: $r->description));
-                        if (str_contains($dLow, '[revised]') || str_contains($dLow, '(revised)') || preg_match('/\b(revised|superseded)\b/i', $dLow)) {
+                        if (str_contains($dLow, '[revised]') || str_contains($dLow, '(revised)')) {
                             $isGpRecRevised = true;
                         }
                     }
@@ -1634,12 +1629,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     private function formatItemDate(string $rawDate): string
     {
         $rawDate = trim($rawDate);
-        if (empty($rawDate) || $rawDate === '—') return '—';
-
-        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $rawDate, $m)) {
-            return Carbon::parse($rawDate)->format('j_F_Y');
+        if (empty($rawDate) || $rawDate === '—') {
+            return '—';
         }
-        return $rawDate;
+
+        $formatted = \App\Helpers\RegisterQueryHelper::formatRdpPeriodDate($rawDate, '');
+        return $formatted !== '' ? $formatted : $rawDate;
     }
 
     public function cleanVal($val): string
@@ -1675,16 +1670,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             ->where('is_draft', false)
             ->where('is_active', true);
 
+        // Owned inventory only — Duplicate chips on another office's record do not appear here.
         if ($effectiveOffice) {
-            $recordsQuery->where(function($q) use ($effectiveOffice) {
-                $q->where('rdp_record.office_own', $effectiveOffice)
-                  ->orWhereExists(function($sub) use ($effectiveOffice) {
-                      $sub->select(DB::raw(1))
-                          ->from('rdp_duplication_section')
-                          ->whereColumn('rdp_duplication_section.dup_id_manager', 'rdp_record.duplication_id')
-                          ->where('rdp_duplication_section.office_code', $effectiveOffice);
-                  });
-            });
+            $recordsQuery->whereRaw('UPPER(TRIM(rdp_record.office_own)) = ?', [mb_strtoupper(trim((string) $effectiveOffice))]);
         }
 
         if (!empty($this->search)) {
@@ -1702,9 +1690,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         // Pre-load DCS revision / obsolete records to detect "Revised" footprint
         $dcsObsoleteDocs = [];
         if (\Illuminate\Support\Facades\Schema::hasTable('dcs_masterlist_registration')) {
-            $dcsObsoleteDocs = DB::table('dcs_masterlist_registration')
-                ->where('revision_status', 'obsolete')
-                ->pluck('doc_no')
+            $dcsObsoleteDocs = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->where('ml.revision_status', 'obsolete')
+                ->where(function ($q) {
+                    $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+                })
+                ->pluck('ml.doc_no')
                 ->map(fn($v) => mb_strtolower(trim((string)$v)))
                 ->filter()
                 ->unique()

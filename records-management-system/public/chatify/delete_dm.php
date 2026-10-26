@@ -23,11 +23,62 @@ $convId    = trim($_POST['conv_id'] ?? '');
 $secret    = trim($_POST['secret'] ?? '');
 $isGlobal  = !empty($_POST['global']) || ($convId === 'global');
 $targetOfficeId = str_starts_with($convId, 'office_') ? OfficeChatManager::parseOfficeId($convId) : null;
+$isCustomGc = str_starts_with($convId, 'gc_');
 
 // ── Admin access check: Strictly Super Admin only ────────────────────────────
 if (!$isAdmin) {
     http_response_code(403);
     die('Forbidden — Super Administrator access required');
+}
+
+// ── Custom GC clear (Super Admin clears a custom group chat) ─────────────────
+if ($isCustomGc || ($isGlobal && str_starts_with($convId, 'gc_'))) {
+    if (empty($secret)) {
+        http_response_code(403);
+        die('Secret key required');
+    }
+    if (!ConversationManager::verifySecretKey($secret)) {
+        http_response_code(403);
+        die('Invalid secret key');
+    }
+
+    $gcId = (int) preg_replace('/[^0-9]/', '', str_replace('gc_', '', $convId));
+    if ($gcId <= 0) {
+        http_response_code(400);
+        die('Invalid custom GC ID');
+    }
+
+    try {
+        $pdo  = Database::getConnection();
+        $stmt = $pdo->prepare('SELECT account_id FROM chat_custom_group_members WHERE group_id = :gid');
+        $stmt->execute([':gid' => $gcId]);
+        $memberRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $memberIds  = array_map(fn($r) => (int) $r['account_id'], $memberRows);
+    } catch (Throwable $e) {
+        error_log('delete_dm.php custom GC members — ' . $e->getMessage());
+        $memberIds = [];
+    }
+
+    $gcConvId    = 'gc_' . $gcId;
+    $hadMessages = GlobalChatManager::countRaw($gcConvId) > 0;
+    GlobalChatManager::softClearChat($gcConvId);
+    GlobalChatManager::clearReactions($gcConvId);
+
+    $targetIds = array_values(array_unique(array_merge($memberIds, Auth::getAllSuperAdminIds())));
+    WsPush::push($targetIds, 'chat_cleared', [
+        'chat_type' => 'custom_gc',
+        'conv_id'   => $gcConvId,
+        'sender_id' => $myAccountId,
+    ]);
+
+    echo $hadMessages ? 'Conversation cleared' : 'Nothing to clear';
+
+    ChatAuditLogger::log($myAccountId, 'clear_chat', $gcConvId, [
+        'is_admin'   => $isAdmin,
+        'soft_clear' => true,
+        'conv_id'    => $gcConvId,
+    ]);
+    exit;
 }
 
 // ── Global / Office Chat clear ("/clear" while Super Admin is viewing or spying on Channel) ──
@@ -126,6 +177,7 @@ if ($deleted) {
     $clearRecipients = array_values(array_unique(array_merge([$userA, $userB], Auth::getAllSuperAdminIds())));
     WsPush::push($clearRecipients, 'chat_cleared', [
         'chat_type'    => 'private',
+        'conv_id'      => $convId,
         'sender_id'    => $myAccountId,
         'recipient_id' => ($myAccountId === $userA ? $userB : $userA),
         'user_a'       => $userA,

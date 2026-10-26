@@ -1,3 +1,6 @@
+{{--
+DCS file: Originators stay on one line, comma-separated. Used by reports, the database, and office lists.
+--}}
 @php
     $raw = trim((string) ($name ?? ''));
     $lines = $raw === ''
@@ -7,7 +10,5 @@
 @if($lines === [])
     {{ $empty ?? '—' }}
 @else
-    @foreach($lines as $index => $line)
-        @if($index > 0)<br>@endif{{ $line }}
-    @endforeach
+    {{ implode(', ', $lines) }}
 @endif

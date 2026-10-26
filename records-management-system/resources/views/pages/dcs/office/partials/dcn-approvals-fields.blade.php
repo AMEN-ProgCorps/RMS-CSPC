@@ -1,8 +1,13 @@
+{{--
+DCS file: Repeatable approver name and position rows on the office DCN.
+--}}
 @php
     $approvalRows = $approvalRows ?? [];
     if ($approvalRows === []) {
         $approvalRows = [['position' => '', 'name' => '', 'date' => '']];
     }
+    $prevApprovalPositionPlaceholder = trim((string) ($prevApprovalPositionPlaceholder ?? ''));
+    $prevApprovalNamePlaceholder = trim((string) ($prevApprovalNamePlaceholder ?? ''));
 @endphp
 <div class="ofi-approvals" id="ofiApprovals" data-max="9">
     <div class="ofi-approvals-head">
@@ -20,13 +25,17 @@
                 </tr>
             </thead>
             <tbody id="ofiApprovalsList">
-                @foreach($approvalRows as $appr)
+                @foreach($approvalRows as $i => $appr)
                     <tr data-approval-row>
                         <td>
-                            <input type="text" name="approvalPosition[]" value="{{ $appr['position'] ?? '' }}" maxlength="255" placeholder="e.g. College Dean" autocomplete="organization-title">
+                            <input type="text" name="approvalPosition[]" value="{{ $appr['position'] ?? '' }}" maxlength="255"
+                                placeholder="{{ ($i === 0 && $prevApprovalPositionPlaceholder !== '') ? $prevApprovalPositionPlaceholder : 'e.g. College Dean' }}"
+                                autocomplete="organization-title">
                         </td>
                         <td>
-                            <input type="text" name="approvalName[]" value="{{ $appr['name'] ?? '' }}" maxlength="255" placeholder="Approver name" autocomplete="name">
+                            <input type="text" name="approvalName[]" value="{{ $appr['name'] ?? '' }}" maxlength="255"
+                                placeholder="{{ ($i === 0 && $prevApprovalNamePlaceholder !== '') ? $prevApprovalNamePlaceholder : 'Approver name' }}"
+                                autocomplete="name">
                         </td>
                         <td>
                             <button type="button" class="ofi-approval-remove" data-approval-remove title="Remove" @if(count($approvalRows) < 2) hidden @endif>Remove</button>

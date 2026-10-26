@@ -1,13 +1,23 @@
 <?php
 
+/**
+ * DCS file: DCS dashboard. Office users see intake steps. Admin DCS sees latest, superseded, and obsolete counts. Those chips open the database with ?revision=.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
+    #[On('office-incoming-refresh')]
+    public function refreshOfficeIncoming(): void
+    {
+    }
+
     public function with(): array
     {
         $userDisplayName = trim(implode(' ', array_filter([
@@ -42,7 +52,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $dcnRows = OfficeIntakeHelper::listMyDcn();
             $docGroups = OfficeIntakeHelper::officeDocumentGroups(null, false, 'received');
             $docTotal = OfficeIntakeHelper::officeDocumentTotal(null, 'received');
-            $incomingTotal = OfficeIntakeHelper::officeDocumentTotal(null, 'pending');
+            $incomingTotal = OfficeIntakeHelper::officeIncomingAttentionTotal();
 
             return [
                 'isDcsPathPending' => false,
@@ -319,7 +329,7 @@ document.addEventListener('alpine:init', () => {
                                 <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}">
                                     <span class="ofi-dash-list-title">{{ $row->doc_title ?: 'Untitled DRF' }}</span>
                                     <span class="ofi-dash-list-meta">
-                                        {{ $row->drf_date ? \Carbon\Carbon::parse($row->drf_date)->format('M d, Y') : 'No date' }}
+                                        {{ $row->drf_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->drf_date) : 'No date' }}
                                         @if(!empty($row->is_registered))
                                             · Registered
                                         @elseif(!empty($row->drf_no))
@@ -353,7 +363,7 @@ document.addEventListener('alpine:init', () => {
                                 <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}">
                                     <span class="ofi-dash-list-title">{{ $row->originator_name ?? ($row->dcn_no ?: 'Untitled DCN') }}</span>
                                     <span class="ofi-dash-list-meta">
-                                        {{ $row->dcn_date ? \Carbon\Carbon::parse($row->dcn_date)->format('M d, Y') : 'No date' }}
+                                        {{ $row->dcn_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->dcn_date) : 'No date' }}
                                         @if(!empty($row->dcn_no)) · {{ $row->dcn_no }} @endif
                                     </span>
                                 </a>
@@ -1076,7 +1086,7 @@ document.addEventListener('alpine:init', () => {
                 } finally {
                     this.loading = false;
                 }
-            }, 300);
+            }, 120);
         },
         clear() {
             this.query = '';

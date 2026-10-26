@@ -26,6 +26,7 @@ require_once __DIR__ . '/core/ImageProcessor.php';
 require_once __DIR__ . '/core/GlobalChatManager.php';
 require_once __DIR__ . '/core/OfficeChatManager.php';
 require_once __DIR__ . '/core/ConversationManager.php';
+require_once __DIR__ . '/core/CustomGroupManager.php';
 require_once __DIR__ . '/core/Reactions.php';
 require_once __DIR__ . '/log_chat_action.php';
 

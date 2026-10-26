@@ -23,6 +23,9 @@ class ErrorDiagnosis
         public string $title,
         public string $message,
         public ?string $reference = null,
+        public ?string $file = null,
+        public ?int $line = null,
+        public ?string $returnUrl = null,
     ) {}
 
     public static function from(Throwable $e): self
@@ -33,16 +36,39 @@ class ErrorDiagnosis
         }
 
         if (self::isSlowConnection($e)) {
-            return self::forStatus(408);
+            $slow = self::forStatus(408);
+            $frame = self::appFrame($e);
+
+            return new self(
+                $slow->kind,
+                $slow->status,
+                $slow->title,
+                $slow->message,
+                null,
+                $frame['file'],
+                $frame['line'],
+                self::returnUrl(request()),
+            );
         }
 
         $specific = self::specificMessage($e);
         $raw = trim($e->getMessage());
         $message = $specific ?? (self::isTechnical($raw) || $raw === '' ? null : $raw);
         $diagnosed = self::forStatus($status, $message);
+        $frame = self::appFrame($e);
+        $returnUrl = self::returnUrl(request());
 
         if ($diagnosed->kind !== 'server') {
-            return $diagnosed;
+            return new self(
+                $diagnosed->kind,
+                $diagnosed->status,
+                $diagnosed->title,
+                $diagnosed->message,
+                null,
+                $frame['file'],
+                $frame['line'],
+                $returnUrl,
+            );
         }
 
         $reference = 'SRV-'.strtoupper(Str::random(6));
@@ -65,6 +91,9 @@ class ErrorDiagnosis
             $diagnosed->title,
             $diagnosed->message,
             $reference,
+            $frame['file'],
+            $frame['line'],
+            $returnUrl,
         );
     }
 
@@ -112,7 +141,7 @@ class ErrorDiagnosis
         ];
     }
 
-    /** @return array{status: int, error_kind: string, title: string, message: string, reference: ?string} */
+    /** @return array{status: int, error_kind: string, title: string, message: string, reference: ?string, file: ?string, line: ?int, return_url: ?string} */
     public function toArray(): array
     {
         return [
@@ -121,6 +150,9 @@ class ErrorDiagnosis
             'title' => $this->title,
             'message' => $this->message,
             'reference' => $this->reference,
+            'file' => $this->file,
+            'line' => $this->line,
+            'return_url' => $this->returnUrl,
         ];
     }
 
@@ -198,6 +230,84 @@ class ErrorDiagnosis
 
         return str_contains($haystack, 'curl error 28')
             || str_contains($haystack, 'operation timed out');
+    }
+
+    /**
+     * The page that failed. Back and auto-refresh return here, not to the section home.
+     */
+    public static function returnUrl(?Request $request = null): string
+    {
+        $request = $request ?? request();
+        if (! $request instanceof Request) {
+            return '';
+        }
+
+        if (! $request->isMethod('GET')) {
+            $referer = (string) $request->headers->get('referer', '');
+            $path = self::localPath($referer, $request);
+            if ($path !== '') {
+                return $path;
+            }
+        }
+
+        $uri = $request->getRequestUri();
+
+        return is_string($uri) && str_starts_with($uri, '/') && ! str_starts_with($uri, '//')
+            ? $uri
+            : '';
+    }
+
+    /**
+     * @return array{file: string, line: int}
+     */
+    private static function appFrame(Throwable $e): array
+    {
+        $frames = [[
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]];
+        foreach ($e->getTrace() as $frame) {
+            if (! empty($frame['file'])) {
+                $frames[] = [
+                    'file' => (string) $frame['file'],
+                    'line' => (int) ($frame['line'] ?? 0),
+                ];
+            }
+        }
+
+        $base = rtrim(base_path(), DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR;
+        $fallback = ['file' => basename($e->getFile()), 'line' => $e->getLine()];
+        foreach ($frames as $frame) {
+            $file = str_replace('\\', '/', $frame['file']);
+            $root = str_replace('\\', '/', $base);
+            if (! str_starts_with($file, $root)) {
+                continue;
+            }
+            $relative = ltrim(substr($file, strlen($root)), '/');
+            if (str_starts_with($relative, 'vendor/')) {
+                $fallback = ['file' => $relative, 'line' => (int) $frame['line']];
+                continue;
+            }
+
+            return ['file' => $relative, 'line' => (int) $frame['line']];
+        }
+
+        return $fallback;
+    }
+
+    private static function localPath(string $url, Request $request): string
+    {
+        if ($url === '') {
+            return '';
+        }
+        $host = parse_url($url, PHP_URL_HOST);
+        $path = parse_url($url, PHP_URL_PATH);
+        if (! is_string($path) || $path === '' || $path === '/' || $host !== $request->getHost()) {
+            return '';
+        }
+        $query = parse_url($url, PHP_URL_QUERY);
+
+        return $path.(is_string($query) && $query !== '' ? '?'.$query : '');
     }
 
     private static function isTechnical(string $message): bool

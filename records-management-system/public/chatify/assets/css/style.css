@@ -304,6 +304,26 @@
     .user-item.active {
       background-color: rgba(27, 116, 228, 0.13) !important;
     }
+
+    .user-item.newly-added-gc {
+    }
+    .newly-added-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #1b74e4;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+      padding: 2px 6px;
+      border-radius: 10px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      box-shadow: 0 1px 4px rgba(27, 116, 228, 0.35);
+      flex-shrink: 0;
+      margin-left: 4px;
+    }
     
     .user-avatar {
       width: 48px;
@@ -989,30 +1009,51 @@
       display: inline-block;
     }
 
-    /* Single-line Header Title Alignment (Global Chat & Admin Spy Mode): Perfectly level/kapantay with back arrow horizontally & vertically */
+    /* Single-line Header Title Alignment (Global Chat & Admin Spy Mode): Perfectly centered with GC logo horizontally & vertically */
     .header.is-single-title .header-user-info,
     .header.is-global-chat .header-user-info {
-      height: 20px;
+      height: 32px;
       padding-top: 0;
+      display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: flex-start;
+      min-width: 0;
+      flex: 1 1 auto;
+      overflow: visible;
     }
 
     .header.is-single-title .header-title-row,
     .header.is-global-chat .header-title-row {
-      height: 20px;
+      height: 32px;
       display: flex;
       align-items: center;
       justify-content: flex-start;
-      width: auto;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      overflow: visible;
+      gap: 6px;
     }
 
     .header.is-single-title h1#chatHeaderTitle,
     .header.is-global-chat h1#chatHeaderTitle {
-      line-height: 20px;
+      font-size: 18px;
+      font-weight: 400;
+      line-height: normal;
       text-align: left;
-      display: flex;
-      align-items: center;
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+      max-width: 100%;
+      flex: 0 1 auto;
+    }
+
+    .header.is-single-title .header-active-status,
+    .header.is-global-chat .header-active-status {
+      display: none;
     }
 
     .header-title-row .verified-badge {
@@ -1281,6 +1322,7 @@
       contain: layout style;
       overflow: visible;  /* Allow reaction badges and swipe icons to render outside bounds without clipping */
       position: relative; /* anchors the swipe-to-reply icon revealed underneath the bubble */
+      -webkit-tap-highlight-color: transparent;
     }
 
     /* ── Swipe-to-reply (mobile) ──────────────────────────────────────── */
@@ -1434,6 +1476,16 @@
       border-radius: 16px;
       margin-bottom: -12px;
       box-shadow: 0 1px 2px var(--shadow-color);
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: opacity 0.15s ease, transform 0.12s ease;
+    }
+    .reply-quote:hover {
+      opacity: 0.9 !important;
+    }
+    .reply-quote:active {
+      transform: scale(0.97);
     }
     .sent .reply-quote {
       background: var(--bg-bubble-sent);
@@ -1502,6 +1554,30 @@
     .reply-quote-image-container + .message-bubble {
       position: relative;
       z-index: 2;
+    }
+
+    /* ── Reply target jump & blink animation ────────────────────────────── */
+    @keyframes replyTargetBlinkAnim {
+      0%, 100% {
+        opacity: 1;
+      }
+      20% {
+        opacity: 0.2;
+      }
+      40% {
+        opacity: 1;
+      }
+      60% {
+        opacity: 0.2;
+      }
+      80% {
+        opacity: 1;
+      }
+    }
+
+    .message-container.reply-target-blink {
+      animation: replyTargetBlinkAnim 1.2s ease-in-out forwards;
+      z-index: 10;
     }
     /* Reply banner thumbnail preview (shown above input when replying to image) */
     #replyBannerSnippet img.reply-banner-img {
@@ -1762,6 +1838,7 @@
       -moz-user-select: none;
       user-select: none;
       -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
       touch-action: manipulation; /* eliminates 300ms tap delay on mobile */
     }
 
@@ -1802,6 +1879,7 @@
       -moz-user-select: none;
       user-select: none;
       -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
       touch-action: manipulation; /* eliminates 300ms tap delay on mobile */
     }
 
@@ -2036,6 +2114,10 @@
       left: 50%;
       transform: translate(-50%, -50%);
       width: 80%;
+      max-width: 480px;
+      box-sizing: border-box;
+      overflow-wrap: break-word;
+      word-break: break-word;
     }
 
     .empty-chat .chat-icon {
@@ -2060,6 +2142,8 @@
       font-weight: 600;
       margin-bottom: 8px;
       color: var(--text-primary);
+      overflow-wrap: break-word;
+      word-break: break-word;
     }
 
     .empty-chat p {
@@ -2467,6 +2551,8 @@
       color: var(--text-secondary);
       font-size: 14px;
       line-height: 1.5;
+      overflow-wrap: anywhere;
+      word-break: break-word;
       touch-action: pan-y; /* Block pinch-zoom while allowing vertical scroll (mobile) */
     }
 
@@ -2540,6 +2626,27 @@
     .confirm-button:disabled {
       color: var(--text-secondary);
       cursor: not-allowed;
+      opacity: 0.45;
+      background-color: transparent !important;
+    }
+
+    #markAllNotifReadBtn:disabled {
+      color: var(--text-secondary) !important;
+      opacity: 0.45 !important;
+      cursor: default !important;
+      pointer-events: none;
+      background-color: transparent !important;
+    }
+
+    #markAllNotifReadBtn:not(:disabled) {
+      color: #1b74e4 !important;
+      cursor: pointer;
+      opacity: 1 !important;
+      font-weight: 600;
+    }
+
+    #markAllNotifReadBtn:not(:disabled):hover {
+      background-color: rgba(27, 116, 228, 0.12) !important;
     }
 
     /* ── Image Viewer Modal ──────────────────────────────────────────────

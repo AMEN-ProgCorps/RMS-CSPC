@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Parses and issues document numbers. Family stacking uses this when a number changes.
+ */
+
 namespace App\Helpers;
 
 use Illuminate\Http\Request;

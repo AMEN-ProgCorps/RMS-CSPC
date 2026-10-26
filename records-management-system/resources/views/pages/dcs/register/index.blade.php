@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Document Registration create screen. Sub-Type stays hidden when the document type has no subtypes. Revision history and the DCN document check load together.
+ */
+
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -21,6 +25,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         setSyllabiStep(step) { this.syllabiStep = Number(step) === 2 ? 2 : 1; window.syllabiCurrentStep = this.syllabiStep; },
         closeReview() {
             if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
+            window.__openAppraisalAfterSave = false;
+            const appraisalFlag = document.getElementById('openAppraisal');
+            if (appraisalFlag) appraisalFlag.value = '0';
             this.reviewOpen = false;
             const el = document.getElementById('dcsRegisterRoot');
             if (el) el.style.overflow = '';
@@ -46,6 +53,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <input type="hidden" id="insertShiftDocNo" name="insert_shift_doc_no" value="">
         <input type="hidden" id="insertShiftRenameLetters" name="insert_shift_rename_letters" value="0">
         <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
+        <input type="hidden" id="openAppraisal" name="open_appraisal" value="0">
         <input type="hidden" id="officeIntakeType" name="office_intake_type" value="{{ in_array(request()->query('intake'), ['drf', 'dcn'], true) ? request()->query('intake') : '' }}">
         <input type="hidden" id="officeIntakeId" name="office_intake_id" value="{{ ctype_digit((string) request()->query('intake_id')) ? request()->query('intake_id') : '' }}">
 
@@ -351,7 +359,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         Next <i class="fa-solid fa-arrow-right"></i>
                     </button>
                     <span id="syllabiStep2Hint" class="reg-wizard-hint" x-show="syllabiStep === 2">
-                        Scroll down and click <strong>Save Document</strong> to submit.
+                        Scroll down and click <strong>Save and Appraise</strong> to submit.
                     </span>
                 </div>
             </div>
@@ -537,7 +545,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <div class="reg-reldocs" id="masterlistOriginatorWidget">
                             <div class="reg-reldocs-inputwrap">
                                 <input type="text" id="masterlistOriginatorSearch" class="reg-reldocs-input"
-                                    placeholder="Type a name" autocomplete="off">
+                                    placeholder="Type names, separated by a comma" autocomplete="off">
                                 <button type="button" class="reg-reldocs-arrow-btn" id="masterlistOriginatorArrowBtn">
                                     <i class="fa-solid fa-chevron-down"></i>
                                 </button>
@@ -584,7 +592,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <div class="reg-reldocs" id="relatedDocsWidget">
                             <div class="reg-reldocs-inputwrap">
                                 <input type="text" id="relatedDocsSearch" class="reg-reldocs-input"
-                                    placeholder="Type a document title to search..."
+                                    placeholder="Type a document title, then pick from latest documents..."
                                     autocomplete="off"
                                     oninput="handleRelatedDocSearch(this)"
                                     onfocus="handleRelatedDocFocus()">
@@ -788,8 +796,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                     <i class="fa-regular fa-floppy-disk"></i> Save Draft
                 </button>
-                <button type="button" id="btnSaveDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
-                    <i class="fa-solid fa-floppy-disk"></i> Save Document
+                <button type="button" id="btnSaveAndAppraise" class="reg-btn reg-btn-appraise" onclick="window.__openAppraisalAfterSave=true; confirmSave()" title="Save, then send this document to Appraisal. Office intake will appraise after receive.">
+                    <i class="fa-solid fa-clipboard-check"></i> Save and Appraise
                 </button>
             </div>
         </section>
@@ -1248,7 +1256,9 @@ function restoreOfficeToRetrievalPending(officeId, officeName, copies) {
     }
     updateTotal('totalRetrievalCopies', 'retrievalBody');
     const retSection = document.getElementById('section-4');
-    if (retSection) retSection.style.display = 'block';
+    if (retSection && typeof isRevisedMode === 'function' && isRevisedMode() && !(typeof isRecurringMode === 'function' && isRecurringMode())) {
+        retSection.style.display = 'block';
+    }
 }
 
 function maybeRestoreDistOfficeToRetrieval(tr) {
@@ -1574,6 +1584,10 @@ document.addEventListener("DOMContentLoaded", async function () {
             lockRecurRegistrationIdentity();
             return;
         }
+        if (window.__reviseIdentityLocked) {
+            lockReviseRegistrationIdentity();
+            return;
+        }
         const urlType = new URLSearchParams(location.search).get('type');
         if (urlType !== 'new' && urlType !== 'revised' && urlType !== 'recurring') return;
 
@@ -1676,9 +1690,8 @@ document.addEventListener("DOMContentLoaded", async function () {
         resultsId: 'masterlistOriginatorResults',
         chipsId: 'masterlistOriginatorInlineChips',
         summaryId: 'masterlistOriginatorSummary',
-        allowFreeText: true,
-        singleSelect: true,
-        fieldName: 'masterlistOriginator',
+            allowFreeText: true,
+            fieldName: 'masterlistOriginator',
         dataListGetter: () => allOriginators,
         idKey: 'originator_id',
         labelKey: 'originator_name',
@@ -1738,6 +1751,7 @@ async function applyInventoryRevisePrefillFromUrl() {
     }
     window.__inventoryRevisePrefillApplied = true;
     window.__inventoryRevisePrefill = true;
+    window.__reviseIdentityLocked = true;
 
     try {
         const dt = document.getElementById('docType');
@@ -1781,6 +1795,7 @@ async function applyInventoryRevisePrefillFromUrl() {
             }
             await new Promise((resolve) => setTimeout(resolve, 80));
         }
+        lockReviseRegistrationIdentity();
         if (!row) {
             return;
         }
@@ -1795,6 +1810,7 @@ async function applyInventoryRevisePrefillFromUrl() {
         if (typeof applyRevisionDocumentPick === 'function') {
             await applyRevisionDocumentPick(row, doc);
         }
+        lockReviseRegistrationIdentity();
     } catch (err) {
         console.warn('Inventory revise prefill failed:', err);
         window.__inventoryRevisePrefillApplied = false;
@@ -1854,10 +1870,7 @@ async function applyInventoryRecurPrefillFromUrl() {
         const familyPromise = fromId && typeof loadSupersedeFamily === 'function'
             ? loadSupersedeFamily(picked)
             : Promise.resolve([]);
-        const contextPromise = fromDocNo && typeof bridgeDcnPickToMasterlist === 'function'
-            ? bridgeDcnPickToMasterlist(fromDocNo)
-            : Promise.resolve(null);
-        const [rows] = await Promise.all([familyPromise, contextPromise]);
+        const [rows] = await Promise.all([familyPromise]);
         const match = (rows || []).find((row) => String(row.request_id) === String(fromId)) || (rows || [])[0];
         if (match) picked = match;
         const revRow = document.querySelector('#revisionTableBody tr input[name="documentNo[]"]');
@@ -1867,6 +1880,9 @@ async function applyInventoryRecurPrefillFromUrl() {
         const idInput = document.getElementById('supersedeMasterlistId');
         if (idInput) idInput.value = picked.masterlist_id ? String(picked.masterlist_id) : '';
         if (typeof fillSupersedeFinder === 'function') fillSupersedeFinder(picked);
+        if (typeof applyRecurPickToMasterlist === 'function') {
+            await applyRecurPickToMasterlist(picked);
+        }
         if (typeof showSupersedeDocumentHistory === 'function') {
             await showSupersedeDocumentHistory(picked, { revisions: rows && rows.length ? rows : [picked] });
         }
@@ -1879,6 +1895,39 @@ async function applyInventoryRecurPrefillFromUrl() {
     } finally {
         if (typeof setSupersedeLoading === 'function') setSupersedeLoading(false);
     }
+}
+
+function lockReviseRegistrationIdentity() {
+    window.__reviseIdentityLocked = true;
+    const versionEl = document.getElementById('versionType');
+    if (versionEl) {
+        const reviseOpt = [...versionEl.options].find((opt) => /revis/i.test(opt.textContent || ''));
+        if (reviseOpt && versionEl.value !== reviseOpt.value) {
+            versionEl.value = reviseOpt.value;
+            versionEl.dataset.lastValid = reviseOpt.value;
+            if (typeof handleVersionChange === 'function') handleVersionChange();
+        }
+    }
+    const form = document.getElementById('masterForm');
+    ['versionType', 'docType', 'subType'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (id === 'subType' && (el.closest('#subTypeField')?.hidden || el.options.length < 2)) return;
+        el.disabled = true;
+        el.setAttribute('disabled', 'disabled');
+        el.classList.add('reg-identity-locked');
+        const name = el.getAttribute('name');
+        if (!name || !form) return;
+        let hidden = form.querySelector('input[type="hidden"][data-lock-for="' + id + '"]');
+        if (!hidden) {
+            hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = name;
+            hidden.dataset.lockFor = id;
+            form.appendChild(hidden);
+        }
+        hidden.value = el.value || '';
+    });
 }
 
 function lockRecurRegistrationIdentity() {
@@ -2738,8 +2787,8 @@ function applyRevisedDocumentContext(data, options = {}) {
         updateTotal('totalRetrievalCopies', 'retrievalBody');
     }
 
-    // Prefill only applies in revised mode — open Retrieval when offices were seeded.
-    if (isRevisedMode() && !tableIsEmpty('retrievalBody')) {
+    // Prefill only applies in Revise mode — open Retrieval when offices were seeded.
+    if (isRevisedMode() && !isRecurringMode() && !tableIsEmpty('retrievalBody')) {
         const retCb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="4"]');
         if (retCb) {
             retCb.checked = true;
@@ -3348,24 +3397,26 @@ function setSaveEnabled(enabled) {
     // Don't re-enable if duplicate is detected
     if (enabled && (docNoDuplicate || revNoDuplicate || window.drfNoDuplicate || window.syllabiContextTaken)) return;
 
-    const saveBtn = document.getElementById('btnSaveDocument');
-    if (!saveBtn) return;
+    ['btnSaveDocument', 'btnSaveAndAppraise'].forEach((id) => {
+        const saveBtn = document.getElementById(id);
+        if (!saveBtn) return;
 
-    if (enabled) {
-        saveBtn.disabled = false;
-        saveBtn.removeAttribute('disabled');
-        saveBtn.style.opacity = '';
-        saveBtn.style.cursor = '';
-        saveBtn.style.pointerEvents = '';
-        saveBtn.style.filter = '';
-    } else {
-        saveBtn.disabled = true;
-        saveBtn.setAttribute('disabled', 'disabled');
-        saveBtn.style.opacity = '0.4';
-        saveBtn.style.cursor = 'not-allowed';
-        saveBtn.style.pointerEvents = 'none';
-        saveBtn.style.filter = 'grayscale(1)';
-    }
+        if (enabled) {
+            saveBtn.disabled = false;
+            saveBtn.removeAttribute('disabled');
+            saveBtn.style.opacity = '';
+            saveBtn.style.cursor = '';
+            saveBtn.style.pointerEvents = '';
+            saveBtn.style.filter = '';
+        } else {
+            saveBtn.disabled = true;
+            saveBtn.setAttribute('disabled', 'disabled');
+            saveBtn.style.opacity = '0.4';
+            saveBtn.style.cursor = 'not-allowed';
+            saveBtn.style.pointerEvents = 'none';
+            saveBtn.style.filter = 'grayscale(1)';
+        }
+    });
 }
 
 // ══════════════════════════════════════════════
@@ -3913,21 +3964,65 @@ async function bridgeDcnPickToMasterlist(docNo, options = {}) {
     try {
         const docTypeId = document.getElementById('docType').value;
         const subTypeId = document.getElementById('subType').value;
-        const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
-                    (docTypeId ? '&doc_type_id=' + docTypeId : '') +
-                    (subTypeId ? '&sub_type_id=' + subTypeId : '') +
-                    '&include_drafts=1';
-        const res = await fetch(url);
+        const params = new URLSearchParams({ include_drafts: '1' });
+        if (docNo) params.set('doc_no', docNo);
+        if (options.requestId) params.set('request_id', String(options.requestId));
+        if (options.masterlistId) params.set('masterlist_id', String(options.masterlistId));
+        if (docTypeId) params.set('doc_type_id', docTypeId);
+        if (subTypeId) params.set('sub_type_id', subTypeId);
+        const res = await fetch('/dcs/register/check-docno?' + params.toString());
         const data = await res.json();
-        if (data.exists && !otherLinkedRevisionDocuments(docNo)) {
+        if (data.exists && (!docNo || !otherLinkedRevisionDocuments(docNo))) {
             setSaveEnabled(true);
-            applyRevisedDocumentContext(data, { docNo, hintEl, revField, forceNextRev: true });
+            applyRevisedDocumentContext(data, { docNo: docNo || '', hintEl, revField, forceNextRev: true });
+            if (options.masterlistId) {
+                const idInput = document.getElementById('supersedeMasterlistId');
+                if (idInput && !idInput.value) idInput.value = String(options.masterlistId);
+            }
         }
         return data;
     } catch (e) {
         console.error('DCN pick check-docno failed:', e);
         return null;
     }
+}
+
+/** Fill Masterlist from a Recur/Revised pick even when the source has no document number. */
+async function applyRecurPickToMasterlist(doc) {
+    if (!doc) return null;
+    const title = String(doc.doc_title || doc.title || '').trim();
+    const originator = String(doc.originator_name || '').trim();
+    const effectivity = doc.effectivity_date || doc.effectivity || '';
+    const titleField = document.getElementById('masterlistDocTitle');
+    if (titleField && title) titleField.value = title;
+    const effectivityField = document.getElementById('masterlistEffectivityDate');
+    if (effectivityField && effectivity) {
+        const raw = String(effectivity);
+        effectivityField.value = /^\d{4}-\d{2}-\d{2}/.test(raw)
+            ? raw.slice(0, 10)
+            : (typeof formatDateInputValue === 'function' ? formatDateInputValue(raw) : raw);
+    }
+    const revField = document.getElementById('masterlistRevisionNo');
+    if (revField && (doc.revise_no !== undefined && doc.revise_no !== null)) {
+        if (typeof isRecurringMode === 'function' && isRecurringMode() && typeof lockRecurRevisionField === 'function') {
+            lockRecurRevisionField(doc.revise_no);
+        } else if (!String(revField.value || '').trim()) {
+            revField.value = String(doc.revise_no);
+        }
+    }
+    if (originator && window.__sourceWidgets?.masterlistOriginator) {
+        window.__sourceWidgets.masterlistOriginator.reset();
+        window.__sourceWidgets.masterlistOriginator.seedFromString(originator, true);
+    }
+    const idInput = document.getElementById('supersedeMasterlistId');
+    if (idInput && doc.masterlist_id) idInput.value = String(doc.masterlist_id);
+    const fromInput = document.getElementById('revisedFromDocNo');
+    if (fromInput) fromInput.value = doc.doc_no || '';
+    setSaveEnabled(true);
+    return bridgeDcnPickToMasterlist(doc.doc_no || '', {
+        requestId: doc.request_id,
+        masterlistId: doc.masterlist_id,
+    });
 }
 
 function lockRevisionPopulatedField(el) {
@@ -4221,7 +4316,9 @@ function createSourceUnitWidget(opts) {
             const input = document.createElement('input');
             input.type = 'hidden';
             input.dataset.sourceHidden = 'true';
-            input.name = opts.fieldName || (item.type === 'office' ? opts.officeFieldName : opts.nameFieldName);
+            let name = opts.fieldName || (item.type === 'office' ? opts.officeFieldName : opts.nameFieldName);
+            if (opts.fieldName && name && !String(name).endsWith('[]')) name = name + '[]';
+            input.name = name;
             input.value = opts.fieldName ? item.label : (item.type === 'office' ? item.id : item.label);
             widget.appendChild(input);
         });
@@ -4419,10 +4516,23 @@ function createSourceUnitWidget(opts) {
         }
     });
 
+    function commitPendingQuery() {
+        if (!inputEl || opts.singleSelect || !opts.allowFreeText) return;
+        const q = getCurrentQuery(inputEl);
+        if (!q) return;
+        const already = selected.some(i => String(i.label).toLowerCase() === q.toLowerCase());
+        if (already) return;
+        addFreeText(q);
+        syncInputText();
+        render();
+    }
+    const parentForm = inputEl ? inputEl.closest('form') : null;
+    if (parentForm) parentForm.addEventListener('submit', commitPendingQuery);
+
     render();
 
     const api = {
-        pick, removeItem: removeItemAndSync, reset, seedFromString, setSelectedItems,
+        pick, removeItem: removeItemAndSync, reset, seedFromString, setSelectedItems, commitPendingQuery,
         openPanel: togglePanel, get selected() { return selected; }
     };
     window.__sourceWidgets[opts.key] = api;
@@ -4548,13 +4658,35 @@ window.removeSourceOverlayItem = function (key, id) {
 
 document.addEventListener('DOMContentLoaded', renderRelatedDocsChips);
 
-window.handleRelatedDocFocus = function () {
+function relatedDocsQuery(input) {
+    const raw = String(input?.value || '');
+    const lastComma = raw.lastIndexOf(',');
+    return (lastComma === -1 ? raw : raw.slice(lastComma + 1)).trim();
+}
+
+function syncRelatedDocsInput() {
+    const input = document.getElementById('relatedDocsSearch');
+    if (!input) return;
+    if (relatedDocsSelected.length === 0) {
+        input.value = '';
+        return;
+    }
+    input.value = relatedDocsSelected.map(d => d.doc_title || d.doc_no || '').join(', ') + ', ';
+    const len = input.value.length;
+    try { input.setSelectionRange(len, len); } catch (e) {}
+}
+
+window.handleRelatedDocFocus = function (input) {
     closeRelatedDocsSelectedPanel();
+    syncRelatedDocsInput();
 };
 
 window.handleRelatedDocSearch = function (input) {
     clearTimeout(window.__relatedDocsTimer);
-    const q = input.value.trim();
+    if (window.__relatedDocsAbort) {
+        try { window.__relatedDocsAbort.abort(); } catch (e) {}
+    }
+    const q = relatedDocsQuery(input);
     const dropdown = document.getElementById('relatedDocsResults');
 
     closeRelatedDocsSelectedPanel();
@@ -4562,15 +4694,23 @@ window.handleRelatedDocSearch = function (input) {
     if (q.length < 1) { dropdown.style.display = 'none'; return; }
 
     window.__relatedDocsTimer = setTimeout(async () => {
+        const abort = new AbortController();
+        window.__relatedDocsAbort = abort;
         try {
             const excludeId = document.getElementById('requestId')?.value || '';
-            const url = '/dcs/api/documents/search?q=' + encodeURIComponent(q)
+            const url = '/dcs/api/documents/search?latest_only=1&q=' + encodeURIComponent(q)
                 + (excludeId ? '&exclude_request_id=' + excludeId : '');
-            const data = await fetch(url).then(r => r.json());
-            relatedDocsCache = data.filter(d => !relatedDocsSelected.some(s => s.masterlist_id === d.masterlist_id));
+            const res = await fetch(url, { signal: abort.signal, headers: { 'Accept': 'application/json' } });
+            if (!res.ok) {
+                dropdown.innerHTML = '<div class="reg-reldocs-noresult">Could not search documents. Try again.</div>';
+                dropdown.style.display = 'block';
+                return;
+            }
+            const data = await res.json();
+            relatedDocsCache = (Array.isArray(data) ? data : []).filter(d => !relatedDocsSelected.some(s => s.masterlist_id === d.masterlist_id));
 
             if (relatedDocsCache.length === 0) {
-                dropdown.innerHTML = '<div class="reg-reldocs-noresult">No matching documents found</div>';
+                dropdown.innerHTML = '<div class="reg-reldocs-noresult">No latest document matches "' + escapeHtml(q) + '".</div>';
                 dropdown.style.display = 'block';
                 return;
             }
@@ -4578,8 +4718,12 @@ window.handleRelatedDocSearch = function (input) {
                 .map(d => `<div onmousedown="pickRelatedDoc(${Number(d.masterlist_id)})">${escapeHtml(d.label || d.doc_title || '')}</div>`)
                 .join('');
             dropdown.style.display = 'block';
-        } catch (e) { console.error('Related doc search failed:', e); }
-    }, 300);
+        } catch (e) {
+            if (e && e.name === 'AbortError') return;
+            dropdown.innerHTML = '<div class="reg-reldocs-noresult">Could not search documents. Try again.</div>';
+            dropdown.style.display = 'block';
+        }
+    }, 80);
 };
 
 window.pickRelatedDoc = function (id) {
@@ -4587,16 +4731,17 @@ window.pickRelatedDoc = function (id) {
     if (!doc || relatedDocsSelected.some(d => d.masterlist_id === id)) return;
     relatedDocsSelected.push(doc);
     renderRelatedDocsChips();
-
-    const input = document.getElementById('relatedDocsSearch');
-    input.value = '';
+    syncRelatedDocsInput();
     document.getElementById('relatedDocsResults').style.display = 'none';
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 };
 
 window.removeRelatedDoc = function (id, event) {
     if (event) event.stopPropagation();
     relatedDocsSelected = relatedDocsSelected.filter(d => d.masterlist_id !== id);
     renderRelatedDocsChips();
+    syncRelatedDocsInput();
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 };
 
 window.toggleRelatedDocsSelected = function (e) {
@@ -4634,6 +4779,7 @@ function renderRelatedDocsChips() {
             <span class="reg-reldocs-chip-no">${escapeHtml(d.doc_no || '')}</span>
             <button type="button" onclick="removeRelatedDoc(${d.masterlist_id}, event)"><i class="fa-solid fa-xmark"></i></button>
         </div>`).join('');
+    syncRelatedDocsInput();
 }
 
 document.addEventListener('click', function (e) {
@@ -6014,8 +6160,10 @@ function unlockChecklist() {
     syncNonRevisableTypeUi();
     syncRecurFinder();
 
-    const saveBtn = document.getElementById("btnSaveDocument");
-    if (saveBtn) saveBtn.style.display = ""; 
+    ['btnSaveDocument', 'btnSaveAndAppraise'].forEach((id) => {
+        const saveBtn = document.getElementById(id);
+        if (saveBtn) saveBtn.style.display = "";
+    });
 }
 
 /** Default checklist set for leaf parent types External / Forms / Logbooks. */
@@ -6097,6 +6245,12 @@ function revisionStatusText(status) {
     if (key === 'superseded') return 'Superseded';
     if (key === 'obsolete') return 'Obsolete';
     if (key === 'archived') return 'Archived';
+    if (key === 'latest' || key === '') return 'Latest';
+    // Already-formatted labels from the server (e.g. "Superseded").
+    if (key === 'superseded' || status === 'Superseded') return 'Superseded';
+    if (status === 'Obsolete') return 'Obsolete';
+    if (status === 'Archived') return 'Archived';
+    if (status === 'Latest') return 'Latest';
     return 'Latest';
 }
 
@@ -6122,10 +6276,23 @@ function lockSupersedeFinderInputs(locked) {
 
 async function loadSupersedeFamily(doc) {
     if (!doc || !doc.request_id) return doc ? [doc] : [];
+    // No lineage expand: same document number can belong to other titles (e.g. Buhi vs ERP).
+    // Only this registration's revision stack belongs in "Previous documents".
     const params = new URLSearchParams({ request_id: String(doc.request_id) });
     if (doc.doc_no) params.set('doc_no', doc.doc_no);
     const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(function (r) { return r.json(); });
-    return Array.isArray(raw) && raw.length ? raw : (doc ? [doc] : []);
+    let rows = Array.isArray(raw) && raw.length ? raw : (doc ? [doc] : []);
+    const pickId = String(doc.masterlist_id || '');
+    const pickReq = String(doc.request_id || '');
+    const pickTitle = String(doc.doc_title || doc.title || '').trim().toLowerCase();
+    rows = rows.filter(function (row) {
+        if (pickReq && String(row.request_id || '') === pickReq) return true;
+        if (pickId && String(row.masterlist_id || '') === pickId) return true;
+        const rowTitle = String(row.doc_title || row.title || '').trim().toLowerCase();
+        if (pickTitle !== '' && rowTitle === pickTitle) return true;
+        return false;
+    });
+    return rows.length ? rows : (doc ? [doc] : []);
 }
 
 function supersedeHistoryTextCell(value, cellClass) {
@@ -6154,6 +6321,22 @@ async function showSupersedeDocumentHistory(doc, options) {
         }
     }
     if (!revisions.length) revisions = [doc];
+    const pickId = String(doc.masterlist_id || '');
+    const pickReq = String(doc.request_id || '');
+    const pickTitle = String(doc.doc_title || doc.title || '').trim().toLowerCase();
+    if (pickReq || pickId || pickTitle) {
+        revisions = revisions.filter(function (row) {
+            if (pickReq && String(row.request_id || '') === pickReq) return true;
+            if (pickId && String(row.masterlist_id || '') === pickId) return true;
+            const rowTitle = String(row.doc_title || row.title || '').trim().toLowerCase();
+            return pickTitle !== '' && rowTitle === pickTitle;
+        });
+        if (!revisions.length) revisions = [doc];
+    }
+    if (!options.excludeRequestId) {
+        const openId = document.getElementById('requestId')?.value;
+        if (openId) options.excludeRequestId = openId;
+    }
     if (options.excludeRequestId) {
         const currentId = String(options.excludeRequestId);
         revisions = revisions.filter(function (row) {
@@ -6171,11 +6354,11 @@ async function showSupersedeDocumentHistory(doc, options) {
 
     const selectedId = String(doc.masterlist_id || '');
     body.innerHTML = revisions.map(function (row) {
-        const status = revisionStatusText(row.revision_status);
+        const status = revisionStatusText(row.status || row.revision_status);
         const isTarget = selectedId !== '' && String(row.masterlist_id || '') === selectedId;
         const purpose = String(row.brief_purpose || '').trim();
-        const title = String(row.doc_title || '').trim();
-        const effectivity = row.effectivity_date_label || row.effectivity_date || '—';
+        const title = String(row.doc_title || row.title || '').trim();
+        const effectivity = row.effectivity_date_label || row.effectivity || row.effectivity_date || '—';
         const scan = row.scanned_copy_url
             ? '<button type="button" class="reg-revrow-viewfile reg-revrow-viewfile-pdf" data-scan-url="' + escapeHtml(row.scanned_copy_url) + '" title="View PDF"><i class="fa-solid fa-file-pdf"></i></button>'
             : '<span class="reg-rev-title-text">—</span>';
@@ -6347,6 +6530,11 @@ function bindSupersedeFinder() {
     let timer = null;
 
     async function runSearch(activeValue) {
+        if (noInput.readOnly || window.__recurSelectionLocked || window.__recurFromDatabase) {
+            dd.style.display = 'none';
+            dd.innerHTML = '';
+            return;
+        }
         const parts = supersedeFinderParts();
         const q = (activeValue || parts.no || parts.title || parts.originator).trim();
         if (q.length < 1) {
@@ -6372,6 +6560,10 @@ function bindSupersedeFinder() {
             });
             if (subTypeId) params.set('sub_type_id', subTypeId);
             const raw = await fetch('/dcs/api/documents/search?' + params.toString()).then(r => r.json());
+            if (noInput.readOnly || window.__recurSelectionLocked) {
+                dd.style.display = 'none';
+                return;
+            }
             const data = (Array.isArray(raw) ? raw : []).filter(function (doc) {
                 const status = String(doc.revision_status || 'latest').toLowerCase();
                 return (status === 'latest' || status === '') && supersedeDocMatches(doc, parts);
@@ -6387,9 +6579,18 @@ function bindSupersedeFinder() {
 
     [noInput, titleInput, originInput].forEach(function (input) {
         input.addEventListener('input', function () {
-            if (input.readOnly) return;
+            if (input.readOnly || window.__recurSelectionLocked || window.__recurFromDatabase) {
+                clearTimeout(timer);
+                dd.style.display = 'none';
+                return;
+            }
             clearTimeout(timer);
             timer = setTimeout(function () { runSearch(input.value.trim()); }, 250);
+        });
+        input.addEventListener('focus', function () {
+            if (input.readOnly || window.__recurSelectionLocked || window.__recurFromDatabase) {
+                dd.style.display = 'none';
+            }
         });
     });
     dd.addEventListener('click', async function (e) {
@@ -6400,11 +6601,7 @@ function bindSupersedeFinder() {
         dd.style.display = 'none';
         setSupersedeLoading(true);
         try {
-            const familyPromise = loadSupersedeFamily(doc);
-            const contextPromise = doc.doc_no && typeof bridgeDcnPickToMasterlist === 'function'
-                ? bridgeDcnPickToMasterlist(doc.doc_no)
-                : Promise.resolve(null);
-            const [revisions] = await Promise.all([familyPromise, contextPromise]);
+            const revisions = await loadSupersedeFamily(doc);
             const revRow = document.querySelector('#revisionTableBody tr input[name="documentNo[]"]');
             if (revRow) revRow.value = doc.doc_no || '';
             const fromInput = document.getElementById('revisedFromDocNo');
@@ -6412,6 +6609,9 @@ function bindSupersedeFinder() {
             const idInput = document.getElementById('supersedeMasterlistId');
             if (idInput) idInput.value = doc.masterlist_id ? String(doc.masterlist_id) : '';
             fillSupersedeFinder(doc);
+            if (typeof applyRecurPickToMasterlist === 'function') {
+                await applyRecurPickToMasterlist(doc);
+            }
             await showSupersedeDocumentHistory(doc, { revisions: revisions });
             lockSupersedeFinderInputs(true);
         } finally {
@@ -6551,8 +6751,8 @@ window.toggleSection = function (checklistId, show) {
         return;
     }
 
-    // Retrieval (checklist 4) is only for revised documents
-    if (checklistId === 4 && !isRevisedMode()) {
+    // Retrieval (checklist 4) is only for a Revise registration, not New or Recur.
+    if (checklistId === 4 && (isRecurringMode() || !isRevisedMode())) {
         clearRetrievalSection();
         return;
     }
@@ -7032,7 +7232,8 @@ function validateForm() {
         const linked = [...document.querySelectorAll('#revisionTableBody tr')]
             .some(row => row.dataset.linked === 'true');
         const fromNo = (document.getElementById('revisedFromDocNo')?.value || '').trim();
-        if (!linked && !fromNo) {
+        const supersedeId = (document.getElementById('supersedeMasterlistId')?.value || '').trim();
+        if (!linked && !fromNo && !supersedeId) {
             errors.push({
                 field: 'supersedeDocNo',
                 message: 'Select the document to be superseded.',
@@ -7287,8 +7488,20 @@ function collectMissingFields() {
 
     if (sectionVisible("section-3")) {
         if (!window.__isSyllabiMode) {
-            checkText("Masterlist", "masterlistDocNo", "Document No.");
+            // Document No. stays optional for New and Recur (and Revised of a no-number source).
             checkText("Masterlist", "masterlistDocTitle", "Document Title");
+        }
+        if (typeof isRecurringMode === 'function' && isRecurringMode()) {
+            const supersedeId = (document.getElementById('supersedeMasterlistId')?.value || '').trim();
+            const fromNo = (document.getElementById('revisedFromDocNo')?.value || '').trim();
+            const hasRevisionRow = [...document.querySelectorAll('#revisionTableBody tr')].some((row) => {
+                const title = row.querySelector('input[name="documentTitle[]"]');
+                const no = row.querySelector('input[name="documentNo[]"]');
+                return (title && title.value.trim()) || (no && no.value.trim());
+            });
+            if (!supersedeId && !fromNo && !hasRevisionRow) {
+                missing.push('Recur: pick the document to continue');
+            }
         }
         checkText("Masterlist", "masterlistEffectivityDate", "Effectivity Date");
         checkText("Masterlist", "masterlistReceiptDate", "Document Receipt Date");
@@ -7403,10 +7616,10 @@ function formatSmartDateValue(val) {
     if (!val) return "";
     const date = new Date(val + "T00:00:00");
     if (isNaN(date.getTime())) return val;
-    if (date.getDate() === 1) {
-        return date.toLocaleDateString("en-US", { year: "numeric", month: "short" });
-    }
-    return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const dd = String(date.getDate()).padStart(2, "0");
+    const yyyy = String(date.getFullYear());
+    return mm + "-" + dd + "-" + yyyy;
 }
 
 function formatInputDate(id) {
@@ -7527,6 +7740,13 @@ window.confirmSave = function () {
     }
 
     clearValidation();
+
+    const confirmBtn = document.getElementById('btnConfirmSaveModal');
+    if (confirmBtn) {
+        confirmBtn.innerHTML = window.__openAppraisalAfterSave
+            ? '<i class="fa-solid fa-clipboard-check"></i> Confirm Save and Appraise'
+            : '<i class="fa-solid fa-check"></i> Confirm Save';
+    }
 
     const reviewContent = document.getElementById("reviewContent");
     reviewContent.innerHTML = "";
@@ -7838,6 +8058,8 @@ window.submitForm = function () {
     }
     const draftFlag = document.getElementById('saveAsDraft');
     if (draftFlag) draftFlag.value = '0';
+    const appraisalFlag = document.getElementById('openAppraisal');
+    if (appraisalFlag) appraisalFlag.value = window.__openAppraisalAfterSave ? '1' : '0';
     window.__regFormSubmitting = true;
     try {
         const intakeParams = new URLSearchParams(location.search);

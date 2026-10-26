@@ -21,6 +21,7 @@
     const notifyLabel = root.querySelector('[data-ofi-notify-label]');
     const notifyMeta = root.querySelector('[data-ofi-notify-meta]');
     const proceed = root.querySelector('[data-ofi-proceed]');
+    const actionError = root.querySelector('[data-ofi-action-error]');
 
     let busy = false;
     let registerUrl = root.getAttribute('data-register-url') || '';
@@ -60,9 +61,45 @@
         return root.getAttribute('data-pair-received') !== '0';
     }
 
+    function pairNotified() {
+        return root.getAttribute('data-pair-notified') !== '0';
+    }
+
+    function showPanelError(message) {
+        const text = String(message || '').trim();
+        if (!text) return;
+        if (actionError) {
+            actionError.textContent = text;
+            actionError.hidden = false;
+        }
+        if (proceedHint) {
+            proceedHint.hidden = false;
+            proceedHint.textContent = text;
+        }
+        if (typeof window.dcsShowToast === 'function') {
+            window.dcsShowToast(text, 'error');
+        }
+    }
+
+    function proceedHintText(received) {
+        if (!printNotified) {
+            return 'Notify the submitting office that this ' + String(type).toUpperCase() + ' is correct before registration.';
+        }
+        if (!pairNotified()) {
+            return 'Notify the office for the linked ' + pairLabel + ' as well — one notice is sent when both are confirmed.';
+        }
+        if (!received) {
+            return 'Confirm receipt of the signed ' + String(type).toUpperCase() + ' first to unlock registration.';
+        }
+        if (!pairReceived()) {
+            return 'Switch to the ' + pairLabel + ' preview and confirm receipt of that signed form before registration.';
+        }
+        return 'Confirm receipt of the signed form first to unlock registration.';
+    }
+
     function syncProceed(received) {
         if (!proceed) return;
-        const ok = !!received && pairReceived() && canRegister && !!registerUrl;
+        const ok = !!received && printNotified && pairReceived() && pairNotified() && canRegister && !!registerUrl;
         proceed.disabled = !ok;
         if (!proceedHint) return;
         if (ok) {
@@ -70,9 +107,7 @@
             return;
         }
         proceedHint.hidden = false;
-        proceedHint.textContent = !received
-            ? 'Confirm receipt of the signed ' + String(type).toUpperCase() + ' first to unlock registration.'
-            : 'Switch to the ' + pairLabel + ' preview and confirm receipt of that signed form before registration.';
+        proceedHint.textContent = proceedHintText(received);
     }
 
     function syncUnlock(received) {
@@ -133,7 +168,7 @@
             syncPairPanels(type, true);
         } catch (err) {
             if (check) check.checked = false;
-            alert(err.message || 'Could not mark as received.');
+            showPanelError(err.message || 'Could not mark as received.');
         } finally {
             busy = false;
         }
@@ -162,7 +197,7 @@
             syncPairPanels(type, false);
         } catch (err) {
             if (check) check.checked = true;
-            alert(err.message || 'Could not clear received status.');
+            showPanelError(err.message || 'Could not clear received status.');
         } finally {
             busy = false;
         }
@@ -171,12 +206,12 @@
     async function unlockEdit() {
         if (busy) return;
         if (printNotified) {
-            alert('Enable edit is not available after notifying the office that this submission is correct.');
+            showPanelError('Enable edit is not available after notifying the office that this submission is correct.');
             return;
         }
         const reason = (unlockReason?.value || '').trim();
         if (reason.length < 3) {
-            alert('Please enter a reason (at least 3 characters) before enabling edit.');
+            showPanelError('Please enter a reason (at least 3 characters) before enabling edit.');
             unlockReason?.focus();
             return;
         }
@@ -210,7 +245,7 @@
                 unlockMeta.hidden = false;
             }
         } catch (err) {
-            alert(err.message || 'Could not enable edit.');
+            showPanelError(err.message || 'Could not enable edit.');
         } finally {
             busy = false;
             if (unlockBtn && !printNotified) unlockBtn.disabled = false;
@@ -252,14 +287,26 @@
             lockUnlockAfterPrintNotify();
             if (notifyLabel) notifyLabel.textContent = 'Resend print & sign notice';
             if (notifyMeta) {
-                let text = 'Client notified';
-                if (data.printNotifiedAt) text += ' on ' + data.printNotifiedAt;
-                if (data.printNotifiedBy) text += ' by ' + data.printNotifiedBy;
+                let text = data.noticeHeld
+                    ? ('Print unlocked. The office is notified after the linked ' + (data.pairLabel || pairLabel) + ' is also confirmed.')
+                    : 'Client notified';
+                if (!data.noticeHeld && data.printNotifiedAt) text += ' on ' + data.printNotifiedAt;
+                if (!data.noticeHeld && data.printNotifiedBy) text += ' by ' + data.printNotifiedBy;
                 notifyMeta.textContent = text;
                 notifyMeta.hidden = false;
             }
+            document.querySelectorAll('[data-ofi-actions]').forEach(function (other) {
+                if (other === root) {
+                    if (data.pairComplete) other.setAttribute('data-pair-notified', '1');
+                    return;
+                }
+                other.setAttribute('data-pair-notified', '1');
+                other.dispatchEvent(new CustomEvent('ofi-pair-notified'));
+            });
+            const receivedNow = check ? check.checked : root.getAttribute('data-received') === '1';
+            syncProceed(receivedNow);
         } catch (err) {
-            alert(err.message || 'Could not notify the office.');
+            showPanelError(err.message || 'Could not notify the office.');
         } finally {
             busy = false;
             if (notifyBtn) notifyBtn.disabled = false;
@@ -267,7 +314,10 @@
     }
 
     async function proceedToRegistration() {
-        if (!registerUrl || proceed?.disabled) return;
+        if (!registerUrl || proceed?.disabled) {
+            showPanelError(proceedHintText(check?.checked));
+            return;
+        }
         proceed.disabled = true;
         proceed.innerHTML = 'Opening… <i class="fa-solid fa-spinner fa-spin"></i>';
         let landedType = proceedType;
@@ -290,7 +340,7 @@
             const data = await response.json().catch(function () { return {}; });
             if (!response.ok) {
                 const message = data.message || data.error || 'Receive the signed form before registration.';
-                alert(message);
+                showPanelError(message);
                 proceed.disabled = false;
                 proceed.innerHTML = 'Proceed to Registration <i class="fa-solid fa-arrow-right"></i>';
                 syncProceed(check?.checked);
@@ -321,6 +371,15 @@
     });
     unlockBtn?.addEventListener('click', unlockEdit);
     notifyBtn?.addEventListener('click', notifyPrintReady);
+    root.addEventListener('ofi-pair-notified', function () {
+        const receivedNow = check ? check.checked : root.getAttribute('data-received') === '1';
+        syncProceed(receivedNow);
+    });
+    root.querySelector('[data-ofi-proceed-wrap]')?.addEventListener('click', function () {
+        if (proceed && proceed.disabled) {
+            showPanelError(proceedHintText(check?.checked));
+        }
+    });
     proceed?.addEventListener('click', proceedToRegistration);
 
     if (check) check.checked = root.getAttribute('data-received') === '1';

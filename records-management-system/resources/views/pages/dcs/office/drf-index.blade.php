@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: My DRF list for the signed-in office. Print stays locked until that row's rfio_print_notified_at is set. The list polls print-ready and swaps the lock for a link.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
@@ -84,7 +88,7 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                                     <span class="ofi-status-pill is-pending">Submitted</span>
                                 @endif
                             </td>
-                            <td class="ofi-nowrap">{{ $row->drf_date ? \Carbon\Carbon::parse($row->drf_date)->format('M d, Y') : '—' }}</td>
+                            <td class="ofi-nowrap">{{ $row->drf_date ? \App\Helpers\RegisterQueryHelper::formatRdpPeriodDate($row->drf_date) : '—' }}</td>
                             <td class="ofi-nowrap">{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A') : '—' }}</td>
                             <td class="ofi-actions">
                                 <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}" title="View"><i class="fa-solid fa-eye"></i></a>

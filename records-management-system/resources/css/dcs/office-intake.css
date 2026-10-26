@@ -1,3 +1,4 @@
+/* DCS file: Office DRF and DCN screens, including the locked print control. */
 @import './tokens.css';
 
 /* Office DRF/DCN intake — same fixed shell as other DCS pages */
@@ -1537,9 +1538,9 @@ body.ofi-docno-use-open {
 .ofi-sig-block {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
     margin-top: 4px;
-    padding-top: 18px;
+    padding-top: 16px;
     border-top: 1px solid #e2e8f0;
 }
 .ofi-sig-heading {
@@ -1550,10 +1551,21 @@ body.ofi-docno-use-open {
     text-transform: uppercase;
     color: #0d2a7a;
 }
+.ofi-sig-block > .ofi-suggest {
+    margin-top: -4px;
+    margin-bottom: 0;
+    padding: 0;
+    background: none;
+    border: none;
+}
+.ofi-sig-block > .ofi-suggest .ofi-suggest-label {
+    line-height: 1.35;
+    color: #64748b;
+}
 .ofi-sig-group {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
 }
 .ofi-sig-label {
     margin: 0;
@@ -1690,8 +1702,9 @@ body.ofi-docno-use-open {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 6px;
-    margin-top: 8px;
+    gap: 4px;
+    margin-top: 6px;
+    margin-bottom: 6px;
 }
 .ofi-suggest[hidden] {
     display: none;
@@ -1699,7 +1712,16 @@ body.ofi-docno-use-open {
 .ofi-suggest-label {
     margin: 0;
     font-size: 12px;
-    color: #475569;
+    line-height: 1.35;
+    color: #64748b;
+}
+#dcnPrevReviewersSuggest,
+#dcnPrevApprovalsSuggest {
+    margin-top: 8px;
+    margin-bottom: 4px;
+    padding: 0;
+    background: none;
+    border: none;
 }
 .ofi-suggest-btn {
     border: 1px solid #cbd5e1;

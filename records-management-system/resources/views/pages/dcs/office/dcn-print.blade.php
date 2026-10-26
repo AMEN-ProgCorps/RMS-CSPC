@@ -1,3 +1,6 @@
+{{--
+DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, comma-separated, at the form's normal size.
+--}}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -868,7 +871,7 @@ window.print = function () {};
                         $dt = '';
                         if (! empty($appr['date'])) {
                             try {
-                                $dt = \Carbon\Carbon::parse($appr['date'])->format('M d, Y');
+                                $dt = \App\Helpers\RegisterQueryHelper::formatSmartDate($appr['date']);
                             } catch (\Throwable) {
                                 $dt = (string) $appr['date'];
                             }

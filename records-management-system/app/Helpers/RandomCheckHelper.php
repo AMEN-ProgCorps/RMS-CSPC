@@ -12,7 +12,17 @@ use Illuminate\Support\Facades\Schema;
 /**
  * DCS Random Check — yearly June / December office visits.
  * Check results are stored on the visit. Document number, title, and type come from the masterlist.
- */
+ * DCS file: RandomCheckHelper in app/ so Composer autoloads it.
+ * Random Check visits in June and December. The visit stores the result. Document number, title, and type come from the masterlist.
+ * Do not move this class back under resources/views.
+ * Public methods:
+ * assertCanAccess, cycles, cycleLabel, cycleWindow, normalizeCycle, defaultCycle,
+ * noticeLeadDays, yearSummaries, cycleSummary, officesByCluster, officeStatusMap,
+ * pickRandomOffice, officeLabel, officeMeta, searchOffices, scheduleVisit,
+ * generateSnapshot, listCheckRows, saveCheck, loadCheck, previousCheckForOffice,
+ * shareWithOffice, reportPayload, officeInbox, officeCanViewCheck, defaultDocTypeKey,
+ * normalizeDocTypeKey, docTypeLabel, documentTypeGroups, recentChecks.
+*/
 class RandomCheckHelper
 {
     public const CYCLE_JUNE = 'june';
@@ -258,7 +268,7 @@ class RandomCheckHelper
                 $map[$id] = [
                     'status' => 'scheduled',
                     'scheduled_date' => $row->scheduled_date
-                        ? Carbon::parse($row->scheduled_date)->format('M d, Y')
+                        ? RegisterQueryHelper::formatSmartDate($row->scheduled_date)
                         : null,
                     'scheduled_date_raw' => $row->scheduled_date
                         ? Carbon::parse($row->scheduled_date)->format('Y-m-d')
@@ -287,8 +297,8 @@ class RandomCheckHelper
                     'is_draft' => $draft,
                     'document_count' => (int) ($row->sample_size ?? 0),
                     'check_date' => ! empty($row->check_date)
-                        ? Carbon::parse($row->check_date)->format('M d, Y')
-                        : ($row->checked_at ? Carbon::parse($row->checked_at)->format('M d, Y') : null),
+                        ? RegisterQueryHelper::formatSmartDate($row->check_date)
+                        : ($row->checked_at ? RegisterQueryHelper::formatSmartDate($row->checked_at) : null),
                 ]);
             }
         }
@@ -472,7 +482,7 @@ class RandomCheckHelper
             . ' on ' . $date . '.'
         );
 
-        $message = 'Visit scheduled for ' . Carbon::parse($date)->format('M d, Y') . '.';
+        $message = 'Visit scheduled for ' . RegisterQueryHelper::formatSmartDate($date) . '.';
         if ($generateList) {
             $message .= ' Document list is ready as a draft.';
         }
@@ -861,15 +871,15 @@ class RandomCheckHelper
                 ? Carbon::parse($check->check_date)->format('Y-m-d')
                 : ($check->checked_at ? Carbon::parse($check->checked_at)->format('Y-m-d') : ''),
             'check_date_label' => ! empty($check->check_date)
-                ? Carbon::parse($check->check_date)->format('M d, Y')
-                : ($check->checked_at ? Carbon::parse($check->checked_at)->format('M d, Y') : '—'),
+                ? RegisterQueryHelper::formatSmartDate($check->check_date)
+                : ($check->checked_at ? RegisterQueryHelper::formatSmartDate($check->checked_at) : '—'),
             'conducted_by' => (string) ($check->conducted_by ?? ''),
             'tested_by' => (string) ($check->tested_by ?? ''),
             'shared_at' => ! empty($check->shared_at)
-                ? Carbon::parse($check->shared_at)->format('M d, Y g:i A')
+                ? (RegisterQueryHelper::formatSmartDate($check->shared_at) . ' ' . Carbon::parse($check->shared_at)->format('g:i A'))
                 : null,
             'checked_at' => $check->checked_at
-                ? Carbon::parse($check->checked_at)->format('M d, Y g:i A')
+                ? (RegisterQueryHelper::formatSmartDate($check->checked_at) . ' ' . Carbon::parse($check->checked_at)->format('g:i A'))
                 : '—',
             'rows' => $rows,
         ];
@@ -1008,7 +1018,7 @@ class RandomCheckHelper
                     'year' => (int) $row->check_year,
                     'cycle' => self::normalizeCycle((string) $row->cycle),
                     'cycle_label' => self::cycleLabel((string) $row->cycle),
-                    'scheduled_date' => Carbon::parse($row->scheduled_date)->format('M d, Y'),
+                    'scheduled_date' => RegisterQueryHelper::formatSmartDate($row->scheduled_date),
                     'scheduled_date_raw' => Carbon::parse($row->scheduled_date)->format('Y-m-d'),
                 ];
             }
@@ -1033,8 +1043,8 @@ class RandomCheckHelper
                     'cycle_label' => self::cycleLabel($cycle),
                     'label' => $year . ' ' . self::cycleLabel($cycle),
                     'check_date' => ! empty($row->check_date)
-                        ? Carbon::parse($row->check_date)->format('M d, Y')
-                        : ($row->checked_at ? Carbon::parse($row->checked_at)->format('M d, Y') : '—'),
+                        ? RegisterQueryHelper::formatSmartDate($row->check_date)
+                        : ($row->checked_at ? RegisterQueryHelper::formatSmartDate($row->checked_at) : '—'),
                     'sample_size' => (int) ($row->sample_size ?? 0),
                 ];
             }
@@ -1105,7 +1115,7 @@ class RandomCheckHelper
             $out[] = [
                 'id' => (int) $row->id,
                 'checked_at' => $row->checked_at
-                    ? Carbon::parse($row->checked_at)->format('M d, Y g:i A')
+                    ? (RegisterQueryHelper::formatSmartDate($row->checked_at) . ' ' . Carbon::parse($row->checked_at)->format('g:i A'))
                     : '—',
                 'sample_size' => (int) ($row->sample_size ?? 0),
                 'pool_size' => (int) ($row->pool_size ?? 0),

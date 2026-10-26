@@ -188,6 +188,7 @@ class NotificationOverlayTest extends TestCase
         $this->assertEquals('dts_received', \App\Helpers\NotificationFilterHelper::classify('Transaction CTR-001 has been received by John.'));
         $this->assertEquals('dts_forwarded', \App\Helpers\NotificationFilterHelper::classify('Transaction CTR-001 has been forwarded by Mary.'));
         $this->assertEquals('dts_completed', \App\Helpers\NotificationFilterHelper::classify('Transaction CTR-001 has been completed, you can now check it.'));
+        $this->assertEquals('dcs_distribution', \App\Helpers\NotificationFilterHelper::classify('You have an incoming documented information: "ISO Manual".'));
         $this->assertEquals('dcs_distribution', \App\Helpers\NotificationFilterHelper::classify('Your office has a new controlled document to receive: "ISO Manual".'));
         $this->assertEquals('dcs_registration', \App\Helpers\NotificationFilterHelper::classify('Document DOC-101 has been registered by Registrar.'));
 

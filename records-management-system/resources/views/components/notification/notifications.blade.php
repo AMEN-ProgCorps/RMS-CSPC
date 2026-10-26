@@ -228,7 +228,6 @@ new class extends Component {
             ->select("{$notifContentTbl}.redirect_url", "{$notifContentTbl}.content")
             ->first();
 
-        // 1. Mark notification as read
         $this->markAsRead($notificationId);
 
         // 2. Office intake submissions / correction unlocks
@@ -323,6 +322,16 @@ new class extends Component {
                     '/dcs/monitoring/distribution-retrieval?doc=' . (int) $receivedMatch[1],
                     navigate: false
                 );
+
+                return;
+            }
+
+            // Full load so reports.css replaces leftover dashboard `header {}` styles.
+            if (
+                $path === 'dcs/monitoring/distribution-retrieval'
+                || str_starts_with($path, 'dcs/monitoring/distribution-retrieval')
+            ) {
+                $this->redirect($notification->redirect_url, navigate: false);
 
                 return;
             }

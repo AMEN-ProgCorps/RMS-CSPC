@@ -1,3 +1,6 @@
+{{--
+DCS file: Adds and removes approver rows on the office DCN.
+--}}
 <script>
 (function () {
     const root = document.getElementById('ofiApprovals');

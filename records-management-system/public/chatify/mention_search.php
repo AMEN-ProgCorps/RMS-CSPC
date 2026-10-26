@@ -44,6 +44,22 @@ if (!$officeId && $convId !== '') {
     }
 }
 
+// For custom GC, restrict mention search to GC members only
+$gcMemberIds = null;
+if ($convId !== '' && str_starts_with($convId, 'gc_')) {
+    $gcId = (int) str_replace('gc_', '', $convId);
+    if ($gcId > 0) {
+        // Verify requester is a member of the GC
+        if (CustomGroupManager::isMember($gcId, $myAccountId)) {
+            $gcMembers = CustomGroupManager::getMembers($gcId);
+            $gcMemberIds = array_column($gcMembers, 'account_id');
+            // Exclude the requester from the mention results
+            $gcMemberIds = array_filter($gcMemberIds, fn($id) => (int)$id !== $myAccountId);
+            $gcMemberIds = array_values($gcMemberIds);
+        }
+    }
+}
+
 // For regular users, ensure they cannot query another office's GC members
 if (!$isAdmin && $officeId !== null && $officeId > 0) {
     $officeId = $userOfficeId;
@@ -57,7 +73,20 @@ if ($q === '') {
 // Ask for a few candidates (not just 1) so that after filtering out the
 // admin account below we can still fall back to the next-best match
 // instead of coming back empty just because rank #1 happened to be admin.
-$result = UserResolver::searchUsers($q, $myAccountId, 5, $officeId);
+if ($gcMemberIds !== null) {
+    // Custom GC: only return users who are members of this GC
+    if (empty($gcMemberIds)) {
+        echo json_encode(['user' => null, 'users' => []]);
+        exit();
+    }
+    $result = UserResolver::searchUsersFromSet($q, $myAccountId, 5, $gcMemberIds);
+    if (!isset($result['users']) || empty($result['users'])) {
+        // Fallback: search all GC members without text filter (show all for short queries)
+        $result = UserResolver::searchUsersFromSet('', $myAccountId, 5, $gcMemberIds);
+    }
+} else {
+    $result = UserResolver::searchUsers($q, $myAccountId, 5, $officeId);
+}
 $users  = $result['users'] ?? [];
 
 $formattedUsers = array_map(function ($u) {

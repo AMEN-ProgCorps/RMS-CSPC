@@ -1,3 +1,6 @@
+{{--
+DCS file: Print layout for a Random Check report.
+--}}
 <!DOCTYPE html>
 <html lang="en">
 <head>

@@ -1,3 +1,6 @@
+{{--
+DCS file: Read-only DRF summary on the admin request screen. Comma-separated originators render on separate lines.
+--}}
 @php
     $originator = trim((string) ($drf->originator_name ?? ''));
     $kind = strtolower(trim((string) ($drf->doc_type_kind ?? '')));
@@ -7,7 +10,7 @@
         default => 'Not specified',
     };
     $drfDate = $drf->drf_date
-        ? \Carbon\Carbon::parse($drf->drf_date)->format('M d, Y')
+        ? \App\Helpers\RegisterQueryHelper::formatSmartDate($drf->drf_date)
         : '—';
 @endphp
 

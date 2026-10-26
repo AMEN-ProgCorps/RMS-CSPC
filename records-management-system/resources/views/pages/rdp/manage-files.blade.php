@@ -119,16 +119,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                 })->orWhere('document_path', 'like', '%rdp%');
             })->count();
 
+        $hasCanView = \Illuminate\Support\Facades\Schema::hasColumn('rdp_duplication_section', 'can_view_file');
+
         $sharedFilesCount = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')
-            ->where(function ($q) {
-                $q->whereIn('document_id', function ($sub) {
+            ->where(function ($q) use ($hasCanView) {
+                $q->whereIn('document_id', function ($sub) use ($hasCanView) {
                     $sub->select('upload_doc_id_handler')
                         ->from('rdp_record')
-                        ->whereIn('duplication_id', function ($dupSub) {
+                        ->whereIn('duplication_id', function ($dupSub) use ($hasCanView) {
                             $dupSub->select('dup_id_manager')->from('rdp_duplication_section');
+                            if ($hasCanView) {
+                                $dupSub->where('can_view_file', true);
+                            }
                         });
-                })->orWhereIn('user_office', function ($dupSub) {
-                    $dupSub->select('office_code')->from('rdp_duplication_section');
                 });
             })->count();
 
@@ -143,7 +146,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             );
 
         if (!$canViewAll) {
-            $query->where('document_data.user_office', $userOfficeCode ?? '---');
+            $query->where(function ($q) use ($userOfficeCode, $hasCanView) {
+                $q->where('document_data.user_office', $userOfficeCode ?? '---');
+                if ($hasCanView && !empty($userOfficeCode)) {
+                    $q->orWhereIn('document_data.document_id', function ($sub) use ($userOfficeCode) {
+                        $sub->select('r.upload_doc_id_handler')
+                            ->from('rdp_record as r')
+                            ->join('rdp_duplication_section as d', 'r.duplication_id', '=', 'd.dup_id_manager')
+                            ->where('d.office_code', $userOfficeCode)
+                            ->where('d.can_view_file', true)
+                            ->whereNotNull('r.upload_doc_id_handler');
+                    });
+                }
+            });
         } elseif (!empty($this->selectedOffice)) {
             $query->where('document_data.user_office', $this->selectedOffice);
         }
@@ -171,15 +186,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                 ->orWhere('document_data.document_path', 'like', '%records%');
             });
         } elseif ($this->activeTab === 'shared') {
-            $query->where(function ($q) {
-                $q->whereIn('document_data.document_id', function ($sub) {
+            $query->where(function ($q) use ($hasCanView) {
+                $q->whereIn('document_data.document_id', function ($sub) use ($hasCanView) {
                     $sub->select('upload_doc_id_handler')
                         ->from('rdp_record')
-                        ->whereIn('duplication_id', function ($dupSub) {
+                        ->whereIn('duplication_id', function ($dupSub) use ($hasCanView) {
                             $dupSub->select('dup_id_manager')->from('rdp_duplication_section');
+                            if ($hasCanView) {
+                                $dupSub->where('can_view_file', true);
+                            }
                         });
-                })->orWhereIn('document_data.user_office', function ($dupSub) {
-                    $dupSub->select('office_code')->from('rdp_duplication_section');
                 });
             });
         }

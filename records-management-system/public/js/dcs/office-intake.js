@@ -387,7 +387,7 @@
             syncInputText({ quiet: true });
             const dropdown = document.getElementById(opts.resultsId);
             if (dropdown) dropdown.style.display = 'none';
-            if (typeof closePanel === 'function') closePanel();
+            closePanel();
             window.__sourceWidgets[opts.key]?.onSelectionChange?.();
         }
 

@@ -66,6 +66,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public string $subsectionStoragePeriod = '';
     public string $subsectionRemarks = '';
     public ?string $subsectionRemarkKeyWordId = '';
+    public string $subsectionRemarkActivePeriod = '';
+    public string $subsectionRemarkStoragePeriod = '';
     public string $bracketInput = '';
     public ?string $newOfficeCode = '';
     public bool $showBracketDropdown = false;
@@ -74,7 +76,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public string $newStoragePeriod = '';
     public string $newTotalPeriod = '';
     public string $newRemarks = '';
+    public ?string $newRemarkKeyWordId = '';
+    public string $newRemarkActivePeriod = '';
+    public string $newRemarkStoragePeriod = '';
     public bool $newIsPermanent = false;
+    public string $newPeriodType = '';
     public bool $showAddForm = false;
     public ?int $relativeRecordId = null;
     public string $relativePosition = 'below';
@@ -167,7 +173,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->showAddForm = !$this->showAddForm;
         if ($this->showAddForm) {
             $this->resetAddForm();
+            $this->autoFillLastItemNumber();
         }
+    }
+
+    public function autoFillLastItemNumber(): void
+    {
+        $typeQuery = DB::table('rdp_record_series')->whereNull('parent_id');
+        if ($this->activeTab === 'unregistered') {
+            $typeQuery->whereNull('series_type');
+        } elseif (is_numeric($this->activeTab)) {
+            $typeQuery->where('series_type', (int) $this->activeTab);
+        }
+        $maxItem = $typeQuery->whereNotNull('item_number')
+            ->orderBy('item_number', 'desc')
+            ->value('item_number');
+
+        $nextNum = $maxItem !== null ? ((int) $maxItem + 1) : 1;
+        $this->newItemNumber = (string) $nextNum;
+        $this->series_title = '';
     }
 
     public function addSubsection(): void
@@ -611,7 +635,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->newStoragePeriod = '';
         $this->newTotalPeriod = '';
         $this->newRemarks = '';
+        $this->newRemarkKeyWordId = '';
+        $this->newRemarkActivePeriod = '';
+        $this->newRemarkStoragePeriod = '';
         $this->newIsPermanent = false;
+        $this->newPeriodType = '';
         $this->relativeRecordId = null;
         $this->relativePosition = 'below';
         $this->relativeRecordTitle = '';
@@ -687,6 +715,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $itemNum = trim($this->newItemNumber ?? '');
         $itemNumberVal = ($itemNum !== '' && is_numeric($itemNum)) ? (int) $itemNum : null;
 
+        if ($this->newPeriodType === 'Permanent') {
+            $this->newIsPermanent = true;
+        } else {
+            $this->newIsPermanent = false;
+            if ($this->newPeriodType !== 'Temporary') {
+                $this->newActivePeriod = '';
+                $this->newStoragePeriod = '';
+                $this->newRemarks = '';
+            }
+        }
+
         $retentionId = null;
         $computedTotal = $this->computeTotalPeriod($this->newActivePeriod, $this->newStoragePeriod, $this->newIsPermanent);
         $activePeriod = $this->newIsPermanent ? 'Permanent' : (trim($this->newActivePeriod) ?: null);
@@ -731,7 +770,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 }
             }
 
-            $this->createSeriesChain(
+            $createdId = $this->createSeriesChain(
                 $allTitles,
                 $targetParentId,
                 $bracketId,
@@ -742,6 +781,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 $this->newIsPermanent,
                 trim($this->newRemarks) ?: null
             );
+
+            if (!$this->newIsPermanent && !empty(trim($this->newRemarks))) {
+                $remKeywordId = is_numeric($this->newRemarkKeyWordId) ? (int) $this->newRemarkKeyWordId : null;
+                $remTotalPeriod = $this->computeTotalPeriod(
+                    $this->newRemarkActivePeriod,
+                    $this->newRemarkStoragePeriod,
+                    false
+                );
+                \App\Services\RdpRemarksService::saveConfigurationForSeries(
+                    $createdId,
+                    trim($this->newRemarks),
+                    $remKeywordId,
+                    trim($this->newRemarkActivePeriod) ?: null,
+                    trim($this->newRemarkStoragePeriod) ?: null,
+                    $remTotalPeriod ?: null
+                );
+            }
 
             DB::commit();
 
@@ -1102,6 +1158,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->subsectionStoragePeriod = '';
         $this->subsectionRemarks = '';
         $this->subsectionRemarkKeyWordId = '';
+        $this->subsectionRemarkActivePeriod = '';
+        $this->subsectionRemarkStoragePeriod = '';
         $this->showSubsectionModal = true;
     }
 
@@ -1118,6 +1176,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->subsectionStoragePeriod = '';
         $this->subsectionRemarks = '';
         $this->subsectionRemarkKeyWordId = '';
+        $this->subsectionRemarkActivePeriod = '';
+        $this->subsectionRemarkStoragePeriod = '';
     }
 
     public function saveSubsections(): void
@@ -1153,12 +1213,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             return;
         }
 
-        $itemNum = trim($this->subsectionItemNumber);
-        if ($itemNum !== '' && !is_numeric($itemNum)) {
-            $this->errorMessage = 'Item No. must be a number.';
-            return;
-        }
-        $itemNumberVal = $itemNum !== '' ? (int) $itemNum : null;
+        $itemNumberVal = null;
 
         $retentionId = null;
         $isPermanent = false;
@@ -1209,14 +1264,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 $leafRemarks
             );
 
-            if (!$this->subsectionInheritRetention && !$this->subsectionIsPermanent && !empty($this->subsectionRemarkKeyWordId) && $leafRemarks !== null) {
+            if (!$this->subsectionInheritRetention && !$this->subsectionIsPermanent && $leafRemarks !== null) {
+                $remKeywordId = is_numeric($this->subsectionRemarkKeyWordId) ? (int) $this->subsectionRemarkKeyWordId : null;
+                $remTotalPeriod = $this->computeTotalPeriod(
+                    $this->subsectionRemarkActivePeriod,
+                    $this->subsectionRemarkStoragePeriod,
+                    false
+                );
                 \App\Services\RdpRemarksService::saveConfigurationForSeries(
                     $createdLeafId,
                     $leafRemarks,
-                    (int) $this->subsectionRemarkKeyWordId,
-                    null,
-                    null,
-                    null
+                    $remKeywordId,
+                    trim($this->subsectionRemarkActivePeriod) ?: null,
+                    trim($this->subsectionRemarkStoragePeriod) ?: null,
+                    $remTotalPeriod ?: null
                 );
             }
 
@@ -2376,10 +2437,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ['path' => \Illuminate\Pagination\Paginator::resolveCurrentPath()]
         );
 
+        $typeQuery = DB::table('rdp_record_series')->whereNull('parent_id');
+        if ($this->activeTab === 'unregistered') {
+            $typeQuery->whereNull('series_type');
+        } elseif (is_numeric($this->activeTab)) {
+            $typeQuery->where('series_type', (int) $this->activeTab);
+        }
+        $existingTypeItems = $typeQuery->whereNotNull('item_number')
+            ->orderBy('item_number')
+            ->get(['item_number', 'series_title'])
+            ->unique('item_number')
+            ->values()
+            ->all();
+
         return [
             'records'                 => $paginatedRecords,
             'sortBy'                  => $sortBy,
             'allBrackets'             => $allBrackets,
+            'existingTypeItems'       => $existingTypeItems,
             'bracketSuggestions'     => $bracketSuggestions,
             'editBracketSuggestions' => $editBracketSuggestions,
             'editParentSuggestions'  => $editParentSuggestions,
@@ -2709,6 +2784,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             });
         },
         closeContextMenu() { this.ctxOpen = false; },
+        remarkTriggers: @js($remarkKeyTriggers),
+        matchRemarkTrigger(text) {
+            if (!text || !text.trim()) return null;
+            for (const t of this.remarkTriggers) {
+                if (!t.key_word) continue;
+                const re = new RegExp('\\b' + t.key_word + '\\b', 'i');
+                if (re.test(text)) {
+                    return String(t.id);
+                }
+            }
+            return null;
+        },
         computeTotalPeriod(active, storage, isPerm) {
             if (isPerm) return 'Permanent';
             active = (active || '').trim();
@@ -2783,20 +2870,49 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
     <!-- Add Record Series Popout Modal -->
     @if($showAddForm)
-        <div class="ars-modal-overlay">
-            <div class="ars-modal-card" style="width: 650px;" x-data="{
+        <div class="ars-modal-overlay"
+             style="display: flex; align-items: center; justify-content: center; gap: 20px; padding: 20px;"
+             x-data="{
+                periodType: @entangle('newPeriodType'),
                 perm: @entangle('newIsPermanent'),
                 active: @entangle('newActivePeriod'),
                 storage: @entangle('newStoragePeriod'),
                 bracket: @entangle('bracketInput'),
                 bracketOpen: false,
                 brackets: @js($allBrackets),
+                itemNumber: @entangle('newItemNumber'),
+                seriesTitle: @entangle('series_title'),
+                existingItems: @js($existingTypeItems),
+                remarks: @entangle('newRemarks'),
+                remKey: @entangle('newRemarkKeyWordId'),
+                remActive: @entangle('newRemarkActivePeriod'),
+                remStorage: @entangle('newRemarkStoragePeriod'),
+                manualTrigger: false,
+                onItemNumberChange() {
+                    if (!this.itemNumber) return;
+                    const found = this.existingItems.find(it => String(it.item_number) === String(this.itemNumber));
+                    if (found) {
+                        this.seriesTitle = found.series_title;
+                    }
+                },
+                handleRemarksInput() {
+                    const fn = (typeof this.matchRemarkTrigger === 'function') ? this.matchRemarkTrigger.bind(this) : (typeof matchRemarkTrigger === 'function' ? matchRemarkTrigger : null);
+                    const matched = fn ? fn(this.remarks) : null;
+                    if (matched) {
+                        this.remKey = matched;
+                        this.manualTrigger = false;
+                    } else if (!this.manualTrigger) {
+                        this.remKey = '';
+                    }
+                },
                 get filteredBrackets() {
                     if (!this.bracket) return this.brackets.slice(0, 8);
                     const q = this.bracket.toLowerCase();
                     return this.brackets.filter(b => b.toLowerCase().includes(q)).slice(0, 8);
                 }
-            }">
+        }">
+            <!-- Main Modal Card -->
+            <div class="ars-modal-card" style="width: 600px; max-width: 90vw; flex-shrink: 0;">
                 <div class="ars-modal-header">
                     <h3>
                         @if($relativeRecordTitle)
@@ -2818,10 +2934,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                             </button>
                         </div>
                     @endif
-                    <!-- Bracket Autocomplete Input (Instant Client-Side Filtering) -->
+
+                    <!-- Bracket Autocomplete Input -->
                     <div class="ars-form-row" style="position: relative;" @click.outside="bracketOpen = false">
                         <span class="ars-label">Bracket:</span>
-                        <div style="flex: 1; position: relative;">
+                        <div style="flex: 1; min-width: 0; position: relative;">
                             <input type="text"
                                    class="ars-input"
                                    x-model="bracket"
@@ -2841,26 +2958,50 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     <!-- Recorded Office Selection -->
                     <div class="ars-form-row">
                         <span class="ars-label">Recorded Office:</span>
-                        <select class="ars-input" wire:model="newOfficeCode" style="font-weight: 600;">
-                            <option value="">No Office Section (Global / Unassigned)</option>
-                            @foreach($offices as $off)
-                                <option value="{{ $off->office_code }}">{{ $off->office_code }} — {{ $off->office_name }}</option>
-                            @endforeach
-                        </select>
+                        <div style="flex: 1; min-width: 0;">
+                            <select class="ars-input" wire:model="newOfficeCode" style="font-weight: 600; width: 100%;">
+                                <option value="">No Office Section (Global / Unassigned)</option>
+                                @foreach($offices as $off)
+                                    <option value="{{ $off->office_code }}">{{ $off->office_code }} — {{ $off->office_name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
                     </div>
 
-                    <!-- Item Number -->
+                    <!-- Item Number Input with Existing Items Dropdown -->
                     <div class="ars-form-row">
                         <span class="ars-label">Item Number:</span>
-                        <input type="number" class="ars-input" wire:model="newItemNumber" placeholder="e.g. 1, 2, 100" style="max-width: 160px; font-weight: 700;">
+                        <div style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;">
+                            <input type="number"
+                                   class="ars-input"
+                                   x-model="itemNumber"
+                                   wire:model="newItemNumber"
+                                   @input="onItemNumberChange()"
+                                   placeholder="e.g. 1"
+                                   style="width: 80px; flex: 0 0 80px; font-weight: 700;">
+                            @if(count($existingTypeItems) > 0)
+                                <select class="ars-input"
+                                        x-model="itemNumber"
+                                        @change="onItemNumberChange()"
+                                        style="flex: 1; min-width: 0; font-size: 11.5px; font-weight: 600; text-overflow: ellipsis;">
+                                    <option value="">— Select an Item Number —</option>
+                                    @foreach($existingTypeItems as $it)
+                                        <option value="{{ $it->item_number }}">
+                                            #{{ $it->item_number }} — {{ \Illuminate\Support\Str::limit($it->series_title, 26) }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            @endif
+                        </div>
                     </div>
 
                     <!-- Record Series Title (with Autocomplete Dropdown matching records-and-disposition-schedule) -->
                     <div class="ars-form-row" style="position: relative;" wire:click.outside="$set('showParentDropdown', false)">
                         <span class="ars-label">Series Title *:</span>
-                        <div style="flex: 1; position: relative;">
+                        <div style="flex: 1; min-width: 0; position: relative;">
                             <input type="text"
                                    class="ars-input"
+                                   x-model="seriesTitle"
                                    wire:model.live.debounce.350ms="series_title"
                                    wire:focus="$set('showParentDropdown', true)"
                                    placeholder="e.g. Gate passes, receipts, financial statements"
@@ -2869,7 +3010,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                             @if($showParentDropdown && count($parentSuggestions) > 0)
                                 <ul class="ars-suggestions-list">
                                     @foreach($parentSuggestions as $ps)
-                                        <li class="ars-suggestion-item" wire:click="selectParentSuggestion('{{ addslashes($ps->series_title) }}')" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px;">
+                                        <li class="ars-suggestion-item" wire:click="selectParentSuggestion('{{ addslashes($ps->series_title) }}'); seriesTitle = '{{ addslashes($ps->series_title) }}';" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px;">
                                             <div style="display: flex; align-items: center; gap: 8px;">
                                                 @if(!empty($ps->shorted_type))
                                                     <span style="font-size: 10px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 1px 5px; border-radius: 4px; letter-spacing: 0.5px; text-transform: uppercase;">{{ $ps->shorted_type }}</span>
@@ -2890,18 +3031,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
                     <!-- Dynamic Subsections (Matching records-and-disposition-schedule) -->
                     @foreach($subsections as $index => $subVal)
-                        <div class="ars-form-row" style="padding-left: {{ ($index + 1) * 20 }}px;">
-                            <span class="ars-label" style="font-size: 12px; color: var(--ars-blue-800);">
+                        <div class="ars-form-row" style="padding-left: {{ ($index + 1) * 16 }}px;">
+                            <span class="ars-label" style="font-size: 11.5px; color: var(--ars-blue-800);">
                                 └─ Sub {{ $index + 1 }}:
                             </span>
-                            <div style="flex: 1; display: flex; gap: 8px;">
+                            <div style="flex: 1; min-width: 0; display: flex; gap: 8px;">
                                 <input type="text"
                                        class="ars-input"
                                        wire:model="subsections.{{ $index }}"
                                        placeholder="e.g. Visitor logs, delegate badges..."
-                                       style="flex: 1; font-weight: 600;">
+                                       style="flex: 1; min-width: 0; font-weight: 600; font-size: 12px;">
 
-                                <button type="button" wire:click="removeSubsection({{ $index }})" class="ars-btn ars-btn-danger" style="padding: 6px 12px;" title="Remove Subsection">
+                                <button type="button" wire:click="removeSubsection({{ $index }})" class="ars-btn ars-btn-danger" style="padding: 6px 10px; flex-shrink: 0;" title="Remove Subsection">
                                     🗑️
                                 </button>
                             </div>
@@ -2909,54 +3050,111 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     @endforeach
 
                     <!-- Add Subsection Button -->
-                    <div style="margin: 6px 0 16px 180px;">
-                        <button type="button" wire:click="addSubsection" class="ars-btn ars-btn-secondary" style="font-size: 12px; padding: 6px 14px; border-style: dashed; border-color: var(--ars-blue-500); color: var(--ars-blue-600);">
+                    <div style="margin: 4px 0 14px 180px;">
+                        <button type="button" wire:click="addSubsection" class="ars-btn ars-btn-secondary" style="font-size: 11.5px; padding: 5px 12px; border-style: dashed; border-color: var(--ars-blue-500); color: var(--ars-blue-600);">
                             + Add Subsection (Child)
                         </button>
                     </div>
 
-                    <!-- Permanent Retention Option (Instant Client-Side Toggle) -->
-                    <div class="ars-form-row">
-                        <span class="ars-label">Permanent Record:</span>
-                        <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
-                            <label style="display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 700; color: var(--ars-blue-800); cursor: pointer;">
-                                <input type="checkbox" x-model="perm" wire:model="newIsPermanent" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--ars-blue-600);">
-                                Permanent Record Series
-                            </label>
-                            <span style="font-size: 12px; color: var(--ars-slate-500);">(Disables period inputs and sets retention to Permanent)</span>
+                    <!-- RECORD SERIES PERIOD TOGGLE -->
+                    <div class="ars-form-row" style="align-items: center; margin-bottom: 0;">
+                        <span class="ars-label" style="font-size: 11.5px; font-weight: 800; color: var(--ars-blue-800);">RECORD SERIES PERIOD:</span>
+                        <div style="flex: 1; min-width: 0;">
+                            <select class="ars-input"
+                                    x-model="periodType"
+                                    wire:model="newPeriodType"
+                                    @change="if (periodType === 'Permanent') { perm = true; } else { perm = false; }"
+                                    style="font-weight: 700; width: 100%;">
+                                <option value="">Select Period Type</option>
+                                <option value="Permanent">Permanent</option>
+                                <option value="Temporary">Temporary</option>
+                            </select>
+
+                            <div x-show="periodType === 'Permanent'" style="margin-top: 6px; font-size: 11.5px; color: #15803d; font-weight: 700; display: flex; align-items: center; gap: 5px;" x-cloak>
+                                <span>🔒</span> Permanent Record Series (Retention set to Permanent)
+                            </div>
                         </div>
-                    </div>
-
-                    <!-- Active Period -->
-                    <div class="ars-form-row" :style="perm ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;'">
-                        <span class="ars-label">Active Period:</span>
-                        <input type="text" class="ars-input" x-model="active" wire:model="newActivePeriod" placeholder="e.g. 6 Months, 1 Year" :disabled="perm">
-                    </div>
-
-                    <!-- Storage Period -->
-                    <div class="ars-form-row" :style="perm ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;'">
-                        <span class="ars-label">Storage Period:</span>
-                        <input type="text" class="ars-input" x-model="storage" wire:model="newStoragePeriod" placeholder="e.g. 1 Year, 4 Years" :disabled="perm">
-                    </div>
-
-                    <!-- Total Period (Instant Client-Side Calculation) -->
-                    <div class="ars-form-row" :style="perm ? 'opacity: 0.4; pointer-events: none; user-select: none;' : ''">
-                        <span class="ars-label">Total Period:</span>
-                        <div style="flex: 1; padding: 10px 14px; background: var(--ars-slate-50); border: 1px solid var(--ars-slate-300); border-radius: 8px; font-weight: 700; font-size: 13.5px; color: var(--ars-blue-800);"
-                             x-text="computeTotalPeriod(active, storage, perm) || '— (Auto-calculated from Active & Storage)'">
-                            — (Auto-calculated from Active & Storage)
-                        </div>
-                    </div>
-
-                    <!-- Remarks -->
-                    <div class="ars-form-row" style="align-items: flex-start;">
-                        <span class="ars-label" style="margin-top: 10px;">Remarks:</span>
-                        <input type="text" class="ars-input" wire:model="newRemarks" placeholder="e.g. Dispose after retention, audit required">
                     </div>
                 </div>
                 <div class="ars-modal-footer">
                     <button type="button" wire:click="toggleAddForm" class="ars-btn ars-btn-secondary">Cancel</button>
                     <button type="button" wire:click="addSeries" class="ars-btn ars-btn-primary">Save Record Series</button>
+                </div>
+            </div>
+
+            <!-- Side Card (Outside the modal, appears on the right when Temporary is selected) -->
+            <div x-show="periodType === 'Temporary'"
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0 transform translate-x-4 scale-95"
+                 x-transition:enter-end="opacity-100 transform translate-x-0 scale-100"
+                 class="ars-modal-card"
+                 style="width: 380px; max-width: 90vw; flex-shrink: 0;"
+                 x-cloak>
+                <div class="ars-modal-header" style="background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);">
+                    <h3 style="display: flex; align-items: center; gap: 8px; font-size: 14.5px; font-weight: 800; color: var(--ars-blue-800);">
+                        <span>⏱️</span> Retention Period & Remarks
+                    </h3>
+                </div>
+                <div class="ars-modal-body" style="padding: 20px;">
+                    <!-- Active Period -->
+                    <div style="margin-bottom: 14px;">
+                        <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--ars-slate-700); margin-bottom: 4px;">Active Period:</label>
+                        <input type="text" class="ars-input" x-model="active" wire:model="newActivePeriod" placeholder="e.g. 6 Months, 1 Year" style="width: 100%; font-size: 12.5px;">
+                    </div>
+
+                    <!-- Storage Period -->
+                    <div style="margin-bottom: 14px;">
+                        <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--ars-slate-700); margin-bottom: 4px;">Storage Period:</label>
+                        <input type="text" class="ars-input" x-model="storage" wire:model="newStoragePeriod" placeholder="e.g. 1 Year, 4 Years" style="width: 100%; font-size: 12.5px;">
+                    </div>
+
+                    <!-- Total Period -->
+                    <div style="margin-bottom: 14px;">
+                        <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--ars-slate-700); margin-bottom: 4px;">Total Period:</label>
+                        <div style="padding: 9px 13px; background: #ffffff; border: 1.5px solid var(--ars-slate-300); border-radius: 8px; font-weight: 800; font-size: 13px; color: var(--ars-blue-800);"
+                             x-text="computeTotalPeriod(active, storage, false) || '— (Auto-calculated)'">
+                            — (Auto-calculated)
+                        </div>
+                    </div>
+
+                    <!-- Remarks -->
+                    <div style="margin-bottom: 6px;">
+                        <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--ars-slate-700); margin-bottom: 4px;">Remarks:</label>
+                        <input type="text" class="ars-input" x-model="remarks" wire:model="newRemarks" @input="handleRemarksInput()" placeholder="e.g. Dispose after retention, audit required" style="width: 100%; font-size: 12.5px;">
+
+                        @if(count($remarkKeyTriggers) > 0)
+                            <div x-show="remarks && remarks.trim() !== ''" style="margin-top: 8px;" x-cloak>
+                                <select class="ars-input" x-model="remKey" wire:model="newRemarkKeyWordId" @change="manualTrigger = true" style="width: 100%; font-size: 11.5px;">
+                                    <option value="">Select remark key trigger (optional)</option>
+                                    @foreach($remarkKeyTriggers as $trigger)
+                                        <option value="{{ $trigger->id }}">
+                                            {{ $trigger->key_word }} — {{ $trigger->is_action_before ? 'Remarks Retention first' : 'Remarks Retention Later' }}
+                                        </option>
+                                    @endforeach
+                                </select>
+
+                                <!-- Remark Trigger Retention Period (shows when a trigger is selected) -->
+                                <div x-show="remKey && remKey !== ''" style="margin-top: 10px; padding: 10px 12px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;" x-cloak>
+                                    <div style="font-size: 11.5px; font-weight: 700; color: var(--ars-blue-800); margin-bottom: 6px;">
+                                        ⏱️ Remark Trigger Retention Period
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                        <div style="min-width: 0;">
+                                            <span style="font-size: 11px; font-weight: 600; color: var(--ars-slate-600); display: block; margin-bottom: 3px;">Active Period:</span>
+                                            <input type="text" class="ars-input" x-model="remActive" wire:model="newRemarkActivePeriod" placeholder="e.g. 5 Years" style="width: 100%; font-size: 12px; padding: 7px 10px; box-sizing: border-box;">
+                                        </div>
+                                        <div style="min-width: 0;">
+                                            <span style="font-size: 11px; font-weight: 600; color: var(--ars-slate-600); display: block; margin-bottom: 3px;">Storage Period:</span>
+                                            <input type="text" class="ars-input" x-model="remStorage" wire:model="newRemarkStoragePeriod" placeholder="e.g. 10 Years" style="width: 100%; font-size: 12px; padding: 7px 10px; box-sizing: border-box;">
+                                        </div>
+                                    </div>
+                                    <div style="margin-top: 6px; font-size: 11.5px; color: var(--ars-slate-700);">
+                                        Total: <strong style="color: var(--ars-blue-800);" x-text="computeTotalPeriod(remActive, remStorage, false) || '—'">—</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+                    </div>
                 </div>
             </div>
         </div>
@@ -2965,12 +3163,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     <!-- Add Subsection Modal (opened from the inline edit row) -->
     @if($showSubsectionModal)
         <div class="ars-modal-overlay">
-            <div class="ars-modal-card" style="width: 580px;" x-data="{
+            <div class="ars-modal-card" style="width: 740px;" x-data="{
                 inheritRetention: @entangle('subsectionInheritRetention'),
                 isPerm: @entangle('subsectionIsPermanent'),
                 active: @entangle('subsectionActivePeriod'),
                 storage: @entangle('subsectionStoragePeriod'),
-                remarks: @entangle('subsectionRemarks')
+                remarks: @entangle('subsectionRemarks'),
+                remKey: @entangle('subsectionRemarkKeyWordId'),
+                remActive: @entangle('subsectionRemarkActivePeriod'),
+                remStorage: @entangle('subsectionRemarkStoragePeriod'),
+                manualTrigger: false,
+                handleRemarksInput() {
+                    const matched = this.matchRemarkTrigger(this.remarks);
+                    if (matched) {
+                        this.remKey = matched;
+                        this.manualTrigger = false;
+                    } else if (!this.manualTrigger) {
+                        this.remKey = '';
+                    }
+                }
             }">
                 <div class="ars-modal-header">
                     <h3>➕ Add Subsection</h3>
@@ -2996,12 +3207,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                         </div>
                     </div>
 
-                    <div class="ars-form-row">
-                        <span class="ars-label">Item No. (optional):</span>
-                        <input type="number" class="ars-input" wire:model="subsectionItemNumber"
-                               placeholder="e.g. 12" style="max-width: 160px;">
-                        <span style="font-size: 11.5px; color: var(--ars-slate-500);">Applied to the first subsection only.</span>
-                    </div>
+
 
                     <!-- Inherit Retention Period Checkbox (Instant Client-Side Toggle) -->
                     <div class="ars-form-row">
@@ -3053,15 +3259,37 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                         <div class="ars-form-row" style="align-items: flex-start;">
                             <span class="ars-label" style="margin-top: 10px;">Remarks:</span>
                             <div style="flex: 1;">
-                                <input type="text" class="ars-input" x-model="remarks" wire:model="subsectionRemarks" placeholder="e.g. Dispose after retention, audit required">
+                                <input type="text" class="ars-input" x-model="remarks" wire:model="subsectionRemarks" @input="handleRemarksInput()" placeholder="e.g. Dispose after retention, audit required">
                                 @if(count($remarkKeyTriggers) > 0)
                                     <div x-show="remarks && remarks.trim() !== ''" style="margin-top: 8px;" x-cloak>
-                                        <select class="ars-input" wire:model="subsectionRemarkKeyWordId" style="font-size: 11.5px;">
+                                        <select class="ars-input" x-model="remKey" wire:model="subsectionRemarkKeyWordId" @change="manualTrigger = true" style="font-size: 11.5px;">
                                             <option value="">Select remark key trigger (optional)</option>
                                             @foreach($remarkKeyTriggers as $trigger)
-                                                <option value="{{ $trigger->id }}">{{ $trigger->key_word }}</option>
+                                                <option value="{{ $trigger->id }}">
+                                                    {{ $trigger->key_word }} — {{ $trigger->is_action_before ? 'Remarks Retention first' : 'Remarks Retention Later' }}
+                                                </option>
                                             @endforeach
                                         </select>
+
+                                        <!-- Remark Trigger Retention Period (shows when a trigger is selected) -->
+                                        <div x-show="remKey && remKey !== ''" style="margin-top: 10px; padding: 10px 12px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;" x-cloak>
+                                            <div style="font-size: 11.5px; font-weight: 700; color: var(--ars-blue-800); margin-bottom: 6px;">
+                                                ⏱️ Remark Trigger Retention Period
+                                            </div>
+                                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                                <div style="min-width: 0;">
+                                                    <span style="font-size: 11px; font-weight: 600; color: var(--ars-slate-600); display: block; margin-bottom: 3px;">Active Period:</span>
+                                                    <input type="text" class="ars-input" x-model="remActive" wire:model="subsectionRemarkActivePeriod" placeholder="e.g. 5 Years" style="width: 100%; font-size: 12px; padding: 7px 10px; box-sizing: border-box;">
+                                                </div>
+                                                <div style="min-width: 0;">
+                                                    <span style="font-size: 11px; font-weight: 600; color: var(--ars-slate-600); display: block; margin-bottom: 3px;">Storage Period:</span>
+                                                    <input type="text" class="ars-input" x-model="remStorage" wire:model="subsectionRemarkStoragePeriod" placeholder="e.g. 10 Years" style="width: 100%; font-size: 12px; padding: 7px 10px; box-sizing: border-box;">
+                                                </div>
+                                            </div>
+                                            <div style="margin-top: 6px; font-size: 11.5px; color: var(--ars-slate-700);">
+                                                Total: <strong style="color: var(--ars-blue-800);" x-text="computeTotalPeriod(remActive, remStorage, false) || '—'">—</strong>
+                                            </div>
+                                        </div>
                                     </div>
                                 @endif
                             </div>
@@ -3213,8 +3441,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                 active: @entangle('editActivePeriod'),
                                 storage: @entangle('editStoragePeriod'),
                                 remarks: @entangle('editRemarks'),
+                                remKey: @entangle('editRemarkKeyWordId'),
                                 remActive: @entangle('editRemarkActivePeriod'),
                                 remStorage: @entangle('editRemarkStoragePeriod'),
+                                manualTrigger: {{ !empty($editRemarkKeyWordId) ? 'true' : 'false' }},
+                                handleRemarksInput() {
+                                    const matched = this.matchRemarkTrigger(this.remarks);
+                                    if (matched) {
+                                        this.remKey = matched;
+                                        this.manualTrigger = false;
+                                    } else if (!this.manualTrigger) {
+                                        this.remKey = '';
+                                    }
+                                },
                                 bracket: @entangle('editBracketInput'),
                                 bracketOpen: false,
                                 brackets: @js($allBrackets),
@@ -3298,7 +3537,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                     —
                                 </td>
                                 <td style="text-align: center; border: 1px solid #cbd5e1;">
-                                    <input type="text" class="ars-input" x-model="remarks" wire:model="editRemarks" placeholder="Enter remarks..." style="width: 100%; text-align: center;">
+                                    <input type="text" class="ars-input" x-model="remarks" wire:model="editRemarks" @input="handleRemarksInput()" placeholder="Enter remarks..." style="width: 100%; text-align: center;">
                                     <div x-show="remarks && remarks.trim() !== ''" style="margin-top: 6px;" x-cloak>
                                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
                                             <input type="text"
@@ -3319,11 +3558,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                             </strong>
                                         </div>
                                         <select class="ars-input"
+                                                x-model="remKey"
                                                 wire:model="editRemarkKeyWordId"
+                                                @change="manualTrigger = true"
                                                 style="margin-top: 5px; font-size: 11px; text-align: center;">
                                             <option value="">Select remark key trigger</option>
                                             @foreach($remarkKeyTriggers as $trigger)
-                                                <option value="{{ $trigger->id }}">{{ $trigger->key_word }}</option>
+                                                <option value="{{ $trigger->id }}">
+                                                    {{ $trigger->key_word }} — {{ $trigger->is_action_before ? 'Remarks Retention first' : 'Remarks Retention Later' }}
+                                                </option>
                                             @endforeach
                                         </select>
                                     </div>

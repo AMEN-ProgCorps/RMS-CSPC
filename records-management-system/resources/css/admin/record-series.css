@@ -415,6 +415,9 @@
     border-radius: 16px;
     width: 520px;
     max-width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
     box-shadow: var(--ars-shadow-xl);
     overflow: hidden;
 }
@@ -452,6 +455,8 @@
 }
 .ars-modal-body {
     padding: 24px;
+    overflow-y: auto;
+    flex: 1;
 }
 .ars-modal-footer {
     display: flex;

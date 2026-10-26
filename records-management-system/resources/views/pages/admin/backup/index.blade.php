@@ -384,14 +384,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     $now = now();
                     $missingLogs = [];
 
-                    foreach ($foundBackups as $fname => $b) {
+                    foreach ($foundBackups as $idx => $b) {
+                        $fname = $b['filename'];
                         if (!$existingLogs->has($fname)) {
                             $isDrive = str_contains($b['source'] ?? '', 'Google Drive');
                             $isLocal = str_contains($b['source'] ?? '', 'Local');
                             $missingLogs[] = [
                                 'name' => $b['custom_label'] ?? null,
                                 'snap_type' => ($b['type'] === 'Selective') ? 'selective' : 'full',
-                                'filename' => $b['filename'],
+                                'filename' => $fname,
                                 'file_size' => $b['size_formatted'] ?? null,
                                 'tables_count' => null,
                                 'total_records' => null,
@@ -406,14 +407,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             ];
                         } else {
                             $logEntry = $existingLogs->get($fname);
-                            if (!empty($logEntry->name) && empty($foundBackups[$fname]['custom_label'])) {
-                                $foundBackups[$fname]['custom_label'] = $logEntry->name;
+                            if (!empty($logEntry->name) && empty($foundBackups[$idx]['custom_label'])) {
+                                $foundBackups[$idx]['custom_label'] = $logEntry->name;
                             }
                             if (!empty($logEntry->tables_count)) {
-                                $foundBackups[$fname]['tables_count'] = $logEntry->tables_count;
+                                $foundBackups[$idx]['tables_count'] = $logEntry->tables_count;
                             }
                             if (!empty($logEntry->total_records)) {
-                                $foundBackups[$fname]['total_records'] = $logEntry->total_records;
+                                $foundBackups[$idx]['total_records'] = $logEntry->total_records;
                             }
                         }
                     }
@@ -624,31 +625,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
     public function downloadBackup(string $filename)
     {
         $filename = basename($filename);
-        $localPath = "backups/{$filename}";
-        $googlePath = "backup/{$filename}";
-
-        $content = null;
-
-        if (\Illuminate\Support\Facades\Storage::disk('local')->exists($localPath)) {
-            $content = \Illuminate\Support\Facades\Storage::disk('local')->get($localPath);
-        } elseif (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
-            $content = \Illuminate\Support\Facades\Storage::disk('google')->get($googlePath);
-            try {
-                \Illuminate\Support\Facades\Storage::disk('local')->put($localPath, $content);
-            } catch (\Throwable) {}
-        }
-
-        if (!$content) {
-            $this->errorMessage = "Requested backup file [{$filename}] could not be found for download.";
-            return;
-        }
-
-        return response()->streamDownload(function () use ($content) {
-            echo $content;
-        }, $filename, [
-            'Content-Type' => 'application/json',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
-        ]);
+        return redirect()->route('admin.backup.download', ['filename' => $filename]);
     }
 
     public function importBackup(): void
@@ -674,7 +651,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             }
 
             $origName = $this->uploadedBackupFile->getClientOriginalName();
-            $cleanName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '', $origName);
+            $cleanName = preg_replace('/[^a-zA-Z0-9_\-\.\[\]]/', '', $origName);
             if (!str_ends_with($cleanName, '.json')) {
                 $cleanName = 'rms_imported_' . date('Y-m-d_His') . '.json';
             }
@@ -722,7 +699,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             }
 
             $this->uploadedBackupFile = null;
-            $this->successMessage = "🎉 Backup file [{$cleanName}] imported & registered successfully!";
+            $this->selectedTargetBackup = $cleanName;
+            $this->successMessage = "🎉 Backup file [{$cleanName}] imported & registered successfully! You can revert your system database to it anytime.";
             $this->checkBackups();
 
         } catch (\Throwable $e) {
@@ -1150,12 +1128,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
     <!-- Alert Messages -->
     @if ($successMessage)
-        <div style="padding: 14px 18px; border-radius: 12px; font-size: 13px; font-weight: 600; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; display: flex; align-items: center; justify-content: space-between;">
+        <div style="padding: 14px 18px; border-radius: 12px; font-size: 13px; font-weight: 600; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
             <div style="display: flex; align-items: center; gap: 10px;">
                 <i class="fa-solid fa-circle-check" style="font-size: 16px;"></i>
                 <span>{{ $successMessage }}</span>
             </div>
-            <button type="button" wire:click="$set('successMessage', '')" style="background: none; border: none; color: #166534; cursor: pointer; font-size: 16px;">&times;</button>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                @if ($selectedTargetBackup && str_contains($successMessage, 'imported & registered successfully'))
+                    <button type="button" wire:click="confirmRevertModal('{{ $selectedTargetBackup }}')" style="background: #d97706; color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-rotate-left"></i> Revert Database To This Backup Now
+                    </button>
+                @endif
+                <button type="button" wire:click="$set('successMessage', '')" style="background: none; border: none; color: #166534; cursor: pointer; font-size: 16px;">&times;</button>
+            </div>
         </div>
     @endif
 
@@ -1189,7 +1174,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     <button type="button" wire:click="importBackup" wire:loading.attr="disabled" style="background: #16a34a; color: white; border: none; padding: 9px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
                         <i class="fa-solid fa-upload" wire:loading.remove wire:target="importBackup"></i>
                         <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="importBackup"></i>
-                        <span>Upload & Register</span>
+                        <span wire:loading.remove wire:target="importBackup">Upload & Register</span>
+                        <span wire:loading wire:target="importBackup">Importing...</span>
                     </button>
                 @endif
             </div>
@@ -1330,9 +1316,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             </td>
                             <td style="padding: 14px 16px; text-align: right;">
                                 <div style="display: flex; gap: 8px; justify-content: flex-end;">
-                                    <button type="button" wire:click="downloadBackup('{{ $backup['filename'] }}')" style="background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;" title="Download to local machine">
+                                    <a href="{{ route('admin.backup.download', ['filename' => $backup['filename']]) }}" download="{{ $backup['filename'] }}" style="background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; text-decoration: none;" title="Download to local machine">
                                         <i class="fa-solid fa-download"></i> Download
-                                    </button>
+                                    </a>
 
                                     <button type="button" wire:click="confirmRevertModal('{{ $backup['filename'] }}')" style="background: #d97706; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;" title="Revert system database to this target backup">
                                         <i class="fa-solid fa-rotate-left"></i> Revert
@@ -1606,11 +1592,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 All current database records will be replaced with data from this target backup file.
             </div>
 
+            @if ($errorMessage)
+            <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #dc2626; margin-bottom: 16px; font-weight: 600;">
+                <i class="fa-solid fa-circle-exclamation"></i> {{ $errorMessage }}
+            </div>
+            @endif
+
             <div style="margin-bottom: 16px;">
                 <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
                     Type <span style="color: #ef4444; font-family: monospace;">REVERT</span> below to authorize:
                 </label>
-                <input type="text" wire:model="backupConfirmInput" placeholder="Type REVERT" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-family: monospace; font-weight: 700; color: #0f172a;">
+                <input type="text" wire:model.live="backupConfirmInput" wire:keydown.enter="startRevertProcess" placeholder="Type REVERT" style="width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-family: monospace; font-weight: 700; color: #0f172a;">
             </div>
 
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
@@ -1627,6 +1619,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         </div>
     </div>
     @endif
+
+    <!-- Active Restoring Overlay (Displays while server executes database restore) -->
+    <div wire:loading wire:target="startRevertProcess" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(6px); z-index: 100000; display: flex; align-items: center; justify-content: center; color: white; padding: 20px;">
+        <div style="background: #ffffff; color: #0f172a; padding: 32px 36px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); width: 100%; max-width: 540px; text-align: center; border: 2px solid #d97706;">
+            <div style="width: 64px; height: 64px; border-radius: 50%; background: #fef3c7; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 18px;">
+                <i class="fa-solid fa-rotate-left fa-spin" style="font-size: 30px; color: #d97706;"></i>
+            </div>
+            <h4 style="font-size: 20px; font-weight: 800; margin: 0 0 10px 0; color: #0f172a;">Restoring System Database...</h4>
+            <p style="font-size: 13px; color: #64748b; line-height: 1.6; margin: 0 0 18px 0;">
+                Clearing and applying records from <strong style="color: #0f172a; font-family: monospace;">{{ $selectedTargetBackup }}</strong>.<br>
+                Please do not close or refresh this tab. This may take 15–30 seconds.
+            </p>
+            <div style="display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: #d97706; background: #fffbeb; padding: 8px 18px; border-radius: 9999px; border: 1px solid #fde68a;">
+                <i class="fa-solid fa-database"></i> Executing safe transaction & sequence resync
+            </div>
+        </div>
+    </div>
 
     <!-- Live Step-by-Step Terminal Progress Modal for Database Reverting (Preload-style) -->
     @if ($isReverting)

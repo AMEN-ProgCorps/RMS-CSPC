@@ -461,6 +461,32 @@ Route::middleware(['auth'])
         Volt::route('/admin/subsystems/changes-logs', 'pages.admin.subsystems.changes-logs')->name('admin.subsystems.changes-logs');
         Volt::route('/admin/settings', 'pages.admin.settings.index')->name('admin.settings.index');
         Volt::route('/admin/backup', 'pages.admin.backup.index')->name('admin.backup.index');
+        Route::get('/admin/backup/download/{filename}', function ($filename) {
+            $filename = basename($filename);
+            $localPath = "backups/{$filename}";
+            $googlePath = "backup/{$filename}";
+
+            if (\Illuminate\Support\Facades\Storage::disk('local')->exists($localPath)) {
+                return \Illuminate\Support\Facades\Storage::disk('local')->download($localPath, $filename, [
+                    'Content-Type' => 'application/json',
+                ]);
+            }
+
+            if (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
+                $stream = \Illuminate\Support\Facades\Storage::disk('google')->readStream($googlePath);
+                return response()->stream(function () use ($stream) {
+                    fpassthru($stream);
+                    if (is_resource($stream)) {
+                        fclose($stream);
+                    }
+                }, 200, [
+                    'Content-Type' => 'application/json',
+                    'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                ]);
+            }
+
+            abort(404, "Requested backup file [{$filename}] could not be found.");
+        })->name('admin.backup.download');
         Volt::route('/admin/recycle-bin', 'pages.admin.recycle-bin')->name('admin.recycle-bin');
 
         // Server Settings & High-Availability Clustering (/admin/server-settings/*)

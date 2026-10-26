@@ -7,6 +7,8 @@ use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File Manager')] class extends Component {
     use WithPagination;
@@ -20,6 +22,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
     public string $sortBy = 'date_added'; // 'date_added', 'date_modified', 'document_name', 'office'
     public string $sortDirection = 'desc'; // 'asc' or 'desc'
     public ?string $selectedFileId = null;
+    public bool $showMetadataModal = false;
+    public ?string $metadataDocId = null;
+
+    public function openMetadataModal(?string $docId = null): void
+    {
+        $this->metadataDocId = $docId ?: $this->selectedFileId;
+        if ($this->metadataDocId) {
+            $this->showMetadataModal = true;
+        }
+    }
+
+    public function closeMetadataModal(): void
+    {
+        $this->showMetadataModal = false;
+        $this->metadataDocId = null;
+    }
 
     public function setTab(string $tab): void
     {
@@ -236,8 +254,137 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                 ->first();
         }
 
+        $metadataDetails = null;
+        if ($this->showMetadataModal && $this->metadataDocId) {
+            $docTbl = Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data';
+            $offTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+            $accTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+            $doc = DB::table("{$docTbl} as d")
+                ->leftJoin("{$offTbl} as o", 'd.user_office', '=', 'o.office_code')
+                ->leftJoin("{$accTbl} as a", 'd.uploaded_by', '=', 'a.account_id')
+                ->select(
+                    'd.*',
+                    'o.office_name',
+                    'a.first_name',
+                    'a.last_name'
+                )
+                ->where('d.document_id', $this->metadataDocId)
+                ->first();
+
+            if ($doc) {
+                // RDP Record linkage
+                $rdpRecord = null;
+                $periodCovered = null;
+                $duplicateOffices = [];
+
+                if (Schema::hasTable('rdp_record')) {
+                    $rdpRecord = DB::table('rdp_record as r')
+                        ->leftJoin('rdp_record_series as s', 'r.record_series_id', '=', 's.id')
+                        ->leftJoin('rdp_retention_period as p', 'r.period_id', '=', 'p.id')
+                        ->leftJoin('rdp_recorded_value as med', 'r.records_medium', '=', 'med.id')
+                        ->leftJoin("{$offTbl} as o_own", 'r.office_own', '=', 'o_own.office_code')
+                        ->select(
+                            'r.*',
+                            's.series_title',
+                            'p.active_period',
+                            'p.storage_period',
+                            'p.total_period',
+                            's.remarks as disposition_provision',
+                            'med.medium_name',
+                            'o_own.office_name as owner_office_name'
+                        )
+                        ->where(function($q) use ($doc) {
+                            $q->where('r.upload_doc_id_handler', $doc->document_id);
+                            if (Schema::hasTable('rdp_document_record')) {
+                                $q->orWhereIn('r.upload_doc_id_handler', function($sub) use ($doc) {
+                                    $sub->select('parent_id')->from('rdp_document_record')->where('parent_id', $doc->document_id);
+                                });
+                            }
+                        })
+                        ->first();
+
+                    if ($rdpRecord) {
+                        if (Schema::hasTable('rdp_period_covered')) {
+                            $periodCovered = DB::table('rdp_period_covered')
+                                ->where('period_owner', $rdpRecord->id)
+                                ->first();
+                        }
+
+                        if (!empty($rdpRecord->duplication_id) && Schema::hasTable('rdp_duplication_section')) {
+                            $duplicateOffices = DB::table('rdp_duplication_section as dup')
+                                ->leftJoin("{$offTbl} as o", 'dup.office_code', '=', 'o.office_code')
+                                ->select('dup.*', 'o.office_name')
+                                ->where('dup.dup_id_manager', $rdpRecord->duplication_id)
+                                ->get();
+                        }
+                    }
+                }
+
+                // DTS Transaction linkage
+                $dtsTransaction = null;
+                if (Schema::hasTable('dts_transactions') && Schema::hasTable('dts_transaction_details')) {
+                    $dtsQuery = DB::table('dts_transactions as dt')
+                        ->leftJoin('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                        ->leftJoin("{$offTbl} as orig_off", 'dtd.originated_from', '=', 'orig_off.office_code')
+                        ->leftJoin("{$offTbl} as curr_off", 'dt.current_office', '=', 'curr_off.office_code')
+                        ->select(
+                            'dt.transaction_id',
+                            'dt.status',
+                            'dt.doc_dir',
+                            'dt.current_office',
+                            'dtd.control_number',
+                            'dtd.subject',
+                            'dtd.originated_from',
+                            'orig_off.office_name as originated_office_name',
+                            'curr_off.office_name as current_office_name'
+                        );
+
+                    if (!empty($doc->document_path)) {
+                        $dtsTransaction = (clone $dtsQuery)->where('dt.doc_dir', $doc->document_path)->first();
+                        if (!$dtsTransaction) {
+                            $dtsTransaction = (clone $dtsQuery)->where('dt.doc_dir', 'like', '%' . basename($doc->document_path))->first();
+                        }
+                    }
+                    if (!$dtsTransaction && Schema::hasTable('dts_document_trans')) {
+                        $transId = DB::table('dts_document_trans')->where('document_id', $doc->document_id)->value('dt_name');
+                        if ($transId) {
+                            $dtsTransaction = (clone $dtsQuery)->where('dt.transaction_id', $transId)->first();
+                        }
+                    }
+                    if (!$dtsTransaction) {
+                        $dtsTransaction = (clone $dtsQuery)->where('dt.transaction_id', $doc->document_id)->first();
+                    }
+                }
+
+                // Formatted file size
+                $formattedSize = 'Unknown';
+                if (!empty($doc->file_size) && is_numeric($doc->file_size)) {
+                    $bytes = (float) $doc->file_size;
+                    if ($bytes >= 1048576) {
+                        $formattedSize = number_format($bytes / 1048576, 2) . ' MB';
+                    } elseif ($bytes >= 1024) {
+                        $formattedSize = number_format($bytes / 1024, 2) . ' KB';
+                    } else {
+                        $formattedSize = $bytes . ' B';
+                    }
+                }
+
+                $metadataDetails = [
+                    'doc' => $doc,
+                    'formattedSize' => $formattedSize,
+                    'rdpRecord' => $rdpRecord,
+                    'periodCovered' => $periodCovered,
+                    'duplicateOffices' => $duplicateOffices,
+                    'dtsTransaction' => $dtsTransaction,
+                    'viewUrl' => !empty($doc->document_path) ? route('rdp.view-document', ['path' => $doc->document_path, 'id' => $doc->document_id]) : null,
+                ];
+            }
+        }
+
         return [
             'files' => $files,
+            'metadataDetails' => $metadataDetails,
             'offices' => $offices,
             'canViewAll' => $canViewAll,
             'userOfficeCode' => $userOfficeCode,
@@ -705,6 +852,93 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
         }
         .btn-action-block:hover { background: #1d4ed8; }
 
+        /* COCKPIT METADATA MODAL */
+        .cockpit-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(4px);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+        .cockpit-modal-card {
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            width: 740px;
+            max-width: 95vw;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: cockpitModalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes cockpitModalIn {
+            from { opacity: 0; transform: scale(0.96) translateY(8px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .cockpit-modal-header {
+            padding: 18px 24px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+        }
+        .cockpit-modal-header h3 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 800;
+            color: #0f172a;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .cockpit-modal-header p {
+            margin: 4px 0 0 0;
+            font-size: 12.5px;
+            color: #64748b;
+        }
+        .cockpit-modal-close {
+            background: transparent;
+            border: none;
+            font-size: 26px;
+            font-weight: 700;
+            color: #94a3b8;
+            cursor: pointer;
+            line-height: 1;
+            padding: 4px;
+            border-radius: 6px;
+            transition: all 0.15s;
+        }
+        .cockpit-modal-close:hover {
+            color: #0f172a;
+            background: #f1f5f9;
+        }
+        .cockpit-modal-body {
+            padding: 22px 24px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            background: #f8fafc;
+        }
+        .cockpit-modal-footer {
+            padding: 14px 24px;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #ffffff;
+        }
+
         /* CUSTOM PAGINATION BAR */
         .cockpit-pagination-bar {
             display: flex;
@@ -996,6 +1230,51 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
 
         [data-theme="dark"] .inspector-field span {
             color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .cockpit-modal-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #f1f5f9;
+        }
+        [data-theme="dark"] .cockpit-modal-header {
+            background: #0f172a;
+            border-bottom: 1px solid #334155;
+        }
+        [data-theme="dark"] .cockpit-modal-header h3 {
+            color: #f1f5f9;
+        }
+        [data-theme="dark"] .cockpit-modal-header p {
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .cockpit-modal-close {
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .cockpit-modal-close:hover {
+            color: #f1f5f9;
+            background: #334155;
+        }
+        [data-theme="dark"] .cockpit-modal-body {
+            background: #0f172a;
+        }
+        [data-theme="dark"] .cockpit-modal-footer {
+            background: #1e293b;
+            border-top: 1px solid #334155;
+        }
+        [data-theme="dark"] .meta-card-section {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+        }
+        [data-theme="dark"] .meta-card-section h4 {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .meta-val-text {
+            color: #f1f5f9 !important;
+        }
+        [data-theme="dark"] .meta-path-box {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #94a3b8 !important;
         }
 
         [data-theme="dark"] .cockpit-pagination-bar {
@@ -1316,12 +1595,302 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
                     <span style="font-size: 11px; color: #64748b;">{{ $selectedFile->document_path ?? 'Local Registry' }}</span>
                 </div>
 
-                <button type="button" class="btn-action-block">
-                    View Metadata
+                <button type="button" 
+                        class="btn-action-block" 
+                        wire:click="openMetadataModal('{{ $selectedFile->document_id }}')"
+                        style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    <span>View Metadata</span>
                 </button>
+
+                @if(!empty($selectedFile->document_path))
+                    <a href="{{ route('rdp.view-document', ['path' => $selectedFile->document_path, 'id' => $selectedFile->document_id]) }}" 
+                       target="_blank" 
+                       class="btn-action-block" 
+                       style="display: flex; align-items: center; justify-content: center; gap: 6px; background: #059669; text-decoration: none; margin-top: 8px;"
+                       onmouseover="this.style.background='#047857'"
+                       onmouseout="this.style.background='#059669'">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <span>Open Document</span>
+                    </a>
+                @endif
             </div>
         @endif
     </div>
+
+    <!-- ═══════ Cockpit Document Metadata Modal ═══════ -->
+    @if($showMetadataModal && $metadataDetails)
+        @php
+            $mDoc = $metadataDetails['doc'];
+            $mRdp = $metadataDetails['rdpRecord'];
+            $mPeriod = $metadataDetails['periodCovered'];
+            $mDups = $metadataDetails['duplicateOffices'] ?? [];
+            $mDts = $metadataDetails['dtsTransaction'];
+            $fileExt = strtolower(pathinfo($mDoc->document_name ?? '', PATHINFO_EXTENSION));
+        @endphp
+        <div class="cockpit-modal-overlay" wire:click.self="closeMetadataModal">
+            <div class="cockpit-modal-card">
+                <!-- Modal Header -->
+                <div class="cockpit-modal-header">
+                    <div>
+                        <h3>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                            </svg>
+                            Document Metadata & System Linkage
+                        </h3>
+                        <p>Detailed technical attributes, storage paths, and associated subsystem records.</p>
+                    </div>
+                    <button type="button" wire:click="closeMetadataModal" class="cockpit-modal-close" title="Close Metadata">&times;</button>
+                </div>
+
+                <!-- Modal Body -->
+                <div class="cockpit-modal-body">
+                    <!-- Top File Summary Card -->
+                    <div class="meta-card-section" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="width: 46px; height: 46px; border-radius: 10px; background: #eff6ff; border: 1px solid #bfdbfe; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <span style="font-size: 12.5px; font-weight: 800; color: #1d4ed8; text-transform: uppercase;">{{ $fileExt ?: 'FILE' }}</span>
+                            </div>
+                            <div>
+                                <div class="meta-val-text" style="font-size: 15px; font-weight: 700; color: #0f172a; word-break: break-all;">
+                                    {{ $mDoc->document_name }}
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap;">
+                                    <span style="font-family: monospace; font-size: 11.5px; font-weight: 600; background: #f1f5f9; color: #334155; padding: 2px 7px; border-radius: 4px; border: 1px solid #cbd5e1;">
+                                        {{ $mDoc->document_id }}
+                                    </span>
+                                    <span class="office-badge" style="font-size: 11px;">
+                                        {{ $mDoc->office_name ?? ($mDoc->user_office ?? 'Unassigned Office') }}
+                                    </span>
+                                    @if($mDoc->is_active)
+                                        <span style="font-size: 11px; font-weight: 700; color: #15803d; background: #dcfce7; border: 1px solid #86efac; padding: 2px 7px; border-radius: 4px;">
+                                            ACTIVE
+                                        </span>
+                                    @else
+                                        <span style="font-size: 11px; font-weight: 700; color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 7px; border-radius: 4px;">
+                                            ARCHIVED
+                                        </span>
+                                    @endif
+                                </div>
+                            </div>
+                        </div>
+
+                        @if(!empty($metadataDetails['viewUrl']))
+                            <a href="{{ $metadataDetails['viewUrl'] }}" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; background: #2563eb; color: #ffffff; text-decoration: none; padding: 8px 16px; border-radius: 8px; font-size: 12.5px; font-weight: 700; transition: background 0.15s; white-space: nowrap;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <span>Open Document</span>
+                            </a>
+                        @endif
+                    </div>
+
+                    <!-- Section 1: Storage & Technical Attributes Grid -->
+                    <div class="meta-card-section" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px;">
+                        <h4 style="margin: 0 0 14px 0; font-size: 12.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; display: flex; align-items: center; gap: 6px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+                            File Storage Attributes
+                        </h4>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px;">
+                            <div>
+                                <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">File Size</div>
+                                <div class="meta-val-text" style="font-size: 13.5px; font-weight: 600; color: #0f172a;">{{ $metadataDetails['formattedSize'] }}</div>
+                            </div>
+                            <div>
+                                <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">MIME / File Type</div>
+                                <div class="meta-val-text" style="font-size: 13.5px; font-weight: 600; color: #0f172a;">{{ $mDoc->file_type ?? ($fileExt ? strtoupper($fileExt) : 'Unknown') }}</div>
+                            </div>
+                            <div>
+                                <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Uploaded By</div>
+                                <div class="meta-val-text" style="font-size: 13.5px; font-weight: 600; color: #0f172a;">
+                                    {{ ($mDoc->first_name || $mDoc->last_name) ? trim($mDoc->first_name . ' ' . $mDoc->last_name) : 'System Administrator' }}
+                                </div>
+                            </div>
+                            <div>
+                                <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Date Added</div>
+                                <div class="meta-val-text" style="font-size: 13.5px; font-weight: 600; color: #0f172a;">
+                                    {{ \Carbon\Carbon::parse($mDoc->date_added)->format('M d, Y h:i:s A') }}
+                                </div>
+                            </div>
+                            <div>
+                                <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Date Modified</div>
+                                <div class="meta-val-text" style="font-size: 13.5px; font-weight: 600; color: #0f172a;">
+                                    {{ !empty($mDoc->date_modified) ? \Carbon\Carbon::parse($mDoc->date_modified)->format('M d, Y h:i:s A') : 'None' }}
+                                </div>
+                            </div>
+                            <div style="grid-column: 1 / -1;">
+                                <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Server Storage Path</div>
+                                <div class="meta-path-box" style="font-family: monospace; font-size: 12px; font-weight: 600; color: #334155; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 10px; word-break: break-all;">
+                                    {{ $mDoc->document_path ?? 'Local Registry System' }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 2: Subsystem Linkages -->
+                    @if($mRdp)
+                        <!-- RDP Record Details -->
+                        <div class="meta-card-section" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">
+                                <h4 style="margin: 0; font-size: 12.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #059669; display: flex; align-items: center; gap: 6px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                                    Linked RDP Record Details
+                                </h4>
+                                <span style="font-size: 11px; font-weight: 700; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 2px 8px; border-radius: 9999px;">
+                                    {{ $mRdp->is_verified ? 'Verified Record' : ($mRdp->is_drafted ? 'Draft Record' : 'Active Record') }}
+                                </span>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px;">
+                                <div style="grid-column: 1 / -1;">
+                                    <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Record Series Title</div>
+                                    <div class="meta-val-text" style="font-size: 14px; font-weight: 700; color: #0f172a;">{{ $mRdp->series_title ?? 'Untitled Series' }}</div>
+                                </div>
+                                @if(!empty($mRdp->description))
+                                    <div style="grid-column: 1 / -1;">
+                                        <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Record Description / Subject</div>
+                                        <div class="meta-path-box" style="font-size: 13px; color: #334155; line-height: 1.5; background: #f8fafc; border: 1px solid #f1f5f9; padding: 8px 12px; border-radius: 6px;">{{ $mRdp->description }}</div>
+                                    </div>
+                                @endif
+                                <div>
+                                    <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Period Covered</div>
+                                    <div class="meta-val-text" style="font-size: 13px; font-weight: 600; color: #0f172a;">
+                                        @if($mPeriod)
+                                            {{ $mPeriod->date_covered ? \Carbon\Carbon::parse($mPeriod->date_covered)->format('M d, Y') : 'N/A' }}
+                                            @if(!empty($mPeriod->date_covered_end))
+                                                — {{ \Carbon\Carbon::parse($mPeriod->date_covered_end)->format('M d, Y') }}
+                                            @endif
+                                        @else
+                                            N/A
+                                        @endif
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Volume</div>
+                                    <div class="meta-val-text" style="font-size: 13px; font-weight: 600; color: #0f172a;">{{ $mRdp->volume ?: ($mPeriod->volume ?? 'N/A') }}</div>
+                                </div>
+                                <div>
+                                    <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Records Medium</div>
+                                    <div class="meta-val-text" style="font-size: 13px; font-weight: 600; color: #0f172a;">{{ $mRdp->medium_name ?? 'Hardcopy' }}</div>
+                                </div>
+                                <div>
+                                    <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Physical Location</div>
+                                    <div class="meta-val-text" style="font-size: 13px; font-weight: 600; color: #0f172a;">{{ $mRdp->records_location ?? 'Unspecified' }}</div>
+                                </div>
+                                <div>
+                                    <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Restriction</div>
+                                    <div class="meta-val-text" style="font-size: 13px; font-weight: 600; color: #0f172a;">{{ $mRdp->restriction ?? 'Restricted' }}</div>
+                                </div>
+                                <div>
+                                    <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Frequency of Use</div>
+                                    <div class="meta-val-text" style="font-size: 13px; font-weight: 600; color: #0f172a;">{{ $mRdp->frequence_use ?? 'N/A' }}</div>
+                                </div>
+                                <div>
+                                    <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Retention (Active / Storage)</div>
+                                    <div class="meta-val-text" style="font-size: 13px; font-weight: 600; color: #0f172a;">
+                                        {{ $mRdp->active_period ?: '0' }} Active / {{ $mRdp->storage_period ?: '0' }} Storage
+                                    </div>
+                                </div>
+                                @if(!empty($mRdp->disposition_provision))
+                                    <div style="grid-column: 1 / -1;">
+                                        <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Disposition Provision / Remarks</div>
+                                        <div style="font-size: 12.5px; color: #475569; font-style: italic;">{{ $mRdp->disposition_provision }}</div>
+                                    </div>
+                                @endif
+
+                                <!-- Duplicate Offices & File Visibility -->
+                                @if(count($mDups) > 0)
+                                    <div style="grid-column: 1 / -1; margin-top: 6px; padding-top: 10px; border-top: 1px dashed #e2e8f0;">
+                                        <div class="meta-field-label" style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 8px;">
+                                            Duplicate Copy Holders & File Viewing Access ({{ count($mDups) }})
+                                        </div>
+                                        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                            @foreach($mDups as $dup)
+                                                @php
+                                                    $canView = !empty($dup->can_view_file);
+                                                @endphp
+                                                <div style="display: inline-flex; align-items: center; gap: 8px; background: #ffffff; border: 1.5px solid {{ $canView ? '#86efac' : '#cbd5e1' }}; padding: 4px 10px; border-radius: 8px; font-size: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                                                    <span><strong>{{ $dup->office_code }}</strong> — {{ $dup->office_name ?? $dup->office_code }}</span>
+                                                    <span style="font-size: 10.5px; font-weight: 700; padding: 2px 6px; border-radius: 9999px; {{ $canView ? 'background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0;' : 'background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1;' }}">
+                                                        {{ $canView ? '✓ View File: ON' : '✕ View File: OFF' }}
+                                                    </span>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                @endif
+                            </div>
+                        </div>
+                    @endif
+
+                    @if($mDts)
+                        <!-- DTS Transaction Details -->
+                        <div class="meta-card-section" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">
+                                <h4 style="margin: 0; font-size: 12.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #2563eb; display: flex; align-items: center; gap: 6px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>
+                                    Linked Document Tracking System (DTS)
+                                </h4>
+                                <span style="font-size: 11px; font-weight: 700; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 9999px;">
+                                    {{ strtoupper($mDts->status ?? 'ACTIVE') }}
+                                </span>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px;">
+                                <div>
+                                    <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Transaction ID</div>
+                                    <div class="meta-val-text" style="font-family: monospace; font-size: 13.5px; font-weight: 700; color: #2563eb;">{{ $mDts->transaction_id }}</div>
+                                </div>
+                                <div>
+                                    <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Control Number</div>
+                                    <div class="meta-val-text" style="font-size: 13px; font-weight: 600; color: #0f172a;">{{ $mDts->control_number ?? 'N/A' }}</div>
+                                </div>
+                                <div>
+                                    <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Originated From</div>
+                                    <div class="meta-val-text" style="font-size: 13px; font-weight: 600; color: #0f172a;">{{ $mDts->originated_office_name ?? ($mDts->originated_from ?? 'N/A') }}</div>
+                                </div>
+                                <div>
+                                    <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Current Custody</div>
+                                    <div class="meta-val-text" style="font-size: 13px; font-weight: 600; color: #0f172a;">{{ $mDts->current_office_name ?? ($mDts->current_office ?? 'N/A') }}</div>
+                                </div>
+                                @if(!empty($mDts->subject))
+                                    <div style="grid-column: 1 / -1;">
+                                        <div class="meta-field-label" style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px;">Particulars / Subject</div>
+                                        <div class="meta-path-box" style="font-size: 13px; color: #334155; line-height: 1.5; background: #f8fafc; border: 1px solid #f1f5f9; padding: 8px 12px; border-radius: 6px;">{{ $mDts->subject }}</div>
+                                    </div>
+                                @endif
+                            </div>
+                        </div>
+                    @endif
+
+                    @if(!$mRdp && !$mDts)
+                        <div style="background: #ffffff; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 18px 20px; text-align: center; color: #64748b; font-size: 13px;">
+                            This document is stored as a direct system upload with no associated RDP appraisal schedule or active DTS transaction.
+                        </div>
+                    @endif
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="cockpit-modal-footer">
+                    <div>
+                        @if(!empty($metadataDetails['viewUrl']))
+                            <a href="{{ $metadataDetails['viewUrl'] }}" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; background: #f8fafc; color: #1e293b; border: 1.5px solid #cbd5e1; text-decoration: none; padding: 8px 14px; border-radius: 8px; font-size: 12.5px; font-weight: 700; transition: all 0.15s;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <span>Open in New Tab</span>
+                            </a>
+                        @endif
+                    </div>
+                    <button type="button" wire:click="closeMetadataModal" class="btn-action-block" style="width: auto; padding: 8px 20px; margin: 0; font-size: 13px;">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
 </div>
 @endif
 </div>

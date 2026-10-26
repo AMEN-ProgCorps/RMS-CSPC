@@ -11,16 +11,18 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
         /*
          * CSPC-F-DCC-06 Document Request Form — forced print geometry
          * Philippine long bond 8.5 × 13in. The form itself uses the top half (6.5in).
-         * Logo: left 0.46in, top 0.23in, size 0.57×0.59, gap to line 0.03in
+         * Logo: left 0.46in, top 0.16in, size 0.57×0.59, gap to line 0.03in
          * Header/footer rules: 3px
          *
-         * Print dialog MUST use Margins → None. "Default" adds a browser top gap
-         * that CSS cannot remove and makes the header look shifted down.
+         * Print dialog MUST use Margins → None AND Headers/footers off.
+         * Browser "Default" margins stack on top of the CSS header inset and look
+         * like a huge top gap. Keep @page margin 0; header top stays ≥ ~0.16in so
+         * printers do not clip the seal / "Republic…" line (non-printable area).
          */
         @page {
             /* Philippine long bond. The form occupies the top half of this sheet. */
             size: 8.5in 13in;
-            margin: 0 !important;
+            margin: 0;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -99,20 +101,21 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
         }
 
         /* ═══════════ HEADER ═══════════
-         * Fixed top margin 0.23in + logo 0.59 + gap 0.03 → line at 0.85in
+         * Top inset 0.16in + logo 0.59 + gap 0.03 → line at 0.78in
+         * (Less than the old 0.23in screen gap; enough to avoid printer clip.)
          */
         .hdr-band {
             position: relative !important;
             width: 8.5in !important;
-            height: 0.85in !important;
-            min-height: 0.85in !important;
+            height: 0.78in !important;
+            min-height: 0.78in !important;
             margin: 0 !important;
             padding: 0 !important;
             overflow: visible !important;
         }
         .hdr-logo-cell {
             position: absolute !important;
-            top: 0.23in !important;
+            top: 0.16in !important;
             left: 0.46in !important;
             width: 0.57in !important;
             height: 0.59in !important;
@@ -147,7 +150,7 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
         }
         .hdr-text-cell {
             position: absolute !important;
-            top: 0.23in !important;
+            top: 0.16in !important;
             left: calc(0.46in + 0.57in + 0.1in) !important;
             right: 1.5in !important;
             height: 0.59in !important; /* same band as logo; 0.03in clear below to line */
@@ -181,10 +184,10 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
             background: transparent !important;
             color: #000 !important;
         }
-        /* Line at logo-bottom + 0.03in = 0.85in — 3px rule */
+        /* Line at logo-bottom + 0.03in = 0.78in — 3px rule */
         .hdr-rule {
             position: absolute !important;
-            top: 0.85in !important;
+            top: 0.78in !important;
             left: 0.49in !important;
             right: 0.24in !important;
             display: flex !important;
@@ -365,7 +368,7 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
             height: 10pt !important;
             min-height: 10pt !important;
             max-height: 10pt !important;
-            margin: 0 0 10.5pt !important; /* 11 */
+            margin: 0 0 12pt !important;
             padding: 0 !important;
             font-size: 11pt !important;
             line-height: 1 !important;
@@ -724,15 +727,15 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
             .hdr-band {
                 margin: 0 !important;
                 padding: 0 !important;
-                height: 0.85in !important;
-                min-height: 0.85in !important;
+                height: 0.78in !important;
+                min-height: 0.78in !important;
             }
             .hdr-logo-cell,
             .hdr-text-cell {
-                top: 0.23in !important;
+                top: 0.16in !important;
             }
             .hdr-rule {
-                top: 0.85in !important;
+                top: 0.78in !important;
             }
             .fline-rule,
             .desc-line .fline-rule,

@@ -2302,7 +2302,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         </div>
                     </div>
                     <div class="card-footer">
-                        <span style="font-size: 12px; color: #94a3b8;">{{ \Carbon\Carbon::parse($c->created_at)->format('M d, Y') }}</span>
+                        <span style="font-size: 12px; color: #94a3b8;">{{ \App\Helpers\RegisterQueryHelper::formatSmartDate($c->created_at) }}</span>
                         <div style="display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end;">
                             <button wire:click="openDetailModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-view">View</button>
                             <button wire:click="openPrintModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-print">Print</button>

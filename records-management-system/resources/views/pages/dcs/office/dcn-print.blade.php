@@ -871,7 +871,7 @@ window.print = function () {};
                         $dt = '';
                         if (! empty($appr['date'])) {
                             try {
-                                $dt = \Carbon\Carbon::parse($appr['date'])->format('M d, Y');
+                                $dt = \App\Helpers\RegisterQueryHelper::formatSmartDate($appr['date']);
                             } catch (\Throwable) {
                                 $dt = (string) $appr['date'];
                             }

@@ -13,6 +13,20 @@ use Illuminate\Support\Facades\DB;
 class RdpIntakeService
 {
     /**
+     * Stable intake code for a DCS registration.
+     * Empty masterlist numbers use DCS-REQ-{id} so offices can still appraise.
+     */
+    public static function documentCodeForRequest(int $requestId, ?string $docNo = null): string
+    {
+        $docNo = trim((string) $docNo);
+        if ($docNo !== '') {
+            return $docNo;
+        }
+
+        return 'DCS-REQ-'.max(0, $requestId);
+    }
+
+    /**
      * @param  array<string, mixed>  $validated
      * @return array<string, mixed>
      */
@@ -27,6 +41,14 @@ class RdpIntakeService
         }
 
         $existing = self::findExisting($source, $code, $target);
+        if (! $existing && $source === 'DCS') {
+            $requestId = (int) (is_array($validated['metadata'] ?? null)
+                ? ($validated['metadata']['dcs_request_id'] ?? 0)
+                : 0);
+            if ($requestId > 0 && $target !== '') {
+                $existing = self::findExistingByRequest($requestId, $target);
+            }
+        }
 
         $landingUrl = $source === 'DCS'
             ? route('rdp.received-documents.dcs')
@@ -38,6 +60,7 @@ class RdpIntakeService
         if ($existing) {
             if (($existing->status ?? '') === 'pending' && $source === 'DCS' && $target !== '') {
                 DB::table('rdp_received_documents')->where('id', $existing->id)->update([
+                    'document_code' => $code !== '' ? $code : $existing->document_code,
                     'document_title' => $validated['document_title'],
                     'description' => $description,
                     'origin_office' => $validated['origin_office'] ?? $existing->origin_office,
@@ -55,8 +78,8 @@ class RdpIntakeService
                 'success' => true,
                 'already_sent' => true,
                 'message' => "Document '{$code}' is already in RDP intake"
-                    . ($target !== '' ? " for {$target}" : '')
-                    . '.',
+                    .($target !== '' ? " for {$target}" : '')
+                    .'.',
                 'id' => $existing->id,
                 'status' => $existing->status,
                 'target_office' => $existing->target_office,
@@ -110,6 +133,27 @@ class RdpIntakeService
         return $query->first();
     }
 
+    public static function findExistingByRequest(int $requestId, string $targetOffice): ?object
+    {
+        if ($requestId < 1 || trim($targetOffice) === '' || ! DB::getSchemaBuilder()->hasTable('rdp_received_documents')) {
+            return null;
+        }
+        if (! DB::getSchemaBuilder()->hasColumn('rdp_received_documents', 'metadata')) {
+            return null;
+        }
+
+        try {
+            return DB::table('rdp_received_documents')
+                ->where('source_subsystem', 'DCS')
+                ->whereRaw('LOWER(target_office) = ?', [strtolower(trim($targetOffice))])
+                ->whereRaw("COALESCE(metadata->>'dcs_request_id', '') = ?", [(string) $requestId])
+                ->orderByDesc('id')
+                ->first();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
     public static function appraiseUrl(object $row): string
     {
         return route('rdp.add-records.inventory-and-appraisal', [
@@ -124,7 +168,7 @@ class RdpIntakeService
     }
 
     /**
-     * Pending DCS appraisal links for one office, keyed by document code.
+     * Pending DCS appraisal links for one office, keyed by document code and DCS-REQ-{id}.
      *
      * @param  list<string>  $documentCodes
      * @return array<string, string>
@@ -137,23 +181,42 @@ class RdpIntakeService
             $documentCodes
         ), fn ($code) => $code !== ''));
 
-        if ($officeCode === '' || $codes === [] || ! DB::getSchemaBuilder()->hasTable('rdp_received_documents')) {
+        if ($officeCode === '' || ! DB::getSchemaBuilder()->hasTable('rdp_received_documents')) {
             return [];
         }
 
-        $rows = DB::table('rdp_received_documents')
+        $query = DB::table('rdp_received_documents')
             ->where('source_subsystem', 'DCS')
             ->where('status', 'pending')
             ->whereRaw('LOWER(target_office) = ?', [strtolower($officeCode)])
-            ->whereIn('document_code', $codes)
-            ->orderByDesc('id')
-            ->get();
+            ->orderByDesc('id');
+
+        if ($codes !== []) {
+            $query->where(function ($q) use ($codes) {
+                $q->whereIn('document_code', $codes);
+                foreach ($codes as $code) {
+                    if (preg_match('/^DCS-REQ-(\d+)$/i', $code, $m)) {
+                        $q->orWhereRaw("COALESCE(metadata->>'dcs_request_id', '') = ?", [$m[1]]);
+                    }
+                }
+            });
+        }
 
         $urls = [];
-        foreach ($rows as $row) {
+        foreach ($query->get() as $row) {
             $code = (string) $row->document_code;
             if (! isset($urls[$code])) {
                 $urls[$code] = self::appraiseUrl($row);
+            }
+            $meta = is_string($row->metadata ?? null)
+                ? (json_decode($row->metadata, true) ?: [])
+                : (array) ($row->metadata ?? []);
+            $reqId = (int) ($meta['dcs_request_id'] ?? 0);
+            if ($reqId > 0) {
+                $reqKey = self::documentCodeForRequest($reqId, '');
+                if (! isset($urls[$reqKey])) {
+                    $urls[$reqKey] = self::appraiseUrl($row);
+                }
             }
         }
 
@@ -175,15 +238,23 @@ class RdpIntakeService
         }
 
         $codes = [];
-        $byCode = [];
+        $byLookup = [];
         foreach ($rows as $row) {
-            $code = trim((string) ($row['doc_no'] ?? ''));
-            if ($code === '') {
+            $requestId = (int) ($row['request_id'] ?? 0);
+            $code = self::documentCodeForRequest($requestId, (string) ($row['doc_no'] ?? ''));
+            if ($code === '' || $code === 'DCS-REQ-0') {
                 continue;
             }
             $codes[] = $code;
-            if (! isset($byCode[$code])) {
-                $byCode[$code] = $row;
+            if (! isset($byLookup[$code])) {
+                $byLookup[$code] = $row;
+            }
+            if ($requestId > 0) {
+                $reqKey = self::documentCodeForRequest($requestId, '');
+                $codes[] = $reqKey;
+                if (! isset($byLookup[$reqKey])) {
+                    $byLookup[$reqKey] = $row;
+                }
             }
         }
         $codes = array_values(array_unique($codes));
@@ -191,28 +262,21 @@ class RdpIntakeService
             return [];
         }
 
-        $appraised = [];
         $pending = self::pendingUrlsForOffice($officeCode, $codes);
-        $statusRows = DB::table('rdp_received_documents')
-            ->where('source_subsystem', 'DCS')
-            ->whereRaw('LOWER(target_office) = ?', [strtolower($officeCode)])
-            ->whereIn('document_code', $codes)
-            ->orderByDesc('id')
-            ->get(['document_code', 'status']);
-        foreach ($statusRows as $statusRow) {
-            $code = (string) $statusRow->document_code;
-            if (! isset($appraised[$code]) && strtolower((string) ($statusRow->status ?? '')) === 'appraised') {
-                $appraised[$code] = true;
-            }
-        }
-
         $urls = [];
-        foreach ($codes as $code) {
-            if (! empty($appraised[$code])) {
-                continue;
-            }
-            if (! empty($pending[$code])) {
-                $urls[$code] = $pending[$code];
+        foreach ($byLookup as $code => $row) {
+            $requestId = (int) ($row['request_id'] ?? 0);
+            $reqKey = $requestId > 0 ? self::documentCodeForRequest($requestId, '') : '';
+            $url = $pending[$code] ?? ($reqKey !== '' ? ($pending[$reqKey] ?? null) : null);
+            if ($url) {
+                $docNo = trim((string) ($row['doc_no'] ?? ''));
+                if ($docNo !== '') {
+                    $urls[$docNo] = $url;
+                }
+                if ($requestId > 0) {
+                    $urls['request:'.$requestId] = $url;
+                    $urls[$reqKey] = $url;
+                }
             }
         }
 
@@ -226,12 +290,13 @@ class RdpIntakeService
         string $title = ''
     ): ?string {
         $officeCode = strtoupper(trim($officeCode));
-        $docNo = trim($docNo);
-        if ($officeCode === '' || $docNo === '' || $requestId < 1) {
+        $code = self::documentCodeForRequest($requestId, $docNo);
+        if ($officeCode === '' || $requestId < 1) {
             return null;
         }
 
-        $existing = self::findExisting('DCS', $docNo, $officeCode);
+        $existing = self::findExisting('DCS', $code, $officeCode)
+            ?: self::findExistingByRequest($requestId, $officeCode);
         if ($existing) {
             if (strtolower((string) ($existing->status ?? '')) === 'appraised') {
                 return null;
@@ -242,9 +307,9 @@ class RdpIntakeService
 
         $result = self::accept([
             'source_subsystem' => 'DCS',
-            'document_code' => $docNo,
-            'document_title' => $title !== '' ? $title : $docNo,
-            'description' => $title !== '' ? $title : $docNo,
+            'document_code' => $code,
+            'document_title' => $title !== '' ? $title : $code,
+            'description' => $title !== '' ? $title : $code,
             'origin_office' => null,
             'target_office' => $officeCode,
             'date_received' => now()->toDateString(),
@@ -270,9 +335,75 @@ class RdpIntakeService
             return DB::table('rdp_received_documents')
                 ->where('source_subsystem', 'DCS')
                 ->whereRaw("COALESCE(metadata->>'dcs_request_id', '') = ?", [(string) $requestId])
+                ->whereRaw("COALESCE((metadata->>'dcs_forwarded')::text, '') IN ('true', '1')")
                 ->exists();
         } catch (\Throwable $e) {
-            return false;
+            return DB::table('rdp_received_documents')
+                ->where('source_subsystem', 'DCS')
+                ->whereRaw("COALESCE(metadata->>'dcs_request_id', '') = ?", [(string) $requestId])
+                ->exists();
+        }
+    }
+
+    public static function adminRecordExistsForRequest(int $requestId, string $officeOwn): bool
+    {
+        return self::adminRecordIdForRequest($requestId, $officeOwn) !== null;
+    }
+
+    public static function adminRecordIdForRequest(int $requestId, string $officeOwn): ?int
+    {
+        $officeOwn = strtoupper(trim($officeOwn));
+        if ($requestId < 1 || $officeOwn === '' || ! DB::getSchemaBuilder()->hasTable('rdp_received_documents')) {
+            return null;
+        }
+
+        try {
+            $id = DB::table('rdp_received_documents')
+                ->where('source_subsystem', 'DCS')
+                ->whereRaw('LOWER(target_office) = ?', [strtolower($officeOwn)])
+                ->whereRaw("COALESCE(metadata->>'dcs_request_id', '') = ?", [(string) $requestId])
+                ->whereNotNull('appraised_record_id')
+                ->orderByDesc('id')
+                ->value('appraised_record_id');
+
+            return $id ? (int) $id : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    public static function rememberAdminRecord(int $requestId, string $officeOwn, int $recordId): void
+    {
+        $officeOwn = strtoupper(trim($officeOwn));
+        if ($requestId < 1 || $officeOwn === '' || $recordId < 1) {
+            return;
+        }
+
+        $code = self::documentCodeForRequest($requestId);
+        $result = self::accept([
+            'source_subsystem' => 'DCS',
+            'document_code' => $code,
+            'document_title' => $code,
+            'description' => $code,
+            'origin_office' => $officeOwn,
+            'target_office' => $officeOwn,
+            'date_received' => now()->toDateString(),
+            'file_path' => null,
+            'file_name' => null,
+            'document_id_handler' => null,
+            'metadata' => [
+                'dcs_forwarded' => true,
+                'dcs_request_id' => $requestId,
+                'dcs_admin_record' => true,
+            ],
+        ]);
+
+        if (! empty($result['id'])) {
+            DB::table('rdp_received_documents')->where('id', (int) $result['id'])->update([
+                'status' => 'appraised',
+                'appraised_record_id' => $recordId,
+                'updated_at' => now(),
+            ]);
         }
     }
 

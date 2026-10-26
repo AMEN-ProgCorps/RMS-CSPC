@@ -30,7 +30,22 @@ body {
 .rpt-page::-webkit-scrollbar-thumb { background: var(--rpt-border); border-radius: 3px; }
 
 /* ── Header ── */
-.rpt-hdr { margin-bottom: var(--rpt-gap-xl); }
+/* Reset unscoped `header {}` (e.g. leftover dashboard.css after Livewire navigate). */
+.rpt-hdr {
+    margin-bottom: var(--rpt-gap-xl);
+    position: static;
+    z-index: auto;
+    background: transparent;
+    width: auto;
+    display: block;
+    gap: 0;
+    align-items: stretch;
+    padding: 0;
+    color: inherit;
+}
+.rpt-hdr h1 {
+    color: var(--rpt-text, #0f172a);
+}
 
 .rpt-template-bar {
     display: flex;
@@ -2543,20 +2558,29 @@ body {
     box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
     overflow: hidden;
 }
-.drt-modal-dialog header {
+.drt-modal-dialog header,
+.drt-modal-dialog header.drt-modal-hdr {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 16px;
     padding: 16px 18px;
     border-bottom: 1px solid var(--rpt-border, #e2e8f0);
+    /* Beat unscoped `header { background:#003699 }` when dashboard.css is still on the page. */
+    position: static;
+    z-index: auto;
+    background: var(--rpt-surface, #fff) !important;
+    width: auto;
+    color: var(--rpt-text, #0f172a);
 }
-.drt-modal-dialog header h2 {
+.drt-modal-dialog header h2,
+.drt-modal-dialog header.drt-modal-hdr h2 {
     margin: 0;
     font-size: 1.05rem;
     color: var(--rpt-text, #0f172a);
 }
-.drt-modal-dialog header p {
+.drt-modal-dialog header p,
+.drt-modal-dialog header.drt-modal-hdr p {
     margin: 4px 0 0;
     color: var(--rpt-text-muted, #64748b);
     font-size: 0.82rem;

@@ -329,7 +329,7 @@ document.addEventListener('alpine:init', () => {
                                 <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}">
                                     <span class="ofi-dash-list-title">{{ $row->doc_title ?: 'Untitled DRF' }}</span>
                                     <span class="ofi-dash-list-meta">
-                                        {{ $row->drf_date ? \Carbon\Carbon::parse($row->drf_date)->format('M d, Y') : 'No date' }}
+                                        {{ $row->drf_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->drf_date) : 'No date' }}
                                         @if(!empty($row->is_registered))
                                             · Registered
                                         @elseif(!empty($row->drf_no))
@@ -363,7 +363,7 @@ document.addEventListener('alpine:init', () => {
                                 <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}">
                                     <span class="ofi-dash-list-title">{{ $row->originator_name ?? ($row->dcn_no ?: 'Untitled DCN') }}</span>
                                     <span class="ofi-dash-list-meta">
-                                        {{ $row->dcn_date ? \Carbon\Carbon::parse($row->dcn_date)->format('M d, Y') : 'No date' }}
+                                        {{ $row->dcn_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->dcn_date) : 'No date' }}
                                         @if(!empty($row->dcn_no)) · {{ $row->dcn_no }} @endif
                                     </span>
                                 </a>

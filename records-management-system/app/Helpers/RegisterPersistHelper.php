@@ -1255,10 +1255,16 @@ class RegisterPersistHelper
             $recurMerge = [
                 'registration_mode' => 'recurring',
                 'masterlistRevisionNo' => (int) ($picked->revise_no ?? 0),
-                'revised_from_doc_no' => $pickedNo,
+                'supersede_masterlist_id' => (int) ($picked->id ?? 0),
             ];
-            if ($typedNo === '') {
-                $recurMerge['masterlistDocNo'] = $pickedNo;
+            // Keep an empty Recur number empty. Do not copy a blank source onto masterlistDocNo.
+            if ($pickedNo !== '') {
+                $recurMerge['revised_from_doc_no'] = $pickedNo;
+                if ($typedNo === '') {
+                    $recurMerge['masterlistDocNo'] = $pickedNo;
+                }
+            } else {
+                $recurMerge['revised_from_doc_no'] = '';
             }
             $request->merge($recurMerge);
         }
@@ -3431,15 +3437,21 @@ class RegisterPersistHelper
         }
         $title = trim((string) ($picked->doc_title ?? ''));
         $docNo = trim((string) ($picked->doc_no ?? ''));
-        if ($title === '' || $docNo === '') {
+        if ($title === '') {
             return;
         }
         $ids = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->where('dr.doc_type_id', (int) $picked->doc_type_id)
             ->where('ml.id', '!=', $masterlistId)
-            ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)])
             ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)])
+            ->when($docNo !== '', function ($q) use ($docNo) {
+                $q->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)]);
+            }, function ($q) {
+                $q->where(function ($empty) {
+                    $empty->whereNull('ml.doc_no')->orWhere('ml.doc_no', '');
+                });
+            })
             ->where(function ($q) {
                 $q->whereNull('ml.stack_group')->orWhere('ml.stack_group', '');
             })

@@ -88,7 +88,7 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                                     <span class="ofi-status-pill is-pending">Submitted</span>
                                 @endif
                             </td>
-                            <td class="ofi-nowrap">{{ $row->drf_date ? \Carbon\Carbon::parse($row->drf_date)->format('M d, Y') : '—' }}</td>
+                            <td class="ofi-nowrap">{{ $row->drf_date ? \App\Helpers\RegisterQueryHelper::formatRdpPeriodDate($row->drf_date) : '—' }}</td>
                             <td class="ofi-nowrap">{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A') : '—' }}</td>
                             <td class="ofi-actions">
                                 <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}" title="View"><i class="fa-solid fa-eye"></i></a>

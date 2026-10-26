@@ -326,6 +326,16 @@ new class extends Component {
                 return;
             }
 
+            // Full load so reports.css replaces leftover dashboard `header {}` styles.
+            if (
+                $path === 'dcs/monitoring/distribution-retrieval'
+                || str_starts_with($path, 'dcs/monitoring/distribution-retrieval')
+            ) {
+                $this->redirect($notification->redirect_url, navigate: false);
+
+                return;
+            }
+
             $this->redirect($notification->redirect_url, navigate: true);
         }
     }

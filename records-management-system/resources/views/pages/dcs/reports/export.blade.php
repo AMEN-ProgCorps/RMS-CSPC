@@ -366,16 +366,16 @@ DCS file: Print shell for a generated report. Masterlist rows are rendered by ex
                 @if(!empty($periodLabel) && ($period ?? '') !== 'custom')
                     <strong>{{ $periodLabel }}</strong> report
                     @if(!empty($asOf))
-                        (as of {{ \Carbon\Carbon::parse($asOf)->format('M d, Y') }})
+                        (as of {{ \App\Helpers\RegisterQueryHelper::formatSmartDate($asOf) }})
                     @endif
                     @if(!empty($dateFrom) && !empty($dateTo))
-                        — {{ \Carbon\Carbon::parse($dateFrom)->format('M d, Y') }} to {{ \Carbon\Carbon::parse($dateTo)->format('M d, Y') }}
+                        — {{ \App\Helpers\RegisterQueryHelper::formatSmartDate($dateFrom) }} to {{ \App\Helpers\RegisterQueryHelper::formatSmartDate($dateTo) }}
                     @endif
                 @elseif(!empty($dateFrom) || !empty($dateTo))
-                    Period: {{ $dateFrom ? \Carbon\Carbon::parse($dateFrom)->format('M d, Y') : '—' }}
-                    – {{ $dateTo ? \Carbon\Carbon::parse($dateTo)->format('M d, Y') : '—' }}
+                    Period: {{ $dateFrom ? \App\Helpers\RegisterQueryHelper::formatSmartDate($dateFrom) : '—' }}
+                    – {{ $dateTo ? \App\Helpers\RegisterQueryHelper::formatSmartDate($dateTo) : '—' }}
                 @elseif(!empty($asOf))
-                    As of {{ \Carbon\Carbon::parse($asOf)->format('M d, Y') }}
+                    As of {{ \App\Helpers\RegisterQueryHelper::formatSmartDate($asOf) }}
                 @endif
             </div>
         @endif

@@ -284,7 +284,7 @@ class SettingsRecycleHelper
                 'deleted_by' => $row['deleted_by_id']
                     ? ($deletedByNames[$row['deleted_by_id']] ?? null)
                     : null,
-                'expires_at' => $expiresAt ? $expiresAt->format('M d, Y') : '—',
+                'expires_at' => $expiresAt ? RegisterQueryHelper::formatSmartDate($expiresAt) : '—',
                 'days_left' => $daysLeft,
                 'is_settings' => true,
             ];

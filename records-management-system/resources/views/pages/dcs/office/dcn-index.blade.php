@@ -87,7 +87,7 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                                     <span class="ofi-status-pill is-pending">Submitted</span>
                                 @endif
                             </td>
-                            <td class="ofi-nowrap">{{ $row->dcn_date ? \Carbon\Carbon::parse($row->dcn_date)->format('M d, Y') : '—' }}</td>
+                            <td class="ofi-nowrap">{{ $row->dcn_date ? \App\Helpers\RegisterQueryHelper::formatRdpPeriodDate($row->dcn_date) : '—' }}</td>
                             <td class="ofi-nowrap">{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A') : '—' }}</td>
                             <td><x-dcs.originator-lines :name="$row->originator_name" /></td>
                             <td class="ofi-actions">

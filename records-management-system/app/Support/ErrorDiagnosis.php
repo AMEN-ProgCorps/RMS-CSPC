@@ -228,6 +228,11 @@ class ErrorDiagnosis
         }
         $haystack = strtolower($haystack);
 
+        // If the timeout is from Google Drive API / cloud service, it should not blame the local client connection
+        if (str_contains($haystack, 'google') || str_contains($haystack, 'googleapis')) {
+            return false;
+        }
+
         return str_contains($haystack, 'curl error 28')
             || str_contains($haystack, 'operation timed out');
     }

@@ -285,6 +285,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
     public function checkBackups(): void
     {
+        @set_time_limit(180);
+        @ini_set('max_execution_time', '180');
+
         $this->isBackupProcessing = true;
         $this->backupTestResult = '';
         $this->backupsList = [];
@@ -630,6 +633,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
     public function importBackup(): void
     {
+        @set_time_limit(300);
+        @ini_set('max_execution_time', '300');
+
         $this->isBackupProcessing = true;
         $this->successMessage = '';
         $this->errorMessage = '';
@@ -656,17 +662,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 $cleanName = 'rms_imported_' . date('Y-m-d_His') . '.json';
             }
 
-            // Save to Local
+            // 1. Save to Local FIRST (Primary Storage)
             \Illuminate\Support\Facades\Storage::disk('local')->put("backups/{$cleanName}", $rawJson);
 
-            // Save to Google Drive
+            // 2. Try saving to Google Drive with error isolation (Secondary Cloud Sync)
             $driveSaved = false;
             try {
                 $driveSaved = \Illuminate\Support\Facades\Storage::disk('google')->put("backup/{$cleanName}", $rawJson);
-            } catch (\Throwable) {}
+            } catch (\Throwable $e) {
+                logger()->warning("Google Drive backup sync skipped or timed out for [{$cleanName}]: " . $e->getMessage());
+            }
 
             \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
-                'changes' => "Imported external backup file [{$cleanName}] to storage inventory (" . count($decoded['tables']) . " tables payload)",
+                'changes' => "Imported external backup file [{$cleanName}] to storage inventory (" . count($decoded['tables']) . " tables payload). Saved to " . ($driveSaved ? "Local & Google Drive" : "Local Storage"),
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
                 'when_changes' => now(),
@@ -700,11 +708,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
             $this->uploadedBackupFile = null;
             $this->selectedTargetBackup = $cleanName;
-            $this->successMessage = "🎉 Backup file [{$cleanName}] imported & registered successfully! You can revert your system database to it anytime.";
-            $this->checkBackups();
+
+            if ($driveSaved) {
+                $this->successMessage = "🎉 Backup file [{$cleanName}] imported & registered successfully to Local Storage and Google Drive! You can revert your system database to it anytime.";
+            } else {
+                $this->successMessage = "🎉 Backup file [{$cleanName}] imported & registered successfully to Local Storage! (Cloud sync skipped or unavailable). You can revert your system database to it anytime.";
+            }
+
+            try {
+                $this->checkBackups();
+            } catch (\Throwable $e) {
+                logger()->warning("Post-import checkBackups warning: " . $e->getMessage());
+            }
 
         } catch (\Throwable $e) {
             $this->errorMessage = 'Failed to import backup file: ' . $e->getMessage();
+            logger()->error("Import backup error: " . $e->getMessage(), ['exception' => $e]);
         }
 
         $this->isBackupProcessing = false;
@@ -731,6 +750,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
     public function startRevertProcess(): void
     {
+        @set_time_limit(300);
+        @ini_set('max_execution_time', '300');
+
         $this->successMessage = '';
         $this->errorMessage = '';
 
@@ -750,36 +772,48 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             "- Reading backup payload...",
         ];
 
-        $backupService = new \App\Services\BackupService();
-        $logs = [];
-        $result = $backupService->restoreBackupFile($filename, function ($message, $percent) use (&$logs) {
-            $logs[] = "- {$message}";
-        });
+        try {
+            $backupService = new \App\Services\BackupService();
+            $logs = [];
+            $result = $backupService->restoreBackupFile($filename, function ($message, $percent) use (&$logs) {
+                $logs[] = "- {$message}";
+            });
 
-        $this->revertLogs = array_merge($this->revertLogs, $logs);
+            $this->revertLogs = array_merge($this->revertLogs, $logs);
 
-        if ($result['success']) {
-            $adminId = auth()->id();
-            if ($adminId && \Schema::hasTable('admin_logs')) {
+            if ($result['success']) {
+                $adminId = auth()->id();
+                if ($adminId && \Schema::hasTable('admin_logs')) {
+                    try {
+                        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+                            'changes' => "EMERGENCY REVERT PERFORMED: System database restored to target backup [{$filename}]",
+                            'admin_id' => $adminId,
+                            'what_system' => 3,
+                            'when_changes' => now(),
+                        ]);
+                    } catch (\Throwable) {}
+                }
+
+                $this->revertProgress = 100;
+                $this->successMessage = $result['message'];
+                $this->isReverting = false;
+                $this->selectedTargetBackup = '';
+                $this->backupConfirmInput = '';
+
+                // Refresh backups safely without letting any Google Drive check timeout affect revert success
                 try {
-                    \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
-                        'changes' => "EMERGENCY REVERT PERFORMED: System database restored to target backup [{$filename}]",
-                        'admin_id' => $adminId,
-                        'what_system' => 3,
-                        'when_changes' => now(),
-                    ]);
-                } catch (\Throwable) {}
+                    $this->checkBackups();
+                } catch (\Throwable $e) {
+                    logger()->warning("Post-revert checkBackups warning: " . $e->getMessage());
+                }
+            } else {
+                $this->isReverting = false;
+                $this->errorMessage = $result['message'];
             }
-
-            $this->revertProgress = 100;
-            $this->successMessage = $result['message'];
+        } catch (\Throwable $e) {
             $this->isReverting = false;
-            $this->selectedTargetBackup = '';
-            $this->backupConfirmInput = '';
-            $this->checkBackups();
-        } else {
-            $this->isReverting = false;
-            $this->errorMessage = $result['message'];
+            $this->errorMessage = 'Database revert encountered an unexpected error: ' . $e->getMessage();
+            logger()->error("Database revert error: " . $e->getMessage(), ['exception' => $e]);
         }
     }
 
@@ -1620,15 +1654,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
     </div>
     @endif
 
-    <!-- Active Restoring Overlay (Displays while server executes database restore) -->
-    <div wire:loading wire:target="startRevertProcess" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(6px); z-index: 100000; display: flex; align-items: center; justify-content: center; color: white; padding: 20px;">
+    <!-- Active Restoring Overlay (Displays ONLY while server executes database restore) -->
+    <div wire:loading.flex wire:target="startRevertProcess" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(6px); z-index: 100000; align-items: center; justify-content: center; color: white; padding: 20px;">
         <div style="background: #ffffff; color: #0f172a; padding: 32px 36px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); width: 100%; max-width: 540px; text-align: center; border: 2px solid #d97706;">
             <div style="width: 64px; height: 64px; border-radius: 50%; background: #fef3c7; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 18px;">
                 <i class="fa-solid fa-rotate-left fa-spin" style="font-size: 30px; color: #d97706;"></i>
             </div>
             <h4 style="font-size: 20px; font-weight: 800; margin: 0 0 10px 0; color: #0f172a;">Restoring System Database...</h4>
             <p style="font-size: 13px; color: #64748b; line-height: 1.6; margin: 0 0 18px 0;">
-                Clearing and applying records from <strong style="color: #0f172a; font-family: monospace;">{{ $selectedTargetBackup }}</strong>.<br>
+                Clearing and applying records from <strong style="color: #0f172a; font-family: monospace;">{{ $selectedTargetBackup ?: ($revertTargetFilename ?: 'target backup snapshot') }}</strong>.<br>
                 Please do not close or refresh this tab. This may take 15–30 seconds.
             </p>
             <div style="display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: #d97706; background: #fffbeb; padding: 8px 18px; border-radius: 9999px; border: 1px solid #fde68a;">
@@ -1636,59 +1670,4 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             </div>
         </div>
     </div>
-
-    <!-- Live Step-by-Step Terminal Progress Modal for Database Reverting (Preload-style) -->
-    @if ($isReverting)
-    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(6px); z-index: 99999; display: flex; align-items: center; justify-content: center; color: white; padding: 20px;">
-        <div style="background: #ffffff; color: #0f172a; padding: 28px 32px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45); width: 100%; max-width: 600px; border: 1px solid #cbd5e1; display: flex; flex-direction: column;">
-            
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <i class="fa-solid fa-rotate-left fa-spin" style="font-size: 22px; color: #d97706;"></i>
-                    <h4 style="font-size: 18px; font-weight: 800; margin: 0; color: #0f172a;">Reverting System Database</h4>
-                </div>
-                <span style="font-size: 14px; font-weight: 800; color: #d97706; background: #fffbeb; padding: 4px 12px; border-radius: 9999px; border: 1px solid #fde68a;">
-                    {{ $revertProgress }}%
-                </span>
-            </div>
-
-            <!-- Animated Progress Bar -->
-            <div style="width: 100%; background: #e2e8f0; height: 12px; border-radius: 9999px; overflow: hidden; margin-bottom: 14px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);">
-                <div style="width: {{ $revertProgress }}%; background: linear-gradient(90deg, #d97706 0%, #f59e0b 100%); height: 100%; transition: width 0.3s ease-in-out; border-radius: 9999px;"></div>
-            </div>
-
-            <div style="font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 10px; display: flex; justify-content: space-between;">
-                <span>Target Table: <strong style="color: #0f172a; font-family: monospace;">{{ $revertCurrentTable ?: 'Initializing...' }}</strong></span>
-                <span>({{ $revertCurrentIndex }} / {{ count($revertTablesList) }} Tables)</span>
-            </div>
-
-            <!-- Step-by-Step Live Terminal Console Output -->
-            <div x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })" x-effect="$nextTick(() => { $el.scrollTop = $el.scrollHeight })" style="background: #0f172a; color: #f59e0b; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; padding: 14px; border-radius: 10px; height: 190px; overflow-y: auto; text-align: left; line-height: 1.6; border: 1px solid #1e293b; margin-bottom: 18px;">
-                @foreach ($revertLogs as $log)
-                    <div style="margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px;">
-                        @if (str_contains($log, 'success') || str_contains($log, '100%') || str_contains($log, 'restored successfully') || str_contains($log, 'records cleared') || str_contains($log, 'suspended'))
-                            <span style="color: #4ade80; font-weight: 600;">{{ $log }}</span>
-                        @elseif (str_contains($log, 'Initializing') || str_contains($log, 'Payload'))
-                            <span style="color: #38bdf8; font-weight: 700;">{{ $log }}</span>
-                        @elseif (str_contains($log, 'Restoring table'))
-                            <span style="color: #fde047;">{{ $log }}</span>
-                        @elseif (str_contains($log, 'Clearing') || str_contains($log, 'Skipped'))
-                            <span style="color: #fb7185;">{{ $log }}</span>
-                        @elseif (str_contains($log, 'Synchronizing') || str_contains($log, 'Disabling'))
-                            <span style="color: #a78bfa;">{{ $log }}</span>
-                        @elseif (str_contains($log, 'Notice') || str_contains($log, 'Error') || str_contains($log, 'failed'))
-                            <span style="color: #ef4444; font-weight: 700;">{{ $log }}</span>
-                        @else
-                            <span style="color: #94a3b8;">{{ $log }}</span>
-                        @endif
-                    </div>
-                @endforeach
-            </div>
-
-            <button type="button" wire:click="cancelRevert" onclick="window.stop(); window.location.reload();" style="width: 100%; background: #ef4444; color: #ffffff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);">
-                <i class="fa-solid fa-circle-stop"></i> Emergency Cancel Process
-            </button>
-        </div>
-    </div>
-    @endif
 </div>

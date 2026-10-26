@@ -256,24 +256,45 @@ class BackupService
      */
     public function restoreBackupFile(string $filename, ?callable $progressCallback = null): array
     {
+        @set_time_limit(300);
+        @ini_set('max_execution_time', '300');
+
         $filename = basename($filename);
         $localPath = "backups/{$filename}";
         $googlePath = "backup/{$filename}";
 
         $jsonContent = null;
-        if (Storage::disk('local')->exists($localPath)) {
-            $jsonContent = Storage::disk('local')->get($localPath);
-        } elseif (Storage::disk('google')->exists($googlePath)) {
-            $jsonContent = Storage::disk('google')->get($googlePath);
+        try {
+            if (Storage::disk('local')->exists($localPath)) {
+                $jsonContent = Storage::disk('local')->get($localPath);
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Could not check/read local backup [{$filename}]: " . $e->getMessage());
+        }
+
+        // If not found in local disk, attempt download from Google Drive
+        if (!$jsonContent) {
             try {
-                Storage::disk('local')->put($localPath, $jsonContent);
-            } catch (\Throwable) {}
+                if (Storage::disk('google')->exists($googlePath)) {
+                    $jsonContent = Storage::disk('google')->get($googlePath);
+                    // Cache to local disk for future fast access
+                    try {
+                        Storage::disk('local')->put($localPath, $jsonContent);
+                    } catch (\Throwable) {}
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Could not retrieve backup from Google Drive [{$filename}]: " . $e->getMessage());
+                return [
+                    'success' => false,
+                    'message' => "Target backup file [{$filename}] is not in local storage and could not be retrieved from Google Drive: " . $e->getMessage(),
+                ];
+            }
         }
 
         if (!$jsonContent) {
             return [
                 'success' => false,
-                'message' => "Target backup file [{$filename}] could not be found in storage.",
+                'message' => "Target backup file [{$filename}] could not be found in local storage or Google Drive.",
             ];
         }
 

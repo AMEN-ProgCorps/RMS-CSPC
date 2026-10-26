@@ -660,7 +660,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public function toggleEditAll(): void
     {
         $perms = auth()->user()?->permissions;
-        $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false));
+        $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
         if (!$canListModify) {
             return;
         }
@@ -723,7 +723,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public function saveMetadataOnly(): void
     {
         $perms = auth()->user()?->permissions;
-        $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false));
+        $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
         if ($canListModify) {
             $emailAccessId = null;
             if ($this->emailAccess) {
@@ -1453,7 +1453,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             }
         }
 
-        if (auth()->user()?->permissions?->is_sadm) {
+        $perms = auth()->user()?->permissions;
+        if ($perms && (($perms->is_sadm ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false) || ($perms->can_dts_list_modify_transaction ?? false))) {
             DB::table('dts_transaction_details')
                 ->where('id', $this->selectedTransactionId)
                 ->update([
@@ -1656,7 +1657,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     @forelse($this->transactions as $index => $t)
                         @php
                             $isChecked = in_array((string)$t->transaction_id, $selectedIds);
-                            $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($t->status ?? '') === 'completed');
+                            $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false) || (strtolower($t->status ?? '') === 'completed');
                         @endphp
                         <tr style="background-color: {{ $isChecked ? '#f0f6ff' : '' }};">
                             <td style="text-align: center;">
@@ -1696,7 +1697,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             @forelse ($this->transactions as $index => $t)
                 @php
                     $isChecked = in_array((string)$t->transaction_id, $selectedIds);
-                    $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($t->status ?? '') === 'completed');
+                    $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false) || (strtolower($t->status ?? '') === 'completed');
                 @endphp
                 <div class="dts-box-card {{ $isChecked ? 'selected' : '' }}">
                     
@@ -1782,12 +1783,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     <div class="receive-fields">
                         <!-- Control Number field -->
                         @php
-                            $canSeeModalCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($selectedTransaction->status ?? '') === 'completed');
+                            $canSeeModalCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false) || (strtolower($selectedTransaction->status ?? '') === 'completed');
                         @endphp
                         @if ($canSeeModalCtrlNo)
                         <div class="receive-field-row">
                             <span class="receive-field-label">Control #:</span>
-                            @if ($editingAll && (auth()->user()?->permissions?->is_sadm ?? false))
+                            @if ($editingAll && ((auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false)))
                                 <input type="text" class="receive-field-input" wire:model="controlNumber">
                             @else
                                 <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly>
@@ -2459,7 +2460,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                         <!-- EDIT / SAVE toggle -->
                         @php
                             $perms = auth()->user()?->permissions;
-                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false));
+                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
                             $canEditMetadata = ($selectedTransaction->status !== 'completed') || $canListModify;
                         @endphp
                         @if ($canEditMetadata)
@@ -2681,7 +2682,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
                         @php
                             $perms = auth()->user()?->permissions;
-                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false));
+                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
                             $canModifyFile = ($selectedTransaction->status !== 'completed') || $canListModify;
                         @endphp
 

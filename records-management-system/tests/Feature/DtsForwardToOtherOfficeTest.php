@@ -375,8 +375,50 @@ class DtsForwardToOtherOfficeTest extends TestCase
         $this->assertNotContains($this->officeA, $codes);
         $this->assertNotContains('ORIGIN', $codes);
         $this->assertNotContains('[H]', $codes);
-        $this->assertNotContains('[HUB]', $codes);
+        $this->assertContains('[HUB]', $codes);
         $this->assertContains($this->officeTarget, $codes);
+
+        $withoutHub = DtsRoutingService::getAvailableTargetOffices($this->officeA, false);
+        $this->assertNotContains('[HUB]', $withoutHub->pluck('office_code')->toArray());
+    }
+
+    public function test_forward_to_hub_broadcasts_to_multiple_offices(): void
+    {
+        $created = $this->createTestTransaction('FLOW-HUB-FWD-TEST');
+        $txId = $created['trans_id'];
+        $ctrlNo = $created['control_number'];
+
+        Auth::login($this->userWithClearance);
+
+        $result = DtsRoutingService::forwardToOtherOffice(
+            $txId,
+            '[HUB]',
+            'Forwarding to hub offices beta and gamma',
+            $this->userWithClearance->id,
+            [$this->officeB, $this->officeC]
+        );
+
+        $this->assertTrue($result['success']);
+        $this->assertEquals('[HUB]', $result['target_office_code']);
+        $this->assertStringContainsString('Office Hub', $result['target_office_name']);
+
+        // Check primary transaction routed to first office (officeB)
+        $primaryTx = DB::table('dts_transactions')->where('transaction_id', $txId)->first();
+        $this->assertEquals($this->officeB, $primaryTx->current_office);
+
+        // Check child transaction created for officeC with suffix -1
+        $childDetails = DB::table('dts_transaction_details')
+            ->where('control_number', $ctrlNo . '-1')
+            ->first();
+        $this->assertNotNull($childDetails);
+        $this->assertEquals($this->officeC, $childDetails->current_office_hold);
+
+        // Check copy_filled record created
+        $copyFilled = DB::table('dts_copy_filled_transaction')
+            ->where('control_num', $ctrlNo)
+            ->first();
+        $this->assertNotNull($copyFilled);
+        $this->assertEquals(2, $copyFilled->total_office);
     }
 
     public function test_action_options_filtering_by_clearance(): void

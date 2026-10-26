@@ -57,6 +57,8 @@ class BackupService
             'rdp_volume_value' => 22,
             'rdp_volume_conversion' => 23,
             'rdp_pending_status' => 24,
+            'rdp_remark_key_triggers' => 24,
+            'rdp_remarks_logic' => 24,
             'rdp_record_series' => 25,
             'rdp_record_series_brackets' => 26,
             'sys_folder_data' => 27,
@@ -119,6 +121,7 @@ class BackupService
             'rdp_retention_period' => 77,
             'rdp_utility_manager' => 78,
             'rdp_duplication_section' => 79,
+            'rdp_location_suggestion' => 80,
 
             // Tier 6: DCS Requests & Registrations
             'dcs_document_requests' => 85,

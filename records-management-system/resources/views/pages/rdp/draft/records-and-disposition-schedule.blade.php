@@ -63,7 +63,7 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
 
         $this->editingSeriesId = $series->id;
         $this->editSeriesTitle = $series->series_title ?? '';
-        $this->editRemarks = $series->remarks ?? '';
+        $this->editRemarks = \App\Services\RdpRemarksService::textFor($series->remarks) ?? '';
         $this->editActivePeriod = $series->active_period ?? '';
         $this->editStoragePeriod = $series->storage_period ?? '';
         $this->editIsPermanent = (bool)($series->is_retention_period_permanent ?? false) || strtolower($series->total_period ?? '') === 'permanent';
@@ -118,11 +118,12 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
 
                 DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->update([
                     'series_title'                  => mb_strtoupper(trim($this->editSeriesTitle)),
-                    'remarks'                       => trim($this->editRemarks) ?: null,
                     'retention_period'              => $retentionId,
                     'is_retention_period_permanent' => $this->editIsPermanent,
                     'updated_at'                    => now(),
                 ]);
+
+                \App\Services\RdpRemarksService::saveForSeries($this->editingSeriesId, $this->editRemarks);
 
                 if ($andSubmit) {
                     $this->submitForApproval($this->editingSeriesId);
@@ -215,6 +216,7 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
         $query = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->where('rdp_record_series.is_verified', false);
 
         // Strict isolation: only drafts created by THIS user AND currently in THIS user's office
@@ -229,7 +231,7 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
             $term = '%' . trim($this->search) . '%';
             $query->where(function($q) use ($term) {
                 $q->where('rdp_record_series.series_title', 'ILIKE', $term)
-                  ->orWhere('rdp_record_series.remarks', 'ILIKE', $term);
+                  ->orWhere('rdp_remarks_logic.remarks_value', 'ILIKE', $term);
             });
         }
 
@@ -240,6 +242,7 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
             'rdp_retention_period.total_period',
             'parent.series_title as parent_title'
         ])
+        ->addSelect('rdp_remarks_logic.remarks_value as remarks')
         ->orderBy('rdp_record_series.updated_at', 'desc')
         ->get();
 

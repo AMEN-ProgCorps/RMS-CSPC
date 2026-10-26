@@ -209,6 +209,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->where('rdp_record_series.series_type', $typeId)
             ->where('rdp_record_series.is_verified', true)
@@ -221,7 +222,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
                 'parent.series_title as parent_title',
                 'rdp_record_series_brackets.bracket_name',
                 'office.office_name as recorded_office_name',
-            ]);
+            ])
+            ->addSelect('rdp_remarks_logic.remarks_value as remarks');
 
         if (!empty(trim($this->search))) {
             $searchTerm = '%' . trim($this->search) . '%';
@@ -229,13 +231,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
             // 1. Find direct matching record IDs
             $matchedIds = DB::table('rdp_record_series')
                 ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
+                ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                 ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
                 ->where('rdp_record_series.series_type', $typeId)
                 ->where('rdp_record_series.is_verified', true)
                 ->where('rdp_record_series.is_active', true)
                 ->where(function ($q) use ($searchTerm) {
                     $q->where('rdp_record_series.series_title', 'ILIKE', $searchTerm)
-                      ->orWhere('rdp_record_series.remarks', 'ILIKE', $searchTerm)
+                      ->orWhere('rdp_remarks_logic.remarks_value', 'ILIKE', $searchTerm)
                       ->orWhere('rdp_record_series_brackets.bracket_name', 'ILIKE', $searchTerm)
                       ->orWhere('office.office_name', 'ILIKE', $searchTerm)
                       ->orWhere('rdp_record_series.recorded_at_office', 'ILIKE', $searchTerm)

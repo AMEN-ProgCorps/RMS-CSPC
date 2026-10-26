@@ -210,6 +210,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
 
             $query = DB::table('rdp_record_series')
+                ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                 ->where('rdp_record_series.is_active', true)
                 ->where(function($q) {
                     $q->where('rdp_record_series.is_verified', false)
@@ -225,12 +226,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             if (!empty($this->search)) {
                 $this->applySearchFilter($query, [
                     'rdp_record_series.series_title',
-                    'rdp_record_series.remarks',
+                    'rdp_remarks_logic.remarks_value',
                     'CAST(rdp_record_series.item_number AS TEXT)',
                 ]);
             }
 
-            $allIds = $query->pluck('id')->toArray();
+            $allIds = $query->pluck('rdp_record_series.id')->toArray();
             $this->selectedIds = array_map('strval', $allIds);
         } else {
             $this->selectedIds = [];
@@ -270,13 +271,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $query = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
                 'parent.series_title as parent_title',
-            ]);
+            ])
+            ->addSelect('rdp_remarks_logic.remarks_value as remarks');
 
         $record = $query->where('rdp_record_series.id', $id)->first();
         if ($record) {
@@ -324,7 +327,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $this->editingSeriesId = $record->id;
             $this->editSeriesTitle = $record->series_title ?? '';
             $this->editItemNumber = $record->item_number !== null ? (string)$record->item_number : '';
-            $this->editRemarks = $record->remarks ?? '';
+            $this->editRemarks = \App\Services\RdpRemarksService::textFor($record->remarks) ?? '';
             $this->isRootParentForEdit = empty($record->parent_id);
 
             // Check if this record series (or any of its child series) is currently used in NAP Form 1 (rdp_record)
@@ -438,9 +441,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             return;
         }
 
-        $updateData = [
-            'remarks' => trim($this->editRemarks) ?: null,
-        ];
+        $updateData = [];
 
         if ($this->canEditDescription) {
             $updateData['series_title'] = $cleanTitle;
@@ -464,6 +465,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $updateData['updated_at'] = Carbon::now();
 
         DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->update($updateData);
+
+        \App\Services\RdpRemarksService::saveForSeries($this->editingSeriesId, $this->editRemarks);
 
         // Audit Log
         $adminId = auth()->id() ?? 1;
@@ -548,6 +551,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                 ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
                 ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+                ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                 ->select([
                     'rdp_record_series.*',
                     'rdp_retention_period.active_period',
@@ -556,6 +560,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                     'parent.series_title as parent_title',
                     'office.office_name as recorded_office_name',
                 ])
+                ->addSelect('rdp_remarks_logic.remarks_value as remarks')
                 ->whereIn('rdp_record_series.id', $missingParentIds)
                 ->get();
 
@@ -615,6 +620,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
@@ -622,7 +628,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 'rdp_retention_period.total_period',
                 'parent.series_title as parent_title',
                 'office.office_name as recorded_office_name',
-            ]);
+            ])
+            ->addSelect('rdp_remarks_logic.remarks_value as remarks');
 
         $query->where('rdp_record_series.is_active', true);
 
@@ -642,7 +649,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         if (!empty($this->search)) {
             $this->applySearchFilter($query, [
                 'rdp_record_series.series_title',
-                'rdp_record_series.remarks',
+                'rdp_remarks_logic.remarks_value',
                 'parent.series_title',
                 'CAST(rdp_record_series.item_number AS TEXT)',
             ]);
@@ -663,6 +670,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             }
         }
 
+        $rootCountersByOffice = [];
+        $childCountersByParent = [];
+        $parentNumberMap = [];
+
         foreach ($treeOrdered as $item) {
             $eff = $this->resolveEffectiveRetention($allFetchedMap, $item);
             $item->effective_active = $eff->active_period;
@@ -674,12 +685,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             // All items are regular rows; office grouping is handled by the template
             $item->is_root_parent = empty($item->parent_id);
 
-            // Item number assignment: NEVER assign item number if unregistered!
-            $isRegistered = (bool)($item->is_verified ?? false);
-            if ($isRegistered && !empty($item->item_number)) {
-                $item->display_item_no = (string)$item->item_number;
+            $officeKey = $item->recorded_office_name ?? $item->recorded_at_office ?? 'default';
+            $isRoot = empty($item->parent_id) || ($item->depth ?? 0) === 0;
+
+            if ($isRoot) {
+                $rootCountersByOffice[$officeKey] = ($rootCountersByOffice[$officeKey] ?? 0) + 1;
+                $assignedNo = !empty($item->item_number)
+                    ? (string)$item->item_number
+                    : (string)$rootCountersByOffice[$officeKey];
+
+                $item->display_item_no = $assignedNo;
+                $parentNumberMap[$item->id] = $assignedNo;
             } else {
-                $item->display_item_no = '';
+                $pId = (int)$item->parent_id;
+                $childCountersByParent[$pId] = ($childCountersByParent[$pId] ?? 0) + 1;
+                $parentBase = $parentNumberMap[$pId] ?? (string)($rootCountersByOffice[$officeKey] ?? 1);
+
+                $item->display_item_no = $parentBase . ' - ' . $childCountersByParent[$pId];
+                $parentNumberMap[$item->id] = $item->display_item_no;
             }
         }
 
@@ -1067,7 +1090,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                 <span style="width: 20px; height: 20px; display: inline-block;"></span>
                             </div>
                         </th>
-                        <th rowspan="2" style="width: 110px; text-align: center; vertical-align: middle;">5. ITEM NO.</th>
+                        <th rowspan="2" style="min-width: 110px; text-align: left; padding-left: 12px; vertical-align: middle;">5. ITEM NO.</th>
                         <th rowspan="2" style="vertical-align: middle; min-width: 280px;">6. RECORD SERIES TITLE AND DESCRIPTION</th>
                         <th colspan="3" style="text-align: center; border-bottom: 1px solid #cbd5e1; padding: 6px;">7. RETENTION PERIOD</th>
                         <th rowspan="2" style="min-width: 180px; vertical-align: middle;">8. REMARKS</th>
@@ -1129,7 +1152,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                     @endif
                                 </div>
                             </td>
-                            <td style="text-align: center; font-weight: 800; font-size: 13px; color: #1e293b;">
+                            <td style="text-align: left; padding-left: 12px; font-weight: 800; font-size: 13px; color: #1e293b; white-space: nowrap;">
                                 {{ $item->display_item_no ?: '—' }}
                             </td>
                             <td style="padding-left: {{ (($item->depth ?? 0) * 22) + 14 }}px; font-weight: {{ $isRoot ? '700' : '600' }}; color: #0f172a;">
@@ -1500,10 +1523,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-family: Arial, sans-serif; font-size: 9px; table-layout: fixed;">
                             <thead>
                                 <tr style="background: #ffffff;">
-                                    <th rowspan="2" style="width: 11%; border: 1px solid #000; border-top: 2px solid #000; padding: 6px 4px; text-align: center; font-weight: bold; vertical-align: middle;">
+                                    <th rowspan="2" style="width: 12%; border: 1px solid #000; border-top: 2px solid #000; padding: 6px 4px 6px 8px; text-align: left; font-weight: bold; vertical-align: middle;">
                                         5. ITEM NO.:
                                     </th>
-                                    <th rowspan="2" style="width: 47%; border: 1px solid #000; border-top: 2px solid #000; padding: 6px 6px; text-align: center; font-weight: bold; vertical-align: middle;">
+                                    <th rowspan="2" style="width: 46%; border: 1px solid #000; border-top: 2px solid #000; padding: 6px 6px; text-align: center; font-weight: bold; vertical-align: middle;">
                                         6. RECORD SERIES TITLE AND DESCRIPTION
                                     </th>
                                     <th colspan="3" style="width: 24%; border: 1px solid #000; border-top: 2px solid #000; padding: 4px; text-align: center; font-weight: bold;">
@@ -1527,7 +1550,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                                         (strtolower(trim($item->effective_active ?? '')) === 'permanent' && strtolower(trim($item->effective_storage ?? '')) === 'permanent');
                                     @endphp
                                     <tr>
-                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top; font-weight: bold;">
+                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 6px 5px 8px; text-align: left; vertical-align: top; font-weight: bold;">
                                             {{ $item->display_item_no }}
                                         </td>
                                         <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 6px; vertical-align: top; padding-left: {{ (($item->depth ?? 0) * 14) + 6 }}px;">

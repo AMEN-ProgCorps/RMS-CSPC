@@ -731,6 +731,11 @@
                     'url' => route('admin.rdp.record-series'),
                     'active' => request()->routeIs('admin.rdp.record-series'),
                 ],
+                [
+                    'label' => 'Remark Key Triggers',
+                    'url' => route('admin.rdp.remark-key-triggers'),
+                    'active' => request()->routeIs('admin.rdp.remark-key-triggers'),
+                ],
             ];
         }
         // 9. Server Settings Section

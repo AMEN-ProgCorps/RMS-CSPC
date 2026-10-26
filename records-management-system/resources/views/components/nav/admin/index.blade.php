@@ -210,6 +210,7 @@
     <div class="functions-container">
         <div class="function-button {{ request()->routeIs('admin.rdp.conversions') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.conversions') }}')">Volume Conversions</div>
         <div class="function-button {{ request()->routeIs('admin.rdp.record-series') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.record-series') }}')">Record Series</div>
+        <div class="function-button {{ request()->routeIs('admin.rdp.remark-key-triggers') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.rdp.remark-key-triggers') }}')">Remark Key Triggers</div>
     </div>
 </div>
 @endif

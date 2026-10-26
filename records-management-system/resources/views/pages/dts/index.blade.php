@@ -43,6 +43,75 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public string $activeAction = 'forwarded';
     public string $forwardToOfficeCode = '';
     public string $activeNotes = '';
+
+    // Forward HUB Selection Modal State
+    public bool $showForwardHubModal = false;
+    public string $forwardHubSearch = '';
+    public array $forwardHubOffices = [];
+    public array $forwardHubTempSelected = [];
+
+    public function openForwardHubModal(): void
+    {
+        $this->forwardHubTempSelected = $this->forwardHubOffices;
+        $this->forwardHubSearch = '';
+        $this->showForwardHubModal = true;
+    }
+
+    public function closeForwardHubModal(): void
+    {
+        $this->showForwardHubModal = false;
+        $this->forwardHubSearch = '';
+    }
+
+    public function toggleForwardHubOffice(string $officeCode): void
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        if ($officeCode === $userOfficeCode || in_array($officeCode, ['ORIGIN', '[H]', '[HUB]'])) {
+            return;
+        }
+
+        if (in_array('ALL', $this->forwardHubTempSelected)) {
+            $allActive = collect($this->availableTargetOffices)
+                ->pluck('office_code')
+                ->filter(fn($c) => $c !== $userOfficeCode && !in_array($c, ['ORIGIN', '[H]', '[HUB]', 'ALL']))
+                ->toArray();
+            $this->forwardHubTempSelected = array_values(array_diff($allActive, [$officeCode]));
+            return;
+        }
+
+        if (in_array($officeCode, $this->forwardHubTempSelected)) {
+            $this->forwardHubTempSelected = array_values(array_diff($this->forwardHubTempSelected, [$officeCode]));
+        } else {
+            $this->forwardHubTempSelected[] = $officeCode;
+        }
+    }
+
+    public function selectAllForwardHubOffices(): void
+    {
+        $this->forwardHubTempSelected = ['ALL'];
+    }
+
+    public function clearForwardHubOffices(): void
+    {
+        $this->forwardHubTempSelected = [];
+    }
+
+    public function applyForwardHubModal(): void
+    {
+        $this->forwardHubOffices = $this->forwardHubTempSelected;
+        $this->showForwardHubModal = false;
+        $this->forwardHubSearch = '';
+    }
+
+    public function removeForwardHubOffice(int $index): void
+    {
+        if (isset($this->forwardHubOffices[$index])) {
+            array_splice($this->forwardHubOffices, $index, 1);
+        }
+    }
+
     public string $resubmitTarget = 'start'; // 'start' (Option A: Restart chain) or 'requestor' (Option B: Fast-Track to Requestor)
     public bool $editingAll = false;
 
@@ -1038,6 +1107,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->showUploadModal = false;
         $this->uploadedFile = null;
         $this->uploadErrorMessage = '';
+        $this->forwardToOfficeCode = '';
+        $this->forwardHubOffices = [];
+        $this->forwardHubTempSelected = [];
+        $this->showForwardHubModal = false;
     }
 
     public function toggleMoreDetails(): void
@@ -1150,6 +1223,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             $this->actionNeeded = $this->selectedTransaction->action_needed ?: '';
             $this->activeAction = $this->actionOptions[0] ?? 'For Approval';
             $this->forwardToOfficeCode = '';
+            $this->forwardHubOffices = [];
+            $this->forwardHubTempSelected = [];
+            $this->showForwardHubModal = false;
             
             $this->requestorName = $this->selectedTransaction->requestor_name ?: '';
             $this->requestorPosition = $this->selectedTransaction->requestor_label ?: '';
@@ -1387,6 +1463,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->showUploadModal = false;
         $this->uploadedFile = null;
         $this->uploadErrorMessage = '';
+        $this->forwardToOfficeCode = '';
+        $this->forwardHubOffices = [];
+        $this->forwardHubTempSelected = [];
+        $this->showForwardHubModal = false;
     }
 
     public function handleUploadFile(): void
@@ -1610,12 +1690,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 return;
             }
 
+            if ($this->forwardToOfficeCode === '[HUB]' && empty($this->forwardHubOffices)) {
+                session()->flash('error', 'Please select at least one recipient office for Office Hub broadcast.');
+                return;
+            }
+
             try {
                 $result = \App\Services\DtsRoutingService::forwardToOtherOffice(
                     $this->selectedTransactionId,
                     $this->forwardToOfficeCode,
                     $this->activeNotes,
-                    auth()->id()
+                    auth()->id(),
+                    $this->forwardHubOffices
                 );
                 session()->flash('success', "Transaction '{$result['control_number']}' has been forwarded to {$result['target_office_name']}!");
                 $this->closeTransaction();
@@ -4181,12 +4267,45 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                          </select>
                                                          @if ($activeAction === 'To be Forwarded to')
                                                              <div style="margin-top: 6px;">
-                                                                 <select wire:model="forwardToOfficeCode" style="width: 100%; padding: 4px 8px; border: 1.5px solid #3b82f6; border-radius: 6px; font-size: 12px; font-weight: 600; background: #eff6ff; color: #1e40af;">
+                                                                 <select wire:model.live="forwardToOfficeCode" style="width: 100%; padding: 4px 8px; border: 1.5px solid #3b82f6; border-radius: 6px; font-size: 12px; font-weight: 600; background: #eff6ff; color: #1e40af;">
                                                                      <option value="">-- Select Office --</option>
                                                                      @foreach(\App\Services\DtsRoutingService::getAvailableTargetOffices(auth()->user()?->details?->office?->office_code ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user())) as $availOff)
                                                                          <option value="{{ $availOff->office_code }}">{{ $availOff->office_code }} - {{ $availOff->office_name }}</option>
                                                                      @endforeach
                                                                  </select>
+
+                                                                 @if($forwardToOfficeCode === '[HUB]')
+                                                                     <div style="margin-top: 6px; padding: 6px; background: #ffffff; border: 1px dashed #3b82f6; border-radius: 6px; text-align: left;">
+                                                                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                                                                             <button type="button" 
+                                                                                     wire:click="openForwardHubModal" 
+                                                                                     style="background: #2563eb; color: #ffffff; border: none; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                                                                                 <i class="fa-solid fa-plus-circle"></i> Office Hub [ {{ in_array('ALL', $forwardHubOffices) ? 'ALL' : count($forwardHubOffices) }} selected ]
+                                                                             </button>
+                                                                         </div>
+                                                                         @if(empty($forwardHubOffices))
+                                                                             <div style="font-size: 11px; color: #dc2626; font-style: italic;">
+                                                                                 ⚠️ Select Hub offices
+                                                                             </div>
+                                                                         @else
+                                                                             <div style="display: flex; flex-wrap: wrap; gap: 4px; max-height: 80px; overflow-y: auto;">
+                                                                                 @if(in_array('ALL', $forwardHubOffices))
+                                                                                     <span style="display: inline-flex; align-items: center; gap: 4px; background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; font-size: 10.5px; font-weight: 700;">
+                                                                                         ALL OFFICES
+                                                                                         <button type="button" wire:click="clearForwardHubOffices" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 11px; line-height: 1; padding: 0;">&times;</button>
+                                                                                     </span>
+                                                                                 @else
+                                                                                     @foreach($forwardHubOffices as $idx => $fCode)
+                                                                                         <span style="display: inline-flex; align-items: center; gap: 4px; background: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600;">
+                                                                                             <strong>{{ $fCode }}</strong>
+                                                                                             <button type="button" wire:click="removeForwardHubOffice({{ $idx }})" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 11px; line-height: 1; padding: 0;">&times;</button>
+                                                                                         </span>
+                                                                                     @endforeach
+                                                                                 @endif
+                                                                             </div>
+                                                                         @endif
+                                                                     </div>
+                                                                 @endif
                                                              </div>
                                                          @endif
                                                      @else
@@ -4675,4 +4794,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
     <!-- Dynamic QR Code Print Modal -->
     @include('components.dts.qr-print-modal')
+
+    <!-- Office Hub Collective Modal for Forwarding -->
+    <x-dts.hub-collective-modal 
+        :show="$showForwardHubModal" 
+        :search="$forwardHubSearch" 
+        :selected="$forwardHubTempSelected" 
+        :offices="$this->availableTargetOffices"
+        wireClose="closeForwardHubModal"
+        wireToggle="toggleForwardHubOffice"
+        wireSelectAll="selectAllForwardHubOffices"
+        wireClear="clearForwardHubOffices"
+        wireApply="applyForwardHubModal"
+        wireSearch="forwardHubSearch"
+    />
 </div>

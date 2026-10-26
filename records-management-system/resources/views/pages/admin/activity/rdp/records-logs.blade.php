@@ -57,11 +57,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - RDP Records Logs')] clas
     {
         $query = DB::table('rdp_record')
             ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->leftJoin('rdp_time_value', 'rdp_record.time_value', '=', 'rdp_time_value.char_value')
             ->select([
                 'rdp_record.*',
                 'rdp_record_series.series_title',
-                'rdp_record_series.remarks as series_remarks',
+                'rdp_remarks_logic.remarks_value as series_remarks',
                 'rdp_time_value.description as time_description',
             ]);
 
@@ -73,7 +74,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - RDP Records Logs')] clas
                   ->orWhere('rdp_record.office_own', 'ilike', $term)
                   ->orWhere('rdp_record.volume', 'ilike', $term)
                   ->orWhere('rdp_record.records_location', 'ilike', $term)
-                  ->orWhere('rdp_record_series.remarks', 'ilike', $term);
+                  ->orWhere('rdp_remarks_logic.remarks_value', 'ilike', $term);
             });
         }
 

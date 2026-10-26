@@ -203,7 +203,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 'description' => 'Archival records, document records, retention periods, series brackets & folder configs',
                 'icon' => 'fa-solid fa-box-archive',
                 'color' => '#475569',
-                'tables' => ['rdp_record', 'rdp_record_series', 'rdp_record_series_brackets', 'rdp_record_series_type', 'rdp_recorded_value', 'rdp_frequence_use', 'rdp_restriction_type', 'rdp_utility_medium', 'rdp_time_value', 'rdp_volume_value', 'rdp_volume_conversion', 'rdp_document_record', 'rdp_duplication_section', 'rdp_grouped_record', 'rdp_grouped_record_series', 'rdp_pending_record', 'rdp_pending_record_series', 'rdp_pending_status', 'rdp_period_covered', 'rdp_retention_period', 'rdp_utility_manager', 'sys_folder_data', 'rdp_main_pending_id'],
+                'tables' => ['rdp_record', 'rdp_record_series', 'rdp_record_series_brackets', 'rdp_record_series_type', 'rdp_recorded_value', 'rdp_frequence_use', 'rdp_restriction_type', 'rdp_utility_medium', 'rdp_time_value', 'rdp_volume_value', 'rdp_volume_conversion', 'rdp_document_record', 'rdp_duplication_section', 'rdp_grouped_record', 'rdp_grouped_record_series', 'rdp_pending_record', 'rdp_pending_record_series', 'rdp_pending_status', 'rdp_period_covered', 'rdp_retention_period', 'rdp_utility_manager', 'sys_folder_data', 'rdp_main_pending_id', 'rdp_remark_key_triggers', 'rdp_remarks_logic', 'rdp_location_suggestion'],
             ],
             'dcs' => [
                 'name' => 'Document Control System (DCS)',

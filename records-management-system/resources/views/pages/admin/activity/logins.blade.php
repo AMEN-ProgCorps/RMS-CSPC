@@ -45,6 +45,108 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
         $this->resetPage();
     }
 
+    /**
+     * Stream Excel-compatible CSV export of login security logs with active filters applied.
+     */
+    public function exportCsv(): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_activity_logs)) {
+            abort(403, 'Unauthorized access.');
+        }
+
+        $secLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+        $secStatusTable = \Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status';
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+        $query = \DB::table($secLogsTable . ' as security_logs')
+            ->leftJoin($secStatusTable . ' as security_status', 'security_logs.status', '=', 'security_status.status_id')
+            ->leftJoin($accountTable . ' as account', 'security_logs.account', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
+            ->select([
+                'security_logs.id',
+                'security_logs.time',
+                'security_logs.user_ipaddr',
+                'security_status.status_name',
+                'security_status.description',
+                'account.username',
+                'account_details.first_name',
+                'account_details.last_name',
+            ]);
+
+        // Search Filter
+        if ($this->search !== '') {
+            $searchVal = '%' . $this->search . '%';
+            $query->where(function ($q) use ($searchVal) {
+                $q->where('account.username', 'ilike', $searchVal)
+                  ->orWhere('account_details.first_name', 'ilike', $searchVal)
+                  ->orWhere('account_details.last_name', 'ilike', $searchVal)
+                  ->orWhere('security_logs.user_ipaddr', 'ilike', $searchVal)
+                  ->orWhere('security_status.status_name', 'ilike', $searchVal)
+                  ->orWhere('security_status.description', 'ilike', $searchVal);
+            });
+        }
+
+        // Status Filter
+        if ($this->statusFilter !== '') {
+            $query->where('security_logs.status', $this->statusFilter);
+        }
+
+        $records = $query->orderBy('security_logs.time', 'desc')->get();
+
+        // Audit log export action
+        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+            'changes' => "Exported Login Security Logs to CSV (" . count($records) . " records)",
+            'admin_id' => auth()->id(),
+            'what_system' => 3, // Admin Console
+            'when_changes' => now(),
+        ]);
+
+        $filename = 'login_security_logs_' . date('Y-m-d_His') . '.csv';
+        $headers = [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Cache-Control'       => 'no-cache, no-store, must-revalidate',
+            'Pragma'              => 'no-cache',
+            'Expires'             => '0',
+        ];
+
+        return new \Symfony\Component\HttpFoundation\StreamedResponse(function () use ($records) {
+            $handle = fopen('php://output', 'w');
+            fwrite($handle, "\xEF\xBB\xBF"); // UTF-8 BOM
+
+            fputcsv($handle, [
+                'Log ID',
+                'Timestamp',
+                'Security Status',
+                'Username',
+                'Full Name',
+                'IP Address',
+                'Activity Description',
+            ]);
+
+            foreach ($records as $log) {
+                $fullName = trim(($log->first_name ?? '') . ' ' . ($log->last_name ?? ''));
+                if (empty($fullName)) {
+                    $fullName = $log->username ?: 'Anonymous Attempt';
+                }
+
+                fputcsv($handle, [
+                    $log->id,
+                    \Carbon\Carbon::parse($log->time)->format('Y-m-d H:i:s'),
+                    $log->status_name ?? 'Unknown',
+                    $log->username ?? 'N/A',
+                    $fullName,
+                    $log->user_ipaddr ?? 'N/A',
+                    $log->description ?? '',
+                ]);
+            }
+
+            fclose($handle);
+        }, 200, $headers);
+    }
+
     public function with(): array
     {
         $secLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
@@ -164,30 +266,41 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
 
     <!-- Controls Panel Card -->
     <div class="logs-controls-card">
-        <div class="search-filter-group">
-            <!-- Search Input -->
-            <div class="search-box-wrapper">
-                <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                <input type="text" 
-                       class="search-input" 
-                       placeholder="Search admin, username, IP..." 
-                       wire:model.live.debounce.300ms="search">
+        <div class="search-filter-group" style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: 1;">
+                <!-- Search Input -->
+                <div class="search-box-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" 
+                           class="search-input" 
+                           placeholder="Search admin, username, IP..." 
+                           wire:model.live.debounce.300ms="search">
+                </div>
+
+                <!-- Status Dropdown Filter -->
+                <select class="filter-select" wire:model.live="statusFilter">
+                    <option value="">All Security Statuses</option>
+                    @foreach($statuses as $status)
+                        <option value="{{ $status->status_id }}">{{ $status->status_name }}</option>
+                    @endforeach
+                </select>
+
+                <!-- Clear Filters Button -->
+                @if($search !== '' || $statusFilter !== '')
+                    <button type="button" class="btn-clear-filters" wire:click="clearFilters">
+                        <i class="fa-solid fa-filter-circle-xmark"></i> Clear Filters
+                    </button>
+                @endif
             </div>
 
-            <!-- Status Dropdown Filter -->
-            <select class="filter-select" wire:model.live="statusFilter">
-                <option value="">All Security Statuses</option>
-                @foreach($statuses as $status)
-                    <option value="{{ $status->status_id }}">{{ $status->status_name }}</option>
-                @endforeach
-            </select>
-
-            <!-- Clear Filters Button -->
-            @if($search !== '' || $statusFilter !== '')
-                <button type="button" class="btn-clear-filters" wire:click="clearFilters">
-                    <i class="fa-solid fa-filter-circle-xmark"></i> Clear Filters
+            <div>
+                <button type="button" class="btn-export" wire:click="exportCsv" wire:loading.attr="disabled" title="Export filtered records as CSV">
+                    <i class="fa-solid fa-file-csv" wire:loading.remove wire:target="exportCsv"></i>
+                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="exportCsv"></i>
+                    <span wire:loading.remove wire:target="exportCsv">Export CSV</span>
+                    <span wire:loading wire:target="exportCsv">Exporting...</span>
                 </button>
-            @endif
+            </div>
         </div>
     </div>
 

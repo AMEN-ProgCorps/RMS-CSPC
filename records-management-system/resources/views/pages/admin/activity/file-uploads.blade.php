@@ -45,6 +45,115 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - File Upload Activity Log
         $this->resetPage();
     }
 
+    /**
+     * Stream Excel-compatible CSV export of file upload activity logs with active filters applied.
+     */
+    public function exportCsv(): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_activity_logs)) {
+            abort(403, 'Unauthorized access.');
+        }
+
+        $docDataTable = \Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data';
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        $query = DB::table($docDataTable . ' as document_data')
+            ->leftJoin($accountTable . ' as account', 'document_data.uploaded_by', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
+            ->leftJoin($officeTable . ' as office', 'document_data.user_office', '=', 'office.office_code')
+            ->select([
+                'document_data.*',
+                'account.username',
+                'account_details.email',
+                'account_details.first_name',
+                'account_details.last_name',
+                'office.office_name',
+            ]);
+
+        if (!empty($this->search)) {
+            $searchVal = '%' . $this->search . '%';
+            $query->where(function ($q) use ($searchVal) {
+                $q->where('document_data.document_name', 'ilike', $searchVal)
+                  ->orWhere('document_data.document_id', 'ilike', $searchVal)
+                  ->orWhere('document_data.document_path', 'ilike', $searchVal)
+                  ->orWhere('account.username', 'ilike', $searchVal)
+                  ->orWhere('account_details.first_name', 'ilike', $searchVal)
+                  ->orWhere('account_details.last_name', 'ilike', $searchVal)
+                  ->orWhere('office.office_name', 'ilike', $searchVal);
+            });
+        }
+
+        if (!empty($this->officeFilter)) {
+            $query->where('document_data.user_office', $this->officeFilter);
+        }
+
+        if (!empty($this->dateFilter)) {
+            $query->whereDate('document_data.date_added', $this->dateFilter);
+        }
+
+        $records = $query->orderBy('document_data.date_added', 'desc')->get();
+
+        // Audit log export action
+        DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+            'changes' => "Exported File Upload Activity Logs to CSV (" . count($records) . " records)",
+            'admin_id' => auth()->id(),
+            'what_system' => 3, // Admin Console
+            'when_changes' => now(),
+        ]);
+
+        $filename = 'file_upload_activity_logs_' . date('Y-m-d_His') . '.csv';
+        $headers = [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Cache-Control'       => 'no-cache, no-store, must-revalidate',
+            'Pragma'              => 'no-cache',
+            'Expires'             => '0',
+        ];
+
+        return new \Symfony\Component\HttpFoundation\StreamedResponse(function () use ($records) {
+            $handle = fopen('php://output', 'w');
+            fwrite($handle, "\xEF\xBB\xBF"); // UTF-8 BOM
+
+            fputcsv($handle, [
+                'Log ID',
+                'Document Tracking ID',
+                'Document Name',
+                'Origin Office Code',
+                'Office Name',
+                'Uploaded By (Full Name)',
+                'Username',
+                'Email',
+                'Storage Path',
+                'Date Uploaded',
+            ]);
+
+            foreach ($records as $item) {
+                $fullName = trim(($item->first_name ?? '') . ' ' . ($item->last_name ?? ''));
+                if (empty($fullName)) {
+                    $fullName = $item->username ?: 'User #' . ($item->uploaded_by ?? 'N/A');
+                }
+
+                fputcsv($handle, [
+                    $item->id ?? '',
+                    $item->document_id ?? 'N/A',
+                    $item->document_name ?? 'Unnamed',
+                    $item->user_office ?? 'N/A',
+                    $item->office_name ?? 'N/A',
+                    $fullName,
+                    $item->username ?? 'N/A',
+                    $item->email ?? 'N/A',
+                    $item->document_path ?? '',
+                    $item->date_added ? \Carbon\Carbon::parse($item->date_added)->format('Y-m-d H:i:s') : 'N/A',
+                ]);
+            }
+
+            fclose($handle);
+        }, 200, $headers);
+    }
+
     public function with(): array
     {
         $docDataTable = \Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data';
@@ -107,6 +216,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - File Upload Activity Log
 
 @push('styles')
     @vite(['resources/css/admin/console.css', 'resources/css/admin/activity_logs.css'])
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 @endpush
 
 <div class="activity-logs-container">
@@ -184,6 +294,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - File Upload Activity Log
                         Reset Filters
                     </button>
                 @endif
+            </div>
+
+            <div>
+                <button type="button" class="btn-export" wire:click="exportCsv" wire:loading.attr="disabled" title="Export filtered file upload logs as CSV">
+                    <i class="fa-solid fa-file-csv" wire:loading.remove wire:target="exportCsv"></i>
+                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="exportCsv"></i>
+                    <span wire:loading.remove wire:target="exportCsv">Export CSV</span>
+                    <span wire:loading wire:target="exportCsv">Generating...</span>
+                </button>
             </div>
         </div>
 

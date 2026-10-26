@@ -453,6 +453,7 @@ Route::middleware(['auth'])
         Route::redirect('/admin/rdp', '/admin/rdp/records-logs')->name('admin.rdp.index');
         Volt::route('/admin/rdp/conversions', 'pages.admin.rdp.conversions')->name('admin.rdp.conversions');
         Volt::route('/admin/rdp/record-series', 'pages.admin.rdp.record-series')->name('admin.rdp.record-series');
+        Volt::route('/admin/rdp/remark-key-triggers', 'pages.admin.rdp.remark-key-triggers')->name('admin.rdp.remark-key-triggers');
 
         Volt::route('/admin/subsystems/add', 'pages.admin.subsystems.add')->name('admin.subsystems.add');
         Volt::route('/admin/subsystems/activate', 'pages.admin.subsystems.activate')->name('admin.subsystems.activate');

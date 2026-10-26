@@ -1679,10 +1679,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $directSeries = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+            ->leftJoin('rdp_record_series_type_id', 'rdp_record_series_type.series_type_id', '=', 'rdp_record_series_type_id.id')
             ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_record_series_type.shorted_type',
+                'rdp_record_series_type_id.shorten_identifier_value as series_type_identifier',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
@@ -1697,11 +1699,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $parentSeries = empty($neededParentIds) ? collect() : DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+            ->leftJoin('rdp_record_series_type_id', 'rdp_record_series_type.series_type_id', '=', 'rdp_record_series_type_id.id')
             ->leftJoin($officesTable . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_record_series_type.shorted_type',
+                'rdp_record_series_type_id.shorten_identifier_value as series_type_identifier',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
@@ -1741,6 +1745,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             $rootNode = (object)[
                 'id'            => $root->id,
                 'item_number'   => $root->item_number,
+                'series_type_identifier' => $root->series_type_identifier ?? null,
                 'series_title'  => $root->series_title,
                 'shorted_type'  => $root->shorted_type,
                 'is_verified'   => $root->is_verified,
@@ -1829,6 +1834,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
                     $rootNode->sub_series[] = (object)[
                         'id'                  => $sub->id,
+                        'item_number'         => $sub->item_number ?? null,
+                        'series_type_identifier' => $sub->series_type_identifier ?? $root->series_type_identifier ?? null,
                         'series_title'        => $sub->series_title,
                         'shorted_type'        => $sub->shorted_type ?: $root->shorted_type,
                         'compiled_period'     => $this->compilePeriodCovered($compiledDates),
@@ -2428,7 +2435,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 <span style="width: 20px; height: 20px; display: inline-block;"></span>
                             </div>
                         </th>
-                        <th style="width: 110px; text-align: center;">GRDS/ RDS ITEM NO.</th>
+                        <th style="min-width: 130px; text-align: left; padding-left: 12px;">ITEM NO.</th>
                         <th style="min-width: 260px;">RECORD SERIES TITLE AND DESCRIPTION</th>
                         <th style="width: 160px; text-align: center;">PERIOD COVERED</th>
                         <th style="width: 260px; text-align: center;">RETENTION PERIOD AND PROVISION/S COMPLIED (If Any)</th>
@@ -2500,8 +2507,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                     @endif
                                 </div>
                             </td>
-                            <td style="text-align: center; font-weight: 800; font-size: 13.5px; color: #1e293b;">
-                                {{ $root->item_number ?: '—' }}
+                            <td style="text-align: left; padding-left: 12px; font-weight: 800; font-size: 13px; color: #1e293b; white-space: nowrap;">
+                                {{ $root->item_number ? ($root->series_type_identifier ? $root->item_number . ' - ' . $root->series_type_identifier : $root->item_number) : ($root->series_type_identifier ?: '—') }}
                             </td>
                             <td style="font-weight: 800; font-size: 13.5px; color: #0f172a; letter-spacing: 0.3px;">
                                 <div style="display: flex; align-items: center; gap: 8px;">
@@ -2571,7 +2578,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                             @endif
                                         </div>
                                     </td>
-                                    <td style="text-align: center; color: #94a3b8; font-size: 12px;">—</td>
+                                    <td style="text-align: left; padding-left: 12px; font-weight: 700; font-size: 12px; color: #475569; white-space: nowrap;">
+                                        {{ !empty($sub->item_number) ? ($sub->series_type_identifier ? $sub->item_number . ' - ' . $sub->series_type_identifier : $sub->item_number) : '—' }}
+                                    </td>
                                     <td style="padding-left: 20px; font-weight: 700; color: #0f172a;">
                                         <div style="display: flex; align-items: center; gap: 6px;">
                                             <span class="corner-symbol">└</span>
@@ -2975,8 +2984,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         <table class="print-table" style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 9px; margin-top: 0; border-top: none; table-layout: fixed;">
                             <thead>
                                 <tr>
-                                    <th style="width: 12%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">GRDS/ RDS ITEM NO.</th>
-                                    <th style="width: 48%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">RECORD SERIES TITLE AND DESCRIPTION</th>
+                                    <th style="width: 14%; border: 1px solid #000; padding: 6px 5px; text-align: left; padding-left: 8px; font-weight: bold;">ITEM NO.</th>
+                                    <th style="width: 46%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">RECORD SERIES TITLE AND DESCRIPTION</th>
                                     <th style="width: 20%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">PERIOD COVERED</th>
                                     <th style="width: 20%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">RETENTION PERIOD AND PROVISION/S COMPLIED (If Any)</th>
                                 </tr>
@@ -2984,25 +2993,34 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             <tbody>
                                 @foreach($pageItems as $item)
                                     @if($item['type'] === 'root_standalone')
-                                        @php $root = $item['root']; @endphp
+                                        @php
+                                            $root = $item['root'];
+                                            $rootItemFormatted = $root->item_number ? ($root->series_type_identifier ? $root->item_number . ' - ' . $root->series_type_identifier : $root->item_number) : ($root->series_type_identifier ?: '—');
+                                        @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->item_number) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 4px 8px; font-weight: bold;">{{ $cleanVal($rootItemFormatted) }}</td>
                                             <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
                                             <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->compiled_period) }}</td>
                                             <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal(trim($root->total_period . ($root->remarks ? ' / ' . $root->remarks : ''))) }}</td>
                                         </tr>
                                     @elseif($item['type'] === 'root_header')
-                                        @php $root = $item['root']; @endphp
+                                        @php
+                                            $root = $item['root'];
+                                            $rootItemFormatted = $root->item_number ? ($root->series_type_identifier ? $root->item_number . ' - ' . $root->series_type_identifier : $root->item_number) : ($root->series_type_identifier ?: '—');
+                                        @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->item_number) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 4px 8px; font-weight: bold;">{{ $cleanVal($rootItemFormatted) }}</td>
                                             <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
                                             <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
                                             <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
                                         </tr>
                                     @elseif($item['type'] === 'sub_series')
-                                        @php $sub = $item['sub']; @endphp
+                                        @php
+                                            $sub = $item['sub'];
+                                            $subItemFormatted = !empty($sub->item_number) ? ($sub->series_type_identifier ? $sub->item_number . ' - ' . $sub->series_type_identifier : $sub->item_number) : '';
+                                        @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 4px 8px; font-size: 8.5px;">{{ $cleanVal($subItemFormatted) }}</td>
                                             <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 4px {{ $item['indent'] ?? 14 }}px; font-weight: normal;">
                                                 └ {{ $cleanVal($sub->series_title) }}
                                             </td>

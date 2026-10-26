@@ -225,19 +225,172 @@ class RdpRetentionService
     }
 
     /**
+     * Resolve immunity state, effective retention periods, and expiration for a record or series.
+     */
+    public static function resolveImmunity(
+        ?string $origActive,
+        ?string $origStorage,
+        ?string $origTotal,
+        bool $isPerm,
+        ?string $remarks,
+        $keyWordId = null,
+        $isActionBefore = null,
+        ?string $remActive = null,
+        ?string $remStorage = null,
+        ?string $remTotal = null,
+        ?string $actionDate = null
+    ): object {
+        $hasRemarks = !empty(trim((string)$remarks));
+        $hasTrigger = !empty($keyWordId);
+        $hasImmunity = $hasRemarks && $hasTrigger;
+
+        $hasActionDate = !empty(trim((string)$actionDate)) && trim((string)$actionDate) !== '—';
+        $isActionBeforeBool = filter_var($isActionBefore, FILTER_VALIDATE_BOOLEAN);
+
+        $hasRemarkRetentionConfigured = (
+            !empty(trim((string)$remActive)) ||
+            !empty(trim((string)$remStorage)) ||
+            !empty(trim((string)$remTotal))
+        );
+
+        $usesRemarkRetention = false;
+        $isImmune = false;
+        $actionDateTriggered = false;
+
+        if (!$hasImmunity) {
+            $effectiveActive = $origActive;
+            $effectiveStorage = $origStorage;
+            $effectiveTotal = $origTotal;
+            $effectiveIsPerm = $isPerm;
+        } else {
+            if ($hasActionDate) {
+                // Action date has data -> triggers immunity switch!
+                $actionDateTriggered = true;
+                if ($isActionBeforeBool) {
+                    // Was Remark Retention first -> now switched to Original Retention!
+                    $usesRemarkRetention = false;
+                    $isImmune = false;
+                    $effectiveActive = $origActive;
+                    $effectiveStorage = $origStorage;
+                    $effectiveTotal = $origTotal;
+                    $effectiveIsPerm = $isPerm;
+                } else {
+                    // Was Original Retention first -> now switched to Remark Retention!
+                    $usesRemarkRetention = true;
+                    $isImmune = !$hasRemarkRetentionConfigured;
+                    $effectiveActive = $remActive;
+                    $effectiveStorage = $remStorage;
+                    $effectiveTotal = $remTotal;
+                    $effectiveIsPerm = false;
+                }
+            } else {
+                // Action date is blank -> stays in initial configured state!
+                if ($isActionBeforeBool) {
+                    // Remark Retention first
+                    $usesRemarkRetention = true;
+                    $isImmune = !$hasRemarkRetentionConfigured;
+                    $effectiveActive = $remActive;
+                    $effectiveStorage = $remStorage;
+                    $effectiveTotal = $remTotal;
+                    $effectiveIsPerm = false;
+                } else {
+                    // Remark Retention later -> waiting for action trigger (e.g. "After settled")!
+                    // Record is IMMUNE from disposal until action date is provided
+                    $usesRemarkRetention = false;
+                    $isImmune = true;
+                    $effectiveActive = $origActive;
+                    $effectiveStorage = $origStorage;
+                    $effectiveTotal = $origTotal;
+                    $effectiveIsPerm = $isPerm;
+                }
+            }
+        }
+
+        return (object)[
+            'has_immunity'                 => $hasImmunity,
+            'uses_remark_retention'        => $usesRemarkRetention,
+            'is_immune'                    => $isImmune,
+            'action_date_triggered'        => $actionDateTriggered,
+            'has_remark_config'            => $hasRemarkRetentionConfigured,
+            'effective_active'             => $effectiveActive,
+            'effective_storage'            => $effectiveStorage,
+            'effective_total'              => $effectiveTotal,
+            'effective_is_perm'            => $effectiveIsPerm,
+            'original_active'              => $origActive,
+            'original_storage'             => $origStorage,
+            'original_total'               => $origTotal,
+            'original_is_perm'             => $isPerm,
+            'remark_active'                => $remActive,
+            'remark_storage'               => $remStorage,
+            'remark_total'                 => $remTotal,
+        ];
+    }
+
+    /**
+     * Check if a period is expired considering the immunity state.
+     */
+    public static function isPeriodExpiredWithImmunity(
+        ?string $startDate,
+        ?string $endDate,
+        object $immunityObj,
+        ?string $actionDate = null,
+        ?Carbon $now = null
+    ): bool {
+        if ($immunityObj->is_immune) {
+            return false;
+        }
+
+        if ($immunityObj->effective_is_perm) {
+            return false;
+        }
+
+        // If action date triggered the switch, calculate expiration from action date
+        $baseStart = ($immunityObj->action_date_triggered && !empty($actionDate) && $actionDate !== '—') ? $actionDate : $startDate;
+        $baseEnd = ($immunityObj->action_date_triggered && !empty($actionDate) && $actionDate !== '—') ? $actionDate : $endDate;
+
+        return self::isPeriodExpired(
+            $baseStart,
+            $baseEnd,
+            $immunityObj->effective_total,
+            $immunityObj->effective_active,
+            $immunityObj->effective_storage,
+            $immunityObj->effective_is_perm,
+            $now
+        );
+    }
+
+    /**
+     * Alias for isPeriodExpiredWithImmunity.
+     */
+    public static function isRecordExpiredWithImmunity(
+        ?string $startDate,
+        ?string $endDate,
+        object $immunityObj,
+        ?string $actionDate = null,
+        ?Carbon $now = null
+    ): bool {
+        return self::isPeriodExpiredWithImmunity($startDate, $endDate, $immunityObj, $actionDate, $now);
+    }
+
+    /**
      * Scan and synchronize the transferred_to_nap3 flag on all active records.
      * Returns the count of newly transferred records.
      */
     public static function syncTransferredRecords(?string $officeCode = null, ?Carbon $now = null): int
     {
-        // 1. Fetch active records with their series retention and batch indicators
+        // 1. Fetch active records with their series retention, remarks logic, and triggers
         $query = DB::table('rdp_record')
             ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin('rdp_retention_period as sub_ret', 'rdp_record_series.retention_period', '=', 'sub_ret.id')
             ->leftJoin('rdp_retention_period as parent_ret', 'parent.retention_period', '=', 'parent_ret.id')
+            ->leftJoin('rdp_remarks_logic as sub_rem', 'rdp_record_series.remarks', '=', 'sub_rem.id')
+            ->leftJoin('rdp_remarks_logic as parent_rem', 'parent.remarks', '=', 'parent_rem.id')
+            ->leftJoin('rdp_remark_key_triggers as sub_trig', 'sub_rem.key_word_id', '=', 'sub_trig.id')
+            ->leftJoin('rdp_remark_key_triggers as parent_trig', 'parent_rem.key_word_id', '=', 'parent_trig.id')
             ->select([
                 'rdp_record.id',
+                'rdp_record.action_date',
                 'rdp_record.ispartof_batch',
                 'rdp_record.transferred_to_nap3',
                 'rdp_record_series.is_retention_period_permanent as sub_perm',
@@ -248,6 +401,12 @@ class RdpRetentionService
                 'parent_ret.active_period as parent_active',
                 'parent_ret.storage_period as parent_storage',
                 'parent_ret.total_period as parent_total',
+                DB::raw('COALESCE(sub_rem.remarks_value, parent_rem.remarks_value) as eff_remarks'),
+                DB::raw('COALESCE(sub_rem.key_word_id, parent_rem.key_word_id) as eff_key_word_id'),
+                DB::raw('COALESCE(sub_rem.active_period_backup, parent_rem.active_period_backup) as eff_rem_active'),
+                DB::raw('COALESCE(sub_rem.storage_period_backup, parent_rem.storage_period_backup) as eff_rem_storage'),
+                DB::raw('COALESCE(sub_rem.total_period_backup, parent_rem.total_period_backup) as eff_rem_total'),
+                DB::raw('COALESCE(sub_trig.is_action_before, parent_trig.is_action_before) as eff_is_action_before'),
             ])
             ->where('rdp_record.is_draft', false)
             ->where('rdp_record.is_active', true);
@@ -276,29 +435,45 @@ class RdpRetentionService
             $effStorage = $r->sub_storage ?: $r->parent_storage;
             $effTotal = $r->sub_total ?: $r->parent_total;
 
+            $immunity = self::resolveImmunity(
+                $effActive,
+                $effStorage,
+                $effTotal,
+                $isPerm,
+                $r->eff_remarks,
+                $r->eff_key_word_id,
+                $r->eff_is_action_before,
+                $r->eff_rem_active,
+                $r->eff_rem_storage,
+                $r->eff_rem_total,
+                $r->action_date
+            );
+
             $recPeriods = $periods[$r->id] ?? collect();
             $isBatch = (bool)($r->ispartof_batch ?? false) || $recPeriods->count() > 1;
 
-            if ($recPeriods->isEmpty()) {
+            if ($immunity->is_immune) {
+                $expired = false;
+            } elseif ($recPeriods->isEmpty()) {
                 $expired = false;
             } elseif ($isBatch) {
                 // Batch record: check if all periods are expired
                 $expiredCount = 0;
                 foreach ($recPeriods as $p) {
-                    if (self::isPeriodExpired($p->date_covered, $p->date_covered_end, $effTotal, $effActive, $effStorage, $isPerm, $now)) {
+                    if (self::isPeriodExpiredWithImmunity($p->date_covered, $p->date_covered_end, $immunity, $r->action_date, $now)) {
                         $expiredCount++;
                     }
                 }
                 $expired = ($expiredCount === $recPeriods->count());
             } else {
                 $p = $recPeriods->first();
-                $expired = self::isPeriodExpired($p->date_covered, $p->date_covered_end, $effTotal, $effActive, $effStorage, $isPerm, $now);
+                $expired = self::isPeriodExpiredWithImmunity($p->date_covered, $p->date_covered_end, $immunity, $r->action_date, $now);
             }
 
             if ($expired && !(bool)$r->transferred_to_nap3) {
                 $toTransferIds[] = $r->id;
             } elseif (!$expired && (bool)$r->transferred_to_nap3) {
-                // If retention extended or dates changed
+                // If retention extended or immunity protected
                 $toUnsetIds[] = $r->id;
             }
         }

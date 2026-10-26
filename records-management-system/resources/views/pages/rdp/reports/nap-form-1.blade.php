@@ -1054,7 +1054,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         &$compiledUtils,
         &$totalItemsCount,
         array $revisedRecordIds = [],
-        array $dcsObsoleteDocs = []
+        array $dcsObsoleteDocs = [],
+        $effRemarks = null,
+        $effKeyWordId = null,
+        $effIsActionBefore = null,
+        $effRemActive = null,
+        $effRemStorage = null,
+        $effRemTotal = null
     ): array {
         $childItems = [];
 
@@ -1143,13 +1149,25 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     }
                 }
 
-                $isPExpired = \App\Services\RdpRetentionService::isPeriodExpired(
-                    $p->date_covered ?? null,
-                    $p->date_covered_end ?? null,
-                    $effTotal,
+                $immunity = \App\Services\RdpRetentionService::resolveImmunity(
                     $effActive,
                     $effStorage,
-                    $isPerm
+                    $effTotal,
+                    $isPerm,
+                    $effRemarks,
+                    $effKeyWordId,
+                    $effIsActionBefore,
+                    $effRemActive,
+                    $effRemStorage,
+                    $effRemTotal,
+                    $r->action_date
+                );
+
+                $isPExpired = \App\Services\RdpRetentionService::isPeriodExpiredWithImmunity(
+                    $p->date_covered ?? null,
+                    $p->date_covered_end ?? null,
+                    $immunity,
+                    $r->action_date
                 );
                 $isRecordTransferred = (bool)($r->transferred_to_nap3 ?? false);
 
@@ -1196,6 +1214,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     'status'        => $singleStatus,
                     'is_disposed'   => ($singleStatus === 'disposed'),
                     'is_revised'    => ($singleStatus === 'revised'),
+                    'immunity'      => $immunity,
                 ];
             } else {
                 // Batch Record (Single Batch or Merged Batch from same subject & office)
@@ -1253,13 +1272,25 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         }
                     }
 
-                    $isPExpired = \App\Services\RdpRetentionService::isPeriodExpired(
-                        $p->date_covered ?? null,
-                        $p->date_covered_end ?? null,
-                        $effTotal,
+                    $subImmunity = \App\Services\RdpRetentionService::resolveImmunity(
                         $effActive,
                         $effStorage,
-                        $isPerm
+                        $effTotal,
+                        $isPerm,
+                        $effRemarks,
+                        $effKeyWordId,
+                        $effIsActionBefore,
+                        $effRemActive,
+                        $effRemStorage,
+                        $effRemTotal,
+                        $r->action_date
+                    );
+
+                    $isPExpired = \App\Services\RdpRetentionService::isPeriodExpiredWithImmunity(
+                        $p->date_covered ?? null,
+                        $p->date_covered_end ?? null,
+                        $subImmunity,
+                        $r->action_date
                     );
                     $isPTransferred = (bool)($r->transferred_to_nap3 ?? false);
 
@@ -1296,6 +1327,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         'status'        => $pStatus,
                         'is_disposed'   => ($pStatus === 'disposed'),
                         'is_revised'    => ($pStatus === 'revised'),
+                        'immunity'      => $subImmunity,
                     ];
                 }
 
@@ -1402,6 +1434,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     'status'        => $batchStatus,
                     'is_disposed'   => ($batchStatus === 'disposed'),
                     'is_revised'    => ($batchStatus === 'revised'),
+                    'immunity'      => $subPeriodItems[0]->immunity ?? null,
                 ];
             }
         }
@@ -1757,14 +1790,21 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
             ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
+            ->leftJoin('rdp_remark_key_triggers', 'rdp_remarks_logic.key_word_id', '=', 'rdp_remark_key_triggers.id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_record_series_type.shorted_type',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
+                'rdp_remarks_logic.remarks_value as remarks',
+                'rdp_remarks_logic.key_word_id as remarks_key_word_id',
+                'rdp_remarks_logic.active_period_backup as remark_active_period',
+                'rdp_remarks_logic.storage_period_backup as remark_storage_period',
+                'rdp_remarks_logic.total_period_backup as remark_total_period',
+                'rdp_remark_key_triggers.key_word as remarks_trigger_keyword',
+                'rdp_remark_key_triggers.is_action_before as remarks_is_action_before',
             ])
-            ->addSelect('rdp_remarks_logic.remarks_value as remarks')
             ->whereIn('rdp_record_series.id', $usedSeriesIds)
             ->where('rdp_record_series.is_active', true)
             ->get();
@@ -1776,6 +1816,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
             ->leftJoin($officesTable . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
+            ->leftJoin('rdp_remark_key_triggers', 'rdp_remarks_logic.key_word_id', '=', 'rdp_remark_key_triggers.id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_record_series_type.shorted_type',
@@ -1783,8 +1824,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
                 'office.office_name as recorded_office_name',
+                'rdp_remarks_logic.remarks_value as remarks',
+                'rdp_remarks_logic.key_word_id as remarks_key_word_id',
+                'rdp_remarks_logic.active_period_backup as remark_active_period',
+                'rdp_remarks_logic.storage_period_backup as remark_storage_period',
+                'rdp_remarks_logic.total_period_backup as remark_total_period',
+                'rdp_remark_key_triggers.key_word as remarks_trigger_keyword',
+                'rdp_remark_key_triggers.is_action_before as remarks_is_action_before',
             ])
-            ->addSelect('rdp_remarks_logic.remarks_value as remarks')
             ->whereIn('rdp_record_series.id', $neededParentIds)
             ->where('rdp_record_series.is_active', true)
             ->get();
@@ -1852,6 +1899,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $effStorage = $sub->storage_period ?: ($root->storage_period ?: '');
                     $effTotal = $sub->total_period ?: ($root->total_period ?: '—');
 
+                    $subRemarks = $sub->remarks ?: ($root->remarks ?: '');
+                    $subKeyWordId = $sub->remarks_key_word_id ?? ($root->remarks_key_word_id ?? null);
+                    $subIsActionBefore = $sub->remarks_is_action_before ?? ($root->remarks_is_action_before ?? null);
+                    $subRemActive = $sub->remark_active_period ?? ($root->remark_active_period ?? null);
+                    $subRemStorage = $sub->remark_storage_period ?? ($root->remark_storage_period ?? null);
+                    $subRemTotal = $sub->remark_total_period ?? ($root->remark_total_period ?? null);
+
+                    $subImmunity = \App\Services\RdpRetentionService::resolveImmunity(
+                        $effActive,
+                        $effStorage,
+                        $effTotal,
+                        $isPerm,
+                        $subRemarks,
+                        $subKeyWordId,
+                        $subIsActionBefore,
+                        $subRemActive,
+                        $subRemStorage,
+                        $subRemTotal,
+                        null
+                    );
+
                     $compiledDates = [];
                     $compiledVols = [];
                     $compiledMediums = [];
@@ -1883,7 +1951,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         $compiledUtils,
                         $totalItemsCount,
                         $revisedRecordIds,
-                        $dcsObsoleteDocs
+                        $dcsObsoleteDocs,
+                        $subRemarks,
+                        $subKeyWordId,
+                        $subIsActionBefore,
+                        $subRemActive,
+                        $subRemStorage,
+                        $subRemTotal
                     );
 
                     if (empty($childItems)) continue;
@@ -1919,6 +1993,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         'selectable_record_ids'=> $selectableChildIds,
                         'active_records_count' => count($activeChildItems),
                         'has_only_disposed'    => $hasOnlyDisposed,
+                        'immunity'             => $subImmunity,
                     ];
                 }
 
@@ -1944,6 +2019,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 $effActive = $root->active_period ?: '—';
                 $effStorage = $root->storage_period ?: '';
                 $effTotal = $root->total_period ?: '—';
+
+                $rootRemarks = $root->remarks ?? '';
+                $rootKeyWordId = $root->remarks_key_word_id ?? null;
+                $rootIsActionBefore = $root->remarks_is_action_before ?? null;
+                $rootRemActive = $root->remark_active_period ?? null;
+                $rootRemStorage = $root->remark_storage_period ?? null;
+                $rootRemTotal = $root->remark_total_period ?? null;
+
+                $rootImmunity = \App\Services\RdpRetentionService::resolveImmunity(
+                    $effActive,
+                    $effStorage,
+                    $effTotal,
+                    $isPerm,
+                    $rootRemarks,
+                    $rootKeyWordId,
+                    $rootIsActionBefore,
+                    $rootRemActive,
+                    $rootRemStorage,
+                    $rootRemTotal,
+                    null
+                );
 
                 $compiledDates = [];
                 $compiledVols = [];
@@ -1976,7 +2072,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $compiledUtils,
                     $totalItemsCount,
                     $revisedRecordIds,
-                    $dcsObsoleteDocs
+                    $dcsObsoleteDocs,
+                    $rootRemarks,
+                    $rootKeyWordId,
+                    $rootIsActionBefore,
+                    $rootRemActive,
+                    $rootRemStorage,
+                    $rootRemTotal
                 );
 
                 if (empty($childItems)) continue;
@@ -2009,6 +2111,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 $rootNode->remarks              = $hasOnlyDisposed ? '—' : ($root->remarks ?? '');
                 $rootNode->direct_records       = $childItems;
                 $rootNode->record_ids           = array_column($childItems, 'id');
+                $rootNode->immunity             = $rootImmunity;
             }
 
             // Retention filter check
@@ -2659,6 +2762,25 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     <td style="text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;">—</td>
                                     <td style="text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;">—</td>
                                     <td style="text-align: center; font-size: 12px; font-weight: 800; color: #94a3b8;">—</td>
+                                @elseif(!empty($root->immunity) && $root->immunity->uses_remark_retention)
+                                    <td style="text-align: center;">
+                                        <div style="color: #94a3b8; font-weight: 500; font-size: 11.5px;">{{ $root->immunity->original_active ?: '—' }}</div>
+                                        @if(!empty($root->immunity->remark_active))
+                                            <div style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1.5px 6px; border-radius: 4px; border: 1px solid #bae6fd; margin-top: 2px; display: inline-block; white-space: nowrap;">{{ $root->immunity->remark_active }}</div>
+                                        @endif
+                                    </td>
+                                    <td style="text-align: center;">
+                                        <div style="color: #94a3b8; font-weight: 500; font-size: 11.5px;">{{ $root->immunity->original_storage ?: '—' }}</div>
+                                        @if(!empty($root->immunity->remark_storage))
+                                            <div style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1.5px 6px; border-radius: 4px; border: 1px solid #bae6fd; margin-top: 2px; display: inline-block; white-space: nowrap;">{{ $root->immunity->remark_storage }}</div>
+                                        @endif
+                                    </td>
+                                    <td style="text-align: center; font-weight: 800;">
+                                        <div style="color: #94a3b8; font-weight: 500; font-size: 11.5px;">{{ $root->immunity->original_is_perm ? 'PERMANENT' : ($root->immunity->original_total ?: '—') }}</div>
+                                        @if(!empty($root->immunity->remark_total))
+                                            <div style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1.5px 6px; border-radius: 4px; border: 1px solid #bae6fd; margin-top: 2px; display: inline-block; white-space: nowrap;">{{ $root->immunity->remark_total }}</div>
+                                        @endif
+                                    </td>
                                 @elseif($root->is_permanent)
                                     <td colspan="3" style="text-align: center; font-weight: 800; color: #dc2626; background: #fef2f2;">PERMANENT</td>
                                 @else
@@ -2732,6 +2854,25 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         <td style="text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;">—</td>
                                         <td style="text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;">—</td>
                                         <td style="text-align: center; font-size: 12px; font-weight: 800; color: #94a3b8;">—</td>
+                                    @elseif(!empty($sub->immunity) && $sub->immunity->uses_remark_retention)
+                                        <td style="text-align: center;">
+                                            <div style="color: #94a3b8; font-weight: 500; font-size: 11.5px;">{{ $sub->immunity->original_active ?: '—' }}</div>
+                                            @if(!empty($sub->immunity->remark_active))
+                                                <div style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1.5px 6px; border-radius: 4px; border: 1px solid #bae6fd; margin-top: 2px; display: inline-block; white-space: nowrap;">{{ $sub->immunity->remark_active }}</div>
+                                            @endif
+                                        </td>
+                                        <td style="text-align: center;">
+                                            <div style="color: #94a3b8; font-weight: 500; font-size: 11.5px;">{{ $sub->immunity->original_storage ?: '—' }}</div>
+                                            @if(!empty($sub->immunity->remark_storage))
+                                                <div style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1.5px 6px; border-radius: 4px; border: 1px solid #bae6fd; margin-top: 2px; display: inline-block; white-space: nowrap;">{{ $sub->immunity->remark_storage }}</div>
+                                            @endif
+                                        </td>
+                                        <td style="text-align: center; font-weight: 800;">
+                                            <div style="color: #94a3b8; font-weight: 500; font-size: 11.5px;">{{ $sub->immunity->original_is_perm ? 'PERMANENT' : ($sub->immunity->original_total ?: '—') }}</div>
+                                            @if(!empty($sub->immunity->remark_total))
+                                                <div style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1.5px 6px; border-radius: 4px; border: 1px solid #bae6fd; margin-top: 2px; display: inline-block; white-space: nowrap;">{{ $sub->immunity->remark_total }}</div>
+                                            @endif
+                                        </td>
                                     @elseif($sub->is_permanent)
                                         <td colspan="3" style="text-align: center; font-weight: 800; color: #dc2626; background: #fef2f2;">PERMANENT</td>
                                     @else
@@ -2780,7 +2921,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->duplication }}</td>
                                         <td style="text-align: center; font-weight: 700; color: #475569;">{{ $rec->time_value }}</td>
                                         <td style="text-align: center; font-size: 11px; color: #475569;">{{ $rec->utility }}</td>
-                                        <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
+                                        @if(!empty($rec->immunity) && $rec->immunity->uses_remark_retention)
+                                            <td style="text-align: center;">
+                                                <div style="color: #94a3b8; font-weight: 500; font-size: 11px;">{{ $rec->immunity->original_active ?: '—' }}</div>
+                                                @if(!empty($rec->immunity->remark_active))
+                                                    <div style="font-size: 9.5px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1px 5px; border-radius: 4px; border: 1px solid #bae6fd; margin-top: 1px; display: inline-block; white-space: nowrap;">{{ $rec->immunity->remark_active }}</div>
+                                                @endif
+                                            </td>
+                                            <td style="text-align: center;">
+                                                <div style="color: #94a3b8; font-weight: 500; font-size: 11px;">{{ $rec->immunity->original_storage ?: '—' }}</div>
+                                                @if(!empty($rec->immunity->remark_storage))
+                                                    <div style="font-size: 9.5px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1px 5px; border-radius: 4px; border: 1px solid #bae6fd; margin-top: 1px; display: inline-block; white-space: nowrap;">{{ $rec->immunity->remark_storage }}</div>
+                                                @endif
+                                            </td>
+                                            <td style="text-align: center;">
+                                                <div style="color: #94a3b8; font-weight: 500; font-size: 11px;">{{ $rec->immunity->original_is_perm ? 'PERMANENT' : ($rec->immunity->original_total ?: '—') }}</div>
+                                                @if(!empty($rec->immunity->remark_total))
+                                                    <div style="font-size: 9.5px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1px 5px; border-radius: 4px; border: 1px solid #bae6fd; margin-top: 1px; display: inline-block; white-space: nowrap;">{{ $rec->immunity->remark_total }}</div>
+                                                @endif
+                                            </td>
+                                        @else
+                                            <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
+                                        @endif
                                         <td style="text-align: center; color: #cbd5e1;">—</td>
                                         <td style="text-align: right; white-space: nowrap;">
                                             @if($recStatus === 'disposed')
@@ -2958,7 +3120,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                             <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->duplication }}</td>
                                             <td style="text-align: center; font-weight: 600; color: #64748b; font-size: 11.5px;">{{ $subP->time_value }}</td>
                                             <td style="text-align: center; font-size: 11px; color: #64748b;">{{ $subP->utility }}</td>
+                                            @if(!empty($rec->immunity) && $rec->immunity->uses_remark_retention)
+                                            <td style="text-align: center;">
+                                                <div style="color: #94a3b8; font-weight: 500; font-size: 11px;">{{ $rec->immunity->original_active ?: '—' }}</div>
+                                                @if(!empty($rec->immunity->remark_active))
+                                                    <div style="font-size: 9.5px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1px 5px; border-radius: 4px; border: 1px solid #bae6fd; margin-top: 1px; display: inline-block; white-space: nowrap;">{{ $rec->immunity->remark_active }}</div>
+                                                @endif
+                                            </td>
+                                            <td style="text-align: center;">
+                                                <div style="color: #94a3b8; font-weight: 500; font-size: 11px;">{{ $rec->immunity->original_storage ?: '—' }}</div>
+                                                @if(!empty($rec->immunity->remark_storage))
+                                                    <div style="font-size: 9.5px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1px 5px; border-radius: 4px; border: 1px solid #bae6fd; margin-top: 1px; display: inline-block; white-space: nowrap;">{{ $rec->immunity->remark_storage }}</div>
+                                                @endif
+                                            </td>
+                                            <td style="text-align: center;">
+                                                <div style="color: #94a3b8; font-weight: 500; font-size: 11px;">{{ $rec->immunity->original_is_perm ? 'PERMANENT' : ($rec->immunity->original_total ?: '—') }}</div>
+                                                @if(!empty($rec->immunity->remark_total))
+                                                    <div style="font-size: 9.5px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1px 5px; border-radius: 4px; border: 1px solid #bae6fd; margin-top: 1px; display: inline-block; white-space: nowrap;">{{ $rec->immunity->remark_total }}</div>
+                                                @endif
+                                            </td>
+                                        @else
                                             <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
+                                        @endif
                                             <td style="text-align: center; color: #cbd5e1;">—</td>
                                             <td style="text-align: right; white-space: nowrap;">
                                                 @if($subPStatus === 'disposed')

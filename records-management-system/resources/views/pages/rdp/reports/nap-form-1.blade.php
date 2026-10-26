@@ -1161,20 +1161,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $singleStatus = 'active';
                 }
 
-                // Disposed records must not contribute to the series compilation/total details
-                if ($singleStatus !== 'disposed') {
-                    if (!empty($rawDate)) $compiledDates[] = $rawDate;
-                    if (!empty($rawDateEnd)) $compiledDates[] = $rawDateEnd;
-                    if (!empty($recVolume) && $recVolume !== '—') $compiledVols[] = $recVolume;
-                    if (!empty($recMedium) && $recMedium !== '—') $compiledMediums[] = $recMedium;
-                    if (!empty($recRestriction) && $recRestriction !== '—') $compiledRestrictions[] = $recRestriction;
-                    if (!empty($r->records_location) && $r->records_location !== '—') $compiledLocs[] = $r->records_location;
-                    if (!empty($recFreq) && $recFreq !== '—') $compiledFreqs[] = $recFreq;
-                    if (!empty($recDup) && $recDup !== '—') $compiledDups[] = $recDup;
-                    if (!empty($r->time_value) && $r->time_value !== '—') $compiledTimes[] = $r->time_value;
-                    foreach ($uRows as $un) $compiledUtils[] = $un;
-                    $totalItemsCount++;
+                // In NAP Form 1, only active records must be visible (disposed/revised update changes belong in Generalized Records)
+                if ($singleStatus !== 'active') {
+                    continue;
                 }
+
+                if (!empty($rawDate)) $compiledDates[] = $rawDate;
+                if (!empty($rawDateEnd)) $compiledDates[] = $rawDateEnd;
+                if (!empty($recVolume) && $recVolume !== '—') $compiledVols[] = $recVolume;
+                if (!empty($recMedium) && $recMedium !== '—') $compiledMediums[] = $recMedium;
+                if (!empty($recRestriction) && $recRestriction !== '—') $compiledRestrictions[] = $recRestriction;
+                if (!empty($r->records_location) && $r->records_location !== '—') $compiledLocs[] = $r->records_location;
+                if (!empty($recFreq) && $recFreq !== '—') $compiledFreqs[] = $recFreq;
+                if (!empty($recDup) && $recDup !== '—') $compiledDups[] = $recDup;
+                if (!empty($r->time_value) && $r->time_value !== '—') $compiledTimes[] = $r->time_value;
+                foreach ($uRows as $un) $compiledUtils[] = $un;
+                $totalItemsCount++;
 
                 $childItems[] = (object)[
                     'id'            => $r->id,
@@ -1269,6 +1271,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         $pStatus = 'active';
                     }
 
+                    // In NAP Form 1, only active sub-periods are included
+                    if ($pStatus !== 'active') {
+                        continue;
+                    }
+
                     $subPeriodItems[] = (object)[
                         'id'            => $r->id . '-sub-' . ($p->id ?? rand(1000, 9999)),
                         'parent_rec_id' => $r->id,
@@ -1290,6 +1297,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         'is_disposed'   => ($pStatus === 'disposed'),
                         'is_revised'    => ($pStatus === 'revised'),
                     ];
+                }
+
+                if (empty($subPeriodItems)) {
+                    continue;
                 }
 
                 // Sort sub-periods descending (latest year/date on top, oldest at bottom)

@@ -312,12 +312,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         }
     }
 
-    public function openPrintModal(): void
+    public function openPrintModal(array $specificIds = []): void
     {
         $perms = Auth::user()?->permissions;
         if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true)) {
             $this->errorMessage = 'You do not have clearance to print NAP Form 1.';
             return;
+        }
+        if (!empty($specificIds)) {
+            $this->selectedIds = array_values(array_unique(array_map('strval', $specificIds)));
         }
         $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
         $this->includeDescriptionOnPrint = (\Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_include_description_on_print')->value('value') === 'true');
@@ -2180,7 +2183,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
 <div class="nap-page-container" 
      x-data="{
-        printModalOpen: @json($showPrintModal),
+        printModalOpen: @entangle('showPrintModal'),
         selectedIds: @entangle('selectedIds'),
         allSelectableIds: @js($allSelectableRecordIds ?? []),
         collapsedSubjects: {},
@@ -2233,8 +2236,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         openPrintModal() {
             this.printModalOpen = true;
             if (this.$wire) {
-                this.$wire.set('selectedIds', this.selectedIds, false);
-                this.$wire.call('openPrintModal');
+                this.$wire.call('openPrintModal', this.selectedIds);
             }
         },
         closePrintModal() {
@@ -2247,7 +2249,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             this.collapsedSubjects[key] = !this.isSubjectsCollapsed(key);
         },
         isSubjectsCollapsed(key) {
-            if ($wire.search && $wire.search.trim().length > 0) return false;
+            if (this.$wire?.search && this.$wire.search.trim().length > 0) return false;
             if (this.collapsedSubjects[key] !== undefined) return this.collapsedSubjects[key];
             return this.allSubjectsCollapsed;
         },
@@ -2255,6 +2257,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             this.collapsedRoots[key] = !this.isRootCollapsed(key);
         },
         isRootCollapsed(key) {
+            if (this.$wire?.search && this.$wire.search.trim().length > 0) return false;
             if (this.collapsedRoots[key] !== undefined) return this.collapsedRoots[key];
             return this.allRootsCollapsed;
         },
@@ -3318,6 +3321,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
+                        <button type="button" 
+                                onclick="window.print()" 
+                                class="nap-btn" 
+                                style="background: #16a34a; color: #ffffff; border: none; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); cursor: pointer;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                            <span>Print Now</span>
+                        </button>
                         <button type="button" @click="closePrintModal()" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                             <span>Close Preview</span>

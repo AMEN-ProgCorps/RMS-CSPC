@@ -6,6 +6,7 @@ use Livewire\Volt\Component;
 use Livewire\WithFileUploads;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
 
@@ -4195,8 +4196,6 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                             <span>{{ !empty($bItem['duplicate_offices']) ? 'Manage Duplicates (' . count($bItem['duplicate_offices']) . ')' : '+ Select Duplicate Offices' }}</span>
                                         </button>
                                     </div>
-                                        @endif
-                                    </div>
                                 </div>
                             </div>
                         @endforeach
@@ -4722,7 +4721,6 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         </div>
                         <div style="font-size: 11.5px; color: #64748b; margin-top: 4px;">
                             Selected duplicate offices will have visibility to this record. Click the button above to add or configure offices and file viewing access.
-                        </div>
                         </div>
                     </div>
                 @endif

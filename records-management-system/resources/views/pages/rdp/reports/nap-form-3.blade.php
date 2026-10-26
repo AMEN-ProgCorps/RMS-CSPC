@@ -1354,6 +1354,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $unmatched = [];
 
         foreach ($volumes as $v) {
+            if (is_array($v)) {
+                $v = $this->compileVolume($v);
+            }
             $v = trim((string)$v);
             if (empty($v) || $v === '—') continue;
 

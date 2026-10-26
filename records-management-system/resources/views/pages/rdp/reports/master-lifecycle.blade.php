@@ -196,6 +196,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         $unmatched = [];
 
         foreach ($volumes as $v) {
+            if (is_array($v)) {
+                $v = $this->compileVolume($v);
+            }
             $v = trim((string)$v);
             if (empty($v) || $v === '—') continue;
 
@@ -1269,7 +1272,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                             ? $p->volume 
                             : (!empty($rec->volume) && $rec->volume !== '—' ? $rec->volume : '—');
                         $subVolCompiled = ($subVolRaw !== '—') ? $this->compileVolume([$subVolRaw]) : '—';
-                        if ($subVolCompiled !== '—') $subVols[] = $subVols;
+                        if ($subVolCompiled !== '—') $subVols[] = $subVolCompiled;
 
                         // Evaluate sub-period status
                         $isSubRevised = isset($revisedRecordIds[$rec->id]);

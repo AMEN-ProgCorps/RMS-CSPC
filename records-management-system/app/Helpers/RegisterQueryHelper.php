@@ -737,12 +737,14 @@ class RegisterQueryHelper
     }
 
     /**
-     * Display dates as MM-DD-YYYY (e.g. 10-22-2026).
+     * DCS display dates: 1st of month → "Jan 2020"; other days → "Feb 20, 2020".
      * Storage and date inputs stay Y-m-d.
-     * When $longMonth is true: 1st of month → "Jan 2025"; other days → "Feb 23, 2026".
+     * $longMonth is kept for callers; display always uses the month-name style above.
      */
     public static function formatSmartDate(mixed $val, string $empty = '', bool $longMonth = false): string
     {
+        unset($longMonth); // kept for call-site compatibility; display is always month-name style
+
         if (! $val) {
             return $empty;
         }
@@ -753,15 +755,11 @@ class RegisterQueryHelper
             return trim((string) $val);
         }
 
-        if ($longMonth) {
-            if ((int) $date->format('j') === 1) {
-                return $date->format('M Y');
-            }
-
-            return $date->format('M j, Y');
+        if ((int) $date->format('j') === 1) {
+            return $date->format('M Y');
         }
 
-        return $date->format('m-d-Y');
+        return $date->format('M j, Y');
     }
 
     /** RDP / office-intake period display (Jan 2025 · Feb 23, 2026). */

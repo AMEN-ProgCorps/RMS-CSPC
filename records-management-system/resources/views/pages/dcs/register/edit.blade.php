@@ -8223,10 +8223,13 @@ function formatSmartDateValue(val) {
     if (!val) return "";
     const date = new Date(val + "T00:00:00");
     if (isNaN(date.getTime())) return val;
-    const mm = String(date.getMonth() + 1).padStart(2, "0");
-    const dd = String(date.getDate()).padStart(2, "0");
-    const yyyy = String(date.getFullYear());
-    return mm + "-" + dd + "-" + yyyy;
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const mon = months[date.getMonth()];
+    const day = date.getDate();
+    const yyyy = date.getFullYear();
+    // Day 1 → "Jan 2020"; other days → "Feb 20, 2020"
+    if (day === 1) return mon + " " + yyyy;
+    return mon + " " + day + ", " + yyyy;
 }
 function formatInputDate(id) {
     return formatSmartDateValue(getInputVal(id));

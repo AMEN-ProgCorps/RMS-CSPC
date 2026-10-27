@@ -848,6 +848,10 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
     $approvedDesigPt = $sigFitPt($approvedDesig, 2.19, 11, false);
 
     $docTitle = trim((string) ($drf->doc_title ?? ''));
+    $previousDocNo = trim((string) ($drf->previous_document_no ?? ''));
+    $previousTitle = trim((string) ($drf->previous_document_title ?? ''));
+    $previousOriginator = trim((string) ($drf->previous_originator ?? ''));
+    $hasRecurSource = $previousDocNo !== '' || $previousTitle !== '';
     $drfDate = $drf->drf_date
         ? \Carbon\Carbon::parse($drf->drf_date)->format('F d, Y')
         : '';
@@ -975,6 +979,13 @@ window.print = function () {};
                 <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
             </div>
         </div>
+
+        @if($hasRecurSource)
+        <div class="row">
+            <span class="lbl">Recurring from document no. :</span>
+            <div class="fline w-fill"><div class="fline-val">{{ $previousDocNo !== '' ? $previousDocNo : '—' }}@if($previousTitle !== '') — {{ $previousTitle }}@endif</div><div class="fline-rule"></div></div>
+        </div>
+        @endif
 
         <div class="check-row">
             <span class="lbl">Type of document:</span>

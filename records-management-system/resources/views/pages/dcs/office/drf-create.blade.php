@@ -51,13 +51,25 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             ? $postedOffices
             : array_values(array_filter(array_map('intval', (array) ($prefill['distributeOfficeIds'] ?? []))));
 
+        $office = OfficeIntakeHelper::currentUserOfficeForDcn();
+        $fromDcnId = (int) ($prefill['from_dcn'] ?? 0);
+        $isRecurring = $fromDcnId < 1 && (
+            strtolower((string) request()->query('mode', '')) === 'recurring'
+            || old('drfMode') === 'recurring'
+        );
+
         return [
             'offices' => RegisterQueryHelper::jsCatalog()['offices'] ?? [],
             'clusters' => RegisterQueryHelper::jsCatalog()['clusters'] ?? [],
             'oldDistributeOfficeIds' => $seedOffices,
             'prefill' => $prefill,
-            'fromDcnId' => (int) ($prefill['from_dcn'] ?? 0),
+            'fromDcnId' => $fromDcnId,
+            'isRecurring' => $isRecurring,
             'prevSignatories' => OfficeIntakeHelper::previousDrfSignatories(),
+            'userOfficeId' => $office['id'],
+            'userOfficeCode' => $office['code'],
+            'userOfficeName' => $office['name'],
+            'userOfficeLabel' => $office['label'] !== '' ? $office['label'] : 'Your office',
         ];
     }
 }; ?>
@@ -71,6 +83,8 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             <p class="ofi-toolbar-hint">
                 @if(($fromDcnId ?? 0) > 0)
                     Prefilled from Document Change Notice #{{ $fromDcnId }}. Document type follows the document being revised. Distribution starts with that document’s offices — add any extra offices before saving.
+                @elseif($isRecurring ?? false)
+                    Recurring Document Request Form. Find the registered document first (same match as DCN / admin Recur). RFIO will register this as Recurring.
                 @else
                     Fill in the form and save it. Print stays locked until RFIO confirms the form and notifies you to print and sign. Scanned DRF uploads are handled by RFIO during document registration.
                 @endif
@@ -92,24 +106,40 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             @if(($fromDcnId ?? 0) > 0)
                 <input type="hidden" name="from_dcn" value="{{ $fromDcnId }}">
             @endif
+            @if($isRecurring ?? false)
+                @include('pages.dcs.office.partials.drf-recur-fields')
+            @endif
             <section class="reg-card" id="section-1">
                 <div class="reg-card-header">
-                    <span>Document Request Form</span>
+                    <span>Document Request Form{{ ($isRecurring ?? false) ? ' · Recurring' : '' }}</span>
                 </div>
                 <div class="reg-card-body ofi-drf-form">
+                    <div class="reg-field">
+                        <label for="drfOriginatorName">Originator <span class="ofi-req">*</span></label>
+                        <input type="text" id="drfOriginatorName" name="originatorName" value="{{ old('originatorName', $prefill['originatorName'] ?? '') }}" required placeholder="Separate multiple originators with a comma">
+                        @if($isRecurring ?? false)
+                            <div id="drfSuggestOriginator" class="ofi-suggest" hidden></div>
+                        @endif
+                    </div>
                     <div class="reg-grid-2-1">
-                        <div class="reg-field">
-                            <label>Originator <span class="ofi-req">*</span></label>
-                            <input type="text" name="originatorName" value="{{ old('originatorName', $prefill['originatorName'] ?? '') }}" required placeholder="Separate multiple originators with a comma">
-                        </div>
+                        @include('pages.dcs.office.partials.dcn-department-field', [
+                            'userOfficeId' => $userOfficeId ?? 0,
+                            'userOfficeCode' => $userOfficeCode ?? '',
+                            'userOfficeName' => $userOfficeName ?? '',
+                            'userOfficeLabel' => $userOfficeLabel ?? '',
+                            'departmentFieldLabel' => 'Department',
+                        ])
                         <div class="reg-field">
                             <label>Date <span class="ofi-req">*</span></label>
                             <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate') }}" required>
                         </div>
                     </div>
                     <div class="reg-field">
-                        <label>Document Title <span class="ofi-req">*</span></label>
+                        <label for="drfTitle">Document Title <span class="ofi-req">*</span></label>
                         <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle', $prefill['drfTitle'] ?? '') }}" required placeholder="Enter document title">
+                        @if($isRecurring ?? false)
+                            <div id="drfSuggestTitle" class="ofi-suggest" hidden></div>
+                        @endif
                     </div>
                     <div class="reg-field">
                         <label>Type of document <span class="ofi-req">*</span></label>
@@ -129,6 +159,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                                 <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked($docTypeKind === 'internal')> Internal</label>
                                 <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" @checked($docTypeKind === 'external')> External</label>
                             </div>
+                            <p id="drfRecurDocTypeHint" class="ofi-hint" hidden>This follows the registered document and cannot be changed after Find document.</p>
                         @endif
                     </div>
                     <div class="reg-field">
@@ -145,6 +176,8 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                         <div class="reg-cluster-chips" data-ofi-cluster-widget="distribute" aria-label="Select offices by cluster"></div>
                         @if(($fromDcnId ?? 0) > 0)
                             <p class="ofi-hint">These offices are the same as the previous distribution of the document being revised. You can add more offices.</p>
+                        @elseif($isRecurring ?? false)
+                            <p class="ofi-hint">After you find the document, distribution starts with that document’s offices. You can add more offices.</p>
                         @endif
                         <p class="ofi-hint">
                             Search by office name or code — selected offices show their <strong>full name</strong> here.
@@ -280,7 +313,7 @@ window.__ofiSourceConfigs = [
     },
 ];
 </script>
-<script src="{{ asset('js/dcs/office-intake.js') }}"></script>
+<script src="{{ asset('js/dcs/office-intake.js') }}?v={{ @filemtime(public_path('js/dcs/office-intake.js')) ?: time() }}"></script>
 <script>
 (function () {
     const form = document.getElementById('ofiDrfForm');
@@ -328,8 +361,39 @@ window.__ofiSourceConfigs = [
             return;
         }
 
-        const selected = form.querySelectorAll('input[name="distributeToOffice[]"]');
-        if (!selected.length) {
+        const distWidget = window.__sourceWidgets && window.__sourceWidgets.distribute;
+        // Re-seed from last finder match if the widget somehow lost its selection.
+        const seedCsv = String(form.dataset.ofiSeedDistributeIds || '').trim();
+        if (distWidget && (!distWidget.selected || distWidget.selected.length === 0) && seedCsv !== '') {
+            const seedIds = seedCsv.split(',').map(Number).filter(function (id) { return id > 0; });
+            if (seedIds.length && typeof distWidget.seedQuiet === 'function') {
+                distWidget.seedQuiet(seedIds);
+            }
+        }
+        if (distWidget && typeof distWidget.syncHiddenInputs === 'function') {
+            distWidget.syncHiddenInputs();
+        }
+        let selected = form.querySelectorAll('input[name="distributeToOffice[]"]');
+        let selectedCount = selected.length
+            || (distWidget && distWidget.selected ? distWidget.selected.length : 0);
+        if (!selectedCount) {
+            // Last resort: rebuild hiddens from backup CSV / seed dataset.
+            const backup = form.querySelector('input[name="distributeToOfficeBackup"]');
+            const csv = String((backup && backup.value) || seedCsv || '').trim();
+            const ids = csv.split(',').map(Number).filter(function (id) { return id > 0; });
+            ids.forEach(function (id) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'distributeToOffice[]';
+                input.dataset.sourceHidden = 'true';
+                input.dataset.ofiKey = 'distribute';
+                input.value = String(id);
+                form.appendChild(input);
+            });
+            selected = form.querySelectorAll('input[name="distributeToOffice[]"]');
+            selectedCount = selected.length;
+        }
+        if (!selectedCount) {
             e.preventDefault();
             alert('Select at least one office to distribute the document to.');
             return;
@@ -344,3 +408,6 @@ window.__ofiSourceConfigs = [
     });
 })();
 </script>
+@if($isRecurring ?? false)
+    @include('pages.dcs.office.partials.drf-recur-script')
+@endif

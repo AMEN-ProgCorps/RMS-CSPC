@@ -1971,14 +1971,17 @@ class RegisterPersistHelper
             // creates with only a DRF or DCN source unit has no pending intake,
             // so those offices are not notified. A draft does not mark the forms.
             $submitterOfficeCodes = [];
-            if (! $saveAsDraft && $pending && in_array($pending['type'], ['drf', 'dcn'], true) && $pending['id'] > 0) {
+            $holdForAppraisal = (string) $request->input('open_appraisal') === '1';            if (! $saveAsDraft && $pending && in_array($pending['type'], ['drf', 'dcn'], true) && $pending['id'] > 0) {
+                // When Save and Appraise is used, defer "Your DRF/DCN was registered"
+                // until appraisal completes for the creating office.
                 $submitterOfficeCodes = OfficeIntakeHelper::closePendingIntakeForRegistration(
                     $pending['type'],
                     (int) $pending['id'],
                     (int) $requestId,
                     $docNo,
                     $docTitle !== '' ? $docTitle : null,
-                    $revisedFrom !== '' ? $revisedFrom : null
+                    $revisedFrom !== '' ? $revisedFrom : null,
+                    $holdForAppraisal
                 );
             }
 
@@ -1986,7 +1989,6 @@ class RegisterPersistHelper
                 OfficeIntakeHelper::reconcileClaimedIntakesWithRegistrations();
             }
 
-            $holdForAppraisal = (string) $request->input('open_appraisal') === '1';
             if (! $saveAsDraft && $docNo !== '' && ! $holdForAppraisal) {
                 $registrarName = RegisterQueryHelper::currentUserDisplayName();
                 $revNo = isset($savedMl->revise_no) ? (int) $savedMl->revise_no : null;

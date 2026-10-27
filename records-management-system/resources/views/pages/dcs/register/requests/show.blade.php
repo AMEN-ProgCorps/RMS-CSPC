@@ -320,8 +320,12 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                                     Confirm receipt of the signed {{ strtoupper($panelType) }} first to unlock registration.
                                 @elseif($panelPairPending)
                                     Switch to the {{ $panel['pairLabel'] }} preview and confirm receipt of that signed form before registration.
+                                @elseif(empty($ap['canRegister']))
+                                    Your account cannot open Document Registration for this intake.
+                                @elseif(empty($panel['registerUrl']))
+                                    Registration link is missing. Refresh this page and try again.
                                 @else
-                                    Confirm receipt of the signed form first to unlock registration.
+                                    Complete the steps above to unlock registration.
                                 @endif
                             </p>
                         </div>
@@ -332,7 +336,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
     </div>
 </div>
 
-<script src="{{ asset('js/dcs/office-request-review.js') }}"></script>
+<script src="{{ asset('js/dcs/office-request-review.js') }}?v={{ @filemtime(public_path('js/dcs/office-request-review.js')) ?: time() }}"></script>
 <script>
 (function () {
     const frame = document.getElementById('ofiRequestPreviewFrame');

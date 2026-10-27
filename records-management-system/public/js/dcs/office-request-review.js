@@ -4,9 +4,17 @@
     const roots = document.querySelectorAll('[data-ofi-actions]');
     if (!roots.length) return;
 
+    // One Proceed at a time across linked DRF/DCN panels (avoids stuck "Opening…").
+    if (typeof window.__ofiProceedLock === 'undefined') {
+        window.__ofiProceedLock = false;
+    }
+
     roots.forEach(bindActions);
 
     function bindActions(root) {
+    if (root.getAttribute('data-ofi-bound') === '1') return;
+    root.setAttribute('data-ofi-bound', '1');
+
     const type = root.getAttribute('data-type');
     const id = root.getAttribute('data-id');
     const proceedType = root.getAttribute('data-proceed-type') || type;
@@ -24,12 +32,26 @@
     const actionError = root.querySelector('[data-ofi-action-error]');
 
     let busy = false;
+    let proceeding = false;
     let registerUrl = root.getAttribute('data-register-url') || '';
     let canRegister = root.getAttribute('data-can-register') === '1';
     let printNotified = root.getAttribute('data-print-notified') === '1';
 
     function csrfToken() {
         return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    }
+
+    function isReceived() {
+        if (root.getAttribute('data-received') === '1') return true;
+        return !!(check && check.checked);
+    }
+
+    function resetProceedButton() {
+        proceeding = false;
+        window.__ofiProceedLock = false;
+        if (!proceed) return;
+        proceed.innerHTML = 'Proceed to Registration <i class="fa-solid fa-arrow-right"></i>';
+        syncProceed(isReceived());
     }
 
     /** Same-origin http(s) only — blocks javascript:/data:/vbscript: open redirects. */
@@ -82,6 +104,9 @@
     }
 
     function proceedHintText(received) {
+        if (proceeding) {
+            return 'Opening registration…';
+        }
         if (!printNotified) {
             return 'Notify the submitting office that this ' + String(type).toUpperCase() + ' is correct before registration.';
         }
@@ -94,11 +119,21 @@
         if (!pairReceived()) {
             return 'Switch to the ' + pairLabel + ' preview and confirm receipt of that signed form before registration.';
         }
-        return 'Confirm receipt of the signed form first to unlock registration.';
+        if (!canRegister) {
+            return 'Your account cannot open Document Registration for this intake.';
+        }
+        if (!registerUrl) {
+            return 'Registration link is missing. Refresh this page and try again.';
+        }
+        return 'Complete the steps above to unlock registration.';
     }
 
     function syncProceed(received) {
         if (!proceed) return;
+        if (proceeding) {
+            proceed.disabled = true;
+            return;
+        }
         const ok = !!received && printNotified && pairReceived() && pairNotified() && canRegister && !!registerUrl;
         proceed.disabled = !ok;
         if (!proceedHint) return;
@@ -156,6 +191,8 @@
             const data = await response.json();
             if (data.registerUrl) registerUrl = data.registerUrl;
             if (typeof data.canRegister === 'boolean') canRegister = data.canRegister;
+            root.setAttribute('data-received', '1');
+            if (check) check.checked = true;
             if (receiveMeta) {
                 let text = 'Received';
                 if (data.receivedAt) text += ' on ' + data.receivedAt;
@@ -191,6 +228,8 @@
                 }
             );
             if (!response.ok) throw new Error('Could not clear received status.');
+            root.setAttribute('data-received', '0');
+            if (check) check.checked = false;
             if (receiveMeta) receiveMeta.hidden = true;
             syncUnlock(false);
             syncProceed(false);
@@ -313,16 +352,103 @@
         }
     }
 
+    async function ensurePanelReceived() {
+        if (isReceived()) return true;
+        if (!(check && check.checked)) return false;
+        // Checkbox looks checked but data-received is stale — persist before Proceed.
+        try {
+            const response = await fetch(
+                '/dcs/api/office-intake/' + encodeURIComponent(type) + '/' + encodeURIComponent(id) + '/received',
+                {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': csrfToken(),
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({}),
+                }
+            );
+            const data = await response.json().catch(function () { return {}; });
+            if (!response.ok) {
+                throw new Error(data.message || 'Could not mark as received.');
+            }
+            if (data.registerUrl) registerUrl = data.registerUrl;
+            if (typeof data.canRegister === 'boolean') canRegister = data.canRegister;
+            root.setAttribute('data-received', '1');
+            if (check) check.checked = true;
+            syncUnlock(true);
+            syncProceed(true);
+            syncPairPanels(type, true);
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
     async function proceedToRegistration() {
+        if (proceeding || busy || window.__ofiProceedLock) return;
         if (!registerUrl || proceed?.disabled) {
-            showPanelError(proceedHintText(check?.checked));
+            showPanelError(proceedHintText(isReceived()));
             return;
         }
+        proceeding = true;
+        window.__ofiProceedLock = true;
+        busy = true;
         proceed.disabled = true;
         proceed.innerHTML = 'Opening… <i class="fa-solid fa-spinner fa-spin"></i>';
+        if (actionError) {
+            actionError.hidden = true;
+            actionError.textContent = '';
+        }
+
         let landedType = proceedType;
         let landedId = proceedId;
         try {
+            // If the checkbox is checked but data-received is stale, persist before begin-register.
+            if (check && check.checked && root.getAttribute('data-received') !== '1') {
+                const panelOk = await ensurePanelReceived();
+                if (!panelOk) {
+                    showPanelError(proceedHintText(false));
+                    busy = false;
+                    resetProceedButton();
+                    return;
+                }
+            }
+            // Re-POST receive before begin-register when UI says received
+            // (covers resubmit races where the checkbox/meta still look confirmed).
+            if (!isReceived()) {
+                showPanelError(proceedHintText(false));
+                busy = false;
+                resetProceedButton();
+                return;
+            }
+            async function pingReceived(pingType, pingId) {
+                try {
+                    await fetch(
+                        '/dcs/api/office-intake/' + encodeURIComponent(pingType) + '/' + encodeURIComponent(pingId) + '/received',
+                        {
+                            method: 'POST',
+                            headers: {
+                                Accept: 'application/json',
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-CSRF-TOKEN': csrfToken(),
+                            },
+                            credentials: 'same-origin',
+                            body: JSON.stringify({}),
+                        }
+                    );
+                } catch (_) { /* begin-register reports if still missing */ }
+            }
+            await pingReceived(type, id);
+            // If Proceed targets the linked form, refresh that receipt too when the UI already treats the pair as received.
+            if (pairReceived() && (String(proceedType) !== String(type) || String(proceedId) !== String(id))) {
+                await pingReceived(proceedType, proceedId);
+            }
+
             const response = await fetch(
                 '/dcs/api/office-intake/' + encodeURIComponent(proceedType) + '/' + encodeURIComponent(proceedId) + '/begin-register',
                 {
@@ -339,19 +465,27 @@
             );
             const data = await response.json().catch(function () { return {}; });
             if (!response.ok) {
-                const message = data.message || data.error || 'Receive the signed form before registration.';
-                showPanelError(message);
-                proceed.disabled = false;
-                proceed.innerHTML = 'Proceed to Registration <i class="fa-solid fa-arrow-right"></i>';
-                syncProceed(check?.checked);
+                const message = data.message || data.error
+                    || (Array.isArray(data.errors) ? data.errors[0] : null)
+                    || (data.errors && typeof data.errors === 'object'
+                        ? (Object.values(data.errors).flat()[0] || null)
+                        : null)
+                    || 'Could not open registration. Refresh this page and try again.';
+                busy = false;
+                showPanelError(String(message));
+                resetProceedButton();
                 return;
             }
             if (data.registerUrl) registerUrl = data.registerUrl;
             if (data.type) landedType = data.type;
             if (data.id) landedId = data.id;
+            if (data.registerType === 'recurring' || (registerUrl && /[?&]type=recurring\b/.test(registerUrl))) {
+                root.setAttribute('data-register-type', 'recurring');
+            }
         } catch (_) {
-            proceed.disabled = false;
-            proceed.innerHTML = 'Proceed to Registration <i class="fa-solid fa-arrow-right"></i>';
+            busy = false;
+            showPanelError('Could not open registration. Check your connection and try again.');
+            resetProceedButton();
             return;
         }
 
@@ -362,7 +496,19 @@
             );
         } catch (_) { /* ignore */ }
 
-        navigateSameOrigin(registerUrl);
+        if (!navigateSameOrigin(registerUrl)) {
+            busy = false;
+            showPanelError('Registration link is invalid. Refresh this page and try again.');
+            resetProceedButton();
+            return;
+        }
+        // Navigation started — keep Opening state; unlock if the page stays put.
+        setTimeout(function () {
+            if (document.visibilityState === 'visible') {
+                busy = false;
+                resetProceedButton();
+            }
+        }, 4000);
     }
 
     check?.addEventListener('change', function () {
@@ -372,21 +518,37 @@
     unlockBtn?.addEventListener('click', unlockEdit);
     notifyBtn?.addEventListener('click', notifyPrintReady);
     root.addEventListener('ofi-pair-notified', function () {
-        const receivedNow = check ? check.checked : root.getAttribute('data-received') === '1';
-        syncProceed(receivedNow);
+        syncProceed(isReceived());
     });
     root.querySelector('[data-ofi-proceed-wrap]')?.addEventListener('click', function () {
+        if (proceeding || window.__ofiProceedLock) return;
         if (proceed && proceed.disabled) {
-            showPanelError(proceedHintText(check?.checked));
+            showPanelError(proceedHintText(isReceived()));
         }
     });
-    proceed?.addEventListener('click', proceedToRegistration);
+    proceed?.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        proceedToRegistration();
+    });
 
-    if (check) check.checked = root.getAttribute('data-received') === '1';
-    syncProceed(root.getAttribute('data-received') === '1');
-    syncUnlock(root.getAttribute('data-received') === '1');
+    // Always reset stuck Opening… from bfcache / interrupted navigations.
+    function hardenProceedUi() {
+        if (check) check.checked = root.getAttribute('data-received') === '1';
+        if (!window.__ofiProceedLock) {
+            proceeding = false;
+            if (proceed && /Opening/i.test(proceed.textContent || '')) {
+                resetProceedButton();
+            } else {
+                syncProceed(isReceived());
+            }
+        }
+        syncUnlock(isReceived());
+    }
+    hardenProceedUi();
+    window.addEventListener('pageshow', hardenProceedUi);
     root.addEventListener('ofi-pair-sync', function () {
-        syncProceed(check?.checked);
+        syncProceed(isReceived());
     });
     }
 

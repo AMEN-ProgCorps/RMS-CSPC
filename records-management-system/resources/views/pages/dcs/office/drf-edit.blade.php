@@ -42,6 +42,19 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             }
         }
 
+        $source = OfficeIntakeHelper::drfSourceOffices((int) $drf->id)->first();
+        $office = OfficeIntakeHelper::currentUserOfficeForDcn();
+        if ($source) {
+            $office = [
+                'id' => (int) ($source->office_id ?? 0),
+                'code' => trim((string) ($source->office_code ?? '')),
+                'name' => trim((string) ($source->office_name ?? '')),
+                'label' => trim((string) (($source->office_code ?? '') !== '' && ($source->office_name ?? '') !== ''
+                    ? $source->office_code.' — '.$source->office_name
+                    : (($source->office_name ?? '') !== '' ? $source->office_name : ($source->office_code ?? '')))),
+            ];
+        }
+
         return [
             'drf' => $drf,
             'offices' => RegisterQueryHelper::jsCatalog()['offices'] ?? [],
@@ -53,6 +66,10 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             'editReason' => trim((string) ($drf->edit_unlock_reason ?? '')),
             'lockDocType' => $lockDocType,
             'lockedTypeLabel' => $lockedTypeLabel,
+            'userOfficeId' => $office['id'],
+            'userOfficeCode' => $office['code'],
+            'userOfficeName' => $office['name'],
+            'userOfficeLabel' => $office['label'] !== '' ? $office['label'] : 'Your office',
         ];
     }
 }; ?>
@@ -86,11 +103,18 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                     <span>Document Request Form</span>
                 </div>
                 <div class="reg-card-body ofi-drf-form">
+                    <div class="reg-field">
+                        <label>Originator <span class="ofi-req">*</span></label>
+                        <input type="text" name="originatorName" value="{{ old('originatorName', $drf->originator_name) }}" required placeholder="Separate multiple originators with a comma">
+                    </div>
                     <div class="reg-grid-2-1">
-                        <div class="reg-field">
-                            <label>Originator <span class="ofi-req">*</span></label>
-                            <input type="text" name="originatorName" value="{{ old('originatorName', $drf->originator_name) }}" required placeholder="Separate multiple originators with a comma">
-                        </div>
+                        @include('pages.dcs.office.partials.dcn-department-field', [
+                            'userOfficeId' => $userOfficeId ?? 0,
+                            'userOfficeCode' => $userOfficeCode ?? '',
+                            'userOfficeName' => $userOfficeName ?? '',
+                            'userOfficeLabel' => $userOfficeLabel ?? '',
+                            'departmentFieldLabel' => 'Department',
+                        ])
                         <div class="reg-field">
                             <label>Date <span class="ofi-req">*</span></label>
                             <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate', $drf->drf_date ? \Carbon\Carbon::parse($drf->drf_date)->format('Y-m-d') : '') }}" required>
@@ -248,7 +272,7 @@ window.__ofiSourceConfigs = [
     },
 ];
 </script>
-<script src="{{ asset('js/dcs/office-intake.js') }}"></script>
+<script src="{{ asset('js/dcs/office-intake.js') }}?v={{ @filemtime(public_path('js/dcs/office-intake.js')) ?: time() }}"></script>
 <script>
 (function () {
     const form = document.getElementById('ofiDrfForm');

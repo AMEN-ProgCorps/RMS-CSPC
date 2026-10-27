@@ -607,10 +607,13 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-table td.ofi-nowrap {
     white-space: nowrap;
 }
-.ofi-page .reg-field input[readonly] {
-    background: #f8fafc;
-    color: #334155;
-    cursor: default;
+.ofi-page .reg-field input.ofi-input-locked,
+.ofi-page .reg-field input[readonly],
+.ofi-page .reg-field input[disabled].ofi-input-locked {
+    background: #f1f5f9 !important;
+    color: #475569 !important;
+    cursor: not-allowed !important;
+    border-color: #cbd5e1 !important;
 }
 .ofi-actions { display: flex; gap: 12px; align-items: center; }
 .ofi-print-locked,

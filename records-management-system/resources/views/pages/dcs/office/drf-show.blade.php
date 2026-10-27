@@ -39,9 +39,20 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
             ->values()
             ->all();
 
+        $sourceOffice = OfficeIntakeHelper::drfSourceOffices((int) $drf->id)
+            ->map(fn ($row) => trim((string) ($row->office_name ?? '')) ?: trim((string) ($row->office_code ?? '')))
+            ->filter()
+            ->unique()
+            ->implode(', ');
+        if ($sourceOffice === '') {
+            $meta = OfficeIntakeHelper::intakeSubmissionMeta($drf, 'drf', (int) $drf->id);
+            $sourceOffice = (string) ($meta['office'] ?? '');
+        }
+
         return [
             'drf' => $drf,
             'distributeOffices' => $distributeOffices,
+            'departmentLabel' => $sourceOffice !== '' ? $sourceOffice : '—',
             'immutableMessage' => OfficeIntakeHelper::IMMUTABLE_MESSAGE,
             'isIntakeReviewer' => RegisterQueryHelper::canBrowseAllOfficeIntake(),
             'canEdit' => OfficeIntakeHelper::canOfficeEditIntake('drf', $this->id),
@@ -131,10 +142,14 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                 <span class="ofi-form-code-badge">CSPC-F-DCC-06</span>
             </div>
             <div class="reg-card-body ofi-drf-form ofi-show-form">
+                <div class="reg-field">
+                    <label>Originator</label>
+                    <div class="ofi-show-value"><x-dcs.originator-lines :name="$originator" /></div>
+                </div>
                 <div class="reg-grid-2-1">
                     <div class="reg-field">
-                        <label>Originator</label>
-                        <div class="ofi-show-value"><x-dcs.originator-lines :name="$originator" /></div>
+                        <label>Department</label>
+                        <div class="ofi-show-value">{{ $departmentLabel ?: '—' }}</div>
                     </div>
                     <div class="reg-field">
                         <label>Date</label>
@@ -146,6 +161,37 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                     <label>Document Title</label>
                     <div class="ofi-show-value">{{ $drf->doc_title ?: '—' }}</div>
                 </div>
+
+                @php
+                    $previousDocNo = trim((string) ($drf->previous_document_no ?? ''));
+                    $previousTitle = trim((string) ($drf->previous_document_title ?? ''));
+                    $previousOriginator = trim((string) ($drf->previous_originator ?? ''));
+                    $isRecurringShow = $previousDocNo !== '' || $previousTitle !== '' || $previousOriginator !== '';
+                @endphp
+                @if($isRecurringShow)
+                    <div class="reg-field ofi-recur-source">
+                        <label>Recurring from registered document</label>
+                        <div class="ofi-dcn-selected ofi-show-recur-card" style="margin-top:6px;">
+                            <div class="ofi-dcn-selected-head">
+                                <span>Selected document (recur source)</span>
+                            </div>
+                            <dl class="ofi-dcn-selected-meta">
+                                <div>
+                                    <dt>Document no.</dt>
+                                    <dd>{{ $previousDocNo !== '' ? $previousDocNo : '—' }}</dd>
+                                </div>
+                                <div>
+                                    <dt>Title</dt>
+                                    <dd>{{ $previousTitle !== '' ? $previousTitle : '—' }}</dd>
+                                </div>
+                                <div>
+                                    <dt>Originator</dt>
+                                    <dd>{{ $previousOriginator !== '' ? $previousOriginator : '—' }}</dd>
+                                </div>
+                            </dl>
+                        </div>
+                    </div>
+                @endif
 
                 <div class="reg-field">
                     <label>Type of document</label>

@@ -519,8 +519,22 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                                         $labelColor = '#3b82f6';
                                                     }
                                                 } else {
-                                                    $dotColor = $isReceived ? '#10b981' : '#dc2626';
-                                                    $labelColor = $isReceived ? '#10b981' : '#dc2626';
+                                                    if ($isForwarded || ($isReceived && $isForwarded)) {
+                                                        $dotColor = '#10b981';
+                                                        $labelColor = '#059669';
+                                                    } elseif ($isCurrentOffice && $isReceived) {
+                                                        $dotColor = '#2563eb';
+                                                        $labelColor = '#1d4ed8';
+                                                    } elseif ($isCurrentOffice || $isInTransitToThisOffice) {
+                                                        $dotColor = '#f59e0b';
+                                                        $labelColor = '#d97706';
+                                                    } elseif ($isReceived) {
+                                                        $dotColor = '#10b981';
+                                                        $labelColor = '#059669';
+                                                    } else {
+                                                        $dotColor = '#cbd5e1';
+                                                        $labelColor = '#64748b';
+                                                    }
                                                 }
 
                                                 $lineColor = $isForwarded ? '#10b981' : ($isHub && $step->hub_received_count > 0 ? '#93c5fd' : '#cbd5e1');
@@ -534,7 +548,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                             @endphp
 
                                             <div class="dts-timeline-node-wrapper" style="width: 26px; min-width: 26px; height: 26px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="{{ $tooltipTitle }}">
+                                                <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}" title="{{ $tooltipTitle }}">
                                                     @if ($isHub)
                                                         @if ($isForwarded && $step->hub_forwarded_count >= ($step->hub_total ?: 1))
                                                             <i class="fa-solid fa-check" style="font-size: 10px;"></i>
@@ -608,19 +622,35 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                                         @php
                                                             $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
                                                             $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
+                                                            $cIsCompleted = ($cIsReceived && $cIsForwarded) || $child->status === 'completed';
                                                             $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
-                                                            $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
+                                                            if ($cIsCompleted) {
+                                                                $cDotColor = '#10b981';
+                                                                $cTextColor = '#059669';
+                                                            } elseif ($cIsCurrent && $cIsReceived) {
+                                                                $cDotColor = '#2563eb';
+                                                                $cTextColor = '#1d4ed8';
+                                                            } elseif ($cIsCurrent) {
+                                                                $cDotColor = '#f59e0b';
+                                                                $cTextColor = '#d97706';
+                                                            } elseif ($cIsReceived) {
+                                                                $cDotColor = '#10b981';
+                                                                $cTextColor = '#059669';
+                                                            } else {
+                                                                $cDotColor = '#cbd5e1';
+                                                                $cTextColor = '#64748b';
+                                                            }
                                                             $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
                                                         @endphp
                                                         <div class="dts-timeline-node-wrapper" style="width: 22px; min-width: 22px; height: 22px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                            <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
-                                                                @if ($cIsReceived)
+                                                            <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $cDotColor }}; color: {{ ($cDotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
+                                                                @if ($cIsCompleted || $cIsReceived)
                                                                     <i class="fa-solid fa-check" style="font-size: 9px;"></i>
                                                                 @else
                                                                     {{ $cStepIdx + 1 }}
                                                                 @endif
                                                             </div>
-                                                            <span style="position: absolute; top: 25px; left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
+                                                            <span style="position: absolute; top: 25px; left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: 700; color: {{ $cTextColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
                                                                 {{ $cStep->office_code }}
                                                             </span>
                                                         </div>

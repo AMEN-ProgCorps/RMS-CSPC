@@ -2576,6 +2576,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         @php
                                                             $isReceived = !is_null($step->date_in) || $t->status === 'completed';
                                                             $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                            $isCompleted = ($isReceived && $isForwarded) || strtolower($t->status ?? '') === 'completed';
                                                             $hasRevision = !empty($t->revision_requested_by_sequence);
                                                             $revReqSeq = $t->revision_requested_by_sequence ?? null;
                                                             $revType = $t->revision_resubmit_type ?? null;
@@ -2591,32 +2592,43 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                 }
                                                             }
 
-                                                            if ($isRevisionStep) {
-                                                                $dotColor = '#2563eb';
-                                                                $lineColor = '#3b82f6';
-                                                                $textColor = '#2563eb';
-                                                            } elseif ($isReceived) {
-                                                                $dotColor = '#10b981';
-                                                                $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
-                                                                $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
-                                                                $textColor = '#10b981';
-                                                            } else {
-                                                                $dotColor = '#dc2626';
-                                                                $lineColor = '#dc2626';
-                                                                $textColor = '#dc2626';
-                                                            }
-
-                                                            $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
-                                                            $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                                            $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && strtolower($t->status ?? '') !== 'completed';
+                                                            $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && strtolower($t->status ?? '') !== 'completed';
                                                             $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
                                                             $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
+                                                            if ($isRevisionStep) {
+                                                                $dotColor = '#ef4444';
+                                                                $lineColor = '#fca5a5';
+                                                                $textColor = '#dc2626';
+                                                            } elseif ($isCompleted) {
+                                                                $dotColor = '#10b981';
+                                                                $lineColor = '#10b981';
+                                                                $textColor = '#059669';
+                                                            } elseif ($isCurrentOffice && $isReceived) {
+                                                                $dotColor = '#2563eb';
+                                                                $lineColor = '#cbd5e1';
+                                                                $textColor = '#1d4ed8';
+                                                            } elseif ($isCurrentOffice || $isInTransitToThisOffice) {
+                                                                $dotColor = '#f59e0b';
+                                                                $lineColor = '#cbd5e1';
+                                                                $textColor = '#d97706';
+                                                            } elseif ($isReceived) {
+                                                                $dotColor = '#10b981';
+                                                                $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+                                                                $textColor = '#059669';
+                                                            } else {
+                                                                $dotColor = '#cbd5e1';
+                                                                $lineColor = '#e2e8f0';
+                                                                $textColor = '#64748b';
+                                                            }
                                                         @endphp
 
                                                         <div class="dts-timeline-node-wrapper" style="width: 26px; min-width: 26px; height: 26px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                            <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                                            <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isCompleted ? 'Forwarded' : ($isReceived ? 'Received/Holder' : ($isCurrentOffice || $isInTransitToThisOffice ? 'In Transit / Incoming' : 'Pending'))) }})">
                                                                 @if ($isRevisionStep)
                                                                     <i class="fa-solid fa-rotate-left" style="font-size: 10px;"></i>
-                                                                @elseif ($isReceived)
+                                                                @elseif ($isCompleted || $isReceived)
                                                                     <i class="fa-solid fa-check" style="font-size: 10px;"></i>
                                                                 @else
                                                                     {{ $index + 1 }}
@@ -2758,19 +2770,39 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                                         @php
                                                                                             $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
                                                                                             $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
+                                                                                            $cIsCompleted = ($cIsReceived && $cIsForwarded) || strtolower($child->status ?? '') === 'completed';
                                                                                             $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
-                                                                                            $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
-                                                                                            $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                                            if ($cIsCompleted) {
+                                                                                                $cDotColor = '#10b981';
+                                                                                                $cLineColor = '#10b981';
+                                                                                                $cTextColor = '#059669';
+                                                                                            } elseif ($cIsCurrent && $cIsReceived) {
+                                                                                                $cDotColor = '#2563eb';
+                                                                                                $cLineColor = '#cbd5e1';
+                                                                                                $cTextColor = '#1d4ed8';
+                                                                                            } elseif ($cIsCurrent) {
+                                                                                                $cDotColor = '#f59e0b';
+                                                                                                $cLineColor = '#cbd5e1';
+                                                                                                $cTextColor = '#d97706';
+                                                                                            } elseif ($cIsReceived) {
+                                                                                                $cDotColor = '#10b981';
+                                                                                                $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                                                $cTextColor = '#059669';
+                                                                                            } else {
+                                                                                                $cDotColor = '#cbd5e1';
+                                                                                                $cLineColor = '#e2e8f0';
+                                                                                                $cTextColor = '#64748b';
+                                                                                            }
                                                                                         @endphp
                                                                                         <div class="dts-timeline-node-wrapper" style="width: 20px; min-width: 20px; height: 20px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                                                            <div class="dts-timeline-node-dot" style="width: 20px; height: 20px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
-                                                                                                @if ($cIsReceived)
+                                                                                            <div class="dts-timeline-node-dot" style="width: 20px; height: 20px; border-radius: 50%; background: {{ $cDotColor }}; color: {{ ($cDotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
+                                                                                                @if ($cIsCompleted || $cIsReceived)
                                                                                                     <i class="fa-solid fa-check" style="font-size: 8px;"></i>
                                                                                                 @else
                                                                                                     {{ $cStepIdx + 1 }}
                                                                                                 @endif
                                                                                             </div>
-                                                                                            <span style="position: absolute; top: 23px; left: 50%; transform: translateX(-50%); font-size: 8.5px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
+                                                                                            <span style="position: absolute; top: 23px; left: 50%; transform: translateX(-50%); font-size: 8.5px; font-weight: 700; color: {{ $cTextColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
                                                                                                 {{ $cStep->office_code }}
                                                                                             </span>
                                                                                         </div>
@@ -2962,6 +2994,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 @php
                                                     $isReceived = !is_null($step->date_in) || $t->status === 'completed';
                                                     $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                    $isCompleted = ($isReceived && $isForwarded) || strtolower($t->status ?? '') === 'completed';
                                                     $hasRevision = !empty($t->revision_requested_by_sequence);
                                                     $revReqSeq = $t->revision_requested_by_sequence ?? null;
                                                     $revType = $t->revision_resubmit_type ?? null;
@@ -2977,32 +3010,43 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         }
                                                     }
 
-                                                    if ($isRevisionStep) {
-                                                        $dotColor = '#2563eb';
-                                                        $lineColor = '#3b82f6';
-                                                        $textColor = '#2563eb';
-                                                    } elseif ($isReceived) {
-                                                        $dotColor = '#10b981';
-                                                        $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
-                                                        $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
-                                                        $textColor = '#10b981';
-                                                    } else {
-                                                        $dotColor = '#dc2626';
-                                                        $lineColor = '#dc2626';
-                                                        $textColor = '#dc2626';
-                                                    }
-
-                                                    $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
-                                                    $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                                    $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && strtolower($t->status ?? '') !== 'completed';
+                                                    $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && strtolower($t->status ?? '') !== 'completed';
                                                     $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
                                                     $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
+                                                    if ($isRevisionStep) {
+                                                        $dotColor = '#ef4444';
+                                                        $lineColor = '#fca5a5';
+                                                        $textColor = '#dc2626';
+                                                    } elseif ($isCompleted) {
+                                                        $dotColor = '#10b981';
+                                                        $lineColor = '#10b981';
+                                                        $textColor = '#059669';
+                                                    } elseif ($isCurrentOffice && $isReceived) {
+                                                        $dotColor = '#2563eb';
+                                                        $lineColor = '#cbd5e1';
+                                                        $textColor = '#1d4ed8';
+                                                    } elseif ($isCurrentOffice || $isInTransitToThisOffice) {
+                                                        $dotColor = '#f59e0b';
+                                                        $lineColor = '#cbd5e1';
+                                                        $textColor = '#d97706';
+                                                    } elseif ($isReceived) {
+                                                        $dotColor = '#10b981';
+                                                        $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+                                                        $textColor = '#059669';
+                                                    } else {
+                                                        $dotColor = '#cbd5e1';
+                                                        $lineColor = '#e2e8f0';
+                                                        $textColor = '#64748b';
+                                                    }
                                                 @endphp
 
                                                 <div class="dts-timeline-node-wrapper" style="width: 26px; min-width: 26px; height: 26px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                    <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                                    <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isCompleted ? 'Forwarded' : ($isReceived ? 'Received/Holder' : ($isCurrentOffice || $isInTransitToThisOffice ? 'In Transit / Incoming' : 'Pending'))) }})">
                                                         @if ($isRevisionStep)
                                                             <i class="fa-solid fa-rotate-left" style="font-size: 10px;"></i>
-                                                        @elseif ($isReceived)
+                                                        @elseif ($isCompleted || $isReceived)
                                                             <i class="fa-solid fa-check" style="font-size: 10px;"></i>
                                                         @else
                                                             {{ $index + 1 }}
@@ -3144,19 +3188,39 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                                     @php
                                                                                         $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
                                                                                         $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
+                                                                                        $cIsCompleted = ($cIsReceived && $cIsForwarded) || strtolower($child->status ?? '') === 'completed';
                                                                                         $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
-                                                                                        $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
-                                                                                        $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                                        if ($cIsCompleted) {
+                                                                                            $cDotColor = '#10b981';
+                                                                                            $cLineColor = '#10b981';
+                                                                                            $cTextColor = '#059669';
+                                                                                        } elseif ($cIsCurrent && $cIsReceived) {
+                                                                                            $cDotColor = '#2563eb';
+                                                                                            $cLineColor = '#cbd5e1';
+                                                                                            $cTextColor = '#1d4ed8';
+                                                                                        } elseif ($cIsCurrent) {
+                                                                                            $cDotColor = '#f59e0b';
+                                                                                            $cLineColor = '#cbd5e1';
+                                                                                            $cTextColor = '#d97706';
+                                                                                        } elseif ($cIsReceived) {
+                                                                                            $cDotColor = '#10b981';
+                                                                                            $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                                            $cTextColor = '#059669';
+                                                                                        } else {
+                                                                                            $cDotColor = '#cbd5e1';
+                                                                                            $cLineColor = '#e2e8f0';
+                                                                                            $cTextColor = '#64748b';
+                                                                                        }
                                                                                     @endphp
                                                                                     <div class="dts-timeline-node-wrapper" style="width: 20px; min-width: 20px; height: 20px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                                                        <div class="dts-timeline-node-dot" style="width: 20px; height: 20px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
-                                                                                            @if ($cIsReceived)
+                                                                                        <div class="dts-timeline-node-dot" style="width: 20px; height: 20px; border-radius: 50%; background: {{ $cDotColor }}; color: {{ ($cDotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
+                                                                                            @if ($cIsCompleted || $cIsReceived)
                                                                                                 <i class="fa-solid fa-check" style="font-size: 8px;"></i>
                                                                                             @else
                                                                                                 {{ $cStepIdx + 1 }}
                                                                                             @endif
                                                                                         </div>
-                                                                                        <span style="position: absolute; top: 23px; left: 50%; transform: translateX(-50%); font-size: 8.5px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
+                                                                                        <span style="position: absolute; top: 23px; left: 50%; transform: translateX(-50%); font-size: 8.5px; font-weight: 700; color: {{ $cTextColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
                                                                                             {{ $cStep->office_code }}
                                                                                         </span>
                                                                                     </div>
@@ -3383,6 +3447,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     @php
                                                         $isReceived = !is_null($step->date_in) || $t->status === 'completed';
                                                         $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                        $isCompleted = ($isReceived && $isForwarded) || strtolower($t->status ?? '') === 'completed';
                                                         $hasRevision = !empty($t->revision_requested_by_sequence);
                                                         $revReqSeq = $t->revision_requested_by_sequence ?? null;
                                                         $revType = $t->revision_resubmit_type ?? null;
@@ -3398,30 +3463,43 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                             }
                                                         }
 
-                                                        if ($isRevisionStep) {
-                                                            $dotColor = '#2563eb';
-                                                            $lineColor = '#3b82f6';
-                                                            $textColor = '#2563eb';
-                                                        } elseif ($isReceived) {
-                                                            $dotColor = '#10b981';
-                                                            $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
-                                                            $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
-                                                            $textColor = '#10b981';
-                                                        } else {
-                                                            $dotColor = '#dc2626';
-                                                            $lineColor = '#dc2626';
-                                                            $textColor = '#dc2626';
-                                                        }
-                                                        $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                        $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && strtolower($t->status ?? '') !== 'completed';
+                                                        $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && strtolower($t->status ?? '') !== 'completed';
                                                         $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
                                                         $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
+                                                        if ($isRevisionStep) {
+                                                            $dotColor = '#ef4444';
+                                                            $lineColor = '#fca5a5';
+                                                            $textColor = '#dc2626';
+                                                        } elseif ($isCompleted) {
+                                                            $dotColor = '#10b981';
+                                                            $lineColor = '#10b981';
+                                                            $textColor = '#059669';
+                                                        } elseif ($isCurrentOffice && $isReceived) {
+                                                            $dotColor = '#2563eb';
+                                                            $lineColor = '#cbd5e1';
+                                                            $textColor = '#1d4ed8';
+                                                        } elseif ($isCurrentOffice || $isInTransitToThisOffice) {
+                                                            $dotColor = '#f59e0b';
+                                                            $lineColor = '#cbd5e1';
+                                                            $textColor = '#d97706';
+                                                        } elseif ($isReceived) {
+                                                            $dotColor = '#10b981';
+                                                            $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+                                                            $textColor = '#059669';
+                                                        } else {
+                                                            $dotColor = '#cbd5e1';
+                                                            $lineColor = '#e2e8f0';
+                                                            $textColor = '#64748b';
+                                                        }
                                                     @endphp
 
                                                     <div class="dts-timeline-node-wrapper" style="width: 24px; min-width: 24px; height: 24px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                        <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer;" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                                        <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isCompleted ? 'Forwarded' : ($isReceived ? 'Received/Holder' : ($isCurrentOffice || $isInTransitToThisOffice ? 'In Transit / Incoming' : 'Pending'))) }})">
                                                             @if ($isRevisionStep)
                                                                 <i class="fa-solid fa-rotate-left" style="font-size: 9px;"></i>
-                                                            @elseif ($isReceived)
+                                                            @elseif ($isCompleted || $isReceived)
                                                                 <i class="fa-solid fa-check" style="font-size: 9px;"></i>
                                                             @else
                                                                 {{ $index + 1 }}
@@ -3541,6 +3619,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 @php
                                                     $isReceived = !is_null($step->date_in) || $t->status === 'completed';
                                                     $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                    $isCompleted = ($isReceived && $isForwarded) || strtolower($t->status ?? '') === 'completed';
                                                     $hasRevision = !empty($t->revision_requested_by_sequence);
                                                     $revReqSeq = $t->revision_requested_by_sequence ?? null;
                                                     $revType = $t->revision_resubmit_type ?? null;
@@ -3556,30 +3635,43 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         }
                                                     }
 
-                                                    if ($isRevisionStep) {
-                                                        $dotColor = '#2563eb';
-                                                        $lineColor = '#3b82f6';
-                                                        $textColor = '#2563eb';
-                                                    } elseif ($isReceived) {
-                                                        $dotColor = '#10b981';
-                                                        $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
-                                                        $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
-                                                        $textColor = '#10b981';
-                                                    } else {
-                                                        $dotColor = '#dc2626';
-                                                        $lineColor = '#dc2626';
-                                                        $textColor = '#dc2626';
-                                                    }
-                                                    $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                    $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && strtolower($t->status ?? '') !== 'completed';
+                                                    $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && strtolower($t->status ?? '') !== 'completed';
                                                     $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
                                                     $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
+                                                    if ($isRevisionStep) {
+                                                        $dotColor = '#ef4444';
+                                                        $lineColor = '#fca5a5';
+                                                        $textColor = '#dc2626';
+                                                    } elseif ($isCompleted) {
+                                                        $dotColor = '#10b981';
+                                                        $lineColor = '#10b981';
+                                                        $textColor = '#059669';
+                                                    } elseif ($isCurrentOffice && $isReceived) {
+                                                        $dotColor = '#2563eb';
+                                                        $lineColor = '#cbd5e1';
+                                                        $textColor = '#1d4ed8';
+                                                    } elseif ($isCurrentOffice || $isInTransitToThisOffice) {
+                                                        $dotColor = '#f59e0b';
+                                                        $lineColor = '#cbd5e1';
+                                                        $textColor = '#d97706';
+                                                    } elseif ($isReceived) {
+                                                        $dotColor = '#10b981';
+                                                        $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+                                                        $textColor = '#059669';
+                                                    } else {
+                                                        $dotColor = '#cbd5e1';
+                                                        $lineColor = '#e2e8f0';
+                                                        $textColor = '#64748b';
+                                                    }
                                                 @endphp
 
                                                     <div class="dts-timeline-node-wrapper" style="width: 24px; min-width: 24px; height: 24px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                        <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer;" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                                        <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isCompleted ? 'Forwarded' : ($isReceived ? 'Received/Holder' : ($isCurrentOffice || $isInTransitToThisOffice ? 'In Transit / Incoming' : 'Pending'))) }})">
                                                             @if ($isRevisionStep)
                                                                 <i class="fa-solid fa-rotate-left" style="font-size: 9px;"></i>
-                                                            @elseif ($isReceived)
+                                                            @elseif ($isCompleted || $isReceived)
                                                                 <i class="fa-solid fa-check" style="font-size: 9px;"></i>
                                                             @else
                                                                 {{ $index + 1 }}

@@ -1888,17 +1888,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                     {{ $t->subject }}
                                 @endif
                             </td>
-                            <td style="padding: 10px 12px; min-width: 220px; max-width: 320px;">
+                            <td style="padding: 10px 12px; min-width: 250px; max-width: 360px;">
                                 @if(strtolower($t->status ?? '') === 'completed')
                                     <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
                                         <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
                                     </span>
                                 @else
-                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 6px 6px 6px; max-width: 100%;">
                                         @forelse ($t->timeline_path as $index => $step)
                                             @php
                                                 $isReceived = !is_null($step->date_in) || $t->status === 'completed';
                                                 $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                $isCompleted = ($isReceived && $isForwarded) || strtolower($t->status ?? '') === 'completed';
                                                 $hasRevision = !empty($t->revision_requested_by_sequence);
                                                 $revReqSeq = $t->revision_requested_by_sequence ?? null;
                                                 $revType = $t->revision_resubmit_type ?? null;
@@ -1914,30 +1915,41 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                                     }
                                                 }
 
+                                                $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && strtolower($t->status ?? '') !== 'completed';
+                                                $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && strtolower($t->status ?? '') !== 'completed';
+
                                                 if ($isRevisionStep) {
+                                                    $dotColor = '#ef4444';
+                                                    $lineColor = '#fca5a5';
+                                                    $textColor = '#dc2626';
+                                                } elseif ($isCompleted) {
+                                                    $dotColor = '#10b981';
+                                                    $lineColor = '#10b981';
+                                                    $textColor = '#059669';
+                                                } elseif ($isCurrentOffice && $isReceived) {
                                                     $dotColor = '#2563eb';
-                                                    $lineColor = '#3b82f6';
-                                                    $textColor = '#2563eb';
+                                                    $lineColor = '#cbd5e1';
+                                                    $textColor = '#1d4ed8';
+                                                } elseif ($isCurrentOffice || $isInTransitToThisOffice) {
+                                                    $dotColor = '#f59e0b';
+                                                    $lineColor = '#cbd5e1';
+                                                    $textColor = '#d97706';
                                                 } elseif ($isReceived) {
                                                     $dotColor = '#10b981';
-                                                    $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
-                                                    $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
-                                                    $textColor = '#10b981';
+                                                    $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+                                                    $textColor = '#059669';
                                                 } else {
-                                                    $dotColor = '#dc2626';
-                                                    $lineColor = '#dc2626';
-                                                    $textColor = '#dc2626';
+                                                    $dotColor = '#cbd5e1';
+                                                    $lineColor = '#e2e8f0';
+                                                    $textColor = '#64748b';
                                                 }
-
-                                                $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
-                                                $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
                                             @endphp
 
-                                            <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                            <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0; flex-shrink: 0;">
+                                                <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isCompleted ? 'Forwarded' : ($isReceived ? 'Received/Holder' : ($isCurrentOffice || $isInTransitToThisOffice ? 'In Transit / Incoming' : 'Pending'))) }})">
                                                     @if ($isRevisionStep)
                                                         <i class="fa-solid fa-rotate-left" style="font-size: 10px;"></i>
-                                                    @elseif ($isReceived)
+                                                    @elseif ($isCompleted || $isReceived)
                                                         <i class="fa-solid fa-check" style="font-size: 10px;"></i>
                                                     @else
                                                         {{ $index + 1 }}
@@ -1953,12 +1965,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                                         <span style="font-weight: 700; font-size: 11px; color: #38bdf8;">Step {{ $index + 1 }}: {{ $step->office_code }}</span>
                                                         @if ($isRevisionStep)
                                                             <span style="background: #1e3a8a; color: #93c5fd; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">↺ Revision</span>
-                                                        @elseif ($isReceived && $isForwarded)
+                                                        @elseif ($isCompleted)
                                                             <span style="background: #166534; color: #4ade80; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">✓ Forwarded</span>
-                                                        @elseif ($isReceived && !$isForwarded)
+                                                        @elseif ($isReceived)
                                                             <span style="background: #1e3a8a; color: #60a5fa; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">📍 Held</span>
+                                                        @elseif ($isCurrentOffice || $isInTransitToThisOffice)
+                                                            <span style="background: #78350f; color: #fde68a; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">🚚 In Transit</span>
                                                         @else
-                                                            <span style="background: #450a0a; color: #fca5a5; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">⏳ Pending</span>
+                                                            <span style="background: #334155; color: #cbd5e1; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">⏳ Pending</span>
                                                         @endif
                                                     </div>
                                                     
@@ -1978,7 +1992,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                             </div>
 
                                             @if (!$loop->last)
-                                                <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px 14px -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
+                                                <div style="flex: 1; height: 3px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px 14px -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
                                             @endif
                                         @empty
                                             <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
@@ -1986,7 +2000,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                     </div>
                                 @endif
                             </td>
-                            <td style="font-weight: 600; white-space: nowrap; text-align: center;">
+                            <td style="font-weight: 600; white-space: nowrap; text-align: center; min-width: 85px; padding: 10px 12px;">
                                 {{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->elapsed_days . ' day(s)') }}
                             </td>
                             <td style="text-align: center;">

@@ -2169,12 +2169,32 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                         @php
                                             $isReceived = !is_null($step->date_in) || $selectedTransaction->status === 'completed';
                                             $isForwarded = !is_null($step->date_out) || $selectedTransaction->status === 'completed';
-
-                                            $dotColor = $isReceived ? '#10b981' : '#dc2626';
-                                            $lineColor = $isForwarded ? '#10b981' : '#dc2626';
+                                            $isCompleted = ($isReceived && $isForwarded) || $selectedTransaction->status === 'completed';
 
                                             $isCurrentOffice = $step->is_active_step && !is_null($step->date_in) && is_null($step->date_out) && $selectedTransaction->status !== 'completed';
                                             $isInTransitToThisOffice = $step->is_active_step && is_null($step->date_in) && $selectedTransaction->status !== 'completed';
+
+                                            if ($isCompleted) {
+                                                $dotColor = '#10b981';
+                                                $lineColor = '#10b981';
+                                                $textColor = '#059669';
+                                            } elseif ($isCurrentOffice) {
+                                                $dotColor = '#2563eb';
+                                                $lineColor = '#cbd5e1';
+                                                $textColor = '#1d4ed8';
+                                            } elseif ($isInTransitToThisOffice) {
+                                                $dotColor = '#f59e0b';
+                                                $lineColor = '#cbd5e1';
+                                                $textColor = '#d97706';
+                                            } elseif ($isReceived) {
+                                                $dotColor = '#10b981';
+                                                $lineColor = '#cbd5e1';
+                                                $textColor = '#059669';
+                                            } else {
+                                                $dotColor = '#cbd5e1';
+                                                $lineColor = '#e2e8f0';
+                                                $textColor = '#64748b';
+                                            }
                                         @endphp
 
                                         <!-- Node Wrapper (Dot + Current Indicator + Hidden Data) -->
@@ -2198,8 +2218,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                             @endif
 
                                             <!-- Node Dot Circle -->
-                                            <div class="dts-timeline-node-dot" style="width: 32px; height: 32px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.35); transform: scale(1.15);' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.35);' : '') }}">
-                                                @if ($isReceived)
+                                            <div class="dts-timeline-node-dot" style="width: 32px; height: 32px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.35); transform: scale(1.15);' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.35);' : '') }}">
+                                                @if ($isCompleted || $isReceived)
                                                     <i class="fa-solid fa-check" style="font-size: 13px;"></i>
                                                 @else
                                                     {{ $index + 1 }}
@@ -2207,7 +2227,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                             </div>
 
                                             <!-- Office Code Below Dot -->
-                                            <span style="margin-top: 8px; font-size: 11.5px; font-weight: 700; color: {{ $isReceived ? '#10b981' : '#dc2626' }}; font-family: 'Inter', sans-serif;">
+                                            <span style="margin-top: 8px; font-size: 11.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif;">
                                                 {{ $step->office_code }}
                                             </span>
 

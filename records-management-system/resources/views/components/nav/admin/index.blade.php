@@ -54,6 +54,22 @@
 </div>
 @endif
 
+{{-- 2b. Error Tickets --}}
+@if($isSadm || $perms?->can_access_activity_logs)
+<div id="admin-tickets-id" class="button-section-container">
+    <div class="button-container {{ request()->routeIs('admin.tickets') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.tickets') }}')">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
+                <path d="M14.5 2.41669C7.84167 2.41669 2.41667 7.84169 2.41667 14.5C2.41667 21.1584 7.84167 26.5834 14.5 26.5834C21.1583 26.5834 26.5833 21.1584 26.5833 14.5C26.5833 7.84169 21.1583 2.41669 14.5 2.41669ZM15.7083 20.5417H13.2917V18.125H15.7083V20.5417ZM15.7083 15.7084H13.2917V8.45835H15.7083V15.7084Z" fill="#4F4F4F"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Error Tickets</span>
+        </div>
+    </div>
+</div>
+@endif
+
 {{-- 3. Activity Logs Section (Tree Structured Hierarchy) --}}
 @if($isSadm || $perms?->can_access_activity_logs)
 <div id="admin-activity-id" class="button-section-container {{ (request()->routeIs('admin.activity.*') && !$enableTopTabs) ? 'show' : '' }}">

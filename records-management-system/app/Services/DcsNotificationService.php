@@ -35,9 +35,14 @@ class DcsNotificationService
      * @param string $officeCode The target office code receiving the notification
      * @param string $message The notification text message
      * @param string|null $redirectUrl Optional URL link when user clicks notification
+     * @param int|null $excludeAccountId Actor who should not see this office broadcast
      */
-    public static function createNotification(string $officeCode, string $message, ?string $redirectUrl = null): bool
-    {
+    public static function createNotification(
+        string $officeCode,
+        string $message,
+        ?string $redirectUrl = null,
+        ?int $excludeAccountId = null
+    ): bool {
         $message = static::fitContent($message);
         $canonical = static::resolveOfficeCode($officeCode);
 
@@ -53,6 +58,8 @@ class DcsNotificationService
 
         try {
             $subsystemId = static::getDcsSubsystemId();
+            $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+            $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
 
             $contentId = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content')->insertGetId([
                 'system'       => $subsystemId,
@@ -61,11 +68,26 @@ class DcsNotificationService
                 'created_at'   => now(),
             ]);
 
-            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications')->insert([
+            $notificationId = DB::table($notifTbl)->insertGetId([
                 'office'     => $canonical,
                 'contents'   => $contentId,
                 'created_at' => now(),
             ]);
+
+            // Office broadcasts would otherwise notify the actor of their own action.
+            if ($excludeAccountId && $excludeAccountId > 0 && $notificationId) {
+                DB::table($notifDivTbl)->updateOrInsert(
+                    [
+                        'id' => $notificationId,
+                        'account_rec' => $excludeAccountId,
+                    ],
+                    [
+                        'is_dismissed' => true,
+                        'status' => 'read',
+                        'processed_on' => now(),
+                    ]
+                );
+            }
 
             return true;
         } catch (\Throwable $e) {
@@ -192,7 +214,13 @@ class DcsNotificationService
             $url .= '?ack_by=' . $receiverAccountId;
         }
 
-        static::createNotification($officeCode, $message, $url);
+        // Exclude the person who marked it received — they already know.
+        static::createNotification(
+            $officeCode,
+            $message,
+            $url,
+            $receiverAccountId && $receiverAccountId > 0 ? $receiverAccountId : null
+        );
     }
 
     /**

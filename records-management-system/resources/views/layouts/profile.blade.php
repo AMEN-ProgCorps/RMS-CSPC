@@ -208,6 +208,7 @@
     <x-chatify.floating-widget />
     @auth
     <livewire:components.session-guard />
+    <livewire:components.report-problem />
     @endauth
 </body>
 </html>

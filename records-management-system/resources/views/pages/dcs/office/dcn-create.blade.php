@@ -20,6 +20,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
         $office = OfficeIntakeHelper::currentUserOfficeForDcn();
 
         $prevSignatories = OfficeIntakeHelper::previousDcnSignatories();
+        $prevSignatories['source'] = 'previous';
 
         return [
             'userOfficeId' => $office['id'],
@@ -150,17 +151,24 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                                 'prevReviewerPlaceholder' => $prevDcn['reviewers'][0]['name'] ?? '',
                             ])
                             @php
-                                $oldPositions = old('approvalPosition', []);
-                                $oldApprNames = old('approvalName', []);
-                                $oldDates = old('approvalDate', []);
+                                $oldPositions = old('approvalPosition');
+                                $oldApprNames = old('approvalName');
+                                $oldDates = old('approvalDate');
                                 $approvalRows = [];
-                                $count = max(count($oldPositions), count($oldApprNames), count($oldDates), 1);
-                                for ($i = 0; $i < $count; $i++) {
-                                    $approvalRows[] = [
-                                        'position' => $oldPositions[$i] ?? '',
-                                        'name' => $oldApprNames[$i] ?? '',
-                                        'date' => $oldDates[$i] ?? '',
-                                    ];
+                                if (is_array($oldPositions) || is_array($oldApprNames) || is_array($oldDates)) {
+                                    $oldPositions = is_array($oldPositions) ? $oldPositions : [];
+                                    $oldApprNames = is_array($oldApprNames) ? $oldApprNames : [];
+                                    $oldDates = is_array($oldDates) ? $oldDates : [];
+                                    $count = max(count($oldPositions), count($oldApprNames), count($oldDates), 1);
+                                    for ($i = 0; $i < $count; $i++) {
+                                        $approvalRows[] = [
+                                            'position' => $oldPositions[$i] ?? '',
+                                            'name' => $oldApprNames[$i] ?? '',
+                                            'date' => $oldDates[$i] ?? '',
+                                        ];
+                                    }
+                                } else {
+                                    $approvalRows = [['position' => '', 'name' => '', 'date' => '']];
                                 }
                             @endphp
                             @if(! empty($prevDcn['approvals']))

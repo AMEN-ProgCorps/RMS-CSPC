@@ -174,6 +174,7 @@
     @auth
     <livewire:components.scanner-modal />
     <livewire:components.session-guard />
+    <livewire:components.report-problem />
     @endauth
 </body>
 </html>

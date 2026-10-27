@@ -378,6 +378,48 @@ Route::middleware(['auth'])
         ]);
     })->name('chat.unread-count');
 
+    // User-submitted error / problem tickets (also used by the standalone diagnosed error page)
+    Route::post('/api/error-tickets', function (\Illuminate\Http\Request $request) {
+        $user = Auth::user();
+        if (! $user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $data = $request->validate([
+            'title' => 'required|string|min:3|max:240',
+            'description' => 'required|string|min:10|max:5000',
+            'reference' => 'nullable|string|max:32',
+            'url' => 'nullable|string|max:2000',
+        ]);
+
+        $key = 'error_ticket_report:user_'.$user->id;
+        if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($key, 5)) {
+            $seconds = \Illuminate\Support\Facades\RateLimiter::availableIn($key);
+
+            return response()->json([
+                'message' => "Too many reports. Try again in {$seconds} second(s).",
+            ], 429);
+        }
+
+        try {
+            $ticket = \App\Services\ErrorTicketRecorder::recordUser([
+                'title' => $data['title'],
+                'description' => $data['description'],
+                'reference' => $data['reference'] ?? null,
+                'url' => $data['url'] ?? $request->headers->get('referer') ?? $request->fullUrl(),
+                'priority' => 'medium',
+            ]);
+            \Illuminate\Support\Facades\RateLimiter::hit($key, 3600);
+
+            return response()->json([
+                'ok' => true,
+                'ticket_number' => $ticket->ticket_number,
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Could not submit the report.'], 500);
+        }
+    })->name('api.error-tickets.store');
+
     // Session Heartbeat & Tab Closure Beacon
     Route::post('/api/session/ping', function () {
         if ($user = Auth::user()) {
@@ -427,6 +469,7 @@ Route::middleware(['auth'])
     // Admin Console (requires is_sadm)
     Route::middleware(['can.access.admin'])->group(function () {
         Volt::route('/admin/console', 'pages.admin.console.index')->name('admin.console');
+        Volt::route('/admin/tickets', 'pages.admin.tickets.index')->name('admin.tickets');
 
         Volt::route('/admin/accounts/users', 'pages.admin.accounts.users')->name('admin.accounts.users');
         Volt::route('/admin/accounts/roles', 'pages.admin.accounts.roles')->name('admin.accounts.roles');

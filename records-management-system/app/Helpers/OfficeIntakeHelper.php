@@ -5408,13 +5408,8 @@ class OfficeIntakeHelper
                 );
             }
 
-            DcsNotificationService::notifyOfficeDocumentReceived(
-                $officeCode,
-                $receiverName,
-                $title !== '' ? $title : $docNo,
-                $docNo !== '' ? $docNo : null,
-                $userId > 0 ? $userId : null
-            );
+            // Do not office-broadcast "marked as received" to distribution / intake offices.
+            // Creating offices must not see peer receive notices — RFIO / Document Controllers only.
         }
 
         DcsNotificationService::notifyAdminOfficeReceivedDocument(

@@ -198,7 +198,10 @@
                     '<strong id="rmsErrorTitle" style="display:block;margin-top:6px;font-size:1.15rem;"></strong>' +
                     '<p id="rmsErrorMessage" style="margin:8px 0 0;color:#475569;line-height:1.5;"></p>' +
                     '<p id="rmsErrorFile" style="margin-top:14px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;color:#334155;font-size:0.85rem;line-height:1.45;word-break:break-word;"></p>' +
-                    '<a href="#" id="rmsSlowInternetBack" style="display:inline-block;margin-top:16px;font-weight:600;text-decoration:none;">Back to the system</a>' +
+                    '<div id="rmsErrorActions" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:16px;">' +
+                        '<a href="#" id="rmsSlowInternetBack" style="display:inline-block;font-weight:600;text-decoration:none;">Back to the system</a>' +
+                        '<button type="button" id="rmsErrorReportBtn" style="display:none;border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:8px 12px;font:600 0.85rem Inter,system-ui,sans-serif;cursor:pointer;">Report this error</button>' +
+                    '</div>' +
                 '</main>';
             document.body.appendChild(existing);
             var back = document.getElementById('rmsSlowInternetBack');
@@ -206,6 +209,17 @@
                 back.addEventListener('click', function (event) {
                     event.preventDefault();
                     returnToPage(back.getAttribute('data-return') || '');
+                });
+            }
+            var reportBtn = document.getElementById('rmsErrorReportBtn');
+            if (reportBtn) {
+                reportBtn.addEventListener('click', function () {
+                    var payload = {
+                        reference: existing.dataset.reference || null,
+                        title: (document.getElementById('rmsErrorTitle') || {}).textContent || 'Server error',
+                        description: (document.getElementById('rmsErrorMessage') || {}).textContent || ''
+                    };
+                    window.dispatchEvent(new CustomEvent('rms-open-report-problem', { detail: payload }));
                 });
             }
         }
@@ -238,6 +252,14 @@
             backEl.setAttribute('data-return', backTarget);
         }
         existing.dataset.kind = (status === 408 || status === 504 || title === 'Slow internet') ? 'slow' : 'error';
+        existing.dataset.reference = detail.reference || '';
+        var reportBtn = document.getElementById('rmsErrorReportBtn');
+        if (reportBtn) {
+            var canReport = status >= 500 || !!detail.reference;
+            reportBtn.style.display = canReport ? 'inline-block' : 'none';
+            reportBtn.style.color = color;
+            reportBtn.style.borderColor = color;
+        }
     }
 
     function showSlowInternet(force) {
@@ -353,9 +375,11 @@
 
     window.addEventListener('error', function (event) {
         var message = String((event && event.message) || '');
-        if (/ResizeObserver|undelivered notifications|script error/i.test(message)) return;
+        // Livewire snapshot races during background polls / morphs — not user-facing outages.
+        if (/ResizeObserver|undelivered notifications|script error|Snapshot missing on Livewire component/i.test(message)) return;
         var filename = event && event.filename ? String(event.filename) : '';
         if (!filename || filename.indexOf(location.origin) !== 0) return;
+        if (/\/vendor\/livewire\//i.test(filename) && /Snapshot missing/i.test(message)) return;
         showErrorScreen({
             status: 0,
             error_kind: 'client',
@@ -365,5 +389,15 @@
             line: event.lineno || null,
             return_url: pageHere()
         }, true);
+    });
+
+    window.addEventListener('unhandledrejection', function (event) {
+        var reason = event && event.reason;
+        var message = '';
+        if (reason && typeof reason === 'object' && reason.message) message = String(reason.message);
+        else if (typeof reason === 'string') message = reason;
+        if (/Snapshot missing on Livewire component/i.test(message)) {
+            if (event && typeof event.preventDefault === 'function') event.preventDefault();
+        }
     });
 })();

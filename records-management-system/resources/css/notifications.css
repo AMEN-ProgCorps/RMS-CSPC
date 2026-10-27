@@ -100,6 +100,63 @@
     background-color: #ffffff;
 }
 
+.notif-subsystem-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 10px 14px 12px;
+    border-bottom: 1px solid #f3f4f6;
+    background: #ffffff;
+    overflow-x: auto;
+}
+
+.notif-subsystem-tab {
+    appearance: none;
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    color: #6b7280;
+    border-radius: 999px;
+    padding: 5px 11px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.notif-subsystem-tab span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #e5e7eb;
+    color: #4b5563;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.notif-subsystem-tab:hover {
+    border-color: #cbd5e1;
+    color: #111827;
+}
+
+.notif-subsystem-tab.is-active {
+    background: #003699;
+    border-color: #003699;
+    color: #ffffff;
+}
+
+.notif-subsystem-tab.is-active span {
+    background: rgba(255, 255, 255, 0.22);
+    color: #ffffff;
+}
+
 .notif-dropdown-header h3 {
     font-family: 'Inter', sans-serif;
     font-size: 16px;

@@ -137,6 +137,7 @@
     <livewire:components.dts-rdp-handoff-modal />
     @auth
     <livewire:components.session-guard />
+    <livewire:components.report-problem />
     @endauth
     <x-rms-error />
     @stack('scripts')

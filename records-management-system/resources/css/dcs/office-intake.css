@@ -713,6 +713,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-radio-row label { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
 .ofi-hint { font-size: 12px; color: #475569; margin: 0 0 10px; line-height: 1.5; }
 
+
 .ofi-docno-search-wrap {
     position: relative;
 }

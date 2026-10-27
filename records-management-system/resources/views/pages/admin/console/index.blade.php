@@ -330,7 +330,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
             ? \Carbon\Carbon::parse($activities->first()->time)->timestamp 
             : 0;
 
+        $openErrorTickets = 0;
+        $criticalErrorTickets = 0;
+        if (\Illuminate\Support\Facades\Schema::hasTable('sys_error_tickets')) {
+            $openErrorTickets = \DB::table('sys_error_tickets')->whereIn('status', ['open', 'in_progress'])->count();
+            $criticalErrorTickets = \DB::table('sys_error_tickets')
+                ->where('priority', 'critical')
+                ->whereIn('status', ['open', 'in_progress'])
+                ->count();
+        }
+
         return [
+            'openErrorTickets' => $openErrorTickets,
+            'criticalErrorTickets' => $criticalErrorTickets,
             'recentLoginsCount' => $recentLoginsCount,
             'loginPoints' => $loginPoints,
             'minuteChange' => $minuteChange,
@@ -451,6 +463,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
                 <i class="fa-solid fa-clock-rotate-left"></i>
                 <span>Show Recent Activities</span>
             </button>
+
+            @php $ticketPerms = auth()->user()?->permissions; @endphp
+            @if($ticketPerms && ($ticketPerms->is_sadm || $ticketPerms->can_access_activity_logs))
+                <a href="{{ route('admin.tickets') }}" class="dashboard-live-pill" style="text-decoration:none; {{ $openErrorTickets > 0 ? 'background:rgba(220,38,38,0.08);border-color:rgba(220,38,38,0.25);color:#b91c1c;' : '' }}" title="Open error tickets">
+                    <span class="live-dot" style="{{ $openErrorTickets > 0 ? 'background:#dc2626;' : '' }}"></span>
+                    <span>{{ number_format($openErrorTickets) }} open ticket{{ (int) $openErrorTickets === 1 ? '' : 's' }}</span>
+                </a>
+            @endif
 
             <div class="dashboard-live-pill">
                 <span class="live-dot"></span>
@@ -897,6 +917,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
                         <div class="action-text">
                             <span class="action-title">Security & Audit Logs</span>
                             <span class="action-desc">Review logins, file uploads & traces</span>
+                        </div>
+                        <div class="action-arrow"><i class="fa-solid fa-chevron-right"></i></div>
+                    </a>
+
+                    <a href="{{ route('admin.tickets') }}" class="quick-action-card">
+                        <div class="action-icon activity"><i class="fa-solid fa-bug"></i></div>
+                        <div class="action-text">
+                            <span class="action-title">Error Tickets</span>
+                            <span class="action-desc">
+                                @if($openErrorTickets > 0)
+                                    {{ number_format($openErrorTickets) }} open
+                                    @if($criticalErrorTickets > 0)
+                                        · {{ number_format($criticalErrorTickets) }} critical
+                                    @endif
+                                @else
+                                    No open tickets
+                                @endif
+                            </span>
                         </div>
                         <div class="action-arrow"><i class="fa-solid fa-chevron-right"></i></div>
                     </a>

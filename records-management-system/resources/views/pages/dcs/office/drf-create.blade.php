@@ -198,14 +198,12 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                         </div>
                     </div>
 
-                    @php
-                        $prevSig = $prevSignatories ?? null;
-                    @endphp
-                    <div class="ofi-sig-block">
+                    @php $prevSig = $prevSignatories ?? null; @endphp
+                    <div class="ofi-sig-block" id="ofiDrfSigBlock">
                         <p class="ofi-sig-heading">Signatories</p>
                         @if($prevSig)
                             <div class="ofi-suggest" id="drfPrevSigSuggest">
-                                <p class="ofi-suggest-label">Press Tab in an empty signatory field to use your last DRF.</p>
+                                <p class="ofi-suggest-label">Suggested from your last DRF (shown in the fields). Press Tab on an empty field to use it, or type a different name.</p>
                             </div>
                         @endif
                         <div class="ofi-sig-group">
@@ -217,6 +215,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                                         value="{{ old('preparedByName') }}"
                                         required maxlength="255"
                                         placeholder="{{ ($prevSig['prepared_by_name'] ?? '') !== '' ? $prevSig['prepared_by_name'] : 'Prepared by name' }}"
+                                        data-sig-key="prepared_by_name"
                                         data-prev-sig="{{ $prevSig['prepared_by_name'] ?? '' }}">
                                 </div>
                                 <div class="reg-field">
@@ -225,6 +224,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                                         value="{{ old('preparedByDesignation') }}"
                                         required maxlength="255"
                                         placeholder="{{ ($prevSig['prepared_by_designation'] ?? '') !== '' ? $prevSig['prepared_by_designation'] : 'Prepared by designation' }}"
+                                        data-sig-key="prepared_by_designation"
                                         data-prev-sig="{{ $prevSig['prepared_by_designation'] ?? '' }}">
                                 </div>
                             </div>
@@ -238,6 +238,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                                         value="{{ old('reviewedByName') }}"
                                         required maxlength="255"
                                         placeholder="{{ ($prevSig['reviewed_by_name'] ?? '') !== '' ? $prevSig['reviewed_by_name'] : 'Reviewed by name' }}"
+                                        data-sig-key="reviewed_by_name"
                                         data-prev-sig="{{ $prevSig['reviewed_by_name'] ?? '' }}">
                                 </div>
                                 <div class="reg-field">
@@ -246,6 +247,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                                         value="{{ old('reviewedByDesignation') }}"
                                         required maxlength="255"
                                         placeholder="{{ ($prevSig['reviewed_by_designation'] ?? '') !== '' ? $prevSig['reviewed_by_designation'] : 'Reviewed by designation' }}"
+                                        data-sig-key="reviewed_by_designation"
                                         data-prev-sig="{{ $prevSig['reviewed_by_designation'] ?? '' }}">
                                 </div>
                             </div>
@@ -259,6 +261,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                                         value="{{ old('approvedByName') }}"
                                         required maxlength="255"
                                         placeholder="{{ ($prevSig['approved_by_name'] ?? '') !== '' ? $prevSig['approved_by_name'] : 'Approved by name' }}"
+                                        data-sig-key="approved_by_name"
                                         data-prev-sig="{{ $prevSig['approved_by_name'] ?? '' }}">
                                 </div>
                                 <div class="reg-field">
@@ -267,6 +270,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                                         value="{{ old('approvedByDesignation') }}"
                                         required maxlength="255"
                                         placeholder="{{ ($prevSig['approved_by_designation'] ?? '') !== '' ? $prevSig['approved_by_designation'] : 'Approved by designation' }}"
+                                        data-sig-key="approved_by_designation"
                                         data-prev-sig="{{ $prevSig['approved_by_designation'] ?? '' }}">
                                 </div>
                             </div>
@@ -405,6 +409,20 @@ window.__ofiSourceConfigs = [
 
         saveBtn.disabled = true;
         saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+    });
+
+    // Tab-fill from last personal DRF when a signatory field is empty.
+    const prevSig = @json($prevSignatories ?? null);
+    form.querySelectorAll('#ofiDrfSigBlock [data-sig-key]').forEach(function (input) {
+        input.addEventListener('keydown', function (e) {
+            if (e.key !== 'Tab' || e.shiftKey || input.value.trim() !== '') return;
+            if (!prevSig) return;
+            const key = input.getAttribute('data-sig-key');
+            const val = prevSig[key] ? String(prevSig[key]) : '';
+            if (!val) return;
+            e.preventDefault();
+            input.value = val;
+        });
     });
 })();
 </script>

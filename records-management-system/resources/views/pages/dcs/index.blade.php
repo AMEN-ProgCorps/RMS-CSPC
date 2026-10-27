@@ -1045,6 +1045,8 @@ document.addEventListener('alpine:init', () => {
         loading: false,
         open: false,
         timer: null,
+        abortController: null,
+        searchSeq: 0,
         detailModal: false,
         detailDoc: null,
         detailDocLabel: '',
@@ -1068,28 +1070,70 @@ document.addEventListener('alpine:init', () => {
         activeChecklists: null,
         search() {
             clearTimeout(this.timer);
+            if (this.abortController) {
+                try { this.abortController.abort(); } catch (e) {}
+                this.abortController = null;
+            }
+
             const q = this.query.trim();
-            if (q.length < 1) {
+            if (q.length < 2) {
                 this.results = [];
-                this.open = false;
+                this.open = q.length > 0;
                 this.loading = false;
                 return;
             }
 
             this.loading = true;
             this.open = true;
+            // Keep prior results only while the same query is still loading; never mix queries.
+            const seq = ++this.searchSeq;
+            const requested = q;
             this.timer = setTimeout(async () => {
-                try {
-                    const res = await fetch('/dcs/api/documents/search?q=' + encodeURIComponent(q));
-                    this.results = res.ok ? await res.json() : [];
-                } catch (e) {
-                    this.results = [];
-                } finally {
-                    this.loading = false;
+                // Drop stale timers if the user kept typing.
+                if (seq !== this.searchSeq || requested !== this.query.trim()) {
+                    return;
                 }
-            }, 120);
+
+                const abort = new AbortController();
+                this.abortController = abort;
+                try {
+                    const res = await fetch(
+                        '/dcs/api/documents/search?q=' + encodeURIComponent(requested) + '&dashboard=1',
+                        { signal: abort.signal, headers: { 'Accept': 'application/json' } }
+                    );
+                    if (seq !== this.searchSeq || requested !== this.query.trim()) {
+                        return;
+                    }
+                    const payload = res.ok ? await res.json() : [];
+                    // Re-check after JSON parse — older responses must never overwrite newer ones.
+                    if (seq !== this.searchSeq || requested !== this.query.trim()) {
+                        return;
+                    }
+                    this.results = Array.isArray(payload) ? payload : [];
+                } catch (e) {
+                    if (e && e.name === 'AbortError') {
+                        return;
+                    }
+                    if (seq === this.searchSeq && requested === this.query.trim()) {
+                        this.results = [];
+                    }
+                } finally {
+                    if (seq === this.searchSeq && requested === this.query.trim()) {
+                        this.loading = false;
+                    }
+                    if (this.abortController === abort) {
+                        this.abortController = null;
+                    }
+                }
+            }, 300);
         },
         clear() {
+            clearTimeout(this.timer);
+            if (this.abortController) {
+                try { this.abortController.abort(); } catch (e) {}
+                this.abortController = null;
+            }
+            this.searchSeq++;
             this.query = '';
             this.results = [];
             this.open = false;

@@ -1881,7 +1881,14 @@ if (typeof Html5Qrcode === 'undefined') {
                     wrap.style.cssText = 'position:fixed;top:16px;right:16px;z-index:99999999;display:flex;flex-direction:column;gap:8px;max-width:380px;font-family:Outfit,"Segoe UI",sans-serif;';
                     document.body.appendChild(wrap);
                 }
+                // Prevent duplicate toasts with the exact same message
+                var items = wrap.querySelectorAll('.scanner-toast-item');
+                for (var i = 0; i < items.length; i++) {
+                    if (items[i].textContent === message) return;
+                }
+
                 var el = document.createElement('div');
+                el.className = 'scanner-toast-item';
                 var bg = type === 'success' ? '#f0fdf4' : (type === 'info' ? '#eff6ff' : '#fef2f2');
                 var bd = type === 'success' ? '#86efac' : (type === 'info' ? '#bfdbfe' : '#fca5a5');
                 var fg = type === 'success' ? '#166534' : (type === 'info' ? '#1e40af' : '#991b1b');
@@ -1899,9 +1906,7 @@ if (typeof Html5Qrcode === 'undefined') {
         };
     }
 
-    // Surface failed Livewire requests (expired session = 419/401, server
-    // errors, network loss) which otherwise fail completely silently and make
-    // the scanner look "dead" while the camera keeps running.
+    // Surface failed Livewire requests
     if (!window.__scannerConnectionHooked) {
         var attachScannerRequestHook = function () {
             if (window.__scannerConnectionHooked) return;
@@ -1913,7 +1918,13 @@ if (typeof Html5Qrcode === 'undefined') {
                     hooks.fail(function (res) {
                         var status = res && res.status;
                         if (!status || status === 200) return;
-                        window.__scannerToast('Scanner connection problem (HTTP ' + status + '). Your session may have expired — press F5 to refresh and continue scanning.', 'error');
+
+                        if (status === 401 || status === 419) {
+                            window.location.href = '/login';
+                            return;
+                        }
+
+                        window.__scannerToast('Scanner connection problem (HTTP ' + status + '). Please try again.', 'error');
                     });
                 });
             } catch (e) { console.warn('Scanner request hook unavailable:', e); }

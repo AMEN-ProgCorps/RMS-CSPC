@@ -603,6 +603,10 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     color: #0f172a;
     vertical-align: middle;
 }
+.ofi-table tr.ofi-row-focus td {
+    background: #eff6ff;
+    box-shadow: inset 3px 0 0 #2563eb;
+}
 .ofi-table th.ofi-nowrap,
 .ofi-table td.ofi-nowrap {
     white-space: nowrap;

@@ -980,13 +980,6 @@ window.print = function () {};
             </div>
         </div>
 
-        @if($hasRecurSource)
-        <div class="row">
-            <span class="lbl">Recurring from document no. :</span>
-            <div class="fline w-fill"><div class="fline-val">{{ $previousDocNo !== '' ? $previousDocNo : '—' }}@if($previousTitle !== '') — {{ $previousTitle }}@endif</div><div class="fline-rule"></div></div>
-        </div>
-        @endif
-
         <div class="check-row">
             <span class="lbl">Type of document:</span>
             <span class="check-item internal">

@@ -17,6 +17,10 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
     #[Url]
     public string $type = 'all';
 
+    /** Document No. from notification links (?doc=…). */
+    #[Url]
+    public ?string $doc = null;
+
     public function mount(): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
@@ -35,6 +39,11 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
         $keys = array_keys(OfficeIntakeHelper::documentGroupDefs());
         if ($this->type !== 'all' && ! in_array($this->type, $keys, true)) {
             $this->type = 'all';
+        }
+
+        $this->doc = $this->doc !== null ? trim($this->doc) : null;
+        if ($this->doc === '') {
+            $this->doc = null;
         }
     }
 
@@ -109,6 +118,10 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
             $total = count($rows);
         }
         $activeCount = count($rows);
+        $focusDoc = $this->doc !== null ? trim($this->doc) : '';
+        $focusFound = $focusDoc !== '' && collect($rows)->contains(
+            fn ($row) => strcasecmp(trim((string) ($row['doc_no'] ?? '')), $focusDoc) === 0
+        );
 
         return [
             'groups' => $groups,
@@ -117,6 +130,8 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
             'activeLabel' => $activeLabel,
             'activeCount' => $activeCount,
             'rows' => $rows,
+            'focusDoc' => $focusDoc,
+            'focusFound' => $focusFound,
             'officeName' => auth()->user()?->details?->office?->office_name
                 ?? auth()->user()?->details?->office?->office_code
                 ?? 'Your office',
@@ -151,6 +166,12 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
         @endif
         @if(session('info'))
             <div class="ofi-alert">{{ session('info') }}</div>
+        @endif
+        @if($focusDoc !== '' && ! $focusFound && $activeCount < 1)
+            <div class="ofi-alert">
+                No open Incoming copy for <strong>{{ $focusDoc }}</strong>.
+                It may already be received, still waiting for Document Control to forward Save and Appraise, or not distributed to your office.
+            </div>
         @endif
         @if(collect($rows)->contains(fn ($row) => !empty($row['appraisal_url'])))
             <div class="ofi-alert">Save and Appraise documents stay on Incoming, and the notice stays, until you finish Appraisal.</div>
@@ -217,7 +238,14 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
                         </thead>
                         <tbody>
                             @foreach($rows as $row)
-                                <tr wire:key="incoming-{{ (int) ($row['request_id'] ?? 0) }}">
+                                @php
+                                    $isFocus = $focusDoc !== ''
+                                        && strcasecmp(trim((string) ($row['doc_no'] ?? '')), $focusDoc) === 0;
+                                @endphp
+                                <tr
+                                    wire:key="incoming-{{ (int) ($row['request_id'] ?? 0) }}"
+                                    @if($isFocus) class="ofi-row-focus" id="incoming-focus" @endif
+                                >
                                     <td>{{ $row['doc_no'] !== '' ? $row['doc_no'] : '—' }}</td>
                                     <td>{{ $row['rev_no'] }}</td>
                                     <td>{{ $row['doc_title'] !== '' ? $row['doc_title'] : '—' }}</td>

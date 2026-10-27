@@ -294,6 +294,7 @@ new class extends Component {
                 }
 
                 // Incoming / Masterlist / other office intake pages keep their target URL.
+                // Full page load avoids Livewire navigate glitches on ?doc= deep links.
                 if (
                     $path === 'dcs/office/incoming'
                     || str_starts_with($path, 'dcs/office/incoming/')
@@ -303,12 +304,12 @@ new class extends Component {
                     || $path === 'dcs/office/dcn'
                     || str_starts_with($path, 'dcs/office/')
                 ) {
-                    $this->redirect($notification->redirect_url, navigate: true);
+                    $this->redirect($notification->redirect_url, navigate: false);
 
                     return;
                 }
 
-                $this->redirect(route('dcs.office.incoming', absolute: false), navigate: true);
+                $this->redirect(route('dcs.office.incoming', absolute: false), navigate: false);
 
                 return;
             }

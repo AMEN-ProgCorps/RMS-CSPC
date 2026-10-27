@@ -2445,14 +2445,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             return collect();
         }
 
-        $parentQuery = DB::table('rdp_record_series')->where('series_title', 'ilike', $parentTitle);
+        $parentQuery = DB::table('rdp_record_series')->where('rdp_record_series.series_title', 'ilike', $parentTitle);
 
         if ($index === 0 && $this->selectedParentId) {
-            $parentQuery->where('id', $this->selectedParentId);
+            $parentQuery->where('rdp_record_series.id', $this->selectedParentId);
         } elseif ($index === 0 && $this->selectedParentTypeId) {
-            $parentQuery->where('series_type', $this->selectedParentTypeId);
+            $parentQuery->where('rdp_record_series.series_type', $this->selectedParentTypeId);
             if ($this->selectedParentOffice) {
-                $parentQuery->where('recorded_at_office', $this->selectedParentOffice);
+                $parentQuery->where('rdp_record_series.recorded_at_office', $this->selectedParentOffice);
             }
         }
 

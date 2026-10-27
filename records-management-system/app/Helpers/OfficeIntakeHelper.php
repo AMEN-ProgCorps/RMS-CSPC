@@ -4665,35 +4665,13 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Hide documents this office itself submitted via office intake (DRF/DCN).
-     * Applied for all distribution-scoped inventory groups (including Forms / Logbooks).
+     * Formerly hid this office's own DRF/DCN registrations from distribution inventory.
+     * That broke Incoming: offices listed on Document Distribution must still Mark as
+     * received (and appraise) even when they submitted the intake form.
+     * Kept as a no-op so older call sites remain safe.
      */
     protected static function applyExcludeOwnOfficeIntake($query, int $officeId)
     {
-        $detailsTable = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
-
-        if (Schema::hasColumn('dcs_office_intake_drf', 'registered_request_id')) {
-            $query->whereNotExists(function ($q) use ($officeId, $detailsTable) {
-                $q->select(DB::raw(1))
-                    ->from('dcs_office_intake_drf as oi_drf')
-                    ->join($detailsTable . ' as oi_ad', 'oi_ad.account_id', '=', 'oi_drf.created_by')
-                    ->whereColumn('oi_drf.registered_request_id', 'ml.request_id')
-                    ->where('oi_ad.office_id', $officeId)
-                    ->whereNotNull('oi_drf.registered_request_id');
-            });
-        }
-
-        if (Schema::hasColumn('dcs_office_intake_dcn', 'registered_request_id')) {
-            $query->whereNotExists(function ($q) use ($officeId, $detailsTable) {
-                $q->select(DB::raw(1))
-                    ->from('dcs_office_intake_dcn as oi_dcn')
-                    ->join($detailsTable . ' as oi_ad', 'oi_ad.account_id', '=', 'oi_dcn.created_by')
-                    ->whereColumn('oi_dcn.registered_request_id', 'ml.request_id')
-                    ->where('oi_ad.office_id', $officeId)
-                    ->whereNotNull('oi_dcn.registered_request_id');
-            });
-        }
-
         return $query;
     }
 
@@ -4901,14 +4879,10 @@ class OfficeIntakeHelper
             return false;
         }
 
-        $unreceived = DB::table('dcs_masterlist_registration as ml')
-            ->join('dcs_document_distribution as dist', 'dist.request_id', '=', 'ml.request_id')
-            ->join('dcs_distribution_offices as doff', 'doff.distribution_id', '=', 'dist.id')
-            ->where('doff.office_id', $officeId)
-            ->whereNull('doff.office_received_at')
-            ->whereRaw('LOWER(ml.doc_no) = ?', [strtolower($doc)])
-            ->exists();
-        if ($unreceived) {
+        // Same visibility rules as the Incoming page (pending + appraisal-held).
+        $pending = collect(self::listOfficeDocuments('all', $officeId, 'pending'))
+            ->contains(fn (array $row) => strcasecmp(trim((string) ($row['doc_no'] ?? '')), $doc) === 0);
+        if ($pending) {
             return true;
         }
 
@@ -4916,21 +4890,9 @@ class OfficeIntakeHelper
         if (! $perms || (! $perms->is_sadm && ! $perms->can_access_rdp)) {
             return false;
         }
-        if (! Schema::hasTable('rdp_received_documents')) {
-            return false;
-        }
 
-        $officeCode = RegisterQueryHelper::currentOfficeCode();
-        if (! $officeCode) {
-            return false;
-        }
-
-        return DB::table('rdp_received_documents')
-            ->where('source_subsystem', 'DCS')
-            ->where('status', 'pending')
-            ->whereRaw('LOWER(document_code) = ?', [strtolower($doc)])
-            ->whereRaw('LOWER(target_office) = ?', [strtolower($officeCode)])
-            ->exists();
+        return collect(self::listOfficeDocuments('all', $officeId, 'received_for_appraisal'))
+            ->contains(fn (array $row) => strcasecmp(trim((string) ($row['doc_no'] ?? '')), $doc) === 0);
     }
 
     /**
@@ -5048,6 +5010,8 @@ class OfficeIntakeHelper
 
     /**
      * A Save and Appraise registration stays out of Incoming until the admin forwards it.
+     * Match RDP intake by request id or document number so a later revision (same doc_no,
+     * new request_id) does not leave the earlier distribution copy stuck off Incoming.
      */
     protected static function excludeUnforwardedAppraisal($query): void
     {
@@ -5065,7 +5029,13 @@ class OfficeIntakeHelper
                     $inner->select(DB::raw(1))
                         ->from('rdp_received_documents as rdp_appr')
                         ->where('rdp_appr.source_subsystem', 'DCS')
-                        ->whereRaw("COALESCE(rdp_appr.metadata->>'dcs_request_id', '') = dr_appr.id::text");
+                        ->where(function ($match) {
+                            $match->whereRaw("COALESCE(rdp_appr.metadata->>'dcs_request_id', '') = dr_appr.id::text")
+                                ->orWhereColumn('rdp_appr.document_code', 'ml.doc_no')
+                                ->orWhereRaw(
+                                    "rdp_appr.document_code = CONCAT('DCS-REQ-', dr_appr.id::text)"
+                                );
+                        });
                 });
             }
         });

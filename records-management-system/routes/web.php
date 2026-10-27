@@ -184,7 +184,7 @@ $resolveGoogleTrackingSsoCredentials = function () {
     $envRedirect = $dbRedirect ?: env('GOOGLE_TRACKING_REDIRECT_URI');
     $redirectUrl = (!empty($envRedirect) && $envRedirect !== 'dynamic')
         ? $envRedirect
-        : url('/auth/google/tracking/callback');
+        : url('/auth/google/track/callback');
 
     return compact('clientId', 'clientSecret', 'redirectUrl');
 };
@@ -210,7 +210,7 @@ Route::get('/auth/google/track', function (Request $request) use ($resolveGoogle
     )->stateless()->redirect();
 })->name('auth.google.track');
 
-Route::get('/auth/google/track/callback', function () use ($resolveGoogleTrackingSsoCredentials) {
+$handleTrackingCallback = function () use ($resolveGoogleTrackingSsoCredentials) {
     try {
         ['clientId' => $clientId, 'clientSecret' => $clientSecret, 'redirectUrl' => $redirectUrl] = $resolveGoogleTrackingSsoCredentials();
 
@@ -244,7 +244,10 @@ Route::get('/auth/google/track/callback', function () use ($resolveGoogleTrackin
         \Illuminate\Support\Facades\Log::error('Google Tracking Auth Error: ' . $msg . "\n" . $e->getTraceAsString());
         return redirect()->route('track-document')->with('error', 'Google verification failed: ' . $msg);
     }
-})->name('auth.google.track.callback');
+};
+
+Route::get('/auth/google/track/callback', $handleTrackingCallback)->name('auth.google.track.callback');
+Route::get('/auth/google/tracking/callback', $handleTrackingCallback);
 
 // Public document tracking
 Volt::route('/track-document', 'pages.portal.track-document')

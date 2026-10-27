@@ -2256,7 +2256,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $current = $pId ? DB::table('rdp_record_series')
                 ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                 ->select(['rdp_record_series.*', 'rdp_remarks_logic.remarks_value as remarks'])
-                ->where('id', $pId)->first() : null;
+                ->where('rdp_record_series.id', $pId)->first() : null;
         }
 
         return [
@@ -2272,7 +2272,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $series = DB::table('rdp_record_series')
             ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->select(['rdp_record_series.*', 'rdp_remarks_logic.remarks_value as remarks'])
-            ->where('id', $id)->first();
+            ->where('rdp_record_series.id', $id)->first();
         if (!$series) return;
 
         $this->record_series_id = $series->id;
@@ -2556,18 +2556,18 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $query = DB::table('rdp_record_series')
                 ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                 ->select(['rdp_record_series.*', 'rdp_remarks_logic.remarks_value as remarks'])
-                ->where('series_title', 'ilike', $t);
+                ->where('rdp_record_series.series_title', 'ilike', $t);
             if ($idx === 0) {
                 if ($this->selectedParentId) {
-                    $query->where('id', $this->selectedParentId);
+                    $query->where('rdp_record_series.id', $this->selectedParentId);
                 } else {
-                    $query->whereNull('parent_id');
+                    $query->whereNull('rdp_record_series.parent_id');
                     if ($this->selectedSeriesTypeFilter) {
-                        $query->where('series_type', $this->selectedSeriesTypeFilter);
+                        $query->where('rdp_record_series.series_type', $this->selectedSeriesTypeFilter);
                     }
                 }
             } elseif ($currentParentId) {
-                $query->where('parent_id', $currentParentId);
+                $query->where('rdp_record_series.parent_id', $currentParentId);
             }
             $existsNode = $query->first();
 
@@ -2642,7 +2642,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $targetSeries = DB::table('rdp_record_series')
                 ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                 ->select(['rdp_record_series.*', 'rdp_remarks_logic.remarks_value as remarks'])
-                ->where('series_title', 'ilike', $leafTitle)
+                ->where('rdp_record_series.series_title', 'ilike', $leafTitle)
                 ->first();
         }
 

@@ -559,6 +559,48 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 } elseif ($step->office_code === '[H]') {
                     $step->office_code = $clusterHeadCode;
                     $step->office_name = $clusterHeadName;
+                } elseif ($step->office_code === '[HUB]' || !empty($step->is_hub)) {
+                    $step->office_code = '[HUB]';
+                    $step->office_name = 'Office Hub [Multi-Receiving]';
+                    $step->is_hub = true;
+
+                    // Calculate hub counts for modal view
+                    $cBranches = DB::table('dts_transactions as dt')
+                        ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                        ->where('dtd.control_number', 'like', $this->selectedTransaction->control_number . '-%')
+                        ->where('dtd.is_active', 1)
+                        ->whereNotIn('dt.status', ['cancelled'])
+                        ->select('dt.transaction_id', 'dt.status', 'dt.sequence', 'dt.current_office')
+                        ->get();
+
+                    $hubTotal = $cBranches->count();
+                    if ($hubTotal === 0) {
+                        $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $this->selectedTransaction->control_number)->first();
+                        $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
+                        $hubTotal = count($hubOffices);
+                    }
+
+                    $hubDone = 0;
+                    if ($cBranches->isNotEmpty()) {
+                        $cIds = $cBranches->pluck('transaction_id')->toArray();
+                        $fwdLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
+                            ->whereIn('transaction_id', $cIds)
+                            ->whereNotNull('date_out')
+                            ->pluck('transaction_id')
+                            ->toArray();
+
+                        foreach ($cBranches as $cb) {
+                            if (strtolower($cb->status) === 'completed' || in_array($cb->transaction_id, $fwdLogs) || ($cb->sequence ?? 0) > 2) {
+                                $hubDone++;
+                            }
+                        }
+                    }
+
+                    $step->hub_forwarded_count = $hubDone;
+                    $step->hub_total = $hubTotal;
+                    if ($hubTotal > 0 && $hubDone >= $hubTotal) {
+                        $step->date_out = now();
+                    }
                 }
 
                 $step->receiver_name = !empty(trim($step->receiver_name ?? '')) ? $step->receiver_name : ($step->receiver_username ?: '—');
@@ -2173,6 +2215,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
 
                                             $isCurrentOffice = $step->is_active_step && !is_null($step->date_in) && is_null($step->date_out) && $selectedTransaction->status !== 'completed';
                                             $isInTransitToThisOffice = $step->is_active_step && is_null($step->date_in) && $selectedTransaction->status !== 'completed';
+                                            $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
+                                            $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $selectedTransaction->sequence || $selectedTransaction->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
 
                                             if ($isCompleted) {
                                                 $dotColor = '#10b981';
@@ -2219,7 +2263,15 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
 
                                             <!-- Node Dot Circle -->
                                             <div class="dts-timeline-node-dot" style="width: 32px; height: 32px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.35); transform: scale(1.15);' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.35);' : '') }}">
-                                                @if ($isCompleted || $isReceived)
+                                                @if ($isHubStep)
+                                                    @if ($isForwarded && ($step->hub_forwarded_count ?? 0) >= ($step->hub_total ?: 1))
+                                                        <i class="fa-solid fa-check" style="font-size: 13px;"></i>
+                                                    @elseif ($isReceived)
+                                                        <i class="fa-solid fa-bolt" style="font-size: 13px;"></i>
+                                                    @else
+                                                        {{ $index + 1 }}
+                                                    @endif
+                                                @elseif ($isCompleted || $isReceived)
                                                     <i class="fa-solid fa-check" style="font-size: 13px;"></i>
                                                 @else
                                                     {{ $index + 1 }}
@@ -2227,14 +2279,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                             </div>
 
                                             <!-- Office Code Below Dot -->
-                                            <span style="margin-top: 8px; font-size: 11.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif;">
-                                                {{ $step->office_code }}
+                                            <span style="margin-top: 8px; font-size: 11.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                @if ($isHubStep)
+                                                    [HUB]@if($isOnHubArea && isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                @else
+                                                    {{ $step->office_code }}
+                                                @endif
                                             </span>
 
                                             <!-- Pure CSS Tooltip -->
                                             <div class="dts-node-tooltip">
                                                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 6px; margin-bottom: 6px;">
-                                                    <span style="font-weight: 700; font-size: 12px; color: #38bdf8;">Step {{ $index + 1 }}: {{ $step->office_code }}</span>
+                                                    <span style="font-weight: 700; font-size: 12px; color: #38bdf8;">Step {{ $index + 1 }}: @if ($isHubStep) [HUB] @else {{ $step->office_code }} @endif</span>
                                                     @if ($isReceived && $isForwarded)
                                                         <span style="background: #166534; color: #4ade80; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 12px;">✓ Forwarded</span>
                                                     @elseif ($isReceived && !$isForwarded)
@@ -2247,6 +2303,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                                 <div style="font-size: 11px; font-weight: 600; color: #f1f5f9; margin-bottom: 6px; line-height: 1.3;">
                                                     {{ $step->office_name }}
                                                 </div>
+
+                                                @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
+                                                    <div style="font-size: 10.5px; color: #93c5fd; margin-bottom: 6px; font-weight: 600;">
+                                                        Completed &amp; Forwarded: {{ $step->hub_forwarded_count ?? 0 }} / {{ $step->hub_total ?? 0 }} offices
+                                                    </div>
+                                                @endif
 
                                                 <div style="font-size: 10.5px; color: #94a3b8; display: flex; flex-direction: column; gap: 3px;">
                                                     <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>

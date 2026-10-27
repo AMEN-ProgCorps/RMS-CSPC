@@ -73,7 +73,12 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
 
         // Hide child transactions from top-level list so they are collapsed under their parent
         if (empty($this->searchQuery)) {
-            $query->whereRaw("dtd.control_number !~ '-[0-9]+$'");
+            $query->whereNotExists(function($q) {
+                $q->select(DB::raw(1))
+                  ->from('dts_transaction_details as p_dtd')
+                  ->whereColumn('p_dtd.id', '!=', 'dtd.id')
+                  ->whereRaw("dtd.control_number LIKE CONCAT(p_dtd.control_number, '-%')");
+            });
         }
 
         if (!empty($this->searchQuery)) {

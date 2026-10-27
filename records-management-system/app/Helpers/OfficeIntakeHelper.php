@@ -2369,6 +2369,189 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Active campus signatory assignment for a form + catalog type/subtype (or kind fallback).
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function signatoryTemplate(
+        string $formKind,
+        string $docTypeKind = 'internal',
+        ?int $docTypeId = null,
+        ?string $onDate = null,
+        bool $allowKindFallback = true
+    ): ?array {
+        $formKind = strtolower(trim($formKind));
+        $docTypeKind = strtolower(trim($docTypeKind));
+        if (! in_array($formKind, ['drf', 'dcn'], true)) {
+            return null;
+        }
+        if (! Schema::hasTable('dcs_signatory_templates')) {
+            return null;
+        }
+
+        $day = $onDate ? \Carbon\Carbon::parse($onDate)->toDateString() : now()->toDateString();
+        $query = DB::table('dcs_signatory_templates')->where('form_kind', $formKind);
+
+        if ($docTypeId && $docTypeId > 0 && Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
+            $query->where('doc_type_id', $docTypeId);
+        } elseif (in_array($docTypeKind, ['internal', 'external'], true)) {
+            $query->where('doc_type_kind', $docTypeKind);
+            if (Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
+                $query->whereNull('doc_type_id');
+            }
+        } else {
+            return null;
+        }
+
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_from')) {
+            $query->where(function ($q) use ($day) {
+                $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', $day);
+            });
+        }
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
+            $query->where(function ($q) use ($day) {
+                $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $day);
+            });
+        }
+
+        $row = $query->orderByDesc('id')->first();
+        if (! $row) {
+            if ($docTypeId && $docTypeId > 0 && Schema::hasTable('dcs_doc_types')) {
+                $parentId = (int) DB::table('dcs_doc_types')->where('id', $docTypeId)->value('parent_id');
+                if ($parentId > 0) {
+                    $parentHit = self::signatoryTemplate($formKind, $docTypeKind, $parentId, $onDate, false);
+                    if ($parentHit) {
+                        return $parentHit;
+                    }
+                }
+            }
+            if ($allowKindFallback && $docTypeId && $docTypeId > 0 && in_array($docTypeKind, ['internal', 'external'], true)) {
+                return self::signatoryTemplate($formKind, $docTypeKind, null, $onDate, false);
+            }
+
+            return null;
+        }
+
+        $payload = $row->payload ?? null;
+        if (is_string($payload)) {
+            $decoded = json_decode($payload, true);
+            $payload = is_array($decoded) ? $decoded : null;
+        }
+        if (! is_array($payload)) {
+            return null;
+        }
+
+        $payload['_meta'] = [
+            'id' => (int) data_get($row, 'id', 0),
+            'doc_type_id' => ($id = data_get($row, 'doc_type_id')) ? (int) $id : null,
+            'doc_type_kind' => data_get($row, 'doc_type_kind', $docTypeKind),
+            'effective_from' => data_get($row, 'effective_from'),
+            'effective_until' => data_get($row, 'effective_until'),
+        ];
+
+        return $payload;
+    }
+
+    /**
+     * Create a dated assignment window. Closes any open overlapping assignment for the same scope.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public static function saveSignatoryTemplate(
+        string $formKind,
+        string $docTypeKind,
+        array $payload,
+        ?int $updatedBy = null,
+        ?int $docTypeId = null,
+        ?string $effectiveFrom = null,
+        ?string $effectiveUntil = null
+    ): void {
+        $formKind = strtolower(trim($formKind));
+        $docTypeKind = strtolower(trim($docTypeKind ?: 'internal'));
+        if (! in_array($formKind, ['drf', 'dcn'], true) || ! in_array($docTypeKind, ['internal', 'external'], true)) {
+            throw new \InvalidArgumentException('Invalid signatory template key.');
+        }
+        if (! Schema::hasTable('dcs_signatory_templates')) {
+            throw new \RuntimeException('Signatory templates table is not ready. Run migrations.');
+        }
+
+        $now = now();
+        $from = $effectiveFrom ? \Carbon\Carbon::parse($effectiveFrom)->toDateString() : $now->toDateString();
+        $until = $effectiveUntil ? \Carbon\Carbon::parse($effectiveUntil)->toDateString() : null;
+        if ($until && $until < $from) {
+            throw new \InvalidArgumentException('Effective until must be on or after effective from.');
+        }
+
+        $data = [
+            'form_kind' => $formKind,
+            'doc_type_kind' => $docTypeKind,
+            'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE),
+            'updated_by' => $updatedBy,
+            'updated_at' => $now,
+        ];
+        if (Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
+            $data['doc_type_id'] = $docTypeId && $docTypeId > 0 ? $docTypeId : null;
+        }
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_from')) {
+            $data['effective_from'] = $from;
+        }
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
+            $data['effective_until'] = $until;
+        }
+
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
+            $closeQuery = DB::table('dcs_signatory_templates')
+                ->where('form_kind', $formKind)
+                ->where(function ($q) use ($from) {
+                    $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $from);
+                });
+            if ($docTypeId && $docTypeId > 0 && Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
+                $closeQuery->where('doc_type_id', $docTypeId);
+            } else {
+                $closeQuery->where('doc_type_kind', $docTypeKind);
+                if (Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
+                    $closeQuery->whereNull('doc_type_id');
+                }
+            }
+            $closeQuery->update([
+                'effective_until' => \Carbon\Carbon::parse($from)->subDay()->toDateString(),
+                'updated_at' => $now,
+                'updated_by' => $updatedBy,
+            ]);
+        }
+
+        $data['created_at'] = $now;
+        DB::table('dcs_signatory_templates')->insert($data);
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    public static function listSignatoryAssignments(string $formKind = 'drf'): \Illuminate\Support\Collection
+    {
+        if (! Schema::hasTable('dcs_signatory_templates')) {
+            return collect();
+        }
+
+        $query = DB::table('dcs_signatory_templates as t')
+            ->where('t.form_kind', strtolower($formKind))
+            ->orderByDesc('t.id');
+
+        if (Schema::hasColumn('dcs_signatory_templates', 'doc_type_id') && Schema::hasTable('dcs_doc_types')) {
+            $query->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 't.doc_type_id')
+                ->select([
+                    't.*',
+                    'dt.doc_type_name',
+                    'dt.parent_id as doc_type_parent_id',
+                ]);
+        } else {
+            $query->select('t.*');
+        }
+
+        return $query->limit(100)->get();
+    }
+
+    /**
      * Last DRF signatories for the current office / creator (for create-form suggestions).
      *
      * @return array{

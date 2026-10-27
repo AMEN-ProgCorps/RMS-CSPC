@@ -1244,55 +1244,123 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function getOfficePastLocations(): array
     {
+        $suggestions = $this->getLocationSuggestionsWithTypes();
+        return array_values(array_unique(array_map(fn($s) => $s['name'], $suggestions)));
+    }
+
+    public function getLocationSuggestionsWithTypes(): array
+    {
         $user = Auth::user();
         $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
 
-        $query = DB::table('rdp_record')
-            ->whereNotNull('records_location')
-            ->where('records_location', '!=', '');
-
-        if (!empty($userOfficeCode)) {
-            $query->where('office_own', $userOfficeCode);
-        }
-
-        $rawLocations = $query->distinct()->pluck('records_location')->all();
-
-        $locations = [];
+        $results = [];
         $seen = [];
-        foreach ($rawLocations as $loc) {
-            $clean = trim((string)$loc);
-            if ($clean === '') {
-                continue;
-            }
-            $upper = mb_strtoupper($clean);
-            if (!isset($seen[$upper])) {
-                $seen[$upper] = true;
-                $locations[] = $clean;
+
+        // 1. Primary Source: rdp_location_suggestion table
+        if (Schema::hasTable('rdp_location_suggestion')) {
+            try {
+                $query = DB::table('rdp_location_suggestion');
+
+                if (!empty($userOfficeCode)) {
+                    $query->where(function ($q) use ($userOfficeCode) {
+                        $q->where('recorded_at_office', $userOfficeCode)
+                          ->orWhereNull('recorded_at_office');
+                    });
+                }
+
+                if (!empty($this->record_series_id)) {
+                    $query->orderByRaw("CASE WHEN suggestion_from = ? THEN 0 ELSE 1 END", [$this->record_series_id]);
+                }
+                $query->orderBy('id', 'desc');
+
+                $records = $query->get();
+                foreach ($records as $row) {
+                    $name = trim((string)$row->location_name);
+                    if ($name === '') continue;
+                    $key = mb_strtoupper($name);
+                    if (!isset($seen[$key])) {
+                        $seen[$key] = true;
+                        $isSeriesMatch = (!empty($this->record_series_id) && (int)$row->suggestion_from === (int)$this->record_series_id);
+                        $results[] = [
+                            'id'              => (int) $row->id,
+                            'name'            => $name,
+                            'type'            => $row->location_type ?: 'Office Location',
+                            'recorded_at'     => $row->recorded_at_office,
+                            'is_series_match' => $isSeriesMatch,
+                            'is_suggestion'   => true,
+                        ];
+                    }
+                }
+            } catch (\Throwable $e) {
+                logger()->warning("Error fetching rdp_location_suggestion: " . $e->getMessage());
             }
         }
 
-        sort($locations);
+        // 2. Secondary Source: Past distinct records from rdp_record table
+        if (Schema::hasTable('rdp_record')) {
+            try {
+                $query = DB::table('rdp_record')
+                    ->whereNotNull('records_location')
+                    ->where('records_location', '<>', '');
 
-        return $locations;
+                if (!empty($userOfficeCode)) {
+                    $query->where('office_own', $userOfficeCode);
+                }
+
+                $raw = $query->distinct()->pluck('records_location')->all();
+                foreach ($raw as $loc) {
+                    $name = trim((string)$loc);
+                    if ($name === '') continue;
+                    $key = mb_strtoupper($name);
+                    if (!isset($seen[$key])) {
+                        $seen[$key] = true;
+                        $lower = strtolower($name);
+                        $type = 'Office Location';
+                        if (str_contains($lower, 'cabinet')) {
+                            $type = 'Cabinet';
+                        } elseif (str_contains($lower, 'shelf')) {
+                            $type = 'Shelf';
+                        } elseif (str_contains($lower, 'room') || str_contains($lower, 'facility')) {
+                            $type = 'Room / Facility';
+                        } elseif (str_contains($lower, 'box') || str_contains($lower, 'drawer')) {
+                            $type = 'Box / Container';
+                        }
+
+                        $results[] = [
+                            'id'              => null,
+                            'name'            => $name,
+                            'type'            => $type,
+                            'recorded_at'     => $userOfficeCode,
+                            'is_series_match' => false,
+                            'is_suggestion'   => false,
+                        ];
+                    }
+                }
+            } catch (\Throwable $e) {
+                logger()->warning("Error fetching past rdp_record locations: " . $e->getMessage());
+            }
+        }
+
+        return $results;
     }
 
     public function getLocationSuggestions(?string $search = null): array
     {
-        $allLocations = $this->getOfficePastLocations();
+        $all = $this->getLocationSuggestionsWithTypes();
         $term = trim((string)($search !== null ? $search : $this->records_location));
 
         if ($term === '') {
-            return array_slice($allLocations, 0, 10);
+            return array_slice($all, 0, 10);
         }
 
         $termLower = strtolower($term);
-        $matches = array_filter($allLocations, function ($loc) use ($termLower) {
-            return str_contains(strtolower($loc), $termLower);
+        $matches = array_filter($all, function ($item) use ($termLower) {
+            return str_contains(strtolower($item['name']), $termLower);
         });
 
         usort($matches, function ($a, $b) use ($termLower) {
-            $aLower = strtolower($a);
-            $bLower = strtolower($b);
+            $aLower = strtolower($a['name']);
+            $bLower = strtolower($b['name']);
             $aStarts = str_starts_with($aLower, $termLower);
             $bStarts = str_starts_with($bLower, $termLower);
 
@@ -1317,6 +1385,67 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $this->batchItems[$bIdx]['records_location'] = $location;
         }
         $this->activeBatchLocationIndex = null;
+    }
+
+    public function rememberLocationSuggestion(?string $locationName, ?int $seriesId = null, ?string $officeCode = null, string $type = 'Office'): void
+    {
+        $cleanName = trim((string)$locationName);
+        if ($cleanName === '') {
+            return;
+        }
+
+        if (!Schema::hasTable('rdp_location_suggestion')) {
+            return;
+        }
+
+        try {
+            $officeCode = $officeCode ?: (Auth::user()?->details?->office?->office_code ?? Auth::user()?->details?->office_code);
+            $cleanUpper = mb_strtoupper($cleanName);
+
+            // Infer a friendly location type if default
+            $detectedType = $type;
+            $lower = strtolower($cleanName);
+            if (str_contains($lower, 'cabinet')) {
+                $detectedType = 'Cabinet';
+            } elseif (str_contains($lower, 'shelf')) {
+                $detectedType = 'Shelf';
+            } elseif (str_contains($lower, 'room') || str_contains($lower, 'building') || str_contains($lower, 'bldg')) {
+                $detectedType = 'Room / Facility';
+            } elseif (str_contains($lower, 'box') || str_contains($lower, 'bin') || str_contains($lower, 'drawer') || str_contains($lower, 'folder')) {
+                $detectedType = 'Box / Container';
+            }
+
+            // Check if already registered for this office
+            $exists = DB::table('rdp_location_suggestion')
+                ->whereRaw('LOWER(location_name) = ?', [strtolower($cleanName)])
+                ->where(function ($q) use ($officeCode) {
+                    if (!empty($officeCode)) {
+                        $q->where('recorded_at_office', $officeCode)
+                          ->orWhereNull('recorded_at_office');
+                    }
+                })
+                ->exists();
+
+            if (!$exists) {
+                DB::table('rdp_location_suggestion')->insert([
+                    'location_name'      => $cleanUpper,
+                    'suggestion_from'    => $seriesId,
+                    'location_type'      => $detectedType,
+                    'recorded_at_office' => $officeCode,
+                    'created_at'         => now(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            logger()->warning("Failed remembering location suggestion: " . $e->getMessage());
+        }
+    }
+
+    public function addQuickLocationSuggestion(string $locationName, string $locationType = 'Office'): void
+    {
+        $user = Auth::user();
+        $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        $this->rememberLocationSuggestion($locationName, $this->record_series_id, $userOfficeCode, $locationType);
+        $this->records_location = mb_strtoupper(trim($locationName));
     }
 
     public function updatedUploadedFile(): void
@@ -2000,6 +2129,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
+            $this->rememberLocationSuggestion($this->records_location, $this->record_series_id, $officeOwn);
 
             DB::table('rdp_record')->where('id', $recordId)->update([
                 'utility_value' => $recordId,
@@ -3019,6 +3150,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 }
 
                 $recordId = DB::table('rdp_record')->insertGetId($insertRow);
+                $this->rememberLocationSuggestion($rData['records_location'] ?? null, $this->record_series_id, $userOfficeCode);
 
                 if ($firstRecordId === null) {
                     $firstRecordId = $recordId;
@@ -3363,6 +3495,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 }
 
                 $recordId = DB::table('rdp_record')->insertGetId($insertRow);
+                $this->rememberLocationSuggestion($rData['records_location'] ?? null, $this->record_series_id, $userOfficeCode);
 
                 if ($firstRecordId === null) {
                     $firstRecordId = $recordId;
@@ -4081,18 +4214,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                         @if($activeBatchLocationIndex === $bIdx && count($this->getBatchLocationSuggestions($bIdx)) > 0)
                                             <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 0; z-index: 1050; max-height: 180px; overflow-y: auto;">
                                                 @foreach($this->getBatchLocationSuggestions($bIdx) as $bLocSugg)
-                                                    <div wire:click="selectBatchLocationSuggestion({{ $bIdx }}, '{{ addslashes($bLocSugg) }}')"
+                                                    @php
+                                                        $bLocName = is_array($bLocSugg) ? ($bLocSugg['name'] ?? '') : $bLocSugg;
+                                                        $bLocType = is_array($bLocSugg) ? ($bLocSugg['type'] ?? 'Office Location') : 'Office Location';
+                                                    @endphp
+                                                    <div wire:click="selectBatchLocationSuggestion({{ $bIdx }}, '{{ addslashes($bLocName) }}')"
                                                          class="ia-autocomplete-item"
                                                          style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; cursor: pointer;">
                                                         <div style="display: flex; align-items: center; gap: 6px;">
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                                 <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                                                                 <circle cx="12" cy="10" r="3"></circle>
                                                             </svg>
-                                                            <span style="font-weight: 600;">{{ $bLocSugg }}</span>
+                                                            <span style="font-weight: 600;">{{ $bLocName }}</span>
                                                         </div>
-                                                        <span style="font-size: 9.5px; font-weight: 700; color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 5px; border-radius: 4px; text-transform: uppercase;">
-                                                            Office Location
+                                                        <span style="font-size: 9.5px; font-weight: 700; color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 5px; border-radius: 4px; text-transform: uppercase;">
+                                                            {{ $bLocType }}
                                                         </span>
                                                     </div>
                                                 @endforeach
@@ -4524,11 +4661,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                              x-data="{
                                 open: false,
                                 locationValue: @entangle('records_location'),
-                                allLocs: {{ json_encode($this->getOfficePastLocations()) }},
+                                allLocs: {{ json_encode($this->getLocationSuggestionsWithTypes()) }},
                                 get suggestions() {
-                                    if (!this.locationValue || !this.locationValue.trim()) return this.allLocs.slice(0, 8);
+                                    if (!this.locationValue || !this.locationValue.trim()) return this.allLocs.slice(0, 10);
                                     const q = this.locationValue.toLowerCase().trim();
-                                    return this.allLocs.filter(l => l.toLowerCase().includes(q)).slice(0, 8);
+                                    return this.allLocs.filter(l => l.name.toLowerCase().includes(q)).slice(0, 10);
                                 },
                                 selectLoc(val) {
                                     this.locationValue = val;
@@ -4546,23 +4683,49 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                 <div style="font-size: 11.5px; color: #64748b; margin-top: 6px;">Saved as your office inventory on NAP Form 1. Other offices enter their own location after receive.</div>
                             @endif
 
+                            @php
+                                $topSuggestions = array_slice($this->getLocationSuggestionsWithTypes(), 0, 6);
+                            @endphp
+                            @if(!empty($topSuggestions))
+                                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px;">
+                                    <span style="font-size: 11px; font-weight: 700; color: #64748b;">Suggested Locations:</span>
+                                    @foreach($topSuggestions as $sPill)
+                                        <button type="button" 
+                                                @click="selectLoc('{{ addslashes($sPill['name']) }}')"
+                                                style="background: #f8fafc; border: 1px solid #cbd5e1; color: #1e293b; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s;"
+                                                title="{{ $sPill['type'] }}{{ $sPill['is_series_match'] ? ' (Series Match)' : '' }}">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                                            <span>{{ $sPill['name'] }}</span>
+                                        </button>
+                                    @endforeach
+                                </div>
+                            @endif
+
                             <div x-show="open && suggestions.length > 0" 
                                  x-cloak
-                                 class="ia-autocomplete-dropdown">
-                                <template x-for="locSugg in suggestions" :key="locSugg">
-                                    <div @click="selectLoc(locSugg)"
+                                 class="ia-autocomplete-dropdown"
+                                 style="top: 100%; left: 0; right: 0; z-index: 1050; max-height: 220px; overflow-y: auto;">
+                                <template x-for="locSugg in suggestions" :key="locSugg.name">
+                                    <div @click="selectLoc(locSugg.name)"
                                          class="ia-autocomplete-item"
-                                         style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer;">
+                                         style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; padding: 8px 12px;">
                                         <div style="display: flex; align-items: center; gap: 8px;">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                                                 <circle cx="12" cy="10" r="3"></circle>
                                             </svg>
-                                            <span style="font-weight: 600;" x-text="locSugg"></span>
+                                            <span style="font-weight: 600;" x-text="locSugg.name"></span>
                                         </div>
-                                        <span style="font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">
-                                            Office Location
-                                        </span>
+                                        <div style="display: flex; align-items: center; gap: 6px;">
+                                            <span style="font-size: 10px; font-weight: 700; color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;"
+                                                  x-text="locSugg.type">
+                                            </span>
+                                            <template x-if="locSugg.is_series_match">
+                                                <span style="font-size: 9.5px; font-weight: 800; color: #059669; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 2px 5px; border-radius: 4px; text-transform: uppercase;">
+                                                    Series
+                                                </span>
+                                            </template>
+                                        </div>
                                     </div>
                                 </template>
                             </div>

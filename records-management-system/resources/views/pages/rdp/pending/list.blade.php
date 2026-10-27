@@ -32,6 +32,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
     // Print Modal & Fill-up Properties
     public bool $showPrintModal = false;
+    public bool $enableNumber = false;
     public bool $includeDescriptionOnPrint = false;
     public ?object $printCluster = null;
     public array $printItems = [];
@@ -290,6 +291,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 $items = DB::table('rdp_grouped_record')
                     ->join('rdp_record', 'rdp_grouped_record.record_id', '=', 'rdp_record.id')
                     ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
+                    ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+                    ->leftJoin('rdp_record_series_type_id', 'rdp_record_series_type.series_type_id', '=', 'rdp_record_series_type_id.id')
                     ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                     ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                     ->leftJoin('rdp_recorded_value', 'rdp_record.records_medium', '=', 'rdp_recorded_value.id')
@@ -299,6 +302,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         'rdp_record.*',
                         'rdp_record_series.series_title',
                         'rdp_record_series.item_number',
+                        'rdp_record_series_type_id.shorten_identifier_value as series_type_identifier',
+                        'rdp_record_series_type.shorted_type',
                         'rdp_remarks_logic.remarks_value as series_remarks',
                         'rdp_retention_period.active_period',
                         'rdp_retention_period.storage_period',
@@ -467,14 +472,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
         if ($isNap2) {
             $exportItems = $this->buildNap2Tree($items);
+            if ($this->enableNumber) {
+                foreach ($exportItems as $idx => $expItem) {
+                    $expItem->display_item_no = (string)($idx + 1);
+                }
+            }
             $this->closeDownloadModal();
             return RdpExportHelper::streamNap2Xlsx($fileName, $cluster, $exportItems, $signatures);
         }
 
         if ($isNap3) {
             $treeData = $this->buildNapRecordTree((int)($cluster->cluster_id ?? $this->downloadClusterId), true);
-            $signatures['effectiveLocation'] = $treeData['location'];
-            $signatures['effectiveVolume'] = $treeData['volume'];
+            $signatures['effectiveLocation'] = !empty($this->effectivePrintLocation) ? $this->effectivePrintLocation : $treeData['location'];
+            $signatures['effectiveVolume'] = !empty($this->effectivePrintVolume) ? $this->effectivePrintVolume : $treeData['volume'];
             $this->closeDownloadModal();
             return RdpExportHelper::streamNap3Xlsx($fileName, $cluster, $treeData['tree'], $signatures);
         }
@@ -490,6 +500,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
         if ($isNap2) {
             $treeItems = $this->buildNap2Tree($items);
+            if ($this->enableNumber) {
+                foreach ($treeItems as $idx => $expItem) {
+                    $expItem->display_item_no = (string)($idx + 1);
+                }
+            }
             $headers = ['Item No.', 'Record Series Title', 'Parent Series', 'Active Period', 'Storage Period', 'Total Retention', 'Remarks'];
             $rows = [];
             foreach ($treeItems as $it) {
@@ -508,8 +523,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             $headers = ['GRDS / RDS Item No.', 'Record Series Title', 'Description', 'Period Covered', 'Volume (Cu. M.)', 'Total Retention', 'Remarks'];
             $rows = [];
             foreach ($items as $it) {
+                $itemNoFormatted = !empty($it->item_number) ? (!empty($it->series_type_identifier) ? $it->item_number . ' - ' . $it->series_type_identifier : $it->item_number) : ($it->series_type_identifier ?? '');
                 $rows[] = [
-                    $it->item_number ?? '',
+                    $itemNoFormatted,
                     $it->series_title ?? $it->parent_title ?? '',
                     $it->description ?? '',
                     $it->period_covered ?? '',
@@ -565,13 +581,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         if ($isNap2) {
             $datePrepared = $this->datePrepared ?: \Carbon\Carbon::parse($cluster->created_at ?? now())->format('F d, Y');
             $exportItems = $this->buildNap2Tree($items);
+            if ($this->enableNumber) {
+                foreach ($exportItems as $idx => $expItem) {
+                    $expItem->display_item_no = (string)($idx + 1);
+                }
+            }
             $formCode = 'nap2';
         } elseif ($isNap3) {
             $datePrepared = $this->datePrepared ?: \Carbon\Carbon::parse($cluster->created_at ?? now())->format('F d, Y');
             $treeData = $this->buildNapRecordTree((int)($cluster->cluster_id ?? $this->downloadClusterId), true);
             $exportItems = $treeData['tree'];
-            $effectiveLocation = $treeData['location'];
-            $effectiveVolume = $treeData['volume'];
+            $effectiveLocation = !empty($this->effectivePrintLocation) ? $this->effectivePrintLocation : $treeData['location'];
+            $effectiveVolume = !empty($this->effectivePrintVolume) ? $this->effectivePrintVolume : $treeData['volume'];
             $formCode = 'nap3';
         } else {
             $datePrepared = $this->datePrepared ?: \Carbon\Carbon::parse($cluster->created_at ?? now())->format('m/d/Y');
@@ -655,6 +676,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             $this->effectivePrintVolume = $treeData['volume'];
             if ($isNap3) {
                 $this->datePrepared = \Carbon\Carbon::parse($this->printCluster->created_at ?? now())->format('F d, Y');
+                $details = Auth::user()?->details;
+                $userFullName = $details ? trim(($details->first_name ?? '') . ' ' . ($details->last_name ?? '')) : '';
+                if (empty($userFullName) && !empty(Auth::user()?->username)) {
+                    $userFullName = Auth::user()->username;
+                }
+                $this->preparedBy = $userFullName ?: ($this->printCluster->submitter_name ?? '');
+                $this->preparedPosition = '';
             }
         }
 
@@ -664,11 +692,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public function closePrintModal(): void
     {
         $this->showPrintModal = false;
+        $this->enableNumber = false;
         $this->printCluster = null;
         $this->printItems = [];
         $this->printHierarchy = [];
         $this->effectivePrintLocation = '';
         $this->effectivePrintVolume = '';
+        $this->preparedPosition = 'Administrative Officer V / Records Officer';
     }
 
     private function resolveEffectiveRetention(array $allSeriesMap, object $record): object
@@ -1115,10 +1145,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
         $directSeries = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+            ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+            ->leftJoin('rdp_record_series_type_id', 'rdp_record_series_type.series_type_id', '=', 'rdp_record_series_type_id.id')
             ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->whereIn('rdp_record_series.id', $directSeriesIds)
             ->select([
                 'rdp_record_series.*',
+                'rdp_record_series_type.shorted_type',
+                'rdp_record_series_type_id.shorten_identifier_value as series_type_identifier',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
@@ -1131,10 +1165,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         if (!empty($neededParentIds)) {
             $parentSeries = DB::table('rdp_record_series')
                 ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+                ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+                ->leftJoin('rdp_record_series_type_id', 'rdp_record_series_type.series_type_id', '=', 'rdp_record_series_type_id.id')
                 ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                 ->whereIn('rdp_record_series.id', $neededParentIds)
                 ->select([
                     'rdp_record_series.*',
+                    'rdp_record_series_type.shorted_type',
+                    'rdp_record_series_type_id.shorten_identifier_value as series_type_identifier',
                     'rdp_retention_period.active_period',
                     'rdp_retention_period.storage_period',
                     'rdp_retention_period.total_period',
@@ -1167,13 +1205,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
         foreach ($sortedRoots as $root) {
             $rootNode = (object)[
-                'id'             => $root->id,
-                'item_number'    => ((bool)($root->is_verified ?? false) && !empty($root->item_number)) ? $root->item_number : '',
-                'series_title'   => $root->series_title,
-                'remarks'        => $root->remarks ?? '',
-                'sub_series'     => [],
-                'direct_records' => [],
-                'has_children'   => false,
+                'id'                     => $root->id,
+                'item_number'            => ((bool)($root->is_verified ?? false) && !empty($root->item_number)) ? $root->item_number : '',
+                'series_type_identifier' => $root->series_type_identifier ?? null,
+                'shorted_type'           => $root->shorted_type ?? null,
+                'series_title'           => $root->series_title,
+                'remarks'                => $root->remarks ?? '',
+                'sub_series'             => [],
+                'direct_records'         => [],
+                'has_children'           => false,
             ];
 
             $subs = $subSeriesByParent[$root->id] ?? collect();
@@ -1250,8 +1290,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     $isPerm = strtolower(trim($sub->total_period ?? '')) === 'permanent' || strtolower(trim($sub->active_period ?? '')) === 'permanent';
 
                     $subNode = (object)[
-                        'id'                   => $sub->id,
-                        'series_title'         => $sub->series_title,
+                        'id'                     => $sub->id,
+                        'item_number'            => ((bool)($sub->is_verified ?? false) && !empty($sub->item_number)) ? $sub->item_number : ($sub->item_number ?? ''),
+                        'series_type_identifier' => $sub->series_type_identifier ?? $root->series_type_identifier ?? null,
+                        'shorted_type'           => $sub->shorted_type ?: ($root->shorted_type ?? null),
+                        'series_title'           => $sub->series_title,
                         'compiled_period'      => $this->compilePeriodCovered($compiledDates),
                         'compiled_volume'      => $this->compileVolume($compiledVols),
                         'compiled_medium'      => $this->compileMedium($compiledMediums),
@@ -2459,7 +2502,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                 </td>
                                 <td>
                                     @if(isset($item->item_number))
-                                        <div>Item No: <strong>{{ sprintf('%03d', $item->item_number) }}</strong></div>
+                                        <div>Item No: <strong>{{ sprintf('%03d', $item->item_number) }}{{ !empty($item->series_type_identifier) ? ' - ' . $item->series_type_identifier : '' }}</strong></div>
                                     @endif
                                     @if(isset($item->volume))
                                         <div>Volume: {{ $item->volume }}</div>
@@ -2767,9 +2810,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 @elseif($isNap2)
                     <!-- FILL-UP FORM PANEL FOR NAP FORM 2 - NO-PRINT -->
                     <div class="no-print" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 18px; margin-bottom: 24px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
-                        <h4 style="margin: 0 0 14px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
-                            RDS Header & Details (Boxes 1 – 4)
-                        </h4>
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 14px;">
+                            <h4 style="margin: 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px;">
+                                RDS Header & Details (Boxes 1 – 4)
+                            </h4>
+                            <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; background: #ffffff; padding: 5px 12px; border-radius: 6px; border: 1px solid #cbd5e1; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
+                                <span style="font-size: 12px; font-weight: 700; color: #1e293b;">Enable Number</span>
+                                <div style="position: relative; width: 34px; height: 18px; background: {{ $enableNumber ? '#10b981' : '#cbd5e1' }}; border-radius: 9999px; transition: background 0.2s ease;">
+                                    <input type="checkbox" wire:model.live="enableNumber" style="opacity: 0; width: 0; height: 0; position: absolute;">
+                                    <span style="position: absolute; top: 2px; left: {{ $enableNumber ? '18px' : '2px' }}; width: 14px; height: 14px; background: white; border-radius: 50%; transition: left 0.2s ease; box-shadow: 0 1px 2px rgba(0,0,0,0.2);"></span>
+                                </div>
+                            </label>
+                        </div>
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
                             <div>
                                 <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">1. AGENCY NAME</label>
@@ -2833,6 +2885,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             <div>
                                 <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">TELEPHONE NUMBER</label>
                                 <input type="text" wire:model.live="telephoneNumber" class="form-control" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            </div>
+                        </div>
+
+                        <h4 style="margin: 14px 0 12px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
+                            Records Physical Details
+                        </h4>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px;">
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">LOCATION OF RECORDS</label>
+                                <input type="text" wire:model.live="effectivePrintLocation" class="form-control" placeholder="Location of Records" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            </div>
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">VOLUME IN CUBIC METER</label>
+                                <input type="text" wire:model.live="effectivePrintVolume" class="form-control" placeholder="Volume in Cubic Meter (e.g. 0.05 cu. m.)" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
                             </div>
                         </div>
 
@@ -3212,7 +3278,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     @foreach($dataPages as $pageIndex => $pageItems)
                         @php
                             $pageNumber = $pageIndex + 1;
-                            $fillerHeight = empty($pageItems) ? 880 : max(40, 880 - (count($pageItems) * 26));
+                            $fillerHeight = empty($pageItems) ? 880 : max(40, 880 - (count($pageItems) * 35));
                         @endphp
                         <div class="print-sheet">
                             <!-- Top Form Identifier -->
@@ -3280,32 +3346,33 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                             $isPermSeries = (bool)($item->effective_is_permanent) || 
                                                             (strtolower(trim($item->effective_total ?? '')) === 'permanent') ||
                                                             (strtolower(trim($item->effective_active ?? '')) === 'permanent' && strtolower(trim($item->effective_storage ?? '')) === 'permanent');
+                                            $itemRowNumber = ($pageIndex * $rowsPerPage) + $loop->iteration;
                                         @endphp
                                         <tr>
-                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top; font-weight: bold;">
-                                                {{ $item->display_item_no }}
+                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 6px; text-align: center; vertical-align: top; font-weight: bold; line-height: 1.2;">
+                                                {{ $enableNumber ? $itemRowNumber : $item->display_item_no }}
                                             </td>
-                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 6px; vertical-align: top; padding-left: {{ (($item->depth ?? 0) * 14) + 6 }}px;">
+                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 6px 12px {{ (($item->depth ?? 0) * 14) + 6 }}px; vertical-align: top; line-height: 1.2;">
                                                 <span style="{{ ($item->depth ?? 0) === 0 ? 'font-weight: bold;' : 'font-weight: 500;' }}">
                                                     {{ $item->series_title }}
                                                 </span>
                                             </td>
                                             @if($isPermSeries)
-                                                <td colspan="3" style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top; font-weight: bold;">
+                                                <td colspan="3" style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 4px; text-align: center; vertical-align: top; font-weight: bold; line-height: 1.2;">
                                                     PERMANENT
                                                 </td>
                                             @else
-                                                <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top;">
+                                                <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 4px; text-align: center; vertical-align: top; line-height: 1.2;">
                                                     {{ $item->effective_active }}
                                                 </td>
-                                                <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top;">
+                                                <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 4px; text-align: center; vertical-align: top; line-height: 1.2;">
                                                     {{ $item->effective_storage }}
                                                 </td>
-                                                <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top; font-weight: bold;">
+                                                <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 4px; text-align: center; vertical-align: top; font-weight: bold; line-height: 1.2;">
                                                     {{ $item->effective_total }}
                                                 </td>
                                             @endif
-                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 6px; vertical-align: top; font-size: 8.5px;">
+                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 6px; vertical-align: top; font-size: 8.5px; line-height: 1.2;">
                                                 {{ $item->remarks }}
                                             </td>
                                         </tr>
@@ -3535,8 +3602,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             $isLastPage = ($pageIndex + 1) === $totalPages;
                             $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
                             $computedFiller = $isLastPage 
-                                ? max(60, 750 - (count($pageItems) * 22)) 
-                                : max(60, 900 - (count($pageItems) * 22));
+                                ? max(40, 720 - (count($pageItems) * 36)) 
+                                : max(40, 870 - (count($pageItems) * 36));
                         @endphp
                         <div class="print-sheet">
                             <!-- Top Form ID Line -->
@@ -3585,8 +3652,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             <table class="print-table" style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 9px; margin-top: 0; border-top: none; table-layout: fixed;">
                                 <thead>
                                     <tr>
-                                        <th style="width: 12%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">GRDS/ RDS ITEM NO.</th>
-                                        <th style="width: 48%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">RECORD SERIES TITLE AND DESCRIPTION</th>
+                                        <th style="width: 14%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">GRDS/ RDS ITEM NO.</th>
+                                        <th style="width: 46%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">RECORD SERIES TITLE AND DESCRIPTION</th>
                                         <th style="width: 20%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">PERIOD COVERED</th>
                                         <th style="width: 20%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">RETENTION PERIOD AND PROVISION/S COMPLIED (If Any)</th>
                                     </tr>
@@ -3594,40 +3661,49 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                 <tbody>
                                     @foreach($pageItems as $item)
                                         @if($item['type'] === 'root_standalone')
-                                            @php $root = $item['root']; @endphp
+                                            @php
+                                                $root = $item['root'];
+                                                $rootItemFormatted = $root->item_number ? ($root->series_type_identifier ? $root->item_number . ' - ' . $root->series_type_identifier : $root->item_number) : ($root->series_type_identifier ?: '—');
+                                            @endphp
                                             <tr style="vertical-align: top;">
-                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->item_number) }}</td>
-                                                <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
-                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->compiled_period) }}</td>
-                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal(trim($root->total_period . ($root->remarks ? ' / ' . $root->remarks : ''))) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2; font-weight: bold;">{{ $cleanVal($rootItemFormatted) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 12px 8px; line-height: 1.2; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;">{{ $cleanVal($root->compiled_period) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;">{{ $cleanVal(trim($root->total_period . ($root->remarks ? ' / ' . $root->remarks : ''))) }}</td>
                                             </tr>
                                         @elseif($item['type'] === 'root_header')
-                                            @php $root = $item['root']; @endphp
+                                            @php
+                                                $root = $item['root'];
+                                                $rootItemFormatted = $root->item_number ? ($root->series_type_identifier ? $root->item_number . ' - ' . $root->series_type_identifier : $root->item_number) : ($root->series_type_identifier ?: '—');
+                                            @endphp
                                             <tr style="vertical-align: top;">
-                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->item_number) }}</td>
-                                                <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
-                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
-                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2; font-weight: bold;">{{ $cleanVal($rootItemFormatted) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 12px 8px; line-height: 1.2; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;"></td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;"></td>
                                             </tr>
                                         @elseif($item['type'] === 'sub_series')
-                                            @php $sub = $item['sub']; @endphp
+                                            @php
+                                                $sub = $item['sub'];
+                                                $subItemFormatted = !empty($sub->item_number) ? ($sub->series_type_identifier ? $sub->item_number . ' - ' . $sub->series_type_identifier : $sub->item_number) : '';
+                                            @endphp
                                             <tr style="vertical-align: top;">
-                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
-                                                <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 4px {{ $item['indent'] ?? 14 }}px; font-weight: normal;">
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2; font-size: 8.5px;">{{ $cleanVal($subItemFormatted) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 12px 8px 12px {{ $item['indent'] ?? 14 }}px; line-height: 1.2; font-weight: normal;">
                                                     └ {{ $cleanVal($sub->series_title) }}
                                                 </td>
-                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($sub->compiled_period) }}</td>
-                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal(trim($sub->total_period . (($sub->remarks ?: $root->remarks) ? ' / ' . ($sub->remarks ?: $root->remarks) : ''))) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;">{{ $cleanVal($sub->compiled_period) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;">{{ $cleanVal(trim($sub->total_period . (($sub->remarks ?: $root->remarks) ? ' / ' . ($sub->remarks ?: $root->remarks) : ''))) }}</td>
                                             </tr>
                                         @elseif($item['type'] === 'record')
                                             @php $rec = $item['rec']; @endphp
                                             <tr style="vertical-align: top;">
-                                                <td style="{{ $cellBorder }} text-align: center; padding: 3px 6px;"></td>
-                                                <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px 3px {{ $item['indent'] ?? 20 }}px; font-size: 8.5px;">
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;"></td>
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 12px 8px 12px {{ $item['indent'] ?? 20 }}px; line-height: 1.2; font-size: 8.5px;">
                                                     {{ $cleanVal($rec->description) }}
                                                 </td>
-                                                <td style="{{ $cellBorder }} text-align: center; padding: 3px 6px;">{{ $cleanVal($rec->date_covered) }}</td>
-                                                <td style="{{ $cellBorder }} text-align: center; padding: 3px 6px;"></td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;">{{ $cleanVal($rec->date_covered) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;"></td>
                                             </tr>
                                         @endif
                                     @endforeach

@@ -461,6 +461,32 @@ Route::middleware(['auth'])
         Volt::route('/admin/subsystems/changes-logs', 'pages.admin.subsystems.changes-logs')->name('admin.subsystems.changes-logs');
         Volt::route('/admin/settings', 'pages.admin.settings.index')->name('admin.settings.index');
         Volt::route('/admin/backup', 'pages.admin.backup.index')->name('admin.backup.index');
+        Route::get('/admin/backup/download/{filename}', function ($filename) {
+            $filename = basename($filename);
+            $localPath = "backups/{$filename}";
+            $googlePath = "backup/{$filename}";
+
+            if (\Illuminate\Support\Facades\Storage::disk('local')->exists($localPath)) {
+                return \Illuminate\Support\Facades\Storage::disk('local')->download($localPath, $filename, [
+                    'Content-Type' => 'application/json',
+                ]);
+            }
+
+            if (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
+                $stream = \Illuminate\Support\Facades\Storage::disk('google')->readStream($googlePath);
+                return response()->stream(function () use ($stream) {
+                    fpassthru($stream);
+                    if (is_resource($stream)) {
+                        fclose($stream);
+                    }
+                }, 200, [
+                    'Content-Type' => 'application/json',
+                    'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                ]);
+            }
+
+            abort(404, "Requested backup file [{$filename}] could not be found.");
+        })->name('admin.backup.download');
         Volt::route('/admin/recycle-bin', 'pages.admin.recycle-bin')->name('admin.recycle-bin');
 
         // Server Settings & High-Availability Clustering (/admin/server-settings/*)
@@ -532,6 +558,13 @@ Route::middleware(['auth'])
 
             $filename = basename($path);
             $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+            $sampleHead = substr($content, 0, 500);
+            $isHtml = in_array($ext, ['html', 'htm'])
+                || str_contains($sampleHead, '<html')
+                || str_contains($sampleHead, '<table')
+                || str_contains($sampleHead, '<!DOCTYPE');
+
             $mimeType = match ($ext) {
                 'pdf' => 'application/pdf',
                 'png' => 'image/png',
@@ -539,13 +572,22 @@ Route::middleware(['auth'])
                 'gif' => 'image/gif',
                 'webp' => 'image/webp',
                 'svg' => 'image/svg+xml',
-                'txt' => 'text/plain',
-                default => 'application/octet-stream',
+                'txt', 'log', 'sql', 'md' => 'text/plain; charset=utf-8',
+                'csv' => 'text/csv; charset=utf-8',
+                'json' => 'application/json',
+                'html', 'htm' => 'text/html; charset=utf-8',
+                default => ($isHtml ? 'text/html; charset=utf-8' : 'application/octet-stream'),
             };
+
+            if ($isHtml && !$request->boolean('download')) {
+                $mimeType = 'text/html; charset=utf-8';
+            }
+
+            $disposition = $request->boolean('download') ? 'attachment' : 'inline';
 
             return response($content, 200)
                 ->header('Content-Type', $mimeType)
-                ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
+                ->header('Content-Disposition', $disposition . '; filename="' . $filename . '"');
         })->name('rdp.view-document');
 
         // Pending Subsystem

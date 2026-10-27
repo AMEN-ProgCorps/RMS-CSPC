@@ -6,6 +6,7 @@ use Livewire\Volt\Component;
 use Livewire\WithFileUploads;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
 
@@ -70,6 +71,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public ?string $frequence_use = null;
     public ?string $duplication = null;
     public array $duplicate_offices = [];
+    public array $duplicate_file_view = []; // [office_code => bool] controls whether office can view attached file
+    public bool $spreadToDuplicateOffices = false; // Combined Office Collective: spread record requests to duplicate offices
     public string $duplicate_search = '';
     public bool $showDuplicateDropdown = false;
     public ?string $time_value = 'T';
@@ -80,11 +83,116 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public string $storage_period = '';
     public string $disposition_provision = '';
 
-    // Office Collective (Optional Spread Record Creation)
+    // Duplicate Offices Modal
+    public bool $showDuplicateModal = false;
+    public ?int $duplicateModalBatchIndex = null;
+    public string $duplicateModalSearch = '';
+
+    public function openDuplicateModal(?int $batchIndex = null): void
+    {
+        $this->duplicateModalBatchIndex = $batchIndex;
+        $this->duplicateModalSearch = '';
+        $this->showDuplicateModal = true;
+    }
+
+    public function closeDuplicateModal(): void
+    {
+        $this->showDuplicateModal = false;
+        $this->duplicateModalBatchIndex = null;
+        $this->duplicateModalSearch = '';
+    }
+
+    public function toggleModalDuplicateOffice(string $code): void
+    {
+        $bIdx = $this->duplicateModalBatchIndex;
+        if ($bIdx !== null) {
+            $dups = $this->batchItems[$bIdx]['duplicate_offices'] ?? [];
+            if (in_array($code, $dups, true)) {
+                $this->batchItems[$bIdx]['duplicate_offices'] = array_values(array_filter($dups, fn($c) => $c !== $code));
+                unset($this->batchItems[$bIdx]['duplicate_file_view'][$code]);
+            } else {
+                $this->batchItems[$bIdx]['duplicate_offices'][] = $code;
+                $this->batchItems[$bIdx]['duplicate_file_view'][$code] = false;
+            }
+        } else {
+            if (in_array($code, $this->duplicate_offices, true)) {
+                $this->duplicate_offices = array_values(array_filter($this->duplicate_offices, fn($c) => $c !== $code));
+                unset($this->duplicate_file_view[$code]);
+            } else {
+                $this->duplicate_offices[] = $code;
+                $this->duplicate_file_view[$code] = false;
+            }
+        }
+    }
+
+    public function toggleModalFileView(string $code): void
+    {
+        $bIdx = $this->duplicateModalBatchIndex;
+        if ($bIdx !== null) {
+            $cur = !empty($this->batchItems[$bIdx]['duplicate_file_view'][$code]);
+            $this->batchItems[$bIdx]['duplicate_file_view'][$code] = !$cur;
+        } else {
+            $cur = !empty($this->duplicate_file_view[$code]);
+            $this->duplicate_file_view[$code] = !$cur;
+        }
+    }
+
+    public function selectAllModalDuplicateOffices(): void
+    {
+        $bIdx = $this->duplicateModalBatchIndex;
+        $user = Auth::user();
+        $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        $officesTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $allCodes = DB::table($officesTable)->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]'])->pluck('office_code')->toArray();
+        $validCodes = array_values(array_filter($allCodes, fn($c) => !empty($c) && $c !== $userOffice));
+
+        if ($bIdx !== null) {
+            $this->batchItems[$bIdx]['duplicate_offices'] = $validCodes;
+            foreach ($validCodes as $c) {
+                if (!isset($this->batchItems[$bIdx]['duplicate_file_view'][$c])) {
+                    $this->batchItems[$bIdx]['duplicate_file_view'][$c] = false;
+                }
+            }
+        } else {
+            $this->duplicate_offices = $validCodes;
+            foreach ($validCodes as $c) {
+                if (!isset($this->duplicate_file_view[$c])) {
+                    $this->duplicate_file_view[$c] = false;
+                }
+            }
+        }
+    }
+
+    public function clearAllModalDuplicateOffices(): void
+    {
+        $bIdx = $this->duplicateModalBatchIndex;
+        if ($bIdx !== null) {
+            $this->batchItems[$bIdx]['duplicate_offices'] = [];
+            $this->batchItems[$bIdx]['duplicate_file_view'] = [];
+        } else {
+            $this->duplicate_offices = [];
+            $this->duplicate_file_view = [];
+        }
+    }
+
+    // Legacy Office Collective compatibility
     public array $collectiveOffices = [];
     public bool $showCollectiveModal = false;
     public string $collectiveSearch = '';
     public array $tempCollectiveOffices = [];
+
+    public function toggleDuplicateFileView(string $code): void
+    {
+        $this->duplicate_file_view[$code] = !($this->duplicate_file_view[$code] ?? false);
+    }
+
+    public function toggleBatchDuplicateFileView(int $bIdx, string $code): void
+    {
+        if (isset($this->batchItems[$bIdx])) {
+            $curr = $this->batchItems[$bIdx]['duplicate_file_view'][$code] ?? false;
+            $this->batchItems[$bIdx]['duplicate_file_view'][$code] = !$curr;
+        }
+    }
 
     public function openCollectiveModal(): void
     {
@@ -963,6 +1071,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     'utility_values'        => $this->utility_values,
                     'time_value'            => $this->time_value ?: 'T',
                     'duplicate_offices'     => $this->duplicate_offices,
+                    'duplicate_file_view'   => $this->duplicate_file_view,
                     'duplicate_search'      => '',
                     'showDuplicateDropdown' => false,
                 ],
@@ -977,6 +1086,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     'utility_values'        => $this->utility_values,
                     'time_value'            => $this->time_value ?: 'T',
                     'duplicate_offices'     => [],
+                    'duplicate_file_view'   => [],
                     'duplicate_search'      => '',
                     'showDuplicateDropdown' => false,
                 ],
@@ -994,6 +1104,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 'utility_values'        => $last['utility_values'] ?? $this->utility_values,
                 'time_value'            => $last['time_value'] ?? ($this->time_value ?: 'T'),
                 'duplicate_offices'     => [],
+                'duplicate_file_view'   => [],
                 'duplicate_search'      => '',
                 'showDuplicateDropdown' => false,
             ];
@@ -1018,6 +1129,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $clone = $this->batchItems[$index];
             $clone['description'] = $clone['description'] ? ($clone['description'] . ' (COPY)') : '';
             $clone['duplicate_offices'] = $clone['duplicate_offices'] ?? [];
+            $clone['duplicate_file_view'] = $clone['duplicate_file_view'] ?? [];
             $clone['duplicate_search'] = '';
             $clone['showDuplicateDropdown'] = false;
             array_splice($this->batchItems, $index + 1, 0, [$clone]);
@@ -1067,17 +1179,21 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             ->first();
 
         $offices = $this->batchItems[$bIdx]['duplicate_offices'] ?? [];
+        $views = $this->batchItems[$bIdx]['duplicate_file_view'] ?? [];
 
         if ($exists) {
             $realCode = $exists->office_code;
             if (!in_array($realCode, $offices, true)) {
                 $offices[] = $realCode;
+                $views[$realCode] = false;
             }
         } elseif (!empty($officeCode) && !in_array($officeCode, $offices, true)) {
             $offices[] = $officeCode;
+            $views[$officeCode] = false;
         }
 
         $this->batchItems[$bIdx]['duplicate_offices'] = array_values($offices);
+        $this->batchItems[$bIdx]['duplicate_file_view'] = $views;
         $this->batchItems[$bIdx]['duplicate_search'] = '';
         $this->batchItems[$bIdx]['showDuplicateDropdown'] = false;
     }
@@ -1085,7 +1201,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public function removeBatchDuplicateOffice(int $bIdx, int $dupIdx): void
     {
         if (isset($this->batchItems[$bIdx]['duplicate_offices'][$dupIdx])) {
+            $code = $this->batchItems[$bIdx]['duplicate_offices'][$dupIdx];
             unset($this->batchItems[$bIdx]['duplicate_offices'][$dupIdx]);
+            if (isset($this->batchItems[$bIdx]['duplicate_file_view'][$code])) {
+                unset($this->batchItems[$bIdx]['duplicate_file_view'][$code]);
+            }
             $this->batchItems[$bIdx]['duplicate_offices'] = array_values($this->batchItems[$bIdx]['duplicate_offices']);
         }
     }
@@ -1094,6 +1214,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     {
         if (isset($this->batchItems[$bIdx])) {
             $this->batchItems[$bIdx]['duplicate_offices'] = [];
+            $this->batchItems[$bIdx]['duplicate_file_view'] = [];
             $this->batchItems[$bIdx]['duplicate_search'] = '';
             $this->batchItems[$bIdx]['showDuplicateDropdown'] = false;
         }
@@ -1123,55 +1244,123 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function getOfficePastLocations(): array
     {
+        $suggestions = $this->getLocationSuggestionsWithTypes();
+        return array_values(array_unique(array_map(fn($s) => $s['name'], $suggestions)));
+    }
+
+    public function getLocationSuggestionsWithTypes(): array
+    {
         $user = Auth::user();
         $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
 
-        $query = DB::table('rdp_record')
-            ->whereNotNull('records_location')
-            ->where('records_location', '!=', '');
-
-        if (!empty($userOfficeCode)) {
-            $query->where('office_own', $userOfficeCode);
-        }
-
-        $rawLocations = $query->distinct()->pluck('records_location')->all();
-
-        $locations = [];
+        $results = [];
         $seen = [];
-        foreach ($rawLocations as $loc) {
-            $clean = trim((string)$loc);
-            if ($clean === '') {
-                continue;
-            }
-            $upper = mb_strtoupper($clean);
-            if (!isset($seen[$upper])) {
-                $seen[$upper] = true;
-                $locations[] = $clean;
+
+        // 1. Primary Source: rdp_location_suggestion table
+        if (Schema::hasTable('rdp_location_suggestion')) {
+            try {
+                $query = DB::table('rdp_location_suggestion');
+
+                if (!empty($userOfficeCode)) {
+                    $query->where(function ($q) use ($userOfficeCode) {
+                        $q->where('recorded_at_office', $userOfficeCode)
+                          ->orWhereNull('recorded_at_office');
+                    });
+                }
+
+                if (!empty($this->record_series_id)) {
+                    $query->orderByRaw("CASE WHEN suggestion_from = ? THEN 0 ELSE 1 END", [$this->record_series_id]);
+                }
+                $query->orderBy('id', 'desc');
+
+                $records = $query->get();
+                foreach ($records as $row) {
+                    $name = trim((string)$row->location_name);
+                    if ($name === '') continue;
+                    $key = mb_strtoupper($name);
+                    if (!isset($seen[$key])) {
+                        $seen[$key] = true;
+                        $isSeriesMatch = (!empty($this->record_series_id) && (int)$row->suggestion_from === (int)$this->record_series_id);
+                        $results[] = [
+                            'id'              => (int) $row->id,
+                            'name'            => $name,
+                            'type'            => $row->location_type ?: 'Office Location',
+                            'recorded_at'     => $row->recorded_at_office,
+                            'is_series_match' => $isSeriesMatch,
+                            'is_suggestion'   => true,
+                        ];
+                    }
+                }
+            } catch (\Throwable $e) {
+                logger()->warning("Error fetching rdp_location_suggestion: " . $e->getMessage());
             }
         }
 
-        sort($locations);
+        // 2. Secondary Source: Past distinct records from rdp_record table
+        if (Schema::hasTable('rdp_record')) {
+            try {
+                $query = DB::table('rdp_record')
+                    ->whereNotNull('records_location')
+                    ->where('records_location', '<>', '');
 
-        return $locations;
+                if (!empty($userOfficeCode)) {
+                    $query->where('office_own', $userOfficeCode);
+                }
+
+                $raw = $query->distinct()->pluck('records_location')->all();
+                foreach ($raw as $loc) {
+                    $name = trim((string)$loc);
+                    if ($name === '') continue;
+                    $key = mb_strtoupper($name);
+                    if (!isset($seen[$key])) {
+                        $seen[$key] = true;
+                        $lower = strtolower($name);
+                        $type = 'Office Location';
+                        if (str_contains($lower, 'cabinet')) {
+                            $type = 'Cabinet';
+                        } elseif (str_contains($lower, 'shelf')) {
+                            $type = 'Shelf';
+                        } elseif (str_contains($lower, 'room') || str_contains($lower, 'facility')) {
+                            $type = 'Room / Facility';
+                        } elseif (str_contains($lower, 'box') || str_contains($lower, 'drawer')) {
+                            $type = 'Box / Container';
+                        }
+
+                        $results[] = [
+                            'id'              => null,
+                            'name'            => $name,
+                            'type'            => $type,
+                            'recorded_at'     => $userOfficeCode,
+                            'is_series_match' => false,
+                            'is_suggestion'   => false,
+                        ];
+                    }
+                }
+            } catch (\Throwable $e) {
+                logger()->warning("Error fetching past rdp_record locations: " . $e->getMessage());
+            }
+        }
+
+        return $results;
     }
 
     public function getLocationSuggestions(?string $search = null): array
     {
-        $allLocations = $this->getOfficePastLocations();
+        $all = $this->getLocationSuggestionsWithTypes();
         $term = trim((string)($search !== null ? $search : $this->records_location));
 
         if ($term === '') {
-            return array_slice($allLocations, 0, 10);
+            return array_slice($all, 0, 10);
         }
 
         $termLower = strtolower($term);
-        $matches = array_filter($allLocations, function ($loc) use ($termLower) {
-            return str_contains(strtolower($loc), $termLower);
+        $matches = array_filter($all, function ($item) use ($termLower) {
+            return str_contains(strtolower($item['name']), $termLower);
         });
 
         usort($matches, function ($a, $b) use ($termLower) {
-            $aLower = strtolower($a);
-            $bLower = strtolower($b);
+            $aLower = strtolower($a['name']);
+            $bLower = strtolower($b['name']);
             $aStarts = str_starts_with($aLower, $termLower);
             $bStarts = str_starts_with($bLower, $termLower);
 
@@ -1196,6 +1385,67 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $this->batchItems[$bIdx]['records_location'] = $location;
         }
         $this->activeBatchLocationIndex = null;
+    }
+
+    public function rememberLocationSuggestion(?string $locationName, ?int $seriesId = null, ?string $officeCode = null, string $type = 'Office'): void
+    {
+        $cleanName = trim((string)$locationName);
+        if ($cleanName === '') {
+            return;
+        }
+
+        if (!Schema::hasTable('rdp_location_suggestion')) {
+            return;
+        }
+
+        try {
+            $officeCode = $officeCode ?: (Auth::user()?->details?->office?->office_code ?? Auth::user()?->details?->office_code);
+            $cleanUpper = mb_strtoupper($cleanName);
+
+            // Infer a friendly location type if default
+            $detectedType = $type;
+            $lower = strtolower($cleanName);
+            if (str_contains($lower, 'cabinet')) {
+                $detectedType = 'Cabinet';
+            } elseif (str_contains($lower, 'shelf')) {
+                $detectedType = 'Shelf';
+            } elseif (str_contains($lower, 'room') || str_contains($lower, 'building') || str_contains($lower, 'bldg')) {
+                $detectedType = 'Room / Facility';
+            } elseif (str_contains($lower, 'box') || str_contains($lower, 'bin') || str_contains($lower, 'drawer') || str_contains($lower, 'folder')) {
+                $detectedType = 'Box / Container';
+            }
+
+            // Check if already registered for this office
+            $exists = DB::table('rdp_location_suggestion')
+                ->whereRaw('LOWER(location_name) = ?', [strtolower($cleanName)])
+                ->where(function ($q) use ($officeCode) {
+                    if (!empty($officeCode)) {
+                        $q->where('recorded_at_office', $officeCode)
+                          ->orWhereNull('recorded_at_office');
+                    }
+                })
+                ->exists();
+
+            if (!$exists) {
+                DB::table('rdp_location_suggestion')->insert([
+                    'location_name'      => $cleanUpper,
+                    'suggestion_from'    => $seriesId,
+                    'location_type'      => $detectedType,
+                    'recorded_at_office' => $officeCode,
+                    'created_at'         => now(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            logger()->warning("Failed remembering location suggestion: " . $e->getMessage());
+        }
+    }
+
+    public function addQuickLocationSuggestion(string $locationName, string $locationType = 'Office'): void
+    {
+        $user = Auth::user();
+        $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        $this->rememberLocationSuggestion($locationName, $this->record_series_id, $userOfficeCode, $locationType);
+        $this->records_location = mb_strtoupper(trim($locationName));
     }
 
     public function updatedUploadedFile(): void
@@ -1884,6 +2134,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 'updated_at' => now(),
             ]);
 
+            $this->rememberLocationSuggestion($this->records_location, $this->record_series_id, $officeOwn);
+
             DB::table('rdp_record')->where('id', $recordId)->update([
                 'utility_value' => $recordId,
                 'duplication_id' => $recordId,
@@ -2126,9 +2378,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $realCode = $exists->office_code;
             if (!in_array($realCode, $this->duplicate_offices, true)) {
                 $this->duplicate_offices[] = $realCode;
+                $this->duplicate_file_view[$realCode] = false;
             }
         } elseif (!empty($officeCode) && !in_array($officeCode, $this->duplicate_offices, true)) {
             $this->duplicate_offices[] = $officeCode;
+            $this->duplicate_file_view[$officeCode] = false;
         }
 
         $this->duplicate_search = '';
@@ -2142,7 +2396,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
 
         if (isset($this->duplicate_offices[$index])) {
+            $code = $this->duplicate_offices[$index];
             unset($this->duplicate_offices[$index]);
+            unset($this->duplicate_file_view[$code]);
             $this->duplicate_offices = array_values($this->duplicate_offices);
         }
     }
@@ -2154,6 +2410,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
 
         $this->duplicate_offices = [];
+        $this->duplicate_file_view = [];
         $this->duplicate_search = '';
         $this->showDuplicateDropdown = false;
     }
@@ -2809,6 +3066,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         'date_covered'      => $bItem['date_covered'] ?? '',
                         'date_covered_end'  => null,
                         'duplicate_offices' => $bItem['duplicate_offices'] ?? [],
+                        'duplicate_file_view' => $bItem['duplicate_file_view'] ?? $this->duplicate_file_view,
                         'sub_periods'       => [],
                     ];
                 }
@@ -2827,6 +3085,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     'date_covered'      => $this->batch_start_date ?: $this->date_covered,
                     'date_covered_end'  => $this->batch_end_date ?: null,
                     'duplicate_offices' => $this->duplicate_offices,
+                    'duplicate_file_view' => $this->duplicate_file_view,
                     'sub_periods'       => $this->batch_sub_periods,
                 ];
             } else {
@@ -2842,6 +3101,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     'date_covered'      => $this->date_covered,
                     'date_covered_end'  => null,
                     'duplicate_offices' => $this->duplicate_offices,
+                    'duplicate_file_view' => $this->duplicate_file_view,
                     'sub_periods'       => [],
                 ];
             }
@@ -2894,6 +3154,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 }
 
                 $recordId = DB::table('rdp_record')->insertGetId($insertRow);
+                $this->rememberLocationSuggestion($rData['records_location'] ?? null, $this->record_series_id, $userOfficeCode);
 
                 if ($firstRecordId === null) {
                     $firstRecordId = $recordId;
@@ -2914,13 +3175,19 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     ]);
                 }
 
+                $hasCanView = \Illuminate\Support\Facades\Schema::hasColumn('rdp_duplication_section', 'can_view_file');
+                $dupFileViews = $rData['duplicate_file_view'] ?? [];
                 foreach (\App\Helpers\RegisterQueryHelper::resolveSysOfficeCodes($rData['duplicate_offices'] ?? []) as $dupOffice) {
-                    DB::table('rdp_duplication_section')->insert([
+                    $insertDup = [
                         'dup_id_manager' => $recordId,
                         'office_code'    => $dupOffice,
                         'created_at'     => now(),
                         'updated_at'     => now(),
-                    ]);
+                    ];
+                    if ($hasCanView) {
+                        $insertDup['can_view_file'] = (bool)($dupFileViews[$dupOffice] ?? false);
+                    }
+                    DB::table('rdp_duplication_section')->insert($insertDup);
                 }
 
                 if (!empty($rData['sub_periods'])) {
@@ -3041,7 +3308,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 $this->dispatch('scroll-to-top');
                 return;
             }
-            $validCollective = array_values(array_filter(array_unique($this->collectiveOffices), fn($code) => !empty($code) && strcasecmp((string) $code, $userOfficeCode) !== 0));
+            $collectivePool = $this->spreadToDuplicateOffices ? $this->duplicate_offices : ($this->collectiveOffices ?? []);
+            $validCollective = array_values(array_filter(array_unique($collectivePool), fn($code) => !empty($code) && strcasecmp((string) $code, $userOfficeCode) !== 0));
             $isSpread = !empty($validCollective);
             $requestGroupId = $isSpread ? ('SPREAD-' . date('Ymd') . '-' . strtoupper(Str::random(6))) : null;
 
@@ -3128,6 +3396,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         'date_covered'      => $bItem['date_covered'] ?? '',
                         'date_covered_end'  => null,
                         'duplicate_offices' => $bItem['duplicate_offices'] ?? [],
+                        'duplicate_file_view' => $bItem['duplicate_file_view'] ?? $this->duplicate_file_view,
                         'sub_periods'       => [],
                     ];
                 }
@@ -3153,6 +3422,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         'date_covered'      => $this->batch_start_date ?: $this->date_covered,
                         'date_covered_end'  => $this->batch_end_date ?: null,
                         'duplicate_offices' => $this->duplicate_offices,
+                        'duplicate_file_view' => $this->duplicate_file_view,
                         'sub_periods'       => $this->batch_sub_periods,
                     ];
                 }
@@ -3171,6 +3441,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         'date_covered'      => $this->date_covered,
                         'date_covered_end'  => null,
                         'duplicate_offices' => $this->duplicate_offices,
+                        'duplicate_file_view' => $this->duplicate_file_view,
                         'sub_periods'       => [],
                     ];
                 }
@@ -3239,6 +3510,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 }
 
                 $recordId = DB::table('rdp_record')->insertGetId($insertRow);
+                $this->rememberLocationSuggestion($rData['records_location'] ?? null, $this->record_series_id, $userOfficeCode);
 
                 if ($firstRecordId === null) {
                     $firstRecordId = $recordId;
@@ -3259,13 +3531,20 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     ]);
                 }
 
+                $hasCanView = \Illuminate\Support\Facades\Schema::hasColumn('rdp_duplication_section', 'can_view_file');
+                $dupFileViews = $rData['duplicate_file_view'] ?? [];
+
                 foreach (\App\Helpers\RegisterQueryHelper::resolveSysOfficeCodes($recordDuplicates) as $dupOffice) {
-                    DB::table('rdp_duplication_section')->insert([
+                    $insertDup = [
                         'dup_id_manager' => $recordId,
                         'office_code'    => $dupOffice,
                         'created_at'     => now(),
                         'updated_at'     => now(),
-                    ]);
+                    ];
+                    if ($hasCanView) {
+                        $insertDup['can_view_file'] = (bool)($dupFileViews[$dupOffice] ?? false);
+                    }
+                    DB::table('rdp_duplication_section')->insert($insertDup);
                 }
 
                 if (!empty($rData['sub_periods'])) {
@@ -3309,6 +3588,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 // If spreading to collective offices, insert a pending request record for each collective office
                 if ($isSpread && $hasRequestCols) {
                     foreach ($validCollective as $colOffice) {
+                        $canViewColFile = (bool)($dupFileViews[$colOffice] ?? false);
                         $colInsertRow = [
                             'record_series_id'       => $this->record_series_id,
                             'description'            => $rData['description'],
@@ -3321,7 +3601,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                             'frequence_use'          => $rData['frequence_use'],
                             'user_own'               => $user?->id,
                             'office_own'             => $colOffice,
-                            'upload_doc_id_handler'  => ($rIdx === 0) ? $documentIdHandler : null,
+                            'upload_doc_id_handler'  => ($rIdx === 0 && $canViewColFile) ? $documentIdHandler : null,
                             'is_draft'               => false,
                             'is_active'              => false,
                             'is_request'             => true,
@@ -3357,12 +3637,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         }
 
                         foreach (\App\Helpers\RegisterQueryHelper::resolveSysOfficeCodes($recordDuplicates) as $dupOffice) {
-                            DB::table('rdp_duplication_section')->insert([
+                            $insertColDup = [
                                 'dup_id_manager' => $colRecordId,
                                 'office_code'    => $dupOffice,
                                 'created_at'     => now(),
                                 'updated_at'     => now(),
-                            ]);
+                            ];
+                            if ($hasCanView) {
+                                $insertColDup['can_view_file'] = (bool)($dupFileViews[$dupOffice] ?? false);
+                            }
+                            DB::table('rdp_duplication_section')->insert($insertColDup);
                         }
 
                         if (!empty($rData['sub_periods'])) {
@@ -3508,6 +3792,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->parentSeriesTitle = '';
         $this->subsections = [];
         $this->duplicate_offices = [];
+        $this->duplicate_file_view = [];
+        $this->spreadToDuplicateOffices = false;
         $this->duplicate_search = '';
         $this->showDuplicateDropdown = false;
         $this->collectiveOffices = [];
@@ -3688,33 +3974,6 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 </div>
                 @if(!$isAppraising && !$dcsAdminForward)
                     <div class="ia-mode-actions">
-                        @php
-                            $validCollectiveOffices = array_values(array_filter($collectiveOffices ?? [], fn($c) => $c !== ($userOfficeCode ?? null)));
-                            $collectiveCount = count($validCollectiveOffices);
-                        @endphp
-                        <!-- Office Collective Trigger Button (Client-Side Alpine) -->
-                        <button type="button" 
-                                @click="openCollectiveModal()" 
-                                class="ia-btn ia-btn-collective"
-                                :class="{ 'is-active': (collectiveSelected && collectiveSelected.length > 0) }" 
-                                :title="(collectiveSelected && collectiveSelected.length > 0) ? 'Office Collective: ' + collectiveSelected.length + ' selected' : 'Add offices to Office Collective'">
-                            <!-- Office Building Icon -->
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"></path>
-                                <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path>
-                                <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"></path>
-                                <path d="M10 6h4"></path>
-                                <path d="M10 10h4"></path>
-                                <path d="M10 14h4"></path>
-                                <path d="M10 18h4"></path>
-                            </svg>
-                            <template x-if="collectiveSelected && collectiveSelected.length > 0">
-                                <span>Office Collective [ <span x-text="collectiveSelected.length"></span> ]</span>
-                            </template>
-                            <template x-if="!collectiveSelected || collectiveSelected.length === 0">
-                                <span>+ Add Office to Collective</span>
-                            </template>
-                        </button>
 
                         {{-- Entry Mode Split Dropdown Button --}}
                         <div x-data="{ modeOpen: false }" @click.outside="modeOpen = false" style="position: relative; display: inline-flex; vertical-align: middle; z-index: 50;">
@@ -3977,18 +4236,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                         @if($activeBatchLocationIndex === $bIdx && count($this->getBatchLocationSuggestions($bIdx)) > 0)
                                             <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 0; z-index: 1050; max-height: 180px; overflow-y: auto;">
                                                 @foreach($this->getBatchLocationSuggestions($bIdx) as $bLocSugg)
-                                                    <div wire:click="selectBatchLocationSuggestion({{ $bIdx }}, '{{ addslashes($bLocSugg) }}')"
+                                                    @php
+                                                        $bLocName = is_array($bLocSugg) ? ($bLocSugg['name'] ?? '') : $bLocSugg;
+                                                        $bLocType = is_array($bLocSugg) ? ($bLocSugg['type'] ?? 'Office Location') : 'Office Location';
+                                                    @endphp
+                                                    <div wire:click="selectBatchLocationSuggestion({{ $bIdx }}, '{{ addslashes($bLocName) }}')"
                                                          class="ia-autocomplete-item"
                                                          style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; cursor: pointer;">
                                                         <div style="display: flex; align-items: center; gap: 6px;">
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                                 <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                                                                 <circle cx="12" cy="10" r="3"></circle>
                                                             </svg>
-                                                            <span style="font-weight: 600;">{{ $bLocSugg }}</span>
+                                                            <span style="font-weight: 600;">{{ $bLocName }}</span>
                                                         </div>
-                                                        <span style="font-size: 9.5px; font-weight: 700; color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 5px; border-radius: 4px; text-transform: uppercase;">
-                                                            Office Location
+                                                        <span style="font-size: 9.5px; font-weight: 700; color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 5px; border-radius: 4px; text-transform: uppercase;">
+                                                            {{ $bLocType }}
                                                         </span>
                                                     </div>
                                                 @endforeach
@@ -4057,58 +4320,40 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                                 @php
                                                     $offObj = collect($officesList)->firstWhere('office_code', $offCode);
                                                     $offName = $offObj->office_name ?? $offCode;
+                                                    $itemCanView = !empty($bItem['duplicate_file_view'][$offCode]);
                                                 @endphp
-                                                <span style="display: inline-flex; align-items: center; gap: 6px; background-color: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; padding: 3px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600;">
+                                                <span style="display: inline-flex; align-items: center; gap: 6px; background-color: #ffffff; color: #1e293b; border: 1.5px solid {{ $itemCanView ? '#86efac' : '#cbd5e1' }}; padding: 3px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600;">
                                                     <span><strong>{{ $offCode }}</strong> — {{ $offName }}</span>
-                                                    <button type="button" wire:click="removeBatchDuplicateOffice({{ $bIdx }}, {{ $dIdx }})" style="border: none; background: none; color: #1e40af; cursor: pointer; font-weight: 900; font-size: 13px; line-height: 1; padding: 0 2px;">&times;</button>
+                                                    <button type="button" 
+                                                            wire:click="toggleBatchDuplicateFileView({{ $bIdx }}, '{{ $offCode }}')" 
+                                                            title="{{ $itemCanView ? 'File viewing allowed for ' . $offCode . ' (Click to disable)' : 'File viewing blocked for ' . $offCode . ' (Click to allow)' }}"
+                                                            style="display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 9999px; font-size: 10px; font-weight: 700; cursor: pointer; border: 1px solid {{ $itemCanView ? '#059669' : '#94a3b8' }}; background: {{ $itemCanView ? '#ecfdf5' : '#f8fafc' }}; color: {{ $itemCanView ? '#047857' : '#64748b' }};">
+                                                        @if($itemCanView)
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                            <span>View: ON</span>
+                                                        @else
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                                            <span>View: OFF</span>
+                                                        @endif
+                                                    </button>
+                                                    <button type="button" wire:click="removeBatchDuplicateOffice({{ $bIdx }}, {{ $dIdx }})" style="border: none; background: none; color: #94a3b8; cursor: pointer; font-weight: 900; font-size: 13px; line-height: 1; padding: 0 2px;">&times;</button>
                                                 </span>
                                             @endforeach
                                             <button type="button" wire:click="clearBatchDuplicateOffices({{ $bIdx }})" class="ia-btn ia-btn-secondary" style="padding: 2px 8px; font-size: 10.5px; height: 24px; align-self: center;">Clear</button>
                                         </div>
                                     @endif
 
-                                    <div style="position: relative;">
-                                        <input type="text"
-                                            class="ia-input"
-                                            wire:model.live.debounce.150ms="batchItems.{{ $bIdx }}.duplicate_search"
-                                            wire:focus="$set('batchItems.{{ $bIdx }}.showDuplicateDropdown', true)"
-                                            wire:keydown.enter.prevent="addBatchDuplicateOffice({{ $bIdx }})"
-                                            placeholder="SEARCH OFFICE CODE OR NAME..."
-                                            style="width: 100%; box-sizing: border-box; background: #ffffff;">
-
-                                        @if(!empty($bItem['showDuplicateDropdown']) && !empty(trim($bItem['duplicate_search'] ?? '')))
-                                            @php
-                                                $bSearchLower = strtolower(trim($bItem['duplicate_search']));
-                                                $bCurDups = $bItem['duplicate_offices'] ?? [];
-                                                $bFilteredOffices = collect($officesList)->filter(function($off) use ($bSearchLower, $bCurDups) {
-                                                    return !in_array($off->office_code, $bCurDups, true) &&
-                                                           (str_contains(strtolower($off->office_code), $bSearchLower) ||
-                                                            str_contains(strtolower($off->office_name), $bSearchLower));
-                                                })->take(8);
-                                            @endphp
-
-                                            <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 0; z-index: 1050; max-height: 200px; overflow-y: auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); margin-top: 4px; position: absolute;">
-                                                @if($bFilteredOffices->isNotEmpty())
-                                                    @foreach($bFilteredOffices as $off)
-                                                        <div wire:click="addBatchDuplicateOffice({{ $bIdx }}, '{{ $off->office_code }}')"
-                                                             class="ia-autocomplete-item"
-                                                             style="padding: 7px 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f1f5f9;">
-                                                             <div style="display: flex; align-items: center; gap: 8px;">
-                                                                <span style="font-size: 10.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px;">
-                                                                    {{ $off->office_code }}
-                                                                </span>
-                                                                <span style="font-size: 12.5px; font-weight: 600; color: #1e293b;">
-                                                                    {{ $off->office_name }}
-                                                                </span>
-                                                             </div>
-                                                             <span style="font-size: 11px; color: #2563eb; font-weight: 700;">+ Add</span>
-                                                        </div>
-                                                    @endforeach
-                                                @else
-                                                    <div style="padding: 10px 12px; color: #64748b; font-size: 12px;">No matching office found</div>
-                                                @endif
-                                            </div>
-                                        @endif
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <button type="button" 
+                                                wire:click="openDuplicateModal({{ $bIdx }})" 
+                                                class="ia-btn ia-btn-secondary" 
+                                                style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; font-weight: 700; font-size: 11px; border-radius: 6px; border: 1.5px solid #cbd5e1; background: #ffffff; color: #1e293b;">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                            </svg>
+                                            <span>{{ !empty($bItem['duplicate_offices']) ? 'Manage Duplicates (' . count($bItem['duplicate_offices']) . ')' : '+ Select Duplicate Offices' }}</span>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -4443,11 +4688,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                              x-data="{
                                 open: false,
                                 locationValue: @entangle('records_location'),
-                                allLocs: {{ json_encode($this->getOfficePastLocations()) }},
+                                allLocs: {{ json_encode($this->getLocationSuggestionsWithTypes()) }},
                                 get suggestions() {
-                                    if (!this.locationValue || !this.locationValue.trim()) return this.allLocs.slice(0, 8);
+                                    if (!this.locationValue || !this.locationValue.trim()) return this.allLocs.slice(0, 10);
                                     const q = this.locationValue.toLowerCase().trim();
-                                    return this.allLocs.filter(l => l.toLowerCase().includes(q)).slice(0, 8);
+                                    return this.allLocs.filter(l => l.name.toLowerCase().includes(q)).slice(0, 10);
                                 },
                                 selectLoc(val) {
                                     this.locationValue = val;
@@ -4465,23 +4710,49 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                 <div style="font-size: 11.5px; color: #64748b; margin-top: 6px;">Saved as your office inventory on NAP Form 1. Other offices enter their own location after receive.</div>
                             @endif
 
+                            @php
+                                $topSuggestions = array_slice($this->getLocationSuggestionsWithTypes(), 0, 6);
+                            @endphp
+                            @if(!empty($topSuggestions))
+                                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px;">
+                                    <span style="font-size: 11px; font-weight: 700; color: #64748b;">Suggested Locations:</span>
+                                    @foreach($topSuggestions as $sPill)
+                                        <button type="button" 
+                                                @click="selectLoc('{{ addslashes($sPill['name']) }}')"
+                                                style="background: #f8fafc; border: 1px solid #cbd5e1; color: #1e293b; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s;"
+                                                title="{{ $sPill['type'] }}{{ $sPill['is_series_match'] ? ' (Series Match)' : '' }}">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                                            <span>{{ $sPill['name'] }}</span>
+                                        </button>
+                                    @endforeach
+                                </div>
+                            @endif
+
                             <div x-show="open && suggestions.length > 0" 
                                  x-cloak
-                                 class="ia-autocomplete-dropdown">
-                                <template x-for="locSugg in suggestions" :key="locSugg">
-                                    <div @click="selectLoc(locSugg)"
+                                 class="ia-autocomplete-dropdown"
+                                 style="top: 100%; left: 0; right: 0; z-index: 1050; max-height: 220px; overflow-y: auto;">
+                                <template x-for="locSugg in suggestions" :key="locSugg.name">
+                                    <div @click="selectLoc(locSugg.name)"
                                          class="ia-autocomplete-item"
-                                         style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer;">
+                                         style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; padding: 8px 12px;">
                                         <div style="display: flex; align-items: center; gap: 8px;">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                                                 <circle cx="12" cy="10" r="3"></circle>
                                             </svg>
-                                            <span style="font-weight: 600;" x-text="locSugg"></span>
+                                            <span style="font-weight: 600;" x-text="locSugg.name"></span>
                                         </div>
-                                        <span style="font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">
-                                            Office Location
-                                        </span>
+                                        <div style="display: flex; align-items: center; gap: 6px;">
+                                            <span style="font-size: 10px; font-weight: 700; color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;"
+                                                  x-text="locSugg.type">
+                                            </span>
+                                            <template x-if="locSugg.is_series_match">
+                                                <span style="font-size: 9.5px; font-weight: 800; color: #059669; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 2px 5px; border-radius: 4px; text-transform: uppercase;">
+                                                    Series
+                                                </span>
+                                            </template>
+                                        </div>
                                     </div>
                                 </template>
                             </div>
@@ -4580,68 +4851,72 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     </div>
                 @else
                     <div style="flex: 1; position: relative;" wire:click.outside="$set('showDuplicateDropdown', false)">
+                        <!-- Spread to Duplicate Offices Toggle -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 9px 12px; margin-bottom: 10px;">
+                            <div style="display: flex; flex-direction: column;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 12.5px; font-weight: 700; color: #1e293b;">Spread to Duplicate Offices (Office Collective)</span>
+                                    <span style="font-size: 10.5px; font-weight: 800; padding: 2px 7px; border-radius: 9999px; text-transform: uppercase; {{ $spreadToDuplicateOffices ? 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;' : 'background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1;' }}">
+                                        {{ $spreadToDuplicateOffices ? 'Spread: ON' : 'Spread: OFF' }}
+                                    </span>
+                                </div>
+                                <span style="font-size: 11px; color: #64748b; margin-top: 2px;">
+                                    When enabled, creating this record will also spread and dispatch incoming Record Requests to each duplicate office.
+                                </span>
+                            </div>
+                            <label style="position: relative; display: inline-block; width: 42px; height: 22px; margin: 0; cursor: pointer; flex-shrink: 0;">
+                                <input type="checkbox" wire:model.live="spreadToDuplicateOffices" style="opacity: 0; width: 0; height: 0;">
+                                <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: {{ $spreadToDuplicateOffices ? '#10b981' : '#cbd5e1' }}; transition: .25s; border-radius: 22px;"></span>
+                                <span style="position: absolute; content: ''; height: 16px; width: 16px; left: {{ $spreadToDuplicateOffices ? '22px' : '4px' }}; bottom: 3px; background-color: white; transition: .25s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.25);"></span>
+                            </label>
+                        </div>
+
                         @if(count($duplicate_offices) > 0)
-                            <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
+                            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
                                 @foreach($duplicate_offices as $index => $offCode)
                                     @php
                                         $offObj = collect($officesList)->firstWhere('office_code', $offCode);
                                         $offName = $offObj->office_name ?? $offCode;
+                                        $canView = !empty($duplicate_file_view[$offCode]);
                                     @endphp
-                                    <span style="display: inline-flex; align-items: center; gap: 6px; background-color: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">
+                                    <div style="display: inline-flex; align-items: center; gap: 8px; background-color: #ffffff; color: #1e293b; border: 1.5px solid {{ $canView ? '#86efac' : '#cbd5e1' }}; padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
                                         <span><strong>{{ $offCode }}</strong> — {{ $offName }}</span>
-                                        <button type="button" wire:click="removeDuplicateOffice({{ $index }})" style="border: none; background: none; color: #1e40af; cursor: pointer; font-weight: 900; font-size: 14px; line-height: 1; padding: 0 2px;">&times;</button>
-                                    </span>
+                                        
+                                        <!-- Per-office File Viewing Toggle (Off by default) -->
+                                        <button type="button" 
+                                                wire:click="toggleDuplicateFileView('{{ $offCode }}')" 
+                                                title="{{ $canView ? 'File viewing allowed for ' . $offCode . ' (Click to disable)' : 'File viewing blocked for ' . $offCode . ' (Click to allow)' }}"
+                                                style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 9999px; font-size: 10.5px; font-weight: 700; cursor: pointer; border: 1px solid {{ $canView ? '#059669' : '#94a3b8' }}; background: {{ $canView ? '#ecfdf5' : '#f8fafc' }}; color: {{ $canView ? '#047857' : '#64748b' }}; transition: all 0.15s ease;">
+                                            @if($canView)
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                <span>View File: ON</span>
+                                            @else
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                                <span>View File: OFF</span>
+                                            @endif
+                                        </button>
+
+                                        <button type="button" wire:click="removeDuplicateOffice({{ $index }})" style="border: none; background: none; color: #94a3b8; cursor: pointer; font-weight: 900; font-size: 15px; line-height: 1; padding: 0 2px;" title="Remove office">&times;</button>
+                                    </div>
                                 @endforeach
-                                <button type="button" wire:click="clearDuplicateOffices" class="ia-btn ia-btn-secondary" style="padding: 2px 10px; font-size: 11px; height: 26px; align-self: center;">Clear</button>
+                                <button type="button" wire:click="clearDuplicateOffices" class="ia-btn ia-btn-secondary" style="padding: 2px 10px; font-size: 11px; height: 26px; align-self: center;">Clear All</button>
                             </div>
                         @endif
 
-                        <div style="position: relative;">
-                            <input type="text"
-                                class="ia-input"
-                                wire:model.live.debounce.150ms="duplicate_search"
-                                wire:focus="$set('showDuplicateDropdown', true)"
-                                wire:keydown.enter.prevent="addDuplicateOffice"
-                                placeholder="SEARCH OFFICE CODE OR NAME..."
-                                style="width: 100%;">
-
-                            @if($showDuplicateDropdown && !empty(trim($duplicate_search)))
-                                @php
-                                    $searchLower = strtolower(trim($duplicate_search));
-                                    $filteredOffices = collect($officesList)->filter(function($off) use ($searchLower, $duplicate_offices) {
-                                        return !in_array($off->office_code, $duplicate_offices, true) &&
-                                               (str_contains(strtolower($off->office_code), $searchLower) ||
-                                                str_contains(strtolower($off->office_name), $searchLower));
-                                    })->take(8);
-                                @endphp
-
-                                <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 0; z-index: 1050; max-height: 220px; overflow-y: auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); margin-top: 4px;">
-                                    @if($filteredOffices->isNotEmpty())
-                                        @foreach($filteredOffices as $off)
-                                            <div wire:click="addDuplicateOffice('{{ $off->office_code }}')"
-                                                 class="ia-autocomplete-item"
-                                                 style="padding: 8px 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f1f5f9;">
-                                                 <div style="display: flex; align-items: center; gap: 8px;">
-                                                    <span style="font-size: 10.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px;">
-                                                        {{ $off->office_code }}
-                                                    </span>
-                                                    <span style="font-size: 13px; font-weight: 600; color: #1e293b;">
-                                                        {{ $off->office_name }}
-                                                    </span>
-                                                 </div>
-                                                 <span style="font-size: 11px; color: #2563eb; font-weight: 700;">+ Add</span>
-                                            </div>
-                                        @endforeach
-                                    @else
-                                        <div style="padding: 10px 14px; font-size: 12px; color: #64748b; font-style: italic;">
-                                            No matching active offices found.
-                                        </div>
-                                    @endif
-                                </div>
-                            @endif
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <button type="button" 
+                                    wire:click="openDuplicateModal" 
+                                    class="ia-btn ia-btn-secondary" 
+                                    style="display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; font-weight: 700; font-size: 12.5px; border-radius: 8px; border: 1.5px solid #cbd5e1; background: #ffffff; color: #1e293b; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                </svg>
+                                <span>{{ count($duplicate_offices) > 0 ? "Manage Duplicate Offices (" . count($duplicate_offices) . ")" : "+ Select Duplicate Offices" }}</span>
+                            </button>
                         </div>
                         <div style="font-size: 11.5px; color: #64748b; margin-top: 4px;">
-                            Selected offices will have visibility to this record.
+                            Selected duplicate offices will have visibility to this record. Click the button above to add or configure offices and file viewing access.
                         </div>
                     </div>
                 @endif
@@ -4892,87 +5167,157 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         </div>
     @endif
 
-    <!-- ═══════ Office Collective Modal (Client-Side Alpine) ═══════ -->
-    <div x-show="collectiveModalOpen || {{ $showCollectiveModal ? 'true' : 'false' }}" 
-         x-cloak 
-         class="ia-modal-overlay" 
-         style="z-index: 10000;" 
-         @keydown.escape.window="closeCollectiveModal()">
-        <div class="ia-modal-card" 
-             @click.outside="closeCollectiveModal()" 
-             style="width: 620px; max-width: 95vw; border-radius: 14px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.25);">
-            <div class="ia-modal-header" style="padding: 18px 22px; display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <h3 class="ia-modal-title" style="margin: 0 0 4px 0; font-size: 17px; font-weight: 700;">Office Collective</h3>
-                    <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 500;">
-                        Select offices to receive a duplicate copy of this record as an incoming Record Request
-                    </p>
-                </div>
-                <button type="button" @click="closeCollectiveModal()" class="ia-modal-close" style="font-size: 22px; cursor: pointer;">&times;</button>
-            </div>
-            
-            <div class="ia-modal-body" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; max-height: 65vh; overflow-y: auto;">
-                <!-- Search & Selection Actions -->
-                <div style="display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
-                    <div style="position: relative; flex: 1; min-width: 220px;">
-                        <input type="text" 
-                               class="ia-input" 
-                               x-model="collectiveSearch" 
-                               placeholder="Search office by code or name..."
-                               style="width: 100%; font-size: 13px; padding-left: 12px;">
+    <!-- ═══════ Duplicate Offices Modal ═══════ -->
+    @if($showDuplicateModal)
+        @php
+            $isBatchItem = $duplicateModalBatchIndex !== null;
+            $modalCurOffices = $isBatchItem 
+                ? ($batchItems[$duplicateModalBatchIndex]['duplicate_offices'] ?? [])
+                : $duplicate_offices;
+            $modalCurFileViews = $isBatchItem 
+                ? ($batchItems[$duplicateModalBatchIndex]['duplicate_file_view'] ?? [])
+                : $duplicate_file_view;
+            $mSearchLower = strtolower(trim($duplicateModalSearch));
+            $modalOfficesList = collect($officesList)->filter(function($off) use ($mSearchLower) {
+                if (empty($mSearchLower)) return true;
+                return str_contains(strtolower($off->office_code), $mSearchLower) ||
+                       str_contains(strtolower($off->office_name), $mSearchLower);
+            });
+            $selectedCount = count($modalCurOffices);
+            $withViewCount = collect($modalCurOffices)->filter(fn($c) => !empty($modalCurFileViews[$c]))->count();
+        @endphp
+        <div class="ia-modal-overlay" wire:click.self="closeDuplicateModal" style="z-index: 10000;">
+            <div class="ia-modal-card" style="width: 660px; max-width: 95vw; border-radius: 14px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.25);">
+                <div class="ia-modal-header" style="padding: 18px 22px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0;">
+                    <div>
+                        <h3 class="ia-modal-title" style="margin: 0 0 4px 0; font-size: 17px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                            </svg>
+                            Duplicate Offices {{ $isBatchItem ? '(Row #' . ($duplicateModalBatchIndex + 1) . ')' : '' }}
+                        </h3>
+                        <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 500;">
+                            Select duplicate copy holders and configure which offices can view/download attached files.
+                        </p>
                     </div>
-                    <div style="display: flex; gap: 6px;">
-                        <button type="button" @click="selectAllCollectiveOffices()" class="ia-btn ia-btn-secondary" style="font-size: 11px; height: 32px; padding: 0 10px;">Select All</button>
-                        <button type="button" @click="clearAllCollectiveOffices()" class="ia-btn ia-btn-secondary" style="font-size: 11px; height: 32px; padding: 0 10px;">Clear</button>
-                    </div>
+                    <button type="button" wire:click="closeDuplicateModal" class="ia-modal-close" style="font-size: 22px; cursor: pointer;">&times;</button>
                 </div>
 
-                <!-- Selected Count Badge -->
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 12.5px; color: #1e40af; font-weight: 600;">
-                    <span>Selected in Collective: <strong x-text="collectiveTempSelected.length"></strong> <span x-text="collectiveTempSelected.length === 1 ? 'office' : 'offices'"></span></span>
-                    <span x-show="collectiveTempSelected.length > 0" style="font-size: 11.5px; color: #2563eb; font-weight: 700;">Ready to spread</span>
-                </div>
+                <div class="ia-modal-body" style="padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; max-height: 65vh; overflow-y: auto;">
+                    @if(!$isBatchItem)
+                        <!-- Master Spread Toggle -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
+                            <div style="display: flex; flex-direction: column;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 13px; font-weight: 700; color: #1e293b;">Spread to Duplicate Offices (Office Collective)</span>
+                                    <span style="font-size: 10.5px; font-weight: 800; padding: 2px 7px; border-radius: 9999px; text-transform: uppercase; {{ $spreadToDuplicateOffices ? 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;' : 'background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1;' }}">
+                                        {{ $spreadToDuplicateOffices ? 'Spread: ON' : 'Spread: OFF' }}
+                                    </span>
+                                </div>
+                                <span style="font-size: 11px; color: #64748b; margin-top: 2px;">
+                                    Dispatches incoming Record Requests to duplicate offices upon record creation.
+                                </span>
+                            </div>
+                            <label style="position: relative; display: inline-block; width: 42px; height: 22px; margin: 0; cursor: pointer; flex-shrink: 0;">
+                                <input type="checkbox" wire:model.live="spreadToDuplicateOffices" style="opacity: 0; width: 0; height: 0;">
+                                <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: {{ $spreadToDuplicateOffices ? '#10b981' : '#cbd5e1' }}; transition: .25s; border-radius: 22px;"></span>
+                                <span style="position: absolute; content: ''; height: 16px; width: 16px; left: {{ $spreadToDuplicateOffices ? '22px' : '4px' }}; bottom: 3px; background-color: white; transition: .25s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.25);"></span>
+                            </label>
+                        </div>
+                    @endif
 
-                <!-- Offices List -->
-                <div style="display: flex; flex-direction: column; gap: 6px; border: 1px solid #e2e8f0; border-radius: 8px; max-height: 280px; overflow-y: auto; padding: 6px;">
-                    <template x-for="off in filteredCollectiveOffices" :key="off.code">
-                        <div @click="toggleCollectiveOffice(off.code)"
-                             class="ia-collective-item"
-                             :class="{ 'is-selected': collectiveTempSelected.includes(off.code) }">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <input type="checkbox" 
-                                       :checked="collectiveTempSelected.includes(off.code)" 
-                                       style="cursor: pointer; pointer-events: none; width: 16px; height: 16px; accent-color: #2563eb;">
-                                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                    <span class="ia-collective-code-badge" x-text="off.code"></span>
-                                    <span class="ia-collective-name" x-text="off.name"></span>
+                    <!-- Search & Quick Selection Actions -->
+                    <div style="display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                        <div style="position: relative; flex: 1; min-width: 220px;">
+                            <input type="text" 
+                                   class="ia-input" 
+                                   wire:model.live.debounce.150ms="duplicateModalSearch" 
+                                   placeholder="Search office by code or name..."
+                                   style="width: 100%; font-size: 13px; padding-left: 12px; box-sizing: border-box;">
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <button type="button" wire:click="selectAllModalDuplicateOffices" class="ia-btn ia-btn-secondary" style="font-size: 11px; height: 32px; padding: 0 10px;">Select All</button>
+                            <button type="button" wire:click="clearAllModalDuplicateOffices" class="ia-btn ia-btn-secondary" style="font-size: 11px; height: 32px; padding: 0 10px;">Clear All</button>
+                        </div>
+                    </div>
+
+                    <!-- Selected Count Badge -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 12.5px; color: #1e40af; font-weight: 600;">
+                        <span>Selected Duplicates: <strong>{{ $selectedCount }}</strong> {{ \Illuminate\Support\Str::plural('office', $selectedCount) }}</span>
+                        <span style="font-size: 11.5px; color: #2563eb; font-weight: 700;">
+                            {{ $withViewCount }} with file viewing access
+                        </span>
+                    </div>
+
+                    <!-- Offices List -->
+                    <div style="display: flex; flex-direction: column; gap: 6px; border: 1px solid #e2e8f0; border-radius: 8px; max-height: 290px; overflow-y: auto; padding: 6px;">
+                        @forelse($modalOfficesList as $off)
+                            @php
+                                $isOffSelected = in_array($off->office_code, $modalCurOffices, true);
+                                $offCanView = $isOffSelected && !empty($modalCurFileViews[$off->office_code]);
+                            @endphp
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: 6px; border: 1px solid {{ $isOffSelected ? '#bfdbfe' : '#f1f5f9' }}; background: {{ $isOffSelected ? '#f8fafc' : '#ffffff' }}; transition: background 0.15s ease;">
+                                <div style="display: flex; align-items: center; gap: 10px; cursor: pointer; flex: 1;"
+                                     wire:click="toggleModalDuplicateOffice('{{ $off->office_code }}')">
+                                    <input type="checkbox" 
+                                           {{ $isOffSelected ? 'checked' : '' }} 
+                                           style="cursor: pointer; pointer-events: none; width: 16px; height: 16px; accent-color: #2563eb;">
+                                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                        <span style="font-size: 11px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 7px; border-radius: 4px;">
+                                            {{ $off->office_code }}
+                                        </span>
+                                        <span style="font-size: 12.5px; font-weight: 600; color: #1e293b;">
+                                            {{ $off->office_name }}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    @if($isOffSelected)
+                                        <!-- Per-office File Viewing Toggle (Off by default) -->
+                                        <button type="button" 
+                                                wire:click="toggleModalFileView('{{ $off->office_code }}')" 
+                                                title="{{ $offCanView ? 'File viewing allowed (Click to disable)' : 'File viewing blocked (Click to allow)' }}"
+                                                style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; cursor: pointer; border: 1px solid {{ $offCanView ? '#059669' : '#94a3b8' }}; background: {{ $offCanView ? '#ecfdf5' : '#ffffff' }}; color: {{ $offCanView ? '#047857' : '#64748b' }}; transition: all 0.15s ease;">
+                                            @if($offCanView)
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                <span>View File: ON</span>
+                                            @else
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                                <span>View File: OFF</span>
+                                            @endif
+                                        </button>
+                                        <span style="font-size: 11.5px; font-weight: 700; color: #2563eb;">✓ Added</span>
+                                    @else
+                                        <button type="button" 
+                                                wire:click="toggleModalDuplicateOffice('{{ $off->office_code }}')" 
+                                                class="ia-btn ia-btn-ghost" 
+                                                style="padding: 2px 8px; font-size: 11px; height: 26px; color: #64748b;">
+                                            + Add
+                                        </button>
+                                    @endif
                                 </div>
                             </div>
-                            <span style="font-size: 11.5px; font-weight: 700;"
-                                  :style="{ color: collectiveTempSelected.includes(off.code) ? '#2563eb' : '#94a3b8' }"
-                                  x-text="collectiveTempSelected.includes(off.code) ? '✓ Selected' : '+ Select'">
-                            </span>
-                        </div>
-                    </template>
-                    <div x-show="filteredCollectiveOffices.length === 0" style="text-align: center; padding: 24px; font-size: 12.5px; color: #64748b;">
-                        No matching active offices found.
+                        @empty
+                            <div style="text-align: center; padding: 24px; font-size: 12.5px; color: #64748b;">
+                                No matching active offices found.
+                            </div>
+                        @endforelse
                     </div>
                 </div>
-            </div>
 
-            <div class="ia-modal-footer" style="padding: 14px 22px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border-bottom-left-radius: 14px; border-bottom-right-radius: 14px;">
-                <span style="font-size: 12px; color: #64748b; font-weight: 500;">
-                    <span x-text="collectiveTempSelected.length"></span> <span x-text="collectiveTempSelected.length === 1 ? 'office' : 'offices'"></span> chosen
-                </span>
-                <div style="display: flex; gap: 8px;">
-                    <button type="button" @click="closeCollectiveModal()" class="ia-btn ia-btn-secondary" style="height: 36px; padding: 0 14px; font-size: 12.5px;">Cancel</button>
-                    <button type="button" @click="applyCollectiveModal()" class="ia-btn ia-btn-primary" style="height: 36px; padding: 0 16px; font-size: 12.5px; background: #2563eb; border-color: #2563eb;">
-                        Apply to Collective
+                <div class="ia-modal-footer" style="padding: 14px 22px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border-bottom-left-radius: 14px; border-bottom-right-radius: 14px;">
+                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">
+                        <strong>{{ $selectedCount }}</strong> {{ \Illuminate\Support\Str::plural('office', $selectedCount) }} selected
+                    </span>
+                    <button type="button" wire:click="closeDuplicateModal" class="ia-btn ia-btn-primary" style="height: 36px; padding: 0 18px; font-size: 12.5px; background: #2563eb; border-color: #2563eb;">
+                        Done
                     </button>
                 </div>
             </div>
         </div>
-    </div>
+    @endif
 
     <!-- ═══════ Batch Period Covered & Volume Modal ═══════ -->
     @if($showBatchModal)
@@ -5228,22 +5573,28 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 </div>
 
                 <div class="ia-modal-body" style="padding: 18px 24px; background: #f8fafc; overflow-y: auto; max-height: calc(88vh - 145px);">
-                    @if(count($collectiveOffices) > 0)
+                    @php
+                        $effectiveSpreadList = $spreadToDuplicateOffices ? $duplicate_offices : ($collectiveOffices ?? []);
+                        $viewerCode = strtoupper(trim((string) ($userOfficeCode ?? '')));
+                        $effectiveSpreadList = array_values(array_filter($effectiveSpreadList, fn($c) => !empty($c) && strcasecmp(trim((string)$c), $viewerCode) !== 0));
+                        $isSpreadNoticeActive = count($effectiveSpreadList) > 0;
+                    @endphp
+                    @if($isSpreadNoticeActive)
                         <div class="ia-verification-spread-notice" style="background: #eff6ff; border: 1.5px solid #93c5fd; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-3"/></svg>
                                 <div>
                                     <div style="font-weight: 700; color: #1e3a8a; font-size: 12.5px;">
-                                        Collective Office Spread Activated
+                                        Duplicate Offices Spread Activated
                                     </div>
                                     <div style="font-size: 11.5px; color: #1e40af; margin-top: 2px;">
-                                        This record will be created under your office (<strong>{{ $userOfficeCode }}</strong>) and spread as a record request to <strong>{{ count($collectiveOffices) }}</strong> collective {{ \Illuminate\Support\Str::plural('office', count($collectiveOffices)) }}:
-                                        <span style="font-weight: 600;">{{ implode(', ', $collectiveOffices) }}</span>.
+                                        This record will be created under your office (<strong>{{ $userOfficeCode }}</strong>) and spread as a record request to <strong>{{ count($effectiveSpreadList) }}</strong> duplicate {{ \Illuminate\Support\Str::plural('office', count($effectiveSpreadList)) }}:
+                                        <span style="font-weight: 600;">{{ implode(', ', $effectiveSpreadList) }}</span>.
                                     </div>
                                 </div>
                             </div>
                             <span style="background: #dbeafe; color: #1d4ed8; font-weight: 700; font-size: 11px; padding: 4px 8px; border-radius: 6px; white-space: nowrap;">
-                                {{ count($collectiveOffices) }} {{ \Illuminate\Support\Str::plural('Office', count($collectiveOffices)) }}
+                                {{ count($effectiveSpreadList) }} {{ \Illuminate\Support\Str::plural('Office', count($effectiveSpreadList)) }}
                             </span>
                         </div>
                     @endif
@@ -5472,8 +5823,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         </button>
                         <button type="button" wire:click="confirmCreateRecord" class="ia-btn ia-btn-primary" style="height: 38px; padding: 0 20px; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                            @if(count($collectiveOffices) > 0)
-                                {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'Submit ' . count($batchItems) . ' Records & Spread' : 'Submit & Spread to Collective' }}
+                            @if($isSpreadNoticeActive)
+                                {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'Submit ' . count($batchItems) . ' Records & Spread' : 'Submit & Spread to Duplicate Offices' }}
                             @else
                                 {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'Submit ' . count($batchItems) . ' Records' : 'Submit' }}
                             @endif

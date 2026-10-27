@@ -1244,7 +1244,7 @@ class RdpExportHelper
 
             if ($item['type'] === 'root_standalone') {
                 $root = $item['root'];
-                $itemNo = (string)($root->item_number ?? $root->item_no ?? '');
+                $itemNo = (string)($root->item_number ? (!empty($root->series_type_identifier) ? $root->item_number . ' - ' . $root->series_type_identifier : $root->item_number) : ($root->series_type_identifier ?? $root->item_no ?? ''));
                 $title = (string)($root->series_title ?? $root->title ?? '');
                 $period = $root->compiled_period ?? $root->period_covered ?? '';
                 $retention = trim(($root->total_period ?? '') . (!empty($root->remarks) ? ' / ' . $root->remarks : ''));
@@ -1259,7 +1259,7 @@ class RdpExportHelper
                 $r++;
             } elseif ($item['type'] === 'root_header') {
                 $root = $item['root'];
-                $itemNo = (string)($root->item_number ?? $root->item_no ?? '');
+                $itemNo = (string)($root->item_number ? (!empty($root->series_type_identifier) ? $root->item_number . ' - ' . $root->series_type_identifier : $root->item_number) : ($root->series_type_identifier ?? $root->item_no ?? ''));
                 $title = (string)($root->series_title ?? $root->title ?? '');
 
                 $sheetXml .= '<row r="' . $r . '" ht="19" customHeight="1">'
@@ -1276,10 +1276,15 @@ class RdpExportHelper
                 $period = $sub->compiled_period ?? $sub->period_covered ?? '';
                 $rem = ($sub->remarks ?? '') ?: ($root ? ($root->remarks ?? '') : '');
                 $retention = trim(($sub->total_period ?? '') . (!empty($rem) ? ' / ' . $rem : ''));
+                $subItemNo = !empty($sub->item_number) ? (!empty($sub->series_type_identifier) ? $sub->item_number . ' - ' . $sub->series_type_identifier : $sub->item_number) : '';
 
-                $sheetXml .= '<row r="' . $r . '" ht="19" customHeight="1">'
-                    . '<c r="A' . $r . '" s="11"/>'
-                    . '<c r="B' . $r . '" t="inlineStr" s="7"><is><t>   └ ' . htmlspecialchars($title, ENT_XML1, 'UTF-8') . '</t></is></c>'
+                $sheetXml .= '<row r="' . $r . '" ht="19" customHeight="1">';
+                if ($subItemNo !== '') {
+                    $sheetXml .= '<c r="A' . $r . '" t="inlineStr" s="9"><is><t>' . htmlspecialchars($subItemNo, ENT_XML1, 'UTF-8') . '</t></is></c>';
+                } else {
+                    $sheetXml .= '<c r="A' . $r . '" s="11"/>';
+                }
+                $sheetXml .= '<c r="B' . $r . '" t="inlineStr" s="7"><is><t>   └ ' . htmlspecialchars($title, ENT_XML1, 'UTF-8') . '</t></is></c>'
                     . '<c r="C' . $r . '" s="7"/>'
                     . '<c r="D' . $r . '" t="inlineStr" s="9"><is><t>' . htmlspecialchars($dash($period), ENT_XML1, 'UTF-8') . '</t></is></c>'
                     . '<c r="E' . $r . '" t="inlineStr" s="9"><is><t>' . htmlspecialchars($dash($retention), ENT_XML1, 'UTF-8') . '</t></is></c>'
@@ -2066,7 +2071,7 @@ class RdpExportHelper
         // DATA PAGES
         foreach ($dataPages as $pageIndex => $pageItems) {
             $pageNumber = $pageIndex + 1;
-            $fillerHeight = empty($pageItems) ? 880 : max(40, 880 - (count($pageItems) * 26));
+            $fillerHeight = empty($pageItems) ? 880 : max(40, 880 - (count($pageItems) * 35));
 
             $html .= '<div class="page-container">';
 
@@ -2134,24 +2139,24 @@ class RdpExportHelper
                 $remarks = self::cleanVal($item->remarks ?? '');
 
                 $html .= '<tr>
-                    <td style="border-left: 1px solid #000; border-right: 1px solid #000; text-align: center; font-weight: bold;">
+                    <td style="border-left: 1px solid #000; border-right: 1px solid #000; text-align: center; font-weight: bold; padding: 12px 6px; line-height: 1.2;">
                         ' . $itemNo . '
                     </td>
-                    <td style="border-left: 1px solid #000; border-right: 1px solid #000; padding-left: ' . $indent . 'px;">
+                    <td style="border-left: 1px solid #000; border-right: 1px solid #000; padding: 12px 6px; padding-left: ' . $indent . 'px; line-height: 1.2;">
                         <span style="' . ($depth === 0 ? 'font-weight: bold;' : 'font-weight: normal;') . '">
                             ' . $prefix . $title . '
                         </span>
                     </td>';
 
                 if ($isPerm) {
-                    $html .= '<td colspan="3" style="border-left: 1px solid #000; border-right: 1px solid #000; text-align: center; font-weight: bold;">PERMANENT</td>';
+                    $html .= '<td colspan="3" style="border-left: 1px solid #000; border-right: 1px solid #000; text-align: center; font-weight: bold; padding: 12px 4px; line-height: 1.2;">PERMANENT</td>';
                 } else {
-                    $html .= '<td style="border-left: 1px solid #000; border-right: 1px solid #000; text-align: center;">' . self::cleanVal($item->effective_active ?? '', true) . '</td>
-                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; text-align: center;">' . self::cleanVal($item->effective_storage ?? '', true) . '</td>
-                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; text-align: center; font-weight: bold;">' . self::cleanVal($item->effective_total ?? '', true) . '</td>';
+                    $html .= '<td style="border-left: 1px solid #000; border-right: 1px solid #000; text-align: center; padding: 12px 4px; line-height: 1.2;">' . self::cleanVal($item->effective_active ?? '', true) . '</td>
+                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; text-align: center; padding: 12px 4px; line-height: 1.2;">' . self::cleanVal($item->effective_storage ?? '', true) . '</td>
+                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; text-align: center; font-weight: bold; padding: 12px 4px; line-height: 1.2;">' . self::cleanVal($item->effective_total ?? '', true) . '</td>';
                 }
 
-                $html .= '<td style="border-left: 1px solid #000; border-right: 1px solid #000; font-size: 8.5px;">' . $remarks . '</td>
+                $html .= '<td style="border-left: 1px solid #000; border-right: 1px solid #000; font-size: 8.5px; padding: 12px 6px; line-height: 1.2;">' . $remarks . '</td>
                 </tr>';
             }
 
@@ -2411,8 +2416,8 @@ class RdpExportHelper
         foreach ($pages as $pageIndex => $pageItems) {
             $isLastPage = ($pageIndex + 1) === $totalPages;
             $computedFiller = $isLastPage
-                ? max(40, 750 - (count($pageItems) * 22))
-                : max(40, 900 - (count($pageItems) * 22));
+                ? max(40, 750 - (count($pageItems) * 35))
+                : max(40, 900 - (count($pageItems) * 35));
 
             $html .= '<div class="page-container">';
 
@@ -2464,8 +2469,8 @@ class RdpExportHelper
             $html .= '<table class="print-table" style="border: 2px solid #000; border-top: none;">
                 <thead>
                     <tr>
-                        <th style="width: 12%;">GRDS/ RDS ITEM NO.</th>
-                        <th style="width: 48%;">RECORD SERIES TITLE AND DESCRIPTION</th>
+                        <th style="width: 14%;">GRDS/ RDS ITEM NO.</th>
+                        <th style="width: 46%;">RECORD SERIES TITLE AND DESCRIPTION</th>
                         <th style="width: 20%;">PERIOD COVERED</th>
                         <th style="width: 20%;">RETENTION PERIOD AND PROVISION/S COMPLIED (If Any)</th>
                     </tr>
@@ -2475,31 +2480,35 @@ class RdpExportHelper
             foreach ($pageItems as $item) {
                 if ($item['type'] === 'root_standalone') {
                     $root = $item['root'];
-                    $itemNo = self::cleanVal($root->item_number ?? '');
+                    $rootItemFormatted = $root->item_number ? (!empty($root->series_type_identifier) ? $root->item_number . ' - ' . $root->series_type_identifier : $root->item_number) : ($root->series_type_identifier ?? '');
+                    $itemNo = self::cleanVal($rootItemFormatted);
                     $title = strtoupper(self::cleanVal($root->series_title ?? ''));
                     $period = self::cleanVal($root->compiled_period ?? '', true);
                     $ret = self::cleanVal(trim(($root->total_period ?? '') . ($root->remarks ? ' / ' . $root->remarks : '')), true);
 
                     $html .= '<tr style="vertical-align: top;">
-                        <td style="' . $cellBorder . ' text-align: center;">' . $itemNo . '</td>
-                        <td style="' . $cellBorder . ' text-align: left; font-weight: bold;">' . $title . '</td>
-                        <td style="' . $cellBorder . ' text-align: center;">' . $period . '</td>
-                        <td style="' . $cellBorder . ' text-align: center;">' . $ret . '</td>
+                        <td style="' . $cellBorder . ' text-align: center; padding: 12px 8px; line-height: 1.2; font-weight: bold;">' . $itemNo . '</td>
+                        <td style="' . $cellBorder . ' text-align: left; padding: 12px 8px; line-height: 1.2; font-weight: bold;">' . $title . '</td>
+                        <td style="' . $cellBorder . ' text-align: center; padding: 12px 8px; line-height: 1.2;">' . $period . '</td>
+                        <td style="' . $cellBorder . ' text-align: center; padding: 12px 8px; line-height: 1.2;">' . $ret . '</td>
                     </tr>';
                 } elseif ($item['type'] === 'root_header') {
                     $root = $item['root'];
-                    $itemNo = self::cleanVal($root->item_number ?? '');
+                    $rootItemFormatted = $root->item_number ? (!empty($root->series_type_identifier) ? $root->item_number . ' - ' . $root->series_type_identifier : $root->item_number) : ($root->series_type_identifier ?? '');
+                    $itemNo = self::cleanVal($rootItemFormatted);
                     $title = strtoupper(self::cleanVal($root->series_title ?? ''));
 
                     $html .= '<tr style="vertical-align: top;">
-                        <td style="' . $cellBorder . ' text-align: center;">' . $itemNo . '</td>
-                        <td style="' . $cellBorder . ' text-align: left; font-weight: bold;">' . $title . '</td>
-                        <td style="' . $cellBorder . '"></td>
-                        <td style="' . $cellBorder . '"></td>
+                        <td style="' . $cellBorder . ' text-align: center; padding: 12px 8px; line-height: 1.2; font-weight: bold;">' . $itemNo . '</td>
+                        <td style="' . $cellBorder . ' text-align: left; padding: 12px 8px; line-height: 1.2; font-weight: bold;">' . $title . '</td>
+                        <td style="' . $cellBorder . ' padding: 12px 8px; line-height: 1.2;"></td>
+                        <td style="' . $cellBorder . ' padding: 12px 8px; line-height: 1.2;"></td>
                     </tr>';
                 } elseif ($item['type'] === 'sub_series') {
                     $sub = $item['sub'];
                     $root = $item['root'] ?? null;
+                    $subItemFormatted = !empty($sub->item_number) ? (!empty($sub->series_type_identifier) ? $sub->item_number . ' - ' . $sub->series_type_identifier : $sub->item_number) : '';
+                    $subItemNo = self::cleanVal($subItemFormatted);
                     $title = self::cleanVal($sub->series_title ?? '');
                     $period = self::cleanVal($sub->compiled_period ?? '', true);
                     $remarks = $sub->remarks ?: ($root ? $root->remarks : '');
@@ -2507,12 +2516,12 @@ class RdpExportHelper
                     $indent = $item['indent'] ?? 14;
 
                     $html .= '<tr style="vertical-align: top;">
-                        <td style="' . $cellBorder . ' text-align: center;"></td>
-                        <td style="' . $cellBorder . ' text-align: left; padding-left: ' . $indent . 'px;">
+                        <td style="' . $cellBorder . ' text-align: center; padding: 12px 8px; line-height: 1.2; font-size: 8.5px;">' . $subItemNo . '</td>
+                        <td style="' . $cellBorder . ' text-align: left; padding: 12px 8px 12px ' . $indent . 'px; line-height: 1.2;">
                             └ ' . $title . '
                         </td>
-                        <td style="' . $cellBorder . ' text-align: center;">' . $period . '</td>
-                        <td style="' . $cellBorder . ' text-align: center;">' . $ret . '</td>
+                        <td style="' . $cellBorder . ' text-align: center; padding: 12px 8px; line-height: 1.2;">' . $period . '</td>
+                        <td style="' . $cellBorder . ' text-align: center; padding: 12px 8px; line-height: 1.2;">' . $ret . '</td>
                     </tr>';
                 } elseif ($item['type'] === 'record') {
                     $rec = $item['rec'];
@@ -2521,12 +2530,12 @@ class RdpExportHelper
                     $indent = $item['indent'] ?? 20;
 
                     $html .= '<tr style="vertical-align: top;">
-                        <td style="' . $cellBorder . ' text-align: center;"></td>
-                        <td style="' . $cellBorder . ' text-align: left; padding-left: ' . $indent . 'px; font-size: 8px;">
+                        <td style="' . $cellBorder . ' text-align: center; padding: 12px 8px; line-height: 1.2;"></td>
+                        <td style="' . $cellBorder . ' text-align: left; padding: 12px 8px 12px ' . $indent . 'px; line-height: 1.2; font-size: 8px;">
                             ' . $desc . '
                         </td>
-                        <td style="' . $cellBorder . ' text-align: center;">' . $date . '</td>
-                        <td style="' . $cellBorder . '"></td>
+                        <td style="' . $cellBorder . ' text-align: center; padding: 12px 8px; line-height: 1.2;">' . $date . '</td>
+                        <td style="' . $cellBorder . ' text-align: center; padding: 12px 8px; line-height: 1.2;"></td>
                     </tr>';
                 }
             }

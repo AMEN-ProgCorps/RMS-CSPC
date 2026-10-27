@@ -122,6 +122,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
     // Print Preview Modal Properties
     public bool $showPrintModal = false;
+    public bool $enableNumber = false;
 
     // View Modal Properties
     public bool $showViewModal = false;
@@ -191,7 +192,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             return;
         }
         if (!empty($specificIds)) {
-            $this->selectedIds = array_map('strval', $specificIds);
+            $this->selectedIds = array_values(array_unique(array_map('strval', $specificIds)));
         }
         $this->showPrintModal = true;
     }
@@ -199,6 +200,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public function closePrintModal(): void
     {
         $this->showPrintModal = false;
+        $this->enableNumber = false;
     }
 
     public function updatedSelectAll($value): void
@@ -763,7 +765,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 <div class="nap-page-container" 
      style="padding: 24px; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, sans-serif;"
      x-data="{
-        printModalOpen: @json($showPrintModal),
+        printModalOpen: @entangle('showPrintModal'),
         selectedIds: @entangle('selectedIds'),
         allSelectableIds: @js($allSelectableRecordIds ?? []),
         collapsedRoots: {},
@@ -806,8 +808,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         openPrintModal() {
             this.printModalOpen = true;
             if (this.$wire) {
-                this.$wire.set('selectedIds', this.selectedIds, false);
-                this.$wire.call('openPrintModal');
+                this.$wire.call('openPrintModal', this.selectedIds);
             }
         },
         closePrintModal() {
@@ -820,6 +821,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             this.collapsedRoots[key] = !this.isRootCollapsed(key);
         },
         isRootCollapsed(key) {
+            if (this.$wire?.search && this.$wire.search.trim().length > 0) return false;
             if (this.collapsedRoots[key] !== undefined) {
                 return this.collapsedRoots[key];
             }
@@ -987,7 +989,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
         @media print {
             body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; }
-            header, #navigation, .navigation, nav, .top-nav-tabs-wrapper, .dcs-top-tabs-host, .chatify-floating-widget, .no-print, .nap-page-header, footer { display: none !important; }
+            header, #navigation, .navigation, nav, .top-nav-tabs-wrapper, .dcs-top-tabs-host, .chatify-floating-widget, .no-print, .nap-page-header, .nap-stat-grid, .nap-card, footer { display: none !important; }
             .modal-overlay { position: static !important; background: none !important; padding: 0 !important; display: block !important; }
             .modal-content { background: none !important; max-width: 100% !important; max-height: none !important; padding: 0 !important; box-shadow: none !important; overflow: visible !important; }
             .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; margin-bottom: 0 !important; page-break-after: always; break-after: page; overflow: visible !important; }
@@ -1452,22 +1454,35 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
              @click.self="closePrintModal()"
              @keydown.escape.window="closePrintModal()">
             <div class="modal-content">
-                <!-- Modal Toolbar (Preview Only — No Printing Here) -->
-                <div style="display: flex; justify-content: space-between; align-items: center;">
+                <!-- Modal Toolbar -->
+                <div style="display: flex; justify-content: space-between; align-items: center;" class="no-print">
                     <div>
                         <div style="color: #ffffff; font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px;">
                             <span>Print Preview: NAP Form 2 (Records Disposition Schedule)</span>
-                            <span style="font-size: 11px; background: rgba(255,255,255,0.2); color: #f1f5f9; padding: 2px 8px; border-radius: 6px; font-weight: 600;">Preview Mode</span>
                         </div>
                         <div style="color: #cbd5e1; font-size: 12px; margin-top: 2px;">
                             @if($hasSelection)
-                                Showing schedule document preview (<span x-text="selectedIds.length"></span> records selected). Official printing is available once created in Pending / List.
+                                Showing schedule document preview (<span x-text="selectedIds.length"></span> records selected).
                             @else
-                                Official NAP Form 2 Blank Template Preview. Official printing is available once created in Pending / List.
+                                Official NAP Form 2 Blank Template Preview.
                             @endif
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
+                        <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; margin-right: 6px; background: rgba(255,255,255,0.18); padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.25);">
+                            <span style="font-size: 12.5px; font-weight: 700; color: #ffffff;">Enable Number</span>
+                            <div style="position: relative; width: 34px; height: 18px; background: {{ $enableNumber ? '#10b981' : '#475569' }}; border-radius: 9999px; transition: background 0.2s ease;">
+                                <input type="checkbox" wire:model.live="enableNumber" style="opacity: 0; width: 0; height: 0; position: absolute;">
+                                <span style="position: absolute; top: 2px; left: {{ $enableNumber ? '18px' : '2px' }}; width: 14px; height: 14px; background: white; border-radius: 50%; transition: left 0.2s ease; box-shadow: 0 1px 2px rgba(0,0,0,0.3);"></span>
+                            </div>
+                        </label>
+                        <button type="button" 
+                                onclick="window.print()" 
+                                class="nap-btn" 
+                                style="background: #16a34a; color: #ffffff; border: none; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); cursor: pointer;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                            <span>Print Now</span>
+                        </button>
                         <button type="button" @click="closePrintModal()" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                             <span>Close Preview</span>
@@ -1480,7 +1495,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 @foreach($dataPages as $pageIndex => $pageItems)
                     @php
                         $pageNumber = $pageIndex + 1;
-                        $fillerHeight = empty($pageItems) ? 660 : max(40, 660 - (count($pageItems) * 26));
+                        $fillerHeight = empty($pageItems) ? 660 : max(40, 660 - (count($pageItems) * 35));
                     @endphp
                     <div class="print-sheet">
                         <!-- Top Form Identifier -->
@@ -1548,32 +1563,33 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                         $isPermSeries = (bool)($item->effective_is_permanent) || 
                                                         (strtolower(trim($item->effective_total ?? '')) === 'permanent') ||
                                                         (strtolower(trim($item->effective_active ?? '')) === 'permanent' && strtolower(trim($item->effective_storage ?? '')) === 'permanent');
+                                        $itemRowNumber = ($pageIndex * $rowsPerPage) + $loop->iteration;
                                     @endphp
                                     <tr>
-                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 6px 5px 8px; text-align: left; vertical-align: top; font-weight: bold;">
-                                            {{ $item->display_item_no }}
+                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 6px; text-align: center; vertical-align: top; font-weight: bold; line-height: 1.2;">
+                                            {{ $enableNumber ? $itemRowNumber : $item->display_item_no }}
                                         </td>
-                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 6px; vertical-align: top; padding-left: {{ (($item->depth ?? 0) * 14) + 6 }}px;">
+                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 6px 12px {{ (($item->depth ?? 0) * 14) + 6 }}px; vertical-align: top; line-height: 1.2;">
                                             <span style="{{ ($item->depth ?? 0) === 0 ? 'font-weight: bold;' : 'font-weight: 500;' }}">
                                                 {{ $item->series_title }}
                                             </span>
                                         </td>
                                         @if($isPermSeries)
-                                            <td colspan="3" style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top; font-weight: bold;">
+                                            <td colspan="3" style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 4px; text-align: center; vertical-align: top; font-weight: bold; line-height: 1.2;">
                                                 PERMANENT
                                             </td>
                                         @else
-                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top;">
+                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 4px; text-align: center; vertical-align: top; line-height: 1.2;">
                                                 {{ $item->effective_active }}
                                             </td>
-                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top;">
+                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 4px; text-align: center; vertical-align: top; line-height: 1.2;">
                                                 {{ $item->effective_storage }}
                                             </td>
-                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top; font-weight: bold;">
+                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 4px; text-align: center; vertical-align: top; font-weight: bold; line-height: 1.2;">
                                                 {{ $item->effective_total }}
                                             </td>
                                         @endif
-                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 6px; vertical-align: top; font-size: 8.5px;">
+                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 12px 6px; vertical-align: top; font-size: 8.5px; line-height: 1.2;">
                                             {{ $item->remarks }}
                                         </td>
                                     </tr>

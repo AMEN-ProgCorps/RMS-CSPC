@@ -388,12 +388,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
     }
 
-    public function openPrintModal(): void
+    public function openPrintModal(array $specificIds = [], array $selectionModes = [], array $subjectIds = []): void
     {
         $perms = Auth::user()?->permissions;
         if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true)) {
             $this->errorMessage = 'You do not have clearance to print NAP Form 3.';
             return;
+        }
+
+        if (!empty($specificIds)) {
+            $this->selectedIds = array_values(array_unique(array_map('strval', $specificIds)));
+        }
+        if (!empty($selectionModes)) {
+            $this->seriesSelectionMode = $selectionModes;
+        }
+        if (!empty($subjectIds)) {
+            $this->selectedSubjectIds = $subjectIds;
         }
 
         $sysTable = $this->getSysTable();
@@ -2016,7 +2026,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 <div class="nap-page-container" 
      style="padding: 24px; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"
      x-data="{
-        printModalOpen: @json($showPrintModal),
+        printModalOpen: @entangle('showPrintModal'),
         selectedIds: @entangle('selectedIds'),
         seriesSelectionMode: @entangle('seriesSelectionMode'),
         selectedSubjectIds: @entangle('selectedSubjectIds'),
@@ -2139,10 +2149,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         openPrintModal() {
             this.printModalOpen = true;
             if (this.$wire) {
-                this.$wire.set('selectedIds', this.selectedIds, false);
-                this.$wire.set('seriesSelectionMode', this.seriesSelectionMode, false);
-                this.$wire.set('selectedSubjectIds', this.selectedSubjectIds, false);
-                this.$wire.call('openPrintModal');
+                this.$wire.call('openPrintModal', this.selectedIds, this.seriesSelectionMode, this.selectedSubjectIds);
             }
         },
         closePrintModal() {
@@ -2155,7 +2162,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             this.collapsedSubjects[key] = !this.isSubjectsCollapsed(key);
         },
         isSubjectsCollapsed(key) {
-            if ($wire.search && $wire.search.trim().length > 0) return false;
+            if (this.$wire?.search && this.$wire.search.trim().length > 0) return false;
             if (this.collapsedSubjects[key] !== undefined) return this.collapsedSubjects[key];
             return this.allSubjectsCollapsed;
         },
@@ -2163,6 +2170,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             this.collapsedRoots[key] = !this.isRootCollapsed(key);
         },
         isRootCollapsed(key) {
+            if (this.$wire?.search && this.$wire.search.trim().length > 0) return false;
             if (this.collapsedRoots[key] !== undefined) return this.collapsedRoots[key];
             return this.allRootsCollapsed;
         },
@@ -2324,7 +2332,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             header, #navigation, .navigation, nav, .top-nav-tabs-wrapper, .dcs-top-tabs-host, .chatify-floating-widget, .no-print, .nap-page-header, .nap-stat-grid, .nap-card, footer { display: none !important; }
             .modal-overlay { position: static !important; background: none !important; padding: 0 !important; display: block !important; }
             .modal-content { background: none !important; max-width: 100% !important; max-height: none !important; padding: 0 !important; box-shadow: none !important; overflow: visible !important; }
-            .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; }
+            .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; margin-bottom: 0 !important; page-break-after: always; break-after: page; }
+            .print-sheet:last-child { page-break-after: auto; break-after: auto; }
             @page { size: legal portrait; margin: 0.5in; }
         }
     </style>
@@ -2924,6 +2933,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
+                        <button type="button" 
+                                onclick="window.print()" 
+                                class="nap-btn" 
+                                style="background: #16a34a; color: #ffffff; border: none; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); cursor: pointer;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                            <span>Print Now</span>
+                        </button>
                         <button type="button" @click="closePrintModal()" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                             <span>Close Preview</span>
@@ -3001,10 +3017,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                             $rootItemFormatted = $root->item_number ? ($root->series_type_identifier ? $root->item_number . ' - ' . $root->series_type_identifier : $root->item_number) : ($root->series_type_identifier ?: '—');
                                         @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 4px 8px; font-weight: bold;">{{ $cleanVal($rootItemFormatted) }}</td>
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
-                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->compiled_period) }}</td>
-                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal(trim($root->total_period . ($root->remarks ? ' / ' . $root->remarks : ''))) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2; font-weight: bold;">{{ $cleanVal($rootItemFormatted) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 12px 8px; line-height: 1.2; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;">{{ $cleanVal($root->compiled_period) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;">{{ $cleanVal(trim($root->total_period . ($root->remarks ? ' / ' . $root->remarks : ''))) }}</td>
                                         </tr>
                                     @elseif($item['type'] === 'root_header')
                                         @php
@@ -3012,10 +3028,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                             $rootItemFormatted = $root->item_number ? ($root->series_type_identifier ? $root->item_number . ' - ' . $root->series_type_identifier : $root->item_number) : ($root->series_type_identifier ?: '—');
                                         @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 4px 8px; font-weight: bold;">{{ $cleanVal($rootItemFormatted) }}</td>
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
-                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
-                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2; font-weight: bold;">{{ $cleanVal($rootItemFormatted) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 12px 8px; line-height: 1.2; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;"></td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;"></td>
                                         </tr>
                                     @elseif($item['type'] === 'sub_series')
                                         @php
@@ -3023,25 +3039,25 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                             $subItemFormatted = !empty($sub->item_number) ? ($sub->series_type_identifier ? $sub->item_number . ' - ' . $sub->series_type_identifier : $sub->item_number) : '';
                                         @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 4px 8px; font-size: 8.5px;">{{ $cleanVal($subItemFormatted) }}</td>
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 4px {{ $item['indent'] ?? 14 }}px; font-weight: normal;">
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2; font-size: 8.5px;">{{ $cleanVal($subItemFormatted) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 12px 8px 12px {{ $item['indent'] ?? 14 }}px; line-height: 1.2; font-weight: normal;">
                                                 └ {{ $cleanVal($sub->series_title) }}
                                             </td>
-                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($sub->compiled_period) }}</td>
-                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal(trim($sub->total_period . (($sub->remarks ?: $root->remarks) ? ' / ' . ($sub->remarks ?: $root->remarks) : ''))) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;">{{ $cleanVal($sub->compiled_period) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;">{{ $cleanVal(trim($sub->total_period . (($sub->remarks ?: $root->remarks) ? ' / ' . ($sub->remarks ?: $root->remarks) : ''))) }}</td>
                                         </tr>
                                     @elseif($item['type'] === 'record')
                                         @php $rec = $item['rec']; @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: center; padding: 3px 6px;"></td>
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px 3px {{ $item['indent'] ?? 20 }}px; font-size: 8.5px;">
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;"></td>
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 12px 8px 12px {{ $item['indent'] ?? 20 }}px; line-height: 1.2; font-size: 8.5px;">
                                                 @if(!empty($rec->is_sub_period))
                                                     <span style="margin-right: 2px;">└</span>
                                                 @endif
                                                 {{ $cleanVal($rec->description) }}
                                             </td>
-                                            <td style="{{ $cellBorder }} text-align: center; padding: 3px 6px;">{{ $cleanVal($rec->date_covered) }}</td>
-                                            <td style="{{ $cellBorder }} text-align: center; padding: 3px 6px;"></td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;">{{ $cleanVal($rec->date_covered) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 12px 8px; line-height: 1.2;"></td>
                                         </tr>
                                     @endif
                                 @endforeach

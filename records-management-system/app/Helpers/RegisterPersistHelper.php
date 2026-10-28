@@ -1972,8 +1972,8 @@ class RegisterPersistHelper
             // so those offices are not notified. A draft does not mark the forms.
             $submitterOfficeCodes = [];
             $holdForAppraisal = (string) $request->input('open_appraisal') === '1';            if (! $saveAsDraft && $pending && in_array($pending['type'], ['drf', 'dcn'], true) && $pending['id'] > 0) {
-                // When Save and Appraise is used, defer "Your DRF/DCN was registered"
-                // until appraisal completes for the creating office.
+                // Always notify the creating office when the form is registered.
+                // Appraisal can continue separately; do not defer the registered notice.
                 $submitterOfficeCodes = OfficeIntakeHelper::closePendingIntakeForRegistration(
                     $pending['type'],
                     (int) $pending['id'],
@@ -1981,7 +1981,7 @@ class RegisterPersistHelper
                     $docNo,
                     $docTitle !== '' ? $docTitle : null,
                     $revisedFrom !== '' ? $revisedFrom : null,
-                    $holdForAppraisal
+                    false
                 );
             }
 

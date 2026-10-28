@@ -1206,6 +1206,11 @@ class RegisterQueryHelper
      */
     public static function limitedUserOwnsOfficeIntakeNotice(?string $redirectUrl, ?int $userId = null): bool
     {
+        // Registered success is office-wide (notification already scoped to the creating office).
+        if (self::isOfficeIntakeRegisteredSuccessNotice($redirectUrl)) {
+            return true;
+        }
+
         $ownerId = self::officeIntakeFormOwnerId($redirectUrl);
         if ($ownerId === null) {
             // Not a form-specific link (documents list, /dcs, etc.).
@@ -1218,6 +1223,25 @@ class RegisterQueryHelper
         }
 
         return $ownerId === $userId;
+    }
+
+    /** True for "Your DRF/DCN was registered" links (`?registered=1`). */
+    public static function isOfficeIntakeRegisteredSuccessNotice(?string $redirectUrl): bool
+    {
+        $url = trim((string) $redirectUrl);
+        if ($url === '') {
+            return false;
+        }
+
+        $path = ltrim((string) (parse_url($url, PHP_URL_PATH) ?? $url), '/');
+        $query = parse_url($url, PHP_URL_QUERY);
+        $params = [];
+        if (is_string($query) && $query !== '') {
+            parse_str($query, $params);
+        }
+
+        return preg_match('#^dcs/office/(drf|dcn)/\d+#', $path) === 1
+            && ! empty($params['registered']);
     }
 
     /**
@@ -1314,9 +1338,9 @@ class RegisterQueryHelper
                     $userId
                 ))
                 ->values();
-        } elseif (self::isFullDcsUser() || self::canBrowseAllOfficeIntake()) {
-            // Same RFOIU office receives both RFIO-queue and submitter-success notices.
-            // Full Document Controllers only keep the queue notices.
+        } elseif (self::canBrowseAllOfficeIntake()) {
+            // RFIO / Document Controllers share the RFIO office with limited intake staff.
+            // Hide client-office submitter success notices from controllers only.
             $rows = $rows
                 ->filter(fn ($row) => ! self::isOfficeIntakeSubmitterSuccessNotice(
                     $row->redirect_url ?? null,
@@ -5210,6 +5234,10 @@ class RegisterQueryHelper
         if (mb_strlen($q) < 1) {
             return [];
         }
+        // Dashboard typeahead: ignore 1-character noise queries.
+        if ($request->boolean('dashboard') && mb_strlen($q) < 2) {
+            return [];
+        }
 
         $visibleIds = [];
         $field = $request->input('field');
@@ -5217,7 +5245,8 @@ class RegisterQueryHelper
         $subTypeId = $request->input('sub_type_id');
         $allRevisions = $request->boolean('all_revisions');
         $hasKeywords = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
-        $dashboardSearch = !$allRevisions && ($field === null || $field === '');
+        $dashboardSearch = $request->boolean('dashboard')
+            || (! $allRevisions && ($field === null || $field === ''));
         $latestOnly = $request->boolean('latest_only') || $dashboardSearch;
 
         $query = DB::table('dcs_masterlist_registration as ml')
@@ -5334,10 +5363,15 @@ class RegisterQueryHelper
             $select[] = 'ml.stack_group';
         }
 
+        // Dashboard typeahead: smaller candidate window for faster round-trips.
+        $fetchLimit = $dashboardSearch
+            ? 30
+            : (count(self::searchTokens($q)) > 1 ? 80 : ($allRevisions ? 50 : 20));
+
         $rows = $query->orderByDesc('ml.revise_no')
             ->orderBy('ml.doc_no')
             ->orderBy('ml.doc_title')
-            ->limit(count(self::searchTokens($q)) > 1 ? 80 : ($allRevisions ? 50 : 20))
+            ->limit($fetchLimit)
             ->get($select);
 
         $forRevision = $request->boolean('for_revision') || in_array($field, ['no', 'title', 'supersede'], true);
@@ -5391,25 +5425,42 @@ class RegisterQueryHelper
             })->values();
         }
 
-        $rows = $rows->sortByDesc(fn ($m) => self::looseSearchScore(
-            $q,
-            trim(($m->doc_no ?? '') . ' ' . ($m->doc_title ?? '') . ' ' . ($m->keywords ?? '') . ' ' . ($m->type_name ?? ''))
-        ))->values();
+        $rows = $rows->map(function ($m) use ($q) {
+            $m->_search_score = self::looseSearchScore(
+                $q,
+                trim(($m->doc_no ?? '') . ' ' . ($m->doc_title ?? '') . ' ' . ($m->keywords ?? '') . ' ' . ($m->type_name ?? '') . ' ' . ($m->sub_type_name ?? ''))
+            );
 
-        $rows = $rows->take(15);
+            return $m;
+        })
+            // Drop SQL false-positives that do not actually contain the query tokens.
+            ->filter(fn ($m) => (int) ($m->_search_score ?? 0) > 0)
+            ->sortByDesc(fn ($m) => (int) ($m->_search_score ?? 0))
+            ->values();
+
+        $rows = $rows->take($dashboardSearch ? 12 : 15);
 
         $requestIds = $rows->pluck('request_id')->all();
-        $drfIds = DB::table('dcs_document_request_form')->whereIn('request_id', $requestIds)->pluck('request_id')->flip();
-        $dcnIds = DB::table('dcs_document_change_notice')->whereIn('request_id', $requestIds)->pluck('request_id')->flip();
-        $distIds = DB::table('dcs_document_distribution')->whereIn('request_id', $requestIds)->pluck('request_id')->flip();
-        $retIds = DB::table('dcs_document_retrieval')->whereIn('request_id', $requestIds)->pluck('request_id')->flip();
-        $approvalIds = DB::table('dcs_document_requests')
-            ->whereIn('id', $requestIds)
-            ->where('approval_status', 'applicable')
-            ->pluck('id')
-            ->flip();
+        // Dashboard typeahead skips checklist existence probes — loaded when a result is opened.
+        if ($dashboardSearch) {
+            $drfIds = collect();
+            $dcnIds = collect();
+            $distIds = collect();
+            $retIds = collect();
+            $approvalIds = collect();
+        } else {
+            $drfIds = DB::table('dcs_document_request_form')->whereIn('request_id', $requestIds)->pluck('request_id')->flip();
+            $dcnIds = DB::table('dcs_document_change_notice')->whereIn('request_id', $requestIds)->pluck('request_id')->flip();
+            $distIds = DB::table('dcs_document_distribution')->whereIn('request_id', $requestIds)->pluck('request_id')->flip();
+            $retIds = DB::table('dcs_document_retrieval')->whereIn('request_id', $requestIds)->pluck('request_id')->flip();
+            $approvalIds = DB::table('dcs_document_requests')
+                ->whereIn('id', $requestIds)
+                ->where('approval_status', 'applicable')
+                ->pluck('id')
+                ->flip();
+        }
 
-        return $rows->map(function ($m) use ($drfIds, $dcnIds, $distIds, $retIds, $approvalIds) {
+        return $rows->map(function ($m) use ($drfIds, $dcnIds, $distIds, $retIds, $approvalIds, $dashboardSearch) {
             $docNo = $m->doc_no ?: 'No number';
             $title = $m->doc_title ?: 'Untitled';
             $isObsolete = strtolower(trim((string) ($m->revision_status ?? ''))) === 'obsolete';
@@ -5434,7 +5485,9 @@ class RegisterQueryHelper
                 'label' => $docNo . ' — ' . $title . ' (Rev ' . (int) $m->revise_no . ')'
                     . ($isObsolete ? ' (Obsolete)' : '')
                     . ($isSuperseded ? ' (Superseded)' : ''),
-                'checklists' => [
+                'checklists' => $dashboardSearch ? [
+                    'masterlist' => true,
+                ] : [
                     'drf' => isset($drfIds[$m->request_id]),
                     'dcn' => isset($dcnIds[$m->request_id]),
                     'masterlist' => true,

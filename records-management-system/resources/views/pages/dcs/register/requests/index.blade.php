@@ -109,8 +109,9 @@ new #[Layout('layouts.dcs')] #[Title('Request — CSPC DCS')] class extends Comp
         </div>
     </div>
 
-    <div class="upd-table-card ofi-request-card" style="position:relative;" wire:loading.class="is-loading">
-        <div class="dcs-loading-overlay" wire:loading.flex>
+    <div class="upd-table-card ofi-request-card" style="position:relative;" wire:loading.class="is-loading" wire:target="filter">
+        {{-- Overlay only on intentional filter changes — silent on wire:poll background refresh --}}
+        <div class="dcs-loading-overlay" wire:loading.flex wire:target="filter">
             <div class="dcs-loading-spinner" aria-hidden="true"></div>
             <h4>Loading requests…</h4>
             <p>Fetching records and preparing the list.</p>

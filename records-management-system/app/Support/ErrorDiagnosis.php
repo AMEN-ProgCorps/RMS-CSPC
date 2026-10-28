@@ -85,6 +85,28 @@ class ErrorDiagnosis
             // A locked log file must not replace the original error.
         }
 
+        try {
+            \App\Services\ErrorTicketRecorder::recordAuto([
+                'reference' => $reference,
+                'title' => $diagnosed->title,
+                'message' => $diagnosed->message,
+                'kind' => $diagnosed->kind,
+                'http_status' => $diagnosed->status,
+                'url' => request()?->fullUrl(),
+                'exception_class' => $e::class,
+                'file' => $frame['file'],
+                'line' => $frame['line'],
+                'context' => [
+                    'user_id' => Auth::id(),
+                    'exception_message' => Str::limit($e->getMessage(), 500),
+                    'user_agent' => request()?->userAgent(),
+                    'route' => optional(request()?->route())->getName(),
+                ],
+            ]);
+        } catch (Throwable) {
+            // Ticket persistence must never replace the original error response.
+        }
+
         return new self(
             $diagnosed->kind,
             $diagnosed->status,

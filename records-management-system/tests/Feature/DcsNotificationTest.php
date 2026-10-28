@@ -110,6 +110,8 @@ class DcsNotificationTest extends TestCase
 
     public function test_notify_office_document_received_message_and_redirect(): void
     {
+        // Method remains available for legacy callers / tests, but markOfficeDocumentReceived
+        // no longer office-broadcasts receive notices (admin/RFIO only).
         DcsNotificationService::notifyOfficeDocumentReceived(
             $this->officeCode,
             'Maria Santos',

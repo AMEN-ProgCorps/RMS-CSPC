@@ -368,7 +368,7 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
             height: 10pt !important;
             min-height: 10pt !important;
             max-height: 10pt !important;
-            margin: 0 0 12pt !important;
+            margin: 0 0 13pt !important;
             padding: 0 !important;
             font-size: 11pt !important;
             line-height: 1 !important;

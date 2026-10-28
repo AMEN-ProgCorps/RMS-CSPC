@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     @php
         $colors = [
             401 => '#1d4ed8',
@@ -89,6 +90,42 @@
             text-decoration: none;
         }
         a:hover { text-decoration: underline; }
+        .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 16px; }
+        .actions a { margin-top: 0; }
+        .report-btn {
+            border: 1px solid color-mix(in srgb, var(--err) 40%, #cbd5e1);
+            background: #fff;
+            color: var(--err);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font: 600 0.9rem Inter, system-ui, sans-serif;
+            cursor: pointer;
+        }
+        .report-panel {
+            display: none;
+            margin-top: 16px;
+            padding-top: 14px;
+            border-top: 1px solid #e2e8f0;
+        }
+        .report-panel.open { display: block; }
+        .report-panel label { display: block; margin-bottom: 10px; font-size: 0.8rem; font-weight: 600; color: #334155; }
+        .report-panel input, .report-panel textarea {
+            width: 100%; box-sizing: border-box; margin-top: 4px;
+            border: 1px solid #cbd5e1; border-radius: 8px; padding: 9px 11px; font: inherit;
+        }
+        .report-panel .msg { margin-top: 8px; font-size: 0.85rem; }
+        .report-panel .msg.ok { color: #047857; }
+        .report-panel .msg.err { color: #b91c1c; }
+        .report-submit {
+            margin-top: 8px;
+            border: 0;
+            background: var(--err);
+            color: #fff;
+            border-radius: 8px;
+            padding: 9px 14px;
+            font: 600 0.85rem Inter, system-ui, sans-serif;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -102,7 +139,24 @@
         @if($error->reference)
             <p class="ref">Reference {{ $error->reference }}</p>
         @endif
-        <a href="{{ $backUrl !== '' ? $backUrl : '#' }}" id="rmsErrorBack" data-back="{{ $backUrl }}" data-retry="{{ $retryUrl }}">Back to the system</a>
+        <div class="actions">
+            <a href="{{ $backUrl !== '' ? $backUrl : '#' }}" id="rmsErrorBack" data-back="{{ $backUrl }}" data-retry="{{ $retryUrl }}">Back to the system</a>
+            @auth
+                <button type="button" class="report-btn" id="rmsOpenReport">Report this error</button>
+            @endauth
+        </div>
+        @auth
+            <div class="report-panel" id="rmsReportPanel">
+                <label>Subject
+                    <input type="text" id="rmsReportTitle" value="{{ $error->title }}" maxlength="240">
+                </label>
+                <label>What happened?
+                    <textarea id="rmsReportDesc" rows="4" maxlength="5000" placeholder="What were you doing when this happened?"></textarea>
+                </label>
+                <button type="button" class="report-submit" id="rmsReportSubmit">Submit ticket</button>
+                <p class="msg" id="rmsReportMsg" hidden></p>
+            </div>
+        @endauth
     </main>
     <script>
         (function () {
@@ -147,6 +201,68 @@
                     .catch(function () {})
                     .then(function () { checking = false; });
             }, 4000);
+
+            var openBtn = document.getElementById('rmsOpenReport');
+            var panel = document.getElementById('rmsReportPanel');
+            var submitBtn = document.getElementById('rmsReportSubmit');
+            var msgEl = document.getElementById('rmsReportMsg');
+            if (openBtn && panel) {
+                openBtn.addEventListener('click', function () {
+                    panel.classList.toggle('open');
+                });
+            }
+            if (submitBtn) {
+                submitBtn.addEventListener('click', function () {
+                    var title = (document.getElementById('rmsReportTitle') || {}).value || '';
+                    var description = (document.getElementById('rmsReportDesc') || {}).value || '';
+                    var token = document.querySelector('meta[name="csrf-token"]');
+                    var csrf = token ? token.getAttribute('content') : '';
+                    if (!csrf) {
+                        var match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
+                        csrf = match ? decodeURIComponent(match[1]) : '';
+                    }
+                    submitBtn.disabled = true;
+                    if (msgEl) { msgEl.hidden = true; }
+                    fetch('{{ url('/api/error-tickets') }}', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': csrf,
+                            'X-XSRF-TOKEN': csrf
+                        },
+                        body: JSON.stringify({
+                            title: title,
+                            description: description,
+                            reference: @json($error->reference),
+                            url: retry
+                        })
+                    }).then(function (response) {
+                        return response.json().then(function (body) {
+                            return { ok: response.ok, status: response.status, body: body };
+                        });
+                    }).then(function (result) {
+                        if (!msgEl) return;
+                        msgEl.hidden = false;
+                        if (result.ok && result.body && result.body.ticket_number) {
+                            msgEl.className = 'msg ok';
+                            msgEl.textContent = 'Ticket ' + result.body.ticket_number + ' submitted. Thank you.';
+                            submitBtn.style.display = 'none';
+                        } else {
+                            msgEl.className = 'msg err';
+                            msgEl.textContent = (result.body && result.body.message) || 'Could not submit the report.';
+                            submitBtn.disabled = false;
+                        }
+                    }).catch(function () {
+                        if (!msgEl) return;
+                        msgEl.hidden = false;
+                        msgEl.className = 'msg err';
+                        msgEl.textContent = 'Could not submit the report.';
+                        submitBtn.disabled = false;
+                    });
+                });
+            }
         })();
     </script>
 </body>

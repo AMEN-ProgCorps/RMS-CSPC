@@ -24,6 +24,12 @@ new class extends Component {
     /** @var bool Tracks whether popout notifications are enabled for the current user */
     public bool $popoutNotificationsEnabled = true;
 
+    /** @var string Active subsystem tab filter: all|dcs|dts|rdp */
+    public string $activeTab = 'all';
+
+    /** @var array<int, string> Subsystem tab keys the user may see (account access, not page-scoped) */
+    public array $accessibleTabs = ['all'];
+
     /**
      * Component mount hook.
      */
@@ -31,7 +37,42 @@ new class extends Component {
     {
         $user = Auth::user();
         $this->popoutNotificationsEnabled = $user ? $user->popoutNotifications() : true;
+        $this->accessibleTabs = $this->resolveAccessibleTabs();
         $this->loadNotifications();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function resolveAccessibleTabs(): array
+    {
+        $tabs = ['all'];
+        $perms = Auth::user()?->permissions;
+        if (! $perms) {
+            return $tabs;
+        }
+
+        if (! empty($perms->is_sadm) || ! empty($perms->can_access_dcs)) {
+            $tabs[] = 'dcs';
+        }
+        if (! empty($perms->is_sadm) || ! empty($perms->can_access_dts)) {
+            $tabs[] = 'dts';
+        }
+        if (! empty($perms->is_sadm) || ! empty($perms->can_access_rdp)) {
+            $tabs[] = 'rdp';
+        }
+
+        return array_values(array_unique($tabs));
+    }
+
+    public function setTab(string $tab): void
+    {
+        if (! in_array($tab, $this->accessibleTabs, true)) {
+            $this->activeTab = 'all';
+
+            return;
+        }
+        $this->activeTab = $tab;
     }
 
     /**
@@ -531,6 +572,46 @@ new class extends Component {
         $this->loadNotifications();
         $this->dispatch('rms-notification-updated');
     }
+
+    /**
+     * Filter the loaded notification collection by the active subsystem tab.
+     */
+    public function with(): array
+    {
+        $all = collect($this->notifications);
+        $filtered = $all;
+
+        if ($this->activeTab !== 'all') {
+            $needle = match ($this->activeTab) {
+                'dcs' => 'Document Control System',
+                'dts' => 'Document Tracking System',
+                'rdp' => 'Records Disposition Program',
+                default => null,
+            };
+            if ($needle) {
+                $filtered = $all->filter(function ($n) use ($needle) {
+                    return strcasecmp((string) ($n->subsystem_name ?? ''), $needle) === 0;
+                })->values();
+            }
+        }
+
+        $tabCounts = [
+            'all' => $all->count(),
+            'dcs' => $all->filter(fn ($n) => strcasecmp((string) ($n->subsystem_name ?? ''), 'Document Control System') === 0)->count(),
+            'dts' => $all->filter(fn ($n) => strcasecmp((string) ($n->subsystem_name ?? ''), 'Document Tracking System') === 0)->count(),
+            'rdp' => $all->filter(fn ($n) => strcasecmp((string) ($n->subsystem_name ?? ''), 'Records Disposition Program') === 0)->count(),
+        ];
+
+        if (! in_array($this->activeTab, $this->accessibleTabs, true)) {
+            $this->activeTab = 'all';
+        }
+
+        return [
+            'filteredNotifications' => $filtered,
+            'tabCounts' => $tabCounts,
+            'accessibleTabs' => $this->accessibleTabs,
+        ];
+    }
 };
 ?>
 
@@ -638,9 +719,32 @@ new class extends Component {
             </div>
         </div>
 
+        @if(count($accessibleTabs) > 1)
+        <div class="notif-subsystem-tabs" role="tablist" aria-label="Filter by subsystem">
+            <button type="button" role="tab" class="notif-subsystem-tab {{ $activeTab === 'all' ? 'is-active' : '' }}" wire:click="setTab('all')" aria-selected="{{ $activeTab === 'all' ? 'true' : 'false' }}">
+                All @if(($tabCounts['all'] ?? 0) > 0)<span>{{ $tabCounts['all'] }}</span>@endif
+            </button>
+            @if(in_array('dcs', $accessibleTabs, true))
+            <button type="button" role="tab" class="notif-subsystem-tab {{ $activeTab === 'dcs' ? 'is-active' : '' }}" wire:click="setTab('dcs')" aria-selected="{{ $activeTab === 'dcs' ? 'true' : 'false' }}">
+                DCS @if(($tabCounts['dcs'] ?? 0) > 0)<span>{{ $tabCounts['dcs'] }}</span>@endif
+            </button>
+            @endif
+            @if(in_array('dts', $accessibleTabs, true))
+            <button type="button" role="tab" class="notif-subsystem-tab {{ $activeTab === 'dts' ? 'is-active' : '' }}" wire:click="setTab('dts')" aria-selected="{{ $activeTab === 'dts' ? 'true' : 'false' }}">
+                DTS @if(($tabCounts['dts'] ?? 0) > 0)<span>{{ $tabCounts['dts'] }}</span>@endif
+            </button>
+            @endif
+            @if(in_array('rdp', $accessibleTabs, true))
+            <button type="button" role="tab" class="notif-subsystem-tab {{ $activeTab === 'rdp' ? 'is-active' : '' }}" wire:click="setTab('rdp')" aria-selected="{{ $activeTab === 'rdp' ? 'true' : 'false' }}">
+                RDP @if(($tabCounts['rdp'] ?? 0) > 0)<span>{{ $tabCounts['rdp'] }}</span>@endif
+            </button>
+            @endif
+        </div>
+        @endif
+
         <div class="notif-dropdown-body">
-            @forelse ($notifications as $notification)
-                <div class="notif-item">
+            @forelse ($filteredNotifications as $notification)
+                <div class="notif-item" wire:key="notif-{{ $notification->id }}">
                     <!-- Status dot indicator -->
                     @if ($notification->status === 'unread')
                         <div class="notif-unread-dot" title="Unread"></div>
@@ -681,7 +785,13 @@ new class extends Component {
                         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                         <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                     </svg>
-                    <p>No notification currently at this session..</p>
+                    <p>
+                        @if($activeTab === 'all')
+                            No notification currently at this session..
+                        @else
+                            No {{ strtoupper($activeTab) }} notifications right now.
+                        @endif
+                    </p>
                 </div>
             @endforelse
         </div>

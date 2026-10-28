@@ -680,20 +680,44 @@ body > section{
             border-radius: 0 !important;
             box-shadow: none !important;
         }
+    .article-container {
+        scrollbar-width: thin;
+        scrollbar-color: #093484bf rgba(0, 0, 0, 0.04);
+    }
     .article-container::-webkit-scrollbar {
-        padding: 5px;
         width: 10px;
-        position: absolute;
+        height: 10px;
     }
     .article-container::-webkit-scrollbar-track {
-        background: transparent; 
-        cursor: pointer;
+        background: rgba(0, 0, 0, 0.04); 
+        border-radius: 10px;
     }
     .article-container::-webkit-scrollbar-thumb {
-        position: absolute;
         background: #093484bf; 
         border-radius: 10px;
-        cursor: grabbing;
+        border: 2px solid transparent;
+        background-clip: content-box;
+    }
+    .article-container::-webkit-scrollbar-thumb:hover {
+        background: #062358;
+        border: 2px solid transparent;
+        background-clip: content-box;
+    }
+    [data-theme="dark"] .article-container {
+        scrollbar-color: #3b82f6 rgba(255, 255, 255, 0.05);
+    }
+    [data-theme="dark"] .article-container::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+    }
+    [data-theme="dark"] .article-container::-webkit-scrollbar-thumb {
+        background: #3b82f6;
+        border: 2px solid transparent;
+        background-clip: content-box;
+    }
+    [data-theme="dark"] .article-container::-webkit-scrollbar-thumb:hover {
+        background: #60a5fa;
+        border: 2px solid transparent;
+        background-clip: content-box;
     }
 
 /* Flyout Popover Menu for Right-Click in Icon Mode (Image Design) */

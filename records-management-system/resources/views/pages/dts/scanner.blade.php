@@ -30,6 +30,12 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     /** @var string Dynamic target office code for To be Forwarded to */
     public string $forwardToOfficeCode = '';
 
+    // Forward HUB Selection Modal State
+    public bool $showForwardHubModal = false;
+    public string $forwardHubSearch = '';
+    public array $forwardHubOffices = [];
+    public array $forwardHubTempSelected = [];
+
     /** @var string Forwarding notes or revision reason */
     public string $notes = '';
 
@@ -96,6 +102,75 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
     }
 
+    public function updatedActionNeeded(string $value): void
+    {
+        if ($value === 'To be Forwarded to' && empty($this->forwardToOfficeCode)) {
+            $this->forwardToOfficeCode = '[HUB]';
+        }
+    }
+
+    public function openForwardHubModal(): void
+    {
+        $this->forwardHubTempSelected = $this->forwardHubOffices;
+        $this->forwardHubSearch = '';
+        $this->showForwardHubModal = true;
+    }
+
+    public function closeForwardHubModal(): void
+    {
+        $this->showForwardHubModal = false;
+        $this->forwardHubSearch = '';
+    }
+
+    public function toggleForwardHubOffice(string $officeCode): void
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        if ($officeCode === $userOfficeCode || in_array($officeCode, ['ORIGIN', '[H]', '[HUB]'])) {
+            return;
+        }
+
+        if (in_array('ALL', $this->forwardHubTempSelected)) {
+            $allActive = collect($this->availableTargetOffices)
+                ->pluck('office_code')
+                ->filter(fn($c) => $c !== $userOfficeCode && !in_array($c, ['ORIGIN', '[H]', '[HUB]', 'ALL']))
+                ->toArray();
+            $this->forwardHubTempSelected = array_values(array_diff($allActive, [$officeCode]));
+            return;
+        }
+
+        if (in_array($officeCode, $this->forwardHubTempSelected)) {
+            $this->forwardHubTempSelected = array_values(array_diff($this->forwardHubTempSelected, [$officeCode]));
+        } else {
+            $this->forwardHubTempSelected[] = $officeCode;
+        }
+    }
+
+    public function selectAllForwardHubOffices(): void
+    {
+        $this->forwardHubTempSelected = ['ALL'];
+    }
+
+    public function clearForwardHubOffices(): void
+    {
+        $this->forwardHubTempSelected = [];
+    }
+
+    public function applyForwardHubModal(): void
+    {
+        $this->forwardHubOffices = $this->forwardHubTempSelected;
+        $this->showForwardHubModal = false;
+        $this->forwardHubSearch = '';
+    }
+
+    public function removeForwardHubOffice(int $index): void
+    {
+        if (isset($this->forwardHubOffices[$index])) {
+            array_splice($this->forwardHubOffices, $index, 1);
+        }
+    }
+
     public function clearAlerts(): void
     {
         $this->successMessage = '';
@@ -121,6 +196,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->activeTransaction = null;
         $this->scannedCode = '';
         $this->notes = '';
+        $this->forwardToOfficeCode = '';
+        $this->forwardHubOffices = [];
+        $this->forwardHubTempSelected = [];
+        $this->showForwardHubModal = false;
+        $this->forwardHubSearch = '';
         $this->dispatch('focus-scanner-input');
     }
 
@@ -294,6 +374,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     {
         $this->clearAlerts();
         $this->activeTransaction = null;
+        $this->forwardToOfficeCode = '';
+        $this->forwardHubOffices = [];
+        $this->forwardHubTempSelected = [];
+        $this->showForwardHubModal = false;
+        $this->forwardHubSearch = '';
 
         if ($codeToLoad !== null && trim($codeToLoad) !== '') {
             $this->scannedCode = trim($codeToLoad);
@@ -684,18 +769,28 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 return;
             }
 
+            if ($this->forwardToOfficeCode === '[HUB]' && empty($this->forwardHubOffices)) {
+                $this->errorMessage = 'Please select at least one recipient office for Office Hub broadcast.';
+                return;
+            }
+
             try {
                 $result = \App\Services\DtsRoutingService::forwardToOtherOffice(
                     $this->activeTransaction['id'],
                     $this->forwardToOfficeCode,
                     $this->notes,
-                    auth()->id()
+                    auth()->id(),
+                    $this->forwardHubOffices
                 );
                 $this->successMessage = "Transaction '{$result['control_number']}' forwarded to {$result['target_office_name']}!";
                 $this->logSessionScan($this->activeTransaction['qr_code'], 'Forwarded to ' . $result['target_office_name'], 'success');
                 $this->activeTransaction = null;
                 $this->scannedCode = '';
                 $this->forwardToOfficeCode = '';
+                $this->forwardHubOffices = [];
+                $this->forwardHubTempSelected = [];
+                $this->showForwardHubModal = false;
+                $this->forwardHubSearch = '';
             } catch (\Throwable $e) {
                 $this->errorMessage = 'Failed to forward transaction: ' . $e->getMessage();
             }
@@ -1371,12 +1466,50 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                     <label style="display: block; font-size: 12px; font-weight: 700; color: #1e40af; margin-bottom: 6px;">
                                         <i class="fa-solid fa-building-circle-arrow-right"></i> Destination Office:
                                     </label>
-                                    <select wire:model="forwardToOfficeCode" style="width: 100%; height: 38px; background: #ffffff; color: #1e293b; border: 1px solid #93c5fd; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; outline: none;">
+                                    <select wire:model.live="forwardToOfficeCode" style="width: 100%; height: 38px; background: #ffffff; color: #1e293b; border: 1px solid #93c5fd; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; outline: none;">
                                         <option value="">-- Select Office to Forward To --</option>
                                         @foreach($this->availableTargetOffices as $office)
                                             <option value="{{ $office->office_code }}">{{ $office->office_name }} ({{ $office->office_code }})</option>
                                         @endforeach
                                     </select>
+
+                                    @if($forwardToOfficeCode === '[HUB]')
+                                        <div style="margin-top: 8px; padding: 10px; background: #ffffff; border: 1px dashed #3b82f6; border-radius: 6px;">
+                                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                                                <span style="font-size: 12px; font-weight: 700; color: #1e40af;">
+                                                    <i class="fa-solid fa-layer-group"></i> Office Hub Recipients:
+                                                </span>
+                                                <button type="button" 
+                                                        wire:click="openForwardHubModal" 
+                                                        style="background: #2563eb; color: #ffffff; border: none; border-radius: 6px; padding: 4px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                                                    <i class="fa-solid fa-plus-circle"></i> Office Hub [ {{ in_array('ALL', $forwardHubOffices) ? 'ALL' : count($forwardHubOffices) }} selected ]
+                                                </button>
+                                            </div>
+
+                                            @if(empty($forwardHubOffices))
+                                                <div style="font-size: 12px; color: #dc2626; font-style: italic;">
+                                                    ⚠️ Click "Office Hub" to select recipient offices for broadcast forwarding.
+                                                </div>
+                                            @else
+                                                <div style="display: flex; flex-wrap: wrap; gap: 5px; max-height: 100px; overflow-y: auto;">
+                                                    @if(in_array('ALL', $forwardHubOffices))
+                                                        <span style="display: inline-flex; align-items: center; gap: 5px; background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">
+                                                            <i class="fa-solid fa-globe"></i> ALL ACTIVE OFFICES
+                                                            <button type="button" wire:click="clearForwardHubOffices" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 12px; line-height: 1; padding: 0;">&times;</button>
+                                                        </span>
+                                                    @else
+                                                        @foreach($forwardHubOffices as $idx => $fCode)
+                                                            <span style="display: inline-flex; align-items: center; gap: 5px; background: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;">
+                                                                <strong>{{ $fCode }}</strong>
+                                                                <button type="button" wire:click="removeForwardHubOffice({{ $idx }})" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 12px; line-height: 1; padding: 0;">&times;</button>
+                                                            </span>
+                                                        @endforeach
+                                                    @endif
+                                                </div>
+                                            @endif
+                                        </div>
+                                    @endif
+
                                     <div style="font-size: 11px; color: #3b82f6; margin-top: 4px;">
                                         This will dynamically route the transaction to this office and insert it directly into the active routing sequence flow.
                                     </div>
@@ -1836,6 +1969,20 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             </div>
         </div>
     @endif
+
+    <!-- Office Hub Collective Modal for Forwarding -->
+    <x-dts.hub-collective-modal 
+        :show="$showForwardHubModal" 
+        :search="$forwardHubSearch" 
+        :selected="$forwardHubTempSelected" 
+        :offices="$this->availableTargetOffices"
+        wireClose="closeForwardHubModal"
+        wireToggle="toggleForwardHubOffice"
+        wireSelectAll="selectAllForwardHubOffices"
+        wireClear="clearForwardHubOffices"
+        wireApply="applyForwardHubModal"
+        wireSearch="forwardHubSearch"
+    />
 </div>
 
 @push('scripts')
@@ -1881,7 +2028,14 @@ if (typeof Html5Qrcode === 'undefined') {
                     wrap.style.cssText = 'position:fixed;top:16px;right:16px;z-index:99999999;display:flex;flex-direction:column;gap:8px;max-width:380px;font-family:Outfit,"Segoe UI",sans-serif;';
                     document.body.appendChild(wrap);
                 }
+                // Prevent duplicate toasts with the exact same message
+                var items = wrap.querySelectorAll('.scanner-toast-item');
+                for (var i = 0; i < items.length; i++) {
+                    if (items[i].textContent === message) return;
+                }
+
                 var el = document.createElement('div');
+                el.className = 'scanner-toast-item';
                 var bg = type === 'success' ? '#f0fdf4' : (type === 'info' ? '#eff6ff' : '#fef2f2');
                 var bd = type === 'success' ? '#86efac' : (type === 'info' ? '#bfdbfe' : '#fca5a5');
                 var fg = type === 'success' ? '#166534' : (type === 'info' ? '#1e40af' : '#991b1b');
@@ -1899,9 +2053,7 @@ if (typeof Html5Qrcode === 'undefined') {
         };
     }
 
-    // Surface failed Livewire requests (expired session = 419/401, server
-    // errors, network loss) which otherwise fail completely silently and make
-    // the scanner look "dead" while the camera keeps running.
+    // Surface failed Livewire requests
     if (!window.__scannerConnectionHooked) {
         var attachScannerRequestHook = function () {
             if (window.__scannerConnectionHooked) return;
@@ -1913,7 +2065,13 @@ if (typeof Html5Qrcode === 'undefined') {
                     hooks.fail(function (res) {
                         var status = res && res.status;
                         if (!status || status === 200) return;
-                        window.__scannerToast('Scanner connection problem (HTTP ' + status + '). Your session may have expired — press F5 to refresh and continue scanning.', 'error');
+
+                        if (status === 401 || status === 419) {
+                            window.location.href = '/login';
+                            return;
+                        }
+
+                        window.__scannerToast('Scanner connection problem (HTTP ' + status + '). Please try again.', 'error');
                     });
                 });
             } catch (e) { console.warn('Scanner request hook unavailable:', e); }

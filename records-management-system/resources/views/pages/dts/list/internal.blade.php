@@ -559,6 +559,48 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 } elseif ($step->office_code === '[H]') {
                     $step->office_code = $clusterHeadCode;
                     $step->office_name = $clusterHeadName;
+                } elseif ($step->office_code === '[HUB]' || !empty($step->is_hub)) {
+                    $step->office_code = '[HUB]';
+                    $step->office_name = 'Office Hub [Multi-Receiving]';
+                    $step->is_hub = true;
+
+                    // Calculate hub counts for modal view
+                    $cBranches = DB::table('dts_transactions as dt')
+                        ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                        ->where('dtd.control_number', 'like', $this->selectedTransaction->control_number . '-%')
+                        ->where('dtd.is_active', 1)
+                        ->whereNotIn('dt.status', ['cancelled'])
+                        ->select('dt.transaction_id', 'dt.status', 'dt.sequence', 'dt.current_office')
+                        ->get();
+
+                    $hubTotal = $cBranches->count();
+                    if ($hubTotal === 0) {
+                        $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $this->selectedTransaction->control_number)->first();
+                        $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
+                        $hubTotal = count($hubOffices);
+                    }
+
+                    $hubDone = 0;
+                    if ($cBranches->isNotEmpty()) {
+                        $cIds = $cBranches->pluck('transaction_id')->toArray();
+                        $fwdLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
+                            ->whereIn('transaction_id', $cIds)
+                            ->whereNotNull('date_out')
+                            ->pluck('transaction_id')
+                            ->toArray();
+
+                        foreach ($cBranches as $cb) {
+                            if (strtolower($cb->status) === 'completed' || in_array($cb->transaction_id, $fwdLogs) || ($cb->sequence ?? 0) > 2) {
+                                $hubDone++;
+                            }
+                        }
+                    }
+
+                    $step->hub_forwarded_count = $hubDone;
+                    $step->hub_total = $hubTotal;
+                    if ($hubTotal > 0 && $hubDone >= $hubTotal) {
+                        $step->date_out = now();
+                    }
                 }
 
                 $step->receiver_name = !empty(trim($step->receiver_name ?? '')) ? $step->receiver_name : ($step->receiver_username ?: '—');
@@ -634,7 +676,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     {
         $perms = auth()->user()?->permissions;
         $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
-        if (!$canListModify) {
+        $isCreator = isset($this->selectedTransaction) && ($this->selectedTransaction->created_by === auth()->id());
+        $isAtOrigin = isset($this->selectedTransaction) && ($this->selectedTransaction->current_office === $this->selectedTransaction->originated_from);
+        $isInitialOrRevisionState = isset($this->selectedTransaction) && ($this->selectedTransaction->sequence == 1 || $this->selectedTransaction->status === 'revision');
+
+        $canModify = isset($this->selectedTransaction) 
+            && ($canListModify || ($this->selectedTransaction->status !== 'completed' && $isCreator && $isAtOrigin && $isInitialOrRevisionState));
+
+        if (!$canModify) {
             return;
         }
         $this->editingAll = !$this->editingAll;
@@ -697,218 +746,259 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     {
         $perms = auth()->user()?->permissions;
         $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
-        if ($canListModify) {
-            $emailAccessId = null;
-            if ($this->emailAccess) {
-                $existingEmail = DB::table('dts_email_access')->where('email', $this->emailAccess)->first();
-                if (!$existingEmail) {
-                    $emailAccessId = DB::table('dts_email_access')->insertGetId([
-                        'email' => $this->emailAccess,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                } else {
-                    $emailAccessId = $existingEmail->id;
-                }
-            }
+        $isCreator = isset($this->selectedTransaction) && ($this->selectedTransaction->created_by === auth()->id());
+        $isAtOrigin = isset($this->selectedTransaction) && ($this->selectedTransaction->current_office === $this->selectedTransaction->originated_from);
+        $isInitialOrRevisionState = isset($this->selectedTransaction) && ($this->selectedTransaction->sequence == 1 || $this->selectedTransaction->status === 'revision');
 
-            $copyFilledId = $this->selectedTransaction->copy_filled_id;
-            if (count($this->cfSelectedOffices) > 0) {
-                if ($copyFilledId) {
-                    $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->first();
-                    if ($cfRecord) {
-                        DB::table('dts_copy_filled_transaction')
-                            ->where('id', $copyFilledId)
-                            ->update([
-                                'total_office' => count($this->cfSelectedOffices),
-                                'date_modified' => now(),
-                            ]);
-                        DB::table('dts_copy_filled_to_office')
-                            ->where('control_id', $cfRecord->assign_offices_id)
-                            ->delete();
-                        foreach ($this->cfSelectedOffices as $cfOffice) {
-                            DB::table('dts_copy_filled_to_office')->insert([
-                                'control_id' => $cfRecord->assign_offices_id,
-                                'office_code' => $cfOffice,
-                            ]);
-                        }
-                    }
-                } else {
-                    $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
-                    $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
-                        'control_num' => $this->controlNumber,
-                        'total_office' => count($this->cfSelectedOffices),
-                        'assign_offices_id' => $assignOfficesId,
-                        'data_created' => now(),
-                        'date_modified' => now(),
-                    ]);
-                    foreach ($this->cfSelectedOffices as $cfOffice) {
-                        DB::table('dts_copy_filled_to_office')->insert([
-                            'control_id' => $assignOfficesId,
-                            'office_code' => $cfOffice,
-                        ]);
-                    }
-                }
-            } else {
-                if ($copyFilledId) {
-                    $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->first();
-                    if ($cfRecord) {
-                        DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->delete();
-                        DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->delete();
-                    }
-                    $copyFilledId = null;
-                }
-            }
+        $canModify = isset($this->selectedTransaction) 
+            && ($canListModify || ($this->selectedTransaction->status !== 'completed' && $isCreator && $isAtOrigin && $isInitialOrRevisionState));
 
-            // Upsert / resolve requestor in dts_requestor_history
-            $requestorId = null;
-            if (!empty(trim($this->requestorName ?? ''))) {
-                $tDetail = DB::table('dts_transaction_details')->where('id', $this->selectedTransactionId)->first();
-                $originOffice = $tDetail?->originated_from ?? (auth()->user()?->details?->office?->office_code ?? 'RFIO');
-                $existingReq = DB::table('dts_requestor_history')
-                    ->where('requestor_name', trim($this->requestorName))
-                    ->where('office', $originOffice)
-                    ->first();
-
-                if ($existingReq) {
-                    $requestorId = $existingReq->id;
-                    if (!empty($this->requestorPosition) && $existingReq->requestor_position !== $this->requestorPosition) {
-                        DB::table('dts_requestor_history')
-                            ->where('id', $existingReq->id)
-                            ->update(['requestor_position' => $this->requestorPosition]);
-                    }
-                } else {
-                    $requestorId = DB::table('dts_requestor_history')->insertGetId([
-                        'requestor_name' => trim($this->requestorName),
-                        'requestor_position' => $this->requestorPosition ?: null,
-                        'office' => $originOffice,
-                        'is_active' => true,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                }
-            }
-
-            DB::table('dts_transaction_details')
-                ->where('id', $this->selectedTransactionId)
-                ->update([
-                    'control_number' => $this->controlNumber,
-                    'copy_filled_id' => $copyFilledId ?: null,
-                    'subject' => $this->particulars,
-                    'classification' => $this->classification ?: null,
-                    'action_needed' => $this->actionNeeded ?: null,
-                    'requestor_id' => $requestorId,
-                    'email_access' => $emailAccessId,
-                    'document_password' => $this->docPassword ?: null,
-                    'transaction_flow' => $this->transactionFlow,
-                ]);
-
-            $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transactionFlow)->first();
-            if ($flow) {
-                $originalSequence = DB::table('dts_sequence_list')
-                    ->where('control_id', $flow->id)
-                    ->orderBy('sequence_ranking', 'asc')
-                    ->get()
-                    ->keyBy('sequence_ranking')
-                    ->toArray();
-
-                if (str_starts_with($flow->flow_code, 'FLOW-CUSTOM-')) {
-                    DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
-                    foreach ($this->flowOffices as $rank => $officeData) {
-                        $rank1 = $rank + 1;
-                        $officeCode = $officeData['office_code'];
-                        
-                        if ($officeData['is_locked'] && isset($originalSequence[$rank1])) {
-                            $orig = $originalSequence[$rank1];
-                            DB::table('dts_sequence_list')->insert([
-                                'control_id' => $flow->id,
-                                'sequence_ranking' => $rank1,
-                                'office_code' => $officeCode,
-                                'date_in' => $orig->date_in,
-                                'date_out' => $orig->date_out,
-                                'action_needed' => $orig->action_needed,
-                                'note' => $orig->note,
-                                'total_time_completed' => $orig->total_time_completed,
+        if ($canModify) {
+            try {
+                DB::transaction(function () use ($canListModify) {
+                    $emailAccessId = null;
+                    if (!empty(trim($this->emailAccess ?? ''))) {
+                        $trimmedEmail = trim($this->emailAccess);
+                        $existingEmail = DB::table('dts_email_access')->where('email', $trimmedEmail)->first();
+                        if (!$existingEmail) {
+                            $emailAccessId = DB::table('dts_email_access')->insertGetId([
+                                'email' => $trimmedEmail,
+                                'is_active' => true,
+                                'date_created' => now(),
                             ]);
                         } else {
-                            DB::table('dts_sequence_list')->insert([
-                                'control_id' => $flow->id,
-                                'sequence_ranking' => $rank1,
-                                'office_code' => $officeCode,
-                                'date_in' => null,
-                                'date_out' => null,
-                                'action_needed' => null,
-                                'note' => null,
-                                'total_time_completed' => null,
-                            ]);
+                            $emailAccessId = $existingEmail->id;
                         }
                     }
-                } else {
-                    $predefinedOffices = DB::table('dts_sequence_list')
-                        ->where('control_id', $flow->id)
-                        ->orderBy('sequence_ranking', 'asc')
-                        ->pluck('office_code')
-                        ->toArray();
-                    
-                    $currentOfficeCodes = array_map(fn($o) => $o['office_code'], $this->flowOffices);
-                    
-                    if ($predefinedOffices !== $currentOfficeCodes) {
-                        $newFlowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
-                        $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
-                        $newFlowId = $maxId + 1;
-                        
-                        DB::table('dts_transaction_flow')->insert([
-                            'flow_code' => $newFlowCode,
-                            'flow_name' => 'Flow for ' . $this->controlNumber . ' (' . $newFlowCode . ')',
-                            'id' => $newFlowId,
-                            'is_active' => 1,
-                            'added_by' => auth()->id() ?? 1,
-                            'date_added' => now(),
-                            'flow_use' => 'none',
-                            'flow_for' => 'system',
-                            'referenced_flow' => $flow ? ($flow->referenced_flow ?? $flow->flow_name) : null,
-                        ]);
 
-                        foreach ($this->flowOffices as $rank => $officeData) {
-                            $rank1 = $rank + 1;
-                            $officeCode = $officeData['office_code'];
-                            
-                            if ($officeData['is_locked'] && isset($originalSequence[$rank1])) {
-                                $orig = $originalSequence[$rank1];
-                                DB::table('dts_sequence_list')->insert([
-                                    'control_id' => $newFlowId,
-                                    'sequence_ranking' => $rank1,
-                                    'office_code' => $officeCode,
-                                    'date_in' => $orig->date_in,
-                                    'date_out' => $orig->date_out,
-                                    'action_needed' => $orig->action_needed,
-                                    'note' => $orig->note,
-                                    'total_time_completed' => $orig->total_time_completed,
-                                ]);
-                            } else {
-                                DB::table('dts_sequence_list')->insert([
-                                    'control_id' => $newFlowId,
-                                    'sequence_ranking' => $rank1,
-                                    'office_code' => $officeCode,
-                                    'date_in' => null,
-                                    'date_out' => null,
-                                    'action_needed' => null,
-                                    'note' => null,
-                                    'total_time_completed' => null,
+                    $copyFilledId = $this->selectedTransaction->copy_filled_id;
+                    if (count($this->cfSelectedOffices) > 0) {
+                        if ($copyFilledId) {
+                            $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->first();
+                            if ($cfRecord) {
+                                DB::table('dts_copy_filled_transaction')
+                                    ->where('id', $copyFilledId)
+                                    ->update([
+                                        'control_num' => $this->controlNumber,
+                                        'total_office' => count($this->cfSelectedOffices),
+                                        'date_modified' => now(),
+                                    ]);
+                                DB::table('dts_copy_filled_to_office')
+                                    ->where('control_id', $cfRecord->assign_offices_id)
+                                    ->delete();
+                                foreach ($this->cfSelectedOffices as $cfOffice) {
+                                    DB::table('dts_copy_filled_to_office')->insert([
+                                        'control_id' => $cfRecord->assign_offices_id,
+                                        'office_code' => $cfOffice,
+                                    ]);
+                                }
+                            }
+                        } else {
+                            $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+                            $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
+                                'control_num' => $this->controlNumber,
+                                'total_office' => count($this->cfSelectedOffices),
+                                'assign_offices_id' => $assignOfficesId,
+                                'data_created' => now(),
+                                'date_modified' => now(),
+                            ]);
+                            foreach ($this->cfSelectedOffices as $cfOffice) {
+                                DB::table('dts_copy_filled_to_office')->insert([
+                                    'control_id' => $assignOfficesId,
+                                    'office_code' => $cfOffice,
                                 ]);
                             }
                         }
-                        $this->transactionFlow = $newFlowCode;
-                        
-                        DB::table('dts_transaction_details')
-                            ->where('id', $this->selectedTransactionId)
-                            ->update(['transaction_flow' => $newFlowCode]);
+                    } else {
+                        if ($copyFilledId) {
+                            $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->first();
+                            // Safely unlink copy_filled_id first to prevent cascade deletion
+                            DB::table('dts_transaction_details')
+                                ->where('id', $this->selectedTransactionId)
+                                ->update(['copy_filled_id' => null]);
+
+                            if ($cfRecord) {
+                                DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->delete();
+                                DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->delete();
+                            }
+                            $copyFilledId = null;
+                        }
                     }
-                }
+
+                    // Upsert / resolve requestor in dts_requestor_history
+                    $requestorId = null;
+                    if (!empty(trim($this->requestorName ?? ''))) {
+                        $tDetail = DB::table('dts_transaction_details')->where('id', $this->selectedTransactionId)->first();
+                        $originOffice = $tDetail?->originated_from ?? (auth()->user()?->details?->office?->office_code ?? 'RFIO');
+                        $existingReq = DB::table('dts_requestor_history')
+                            ->where('requestor_name', trim($this->requestorName))
+                            ->where('office', $originOffice)
+                            ->first();
+
+                        if ($existingReq) {
+                            $requestorId = $existingReq->id;
+                            if (!empty($this->requestorPosition)) {
+                                DB::table('dts_requestor_history')
+                                    ->where('id', $existingReq->id)
+                                    ->update(['requestor_position' => trim($this->requestorPosition)]);
+                            }
+                        } else {
+                            $requestorId = DB::table('dts_requestor_history')->insertGetId([
+                                'requestor_name' => trim($this->requestorName),
+                                'requestor_position' => trim($this->requestorPosition ?? ''),
+                                'office' => $originOffice,
+                                'is_active' => true,
+                                'created_at' => now(),
+                                'updated_at' => now(),
+                            ]);
+                        }
+                    }
+
+                    DB::table('dts_transaction_details')
+                        ->where('id', $this->selectedTransactionId)
+                        ->update([
+                            'control_number' => $this->controlNumber,
+                            'copy_filled_id' => $copyFilledId ?: null,
+                            'subject' => $this->particulars,
+                            'classification' => $this->classification ?: null,
+                            'action_needed' => $this->actionNeeded ?: null,
+                            'requestor_id' => $requestorId,
+                            'email_access' => $emailAccessId,
+                            'document_password' => $this->docPassword ?: null,
+                            'transaction_flow' => $this->transactionFlow,
+                        ]);
+
+                    $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transactionFlow)->first();
+                    if ($flow) {
+                        $originalSequence = DB::table('dts_sequence_list')
+                            ->where('control_id', $flow->id)
+                            ->orderBy('sequence_ranking', 'asc')
+                            ->get()
+                            ->keyBy('sequence_ranking');
+
+                        if (str_starts_with($flow->flow_code, 'FLOW-CUSTOM-')) {
+                            DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
+                            foreach ($this->flowOffices as $rank => $officeData) {
+                                $rank1 = $rank + 1;
+                                $officeCode = is_array($officeData) ? $officeData['office_code'] : $officeData->office_code;
+                                $isLocked = is_array($officeData) ? ($officeData['is_locked'] ?? false) : ($officeData->is_locked ?? false);
+                                
+                                $orig = $originalSequence->get($rank1);
+                                if ($isLocked && $orig) {
+                                    $origDateIn = is_array($orig) ? ($orig['date_in'] ?? null) : ($orig->date_in ?? null);
+                                    $origDateOut = is_array($orig) ? ($orig['date_out'] ?? null) : ($orig->date_out ?? null);
+                                    $origActionNeeded = is_array($orig) ? ($orig['action_needed'] ?? null) : ($orig->action_needed ?? null);
+                                    $origNote = is_array($orig) ? ($orig['note'] ?? null) : ($orig->note ?? null);
+                                    $origTotalTime = is_array($orig) ? ($orig['total_time_completed'] ?? null) : ($orig->total_time_completed ?? null);
+
+                                    DB::table('dts_sequence_list')->insert([
+                                        'control_id' => $flow->id,
+                                        'sequence_ranking' => $rank1,
+                                        'office_code' => $officeCode,
+                                        'date_in' => $origDateIn,
+                                        'date_out' => $origDateOut,
+                                        'action_needed' => $origActionNeeded,
+                                        'note' => $origNote,
+                                        'total_time_completed' => $origTotalTime,
+                                    ]);
+                                } else {
+                                    DB::table('dts_sequence_list')->insert([
+                                        'control_id' => $flow->id,
+                                        'sequence_ranking' => $rank1,
+                                        'office_code' => $officeCode,
+                                        'date_in' => null,
+                                        'date_out' => null,
+                                        'action_needed' => null,
+                                        'note' => null,
+                                        'total_time_completed' => null,
+                                    ]);
+                                }
+                            }
+                        } else {
+                            $predefinedOffices = DB::table('dts_sequence_list')
+                                ->where('control_id', $flow->id)
+                                ->orderBy('sequence_ranking', 'asc')
+                                ->pluck('office_code')
+                                ->toArray();
+                            
+                            $currentOfficeCodes = array_map(fn($o) => is_array($o) ? $o['office_code'] : $o->office_code, $this->flowOffices);
+                            
+                            if ($predefinedOffices !== $currentOfficeCodes) {
+                                $newFlowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
+                                $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+                                $newFlowId = $maxId + 1;
+                                
+                                DB::table('dts_transaction_flow')->insert([
+                                    'flow_code' => $newFlowCode,
+                                    'flow_name' => 'Flow for ' . $this->controlNumber . ' (' . $newFlowCode . ')',
+                                    'id' => $newFlowId,
+                                    'is_active' => true,
+                                    'added_by' => auth()->id() ?? 1,
+                                    'date_added' => now(),
+                                    'flow_use' => 'none',
+                                    'flow_for' => 'system',
+                                    'referenced_flow' => $flow ? ($flow->referenced_flow ?? $flow->flow_name) : null,
+                                ]);
+
+                                foreach ($this->flowOffices as $rank => $officeData) {
+                                    $rank1 = $rank + 1;
+                                    $officeCode = is_array($officeData) ? $officeData['office_code'] : $officeData->office_code;
+                                    $isLocked = is_array($officeData) ? ($officeData['is_locked'] ?? false) : ($officeData->is_locked ?? false);
+                                    
+                                    $orig = $originalSequence->get($rank1);
+                                    if ($isLocked && $orig) {
+                                        $origDateIn = is_array($orig) ? ($orig['date_in'] ?? null) : ($orig->date_in ?? null);
+                                        $origDateOut = is_array($orig) ? ($orig['date_out'] ?? null) : ($orig->date_out ?? null);
+                                        $origActionNeeded = is_array($orig) ? ($orig['action_needed'] ?? null) : ($orig->action_needed ?? null);
+                                        $origNote = is_array($orig) ? ($orig['note'] ?? null) : ($orig->note ?? null);
+                                        $origTotalTime = is_array($orig) ? ($orig['total_time_completed'] ?? null) : ($orig->total_time_completed ?? null);
+
+                                        DB::table('dts_sequence_list')->insert([
+                                            'control_id' => $newFlowId,
+                                            'sequence_ranking' => $rank1,
+                                            'office_code' => $officeCode,
+                                            'date_in' => $origDateIn,
+                                            'date_out' => $origDateOut,
+                                            'action_needed' => $origActionNeeded,
+                                            'note' => $origNote,
+                                            'total_time_completed' => $origTotalTime,
+                                        ]);
+                                    } else {
+                                        DB::table('dts_sequence_list')->insert([
+                                            'control_id' => $newFlowId,
+                                            'sequence_ranking' => $rank1,
+                                            'office_code' => $officeCode,
+                                            'date_in' => null,
+                                            'date_out' => null,
+                                            'action_needed' => null,
+                                            'note' => null,
+                                            'total_time_completed' => null,
+                                        ]);
+                                    }
+                                }
+                                $this->transactionFlow = $newFlowCode;
+                                
+                                DB::table('dts_transaction_details')
+                                    ->where('id', $this->selectedTransactionId)
+                                    ->update(['transaction_flow' => $newFlowCode]);
+                            }
+                        }
+                    }
+                });
+
+                $this->loadSelectedTransaction();
+                $this->editingAll = false;
+                $this->dispatch('dts-transaction-updated');
+                session()->flash('success', 'Transaction details updated successfully.');
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('Error saving transaction metadata: ' . $e->getMessage(), [
+                    'exception' => $e,
+                    'transaction_id' => $this->selectedTransactionId,
+                ]);
+                session()->flash('error', 'Failed to save changes: ' . $e->getMessage());
             }
-            $this->editingAll = false;
-            $this->loadSelectedTransaction();
         }
+        $this->editingAll = false;
     }
 
     public function loadSelectedTransaction(): void
@@ -2121,12 +2211,34 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                         @php
                                             $isReceived = !is_null($step->date_in) || $selectedTransaction->status === 'completed';
                                             $isForwarded = !is_null($step->date_out) || $selectedTransaction->status === 'completed';
-
-                                            $dotColor = $isReceived ? '#10b981' : '#dc2626';
-                                            $lineColor = $isForwarded ? '#10b981' : '#dc2626';
+                                            $isCompleted = ($isReceived && $isForwarded) || $selectedTransaction->status === 'completed';
 
                                             $isCurrentOffice = $step->is_active_step && !is_null($step->date_in) && is_null($step->date_out) && $selectedTransaction->status !== 'completed';
                                             $isInTransitToThisOffice = $step->is_active_step && is_null($step->date_in) && $selectedTransaction->status !== 'completed';
+                                            $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
+                                            $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $selectedTransaction->sequence || $selectedTransaction->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
+                                            if ($isCompleted) {
+                                                $dotColor = '#10b981';
+                                                $lineColor = '#10b981';
+                                                $textColor = '#059669';
+                                            } elseif ($isCurrentOffice) {
+                                                $dotColor = '#2563eb';
+                                                $lineColor = '#cbd5e1';
+                                                $textColor = '#1d4ed8';
+                                            } elseif ($isInTransitToThisOffice) {
+                                                $dotColor = '#f59e0b';
+                                                $lineColor = '#cbd5e1';
+                                                $textColor = '#d97706';
+                                            } elseif ($isReceived) {
+                                                $dotColor = '#10b981';
+                                                $lineColor = '#cbd5e1';
+                                                $textColor = '#059669';
+                                            } else {
+                                                $dotColor = '#cbd5e1';
+                                                $lineColor = '#e2e8f0';
+                                                $textColor = '#64748b';
+                                            }
                                         @endphp
 
                                         <!-- Node Wrapper (Dot + Current Indicator + Hidden Data) -->
@@ -2150,8 +2262,16 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                             @endif
 
                                             <!-- Node Dot Circle -->
-                                            <div class="dts-timeline-node-dot" style="width: 32px; height: 32px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.35); transform: scale(1.15);' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.35);' : '') }}">
-                                                @if ($isReceived)
+                                            <div class="dts-timeline-node-dot" style="width: 32px; height: 32px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.35); transform: scale(1.15);' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.35);' : '') }}">
+                                                @if ($isHubStep)
+                                                    @if ($isForwarded && ($step->hub_forwarded_count ?? 0) >= ($step->hub_total ?: 1))
+                                                        <i class="fa-solid fa-check" style="font-size: 13px;"></i>
+                                                    @elseif ($isReceived)
+                                                        <i class="fa-solid fa-bolt" style="font-size: 13px;"></i>
+                                                    @else
+                                                        {{ $index + 1 }}
+                                                    @endif
+                                                @elseif ($isCompleted || $isReceived)
                                                     <i class="fa-solid fa-check" style="font-size: 13px;"></i>
                                                 @else
                                                     {{ $index + 1 }}
@@ -2159,14 +2279,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                             </div>
 
                                             <!-- Office Code Below Dot -->
-                                            <span style="margin-top: 8px; font-size: 11.5px; font-weight: 700; color: {{ $isReceived ? '#10b981' : '#dc2626' }}; font-family: 'Inter', sans-serif;">
-                                                {{ $step->office_code }}
+                                            <span style="margin-top: 8px; font-size: 11.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                @if ($isHubStep)
+                                                    [HUB]@if($isOnHubArea && isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                @else
+                                                    {{ $step->office_code }}
+                                                @endif
                                             </span>
 
                                             <!-- Pure CSS Tooltip -->
                                             <div class="dts-node-tooltip">
                                                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 6px; margin-bottom: 6px;">
-                                                    <span style="font-weight: 700; font-size: 12px; color: #38bdf8;">Step {{ $index + 1 }}: {{ $step->office_code }}</span>
+                                                    <span style="font-weight: 700; font-size: 12px; color: #38bdf8;">Step {{ $index + 1 }}: @if ($isHubStep) [HUB] @else {{ $step->office_code }} @endif</span>
                                                     @if ($isReceived && $isForwarded)
                                                         <span style="background: #166534; color: #4ade80; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 12px;">✓ Forwarded</span>
                                                     @elseif ($isReceived && !$isForwarded)
@@ -2179,6 +2303,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                                 <div style="font-size: 11px; font-weight: 600; color: #f1f5f9; margin-bottom: 6px; line-height: 1.3;">
                                                     {{ $step->office_name }}
                                                 </div>
+
+                                                @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
+                                                    <div style="font-size: 10.5px; color: #93c5fd; margin-bottom: 6px; font-weight: 600;">
+                                                        Completed &amp; Forwarded: {{ $step->hub_forwarded_count ?? 0 }} / {{ $step->hub_total ?? 0 }} offices
+                                                    </div>
+                                                @endif
 
                                                 <div style="font-size: 10.5px; color: #94a3b8; display: flex; flex-direction: column; gap: 3px;">
                                                     <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>

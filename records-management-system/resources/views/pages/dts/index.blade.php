@@ -263,7 +263,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             });
 
             if (empty($this->searchQuery)) {
-                $query->whereRaw("dtd.control_number !~ '-[0-9]+$'");
+                $query->whereNotExists(function($q) {
+                    $q->select(DB::raw(1))
+                      ->from('dts_transaction_details as p_dtd')
+                      ->whereColumn('p_dtd.id', '!=', 'dtd.id')
+                      ->whereRaw("dtd.control_number LIKE CONCAT(p_dtd.control_number, '-%')");
+                });
             }
         } elseif ($isForwarded) {
             $query->where('dt.current_office', '!=', $userOfficeCode)
@@ -1947,7 +1952,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public function toggleEditAll(): void
     {
         $perms = auth()->user()?->permissions;
-        if (!($perms?->is_sadm || ($perms?->can_dts_modify_transaction ?? false) || ($perms?->can_dts_modify_control_no ?? false) || ($perms?->can_dts_list_modify_transaction ?? false))) {
+        $isSadm = $perms?->is_sadm ?? false;
+        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false) || ($perms?->can_dts_modify_control_no ?? false);
+        $isCreator = isset($this->selectedTransaction) && ($this->selectedTransaction->created_by === auth()->id());
+        $isAtOrigin = isset($this->selectedTransaction) && ($this->selectedTransaction->current_office === $this->selectedTransaction->originated_from);
+        $isInitialOrRevisionState = isset($this->selectedTransaction) && ($this->selectedTransaction->sequence == 1 || $this->selectedTransaction->status === 'revision');
+
+        $canModify = isset($this->selectedTransaction) 
+            && ($hasWideEditClearance || ($this->selectedTransaction->status !== 'completed' && $isCreator && $isAtOrigin && $isInitialOrRevisionState));
+
+        if (!$canModify) {
             return;
         }
         $this->editingAll = !$this->editingAll;
@@ -1979,226 +1993,259 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $isInitialOrRevisionState = isset($this->selectedTransaction) && ($this->selectedTransaction->sequence == 1 || $this->selectedTransaction->status === 'revision');
 
         $canModify = isset($this->selectedTransaction) 
-            && $this->selectedTransaction->status !== 'completed' 
-            && ($hasWideEditClearance || ($isCreator && $isAtOrigin && $isInitialOrRevisionState));
+            && ($hasWideEditClearance || ($this->selectedTransaction->status !== 'completed' && $isCreator && $isAtOrigin && $isInitialOrRevisionState));
 
         if ($canModify) {
-            // Find/create email access ID if provided
-            $emailAccessId = null;
-            if ($this->emailAccess) {
-                $existingEmail = DB::table('dts_email_access')->where('email', $this->emailAccess)->first();
-                if (!$existingEmail) {
-                    $emailAccessId = DB::table('dts_email_access')->insertGetId([
-                        'email' => $this->emailAccess,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                } else {
-                    $emailAccessId = $existingEmail->id;
-                }
-            }
-
-            // Sync copy furnished records
-            $copyFilledId = $this->selectedTransaction->copy_filled_id;
-            if (count($this->cfSelectedOffices) > 0) {
-                if ($copyFilledId) {
-                    $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->first();
-                    if ($cfRecord) {
-                        // update transaction
-                        DB::table('dts_copy_filled_transaction')
-                            ->where('id', $copyFilledId)
-                            ->update([
-                                'total_office' => count($this->cfSelectedOffices),
-                                'date_modified' => now(),
-                            ]);
-                        // delete and re-insert offices
-                        DB::table('dts_copy_filled_to_office')
-                            ->where('control_id', $cfRecord->assign_offices_id)
-                            ->delete();
-                        foreach ($this->cfSelectedOffices as $cfOffice) {
-                            DB::table('dts_copy_filled_to_office')->insert([
-                                'control_id' => $cfRecord->assign_offices_id,
-                                'office_code' => $cfOffice,
-                            ]);
-                        }
-                    }
-                } else {
-                    // insert new
-                    $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
-                    $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
-                        'control_num' => $hasWideEditClearance ? $this->controlNumber : $this->selectedTransaction->control_number,
-                        'total_office' => count($this->cfSelectedOffices),
-                        'assign_offices_id' => $assignOfficesId,
-                        'data_created' => now(),
-                        'date_modified' => now(),
-                    ]);
-                    foreach ($this->cfSelectedOffices as $cfOffice) {
-                        DB::table('dts_copy_filled_to_office')->insert([
-                            'control_id' => $assignOfficesId,
-                            'office_code' => $cfOffice,
-                        ]);
-                    }
-                }
-            } else {
-                // if empty but had cf record, remove it
-                if ($copyFilledId) {
-                    $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->first();
-                    if ($cfRecord) {
-                        DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->delete();
-                        DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->delete();
-                    }
-                    $copyFilledId = null;
-                }
-            }
-
-            $reqId = null;
-            if (!empty($this->requestorName)) {
-                $reqOffice = $this->selectedTransaction->source_office ?? ($this->selectedTransaction->originated_from ?? 'ORIGIN');
-                $existingReq = DB::table('dts_requestor_history')
-                    ->where('requestor_name', trim($this->requestorName))
-                    ->where('office', $reqOffice)
-                    ->first();
-                if ($existingReq) {
-                    $reqId = $existingReq->id;
-                    if (!empty($this->requestorPosition)) {
-                        DB::table('dts_requestor_history')
-                            ->where('id', $existingReq->id)
-                            ->update(['requestor_position' => trim($this->requestorPosition)]);
-                    }
-                } else {
-                    $reqId = DB::table('dts_requestor_history')->insertGetId([
-                        'requestor_name' => trim($this->requestorName),
-                        'requestor_position' => trim($this->requestorPosition ?? ''),
-                        'office' => $reqOffice,
-                        'is_active' => true,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                }
-            }
-
-            $controlNumberToSave = $hasWideEditClearance ? $this->controlNumber : $this->selectedTransaction->control_number;
-
-            DB::table('dts_transaction_details')
-                ->where('id', $this->selectedTransactionId)
-                ->update([
-                    'control_number' => $controlNumberToSave,
-                    'copy_filled_id' => $copyFilledId ?: null,
-                    'subject' => $this->particulars,
-                    'classification' => $this->classification ?: null,
-                    'action_needed' => $this->actionNeeded ?: null,
-                    'source_office' => $this->sourceOffice ?: ($this->selectedTransaction->source_office ?? null),
-                    'apply_to_office' => $this->applyToOffice ?: ($this->selectedTransaction->apply_to_office ?? null),
-                    'requestor_id' => $reqId,
-                    'email_access' => $emailAccessId,
-                    'document_password' => $this->docPassword ?: null,
-                    'transaction_flow' => $this->transactionFlow,
-                ]);
-
-            $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transactionFlow)->first();
-            if ($flow) {
-                $originalSequence = DB::table('dts_sequence_list')
-                    ->where('control_id', $flow->id)
-                    ->orderBy('sequence_ranking', 'asc')
-                    ->get()
-                    ->keyBy('sequence_ranking')
-                    ->toArray();
-
-                if (str_starts_with($flow->flow_code, 'FLOW-CUSTOM-')) {
-                    DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
-                    foreach ($this->flowOffices as $rank => $officeData) {
-                        $rank1 = $rank + 1;
-                        $officeCode = $officeData['office_code'];
-                        
-                        if ($officeData['is_locked'] && isset($originalSequence[$rank1])) {
-                            $orig = $originalSequence[$rank1];
-                            DB::table('dts_sequence_list')->insert([
-                                'control_id' => $flow->id,
-                                'sequence_ranking' => $rank1,
-                                'office_code' => $officeCode,
-                                'date_in' => $orig->date_in,
-                                'date_out' => $orig->date_out,
-                                'action_needed' => $orig->action_needed,
-                                'note' => $orig->note,
-                                'total_time_completed' => $orig->total_time_completed,
+            try {
+                DB::transaction(function () use ($hasWideEditClearance) {
+                    // Find/create email access ID if provided
+                    $emailAccessId = null;
+                    if (!empty(trim($this->emailAccess ?? ''))) {
+                        $trimmedEmail = trim($this->emailAccess);
+                        $existingEmail = DB::table('dts_email_access')->where('email', $trimmedEmail)->first();
+                        if (!$existingEmail) {
+                            $emailAccessId = DB::table('dts_email_access')->insertGetId([
+                                'email' => $trimmedEmail,
+                                'is_active' => true,
+                                'date_created' => now(),
                             ]);
                         } else {
-                            DB::table('dts_sequence_list')->insert([
-                                'control_id' => $flow->id,
-                                'sequence_ranking' => $rank1,
-                                'office_code' => $officeCode,
-                                'date_in' => null,
-                                'date_out' => null,
-                                'action_needed' => null,
-                                'note' => null,
-                                'total_time_completed' => null,
-                            ]);
+                            $emailAccessId = $existingEmail->id;
                         }
                     }
-                } else {
-                    $predefinedOffices = DB::table('dts_sequence_list')
-                        ->where('control_id', $flow->id)
-                        ->orderBy('sequence_ranking', 'asc')
-                        ->pluck('office_code')
-                        ->toArray();
-                    
-                    $currentOfficeCodes = array_map(fn($o) => $o['office_code'], $this->flowOffices);
-                    
-                    if ($predefinedOffices !== $currentOfficeCodes) {
-                        $newFlowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
-                        $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
-                        $newFlowId = $maxId + 1;
-                        
-                        DB::table('dts_transaction_flow')->insert([
-                            'flow_code' => $newFlowCode,
-                            'flow_name' => 'Flow for ' . $this->controlNumber . ' (' . $newFlowCode . ')',
-                            'id' => $newFlowId,
-                            'is_active' => 1,
-                            'added_by' => auth()->id() ?? 1,
-                            'date_added' => now(),
-                            'flow_use' => 'none',
-                            'flow_for' => 'system',
-                            'referenced_flow' => $flow ? ($flow->referenced_flow ?? $flow->flow_name) : null,
-                        ]);
 
-                        foreach ($this->flowOffices as $rank => $officeData) {
-                            $rank1 = $rank + 1;
-                            $officeCode = $officeData['office_code'];
-                            
-                            if ($officeData['is_locked'] && isset($originalSequence[$rank1])) {
-                                $orig = $originalSequence[$rank1];
-                                DB::table('dts_sequence_list')->insert([
-                                    'control_id' => $newFlowId,
-                                    'sequence_ranking' => $rank1,
-                                    'office_code' => $officeCode,
-                                    'date_in' => $orig->date_in,
-                                    'date_out' => $orig->date_out,
-                                    'action_needed' => $orig->action_needed,
-                                    'note' => $orig->note,
-                                    'total_time_completed' => $orig->total_time_completed,
-                                ]);
-                            } else {
-                                DB::table('dts_sequence_list')->insert([
-                                    'control_id' => $newFlowId,
-                                    'sequence_ranking' => $rank1,
-                                    'office_code' => $officeCode,
-                                    'date_in' => null,
-                                    'date_out' => null,
-                                    'action_needed' => null,
-                                    'note' => null,
-                                    'total_time_completed' => null,
+                    // Sync copy furnished records
+                    $copyFilledId = $this->selectedTransaction->copy_filled_id;
+                    if (count($this->cfSelectedOffices) > 0) {
+                        if ($copyFilledId) {
+                            $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->first();
+                            if ($cfRecord) {
+                                // update transaction
+                                DB::table('dts_copy_filled_transaction')
+                                    ->where('id', $copyFilledId)
+                                    ->update([
+                                        'control_num' => $hasWideEditClearance ? $this->controlNumber : $this->selectedTransaction->control_number,
+                                        'total_office' => count($this->cfSelectedOffices),
+                                        'date_modified' => now(),
+                                    ]);
+                                // delete and re-insert offices
+                                DB::table('dts_copy_filled_to_office')
+                                    ->where('control_id', $cfRecord->assign_offices_id)
+                                    ->delete();
+                                foreach ($this->cfSelectedOffices as $cfOffice) {
+                                    DB::table('dts_copy_filled_to_office')->insert([
+                                        'control_id' => $cfRecord->assign_offices_id,
+                                        'office_code' => $cfOffice,
+                                    ]);
+                                }
+                            }
+                        } else {
+                            // insert new
+                            $assignOfficesId = (DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
+                            $copyFilledId = DB::table('dts_copy_filled_transaction')->insertGetId([
+                                'control_num' => $hasWideEditClearance ? $this->controlNumber : $this->selectedTransaction->control_number,
+                                'total_office' => count($this->cfSelectedOffices),
+                                'assign_offices_id' => $assignOfficesId,
+                                'data_created' => now(),
+                                'date_modified' => now(),
+                            ]);
+                            foreach ($this->cfSelectedOffices as $cfOffice) {
+                                DB::table('dts_copy_filled_to_office')->insert([
+                                    'control_id' => $assignOfficesId,
+                                    'office_code' => $cfOffice,
                                 ]);
                             }
                         }
-                        $this->transactionFlow = $newFlowCode;
-                        
-                        DB::table('dts_transaction_details')
-                            ->where('id', $this->selectedTransactionId)
-                            ->update(['transaction_flow' => $newFlowCode]);
+                    } else {
+                        // if empty but had cf record, remove it
+                        if ($copyFilledId) {
+                            $cfRecord = DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->first();
+                            // Safely unlink copy_filled_id from transaction details first before deleting
+                            DB::table('dts_transaction_details')
+                                ->where('id', $this->selectedTransactionId)
+                                ->update(['copy_filled_id' => null]);
+
+                            if ($cfRecord) {
+                                DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->delete();
+                                DB::table('dts_copy_filled_transaction')->where('id', $copyFilledId)->delete();
+                            }
+                            $copyFilledId = null;
+                        }
                     }
-                }
+
+                    $reqId = null;
+                    if (!empty(trim($this->requestorName ?? ''))) {
+                        $reqOffice = $this->sourceOffice ?: ($this->selectedTransaction->source_office ?? ($this->selectedTransaction->originated_from ?? 'ORIGIN'));
+                        $existingReq = DB::table('dts_requestor_history')
+                            ->where('requestor_name', trim($this->requestorName))
+                            ->where('office', $reqOffice)
+                            ->first();
+                        if ($existingReq) {
+                            $reqId = $existingReq->id;
+                            if (!empty($this->requestorPosition)) {
+                                DB::table('dts_requestor_history')
+                                    ->where('id', $existingReq->id)
+                                    ->update(['requestor_position' => trim($this->requestorPosition)]);
+                            }
+                        } else {
+                            $reqId = DB::table('dts_requestor_history')->insertGetId([
+                                'requestor_name' => trim($this->requestorName),
+                                'requestor_position' => trim($this->requestorPosition ?? ''),
+                                'office' => $reqOffice,
+                                'is_active' => true,
+                                'created_at' => now(),
+                                'updated_at' => now(),
+                            ]);
+                        }
+                    }
+
+                    $controlNumberToSave = $hasWideEditClearance ? $this->controlNumber : $this->selectedTransaction->control_number;
+
+                    DB::table('dts_transaction_details')
+                        ->where('id', $this->selectedTransactionId)
+                        ->update([
+                            'control_number' => $controlNumberToSave,
+                            'copy_filled_id' => $copyFilledId ?: null,
+                            'subject' => $this->particulars,
+                            'classification' => $this->classification ?: null,
+                            'action_needed' => $this->actionNeeded ?: null,
+                            'source_office' => $this->sourceOffice ?: ($this->selectedTransaction->source_office ?? null),
+                            'apply_to_office' => $this->applyToOffice ?: ($this->selectedTransaction->apply_to_office ?? null),
+                            'requestor_id' => $reqId,
+                            'email_access' => $emailAccessId,
+                            'document_password' => $this->docPassword ?: null,
+                            'transaction_flow' => $this->transactionFlow,
+                        ]);
+
+                    $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transactionFlow)->first();
+                    if ($flow) {
+                        $originalSequence = DB::table('dts_sequence_list')
+                            ->where('control_id', $flow->id)
+                            ->orderBy('sequence_ranking', 'asc')
+                            ->get()
+                            ->keyBy('sequence_ranking');
+
+                        if (str_starts_with($flow->flow_code, 'FLOW-CUSTOM-')) {
+                            DB::table('dts_sequence_list')->where('control_id', $flow->id)->delete();
+                            foreach ($this->flowOffices as $rank => $officeData) {
+                                $rank1 = $rank + 1;
+                                $officeCode = is_array($officeData) ? $officeData['office_code'] : $officeData->office_code;
+                                $isLocked = is_array($officeData) ? ($officeData['is_locked'] ?? false) : ($officeData->is_locked ?? false);
+                                
+                                $orig = $originalSequence->get($rank1);
+                                if ($isLocked && $orig) {
+                                    $origDateIn = is_array($orig) ? ($orig['date_in'] ?? null) : ($orig->date_in ?? null);
+                                    $origDateOut = is_array($orig) ? ($orig['date_out'] ?? null) : ($orig->date_out ?? null);
+                                    $origActionNeeded = is_array($orig) ? ($orig['action_needed'] ?? null) : ($orig->action_needed ?? null);
+                                    $origNote = is_array($orig) ? ($orig['note'] ?? null) : ($orig->note ?? null);
+                                    $origTotalTime = is_array($orig) ? ($orig['total_time_completed'] ?? null) : ($orig->total_time_completed ?? null);
+
+                                    DB::table('dts_sequence_list')->insert([
+                                        'control_id' => $flow->id,
+                                        'sequence_ranking' => $rank1,
+                                        'office_code' => $officeCode,
+                                        'date_in' => $origDateIn,
+                                        'date_out' => $origDateOut,
+                                        'action_needed' => $origActionNeeded,
+                                        'note' => $origNote,
+                                        'total_time_completed' => $origTotalTime,
+                                    ]);
+                                } else {
+                                    DB::table('dts_sequence_list')->insert([
+                                        'control_id' => $flow->id,
+                                        'sequence_ranking' => $rank1,
+                                        'office_code' => $officeCode,
+                                        'date_in' => null,
+                                        'date_out' => null,
+                                        'action_needed' => null,
+                                        'note' => null,
+                                        'total_time_completed' => null,
+                                    ]);
+                                }
+                            }
+                        } else {
+                            $predefinedOffices = DB::table('dts_sequence_list')
+                                ->where('control_id', $flow->id)
+                                ->orderBy('sequence_ranking', 'asc')
+                                ->pluck('office_code')
+                                ->toArray();
+                            
+                            $currentOfficeCodes = array_map(fn($o) => is_array($o) ? $o['office_code'] : $o->office_code, $this->flowOffices);
+                            
+                            if ($predefinedOffices !== $currentOfficeCodes) {
+                                $newFlowCode = 'FLOW-CUSTOM-' . strtoupper(Str::random(10));
+                                $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
+                                $newFlowId = $maxId + 1;
+                                
+                                DB::table('dts_transaction_flow')->insert([
+                                    'flow_code' => $newFlowCode,
+                                    'flow_name' => 'Flow for ' . $controlNumberToSave . ' (' . $newFlowCode . ')',
+                                    'id' => $newFlowId,
+                                    'is_active' => true,
+                                    'added_by' => auth()->id() ?? 1,
+                                    'date_added' => now(),
+                                    'flow_use' => 'none',
+                                    'flow_for' => 'system',
+                                    'referenced_flow' => $flow ? ($flow->referenced_flow ?? $flow->flow_name) : null,
+                                ]);
+
+                                foreach ($this->flowOffices as $rank => $officeData) {
+                                    $rank1 = $rank + 1;
+                                    $officeCode = is_array($officeData) ? $officeData['office_code'] : $officeData->office_code;
+                                    $isLocked = is_array($officeData) ? ($officeData['is_locked'] ?? false) : ($officeData->is_locked ?? false);
+                                    
+                                    $orig = $originalSequence->get($rank1);
+                                    if ($isLocked && $orig) {
+                                        $origDateIn = is_array($orig) ? ($orig['date_in'] ?? null) : ($orig->date_in ?? null);
+                                        $origDateOut = is_array($orig) ? ($orig['date_out'] ?? null) : ($orig->date_out ?? null);
+                                        $origActionNeeded = is_array($orig) ? ($orig['action_needed'] ?? null) : ($orig->action_needed ?? null);
+                                        $origNote = is_array($orig) ? ($orig['note'] ?? null) : ($orig->note ?? null);
+                                        $origTotalTime = is_array($orig) ? ($orig['total_time_completed'] ?? null) : ($orig->total_time_completed ?? null);
+
+                                        DB::table('dts_sequence_list')->insert([
+                                            'control_id' => $newFlowId,
+                                            'sequence_ranking' => $rank1,
+                                            'office_code' => $officeCode,
+                                            'date_in' => $origDateIn,
+                                            'date_out' => $origDateOut,
+                                            'action_needed' => $origActionNeeded,
+                                            'note' => $origNote,
+                                            'total_time_completed' => $origTotalTime,
+                                        ]);
+                                    } else {
+                                        DB::table('dts_sequence_list')->insert([
+                                            'control_id' => $newFlowId,
+                                            'sequence_ranking' => $rank1,
+                                            'office_code' => $officeCode,
+                                            'date_in' => null,
+                                            'date_out' => null,
+                                            'action_needed' => null,
+                                            'note' => null,
+                                            'total_time_completed' => null,
+                                        ]);
+                                    }
+                                }
+                                $this->transactionFlow = $newFlowCode;
+                                
+                                DB::table('dts_transaction_details')
+                                    ->where('id', $this->selectedTransactionId)
+                                    ->update(['transaction_flow' => $newFlowCode]);
+                            }
+                        }
+                    }
+                });
+
+                $this->loadSelectedTransaction();
+                $this->editingAll = false;
+                $this->dispatch('dts-transaction-updated');
+                session()->flash('success', 'Transaction details updated successfully.');
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('Error saving transaction metadata: ' . $e->getMessage(), [
+                    'exception' => $e,
+                    'transaction_id' => $this->selectedTransactionId,
+                ]);
+                session()->flash('error', 'Failed to save changes: ' . $e->getMessage());
             }
-            $this->loadSelectedTransaction();
         }
         $this->editingAll = false;
     }
@@ -2303,8 +2350,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $isInitialOrRevisionState = isset($selectedTransaction) && ($selectedTransaction->sequence == 1 || $selectedTransaction->status === 'revision');
 
         $canModifyTrans = isset($selectedTransaction) 
-            && $selectedTransaction->status !== 'completed' 
-            && ($hasWideEditClearance || ($isCreator && $isAtOrigin && $isInitialOrRevisionState));
+            && ($hasWideEditClearance || ($selectedTransaction->status !== 'completed' && $isCreator && $isAtOrigin && $isInitialOrRevisionState));
 
         $canProcess = $isSadm || ($perms?->can_dts_user_received ?? false);
     @endphp
@@ -2530,6 +2576,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         @php
                                                             $isReceived = !is_null($step->date_in) || $t->status === 'completed';
                                                             $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                            $isCompleted = ($isReceived && $isForwarded) || strtolower($t->status ?? '') === 'completed';
                                                             $hasRevision = !empty($t->revision_requested_by_sequence);
                                                             $revReqSeq = $t->revision_requested_by_sequence ?? null;
                                                             $revType = $t->revision_resubmit_type ?? null;
@@ -2545,32 +2592,43 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                 }
                                                             }
 
-                                                            if ($isRevisionStep) {
-                                                                $dotColor = '#2563eb';
-                                                                $lineColor = '#3b82f6';
-                                                                $textColor = '#2563eb';
-                                                            } elseif ($isReceived) {
-                                                                $dotColor = '#10b981';
-                                                                $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
-                                                                $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
-                                                                $textColor = '#10b981';
-                                                            } else {
-                                                                $dotColor = '#dc2626';
-                                                                $lineColor = '#dc2626';
-                                                                $textColor = '#dc2626';
-                                                            }
-
-                                                            $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
-                                                            $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                                            $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && strtolower($t->status ?? '') !== 'completed';
+                                                            $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && strtolower($t->status ?? '') !== 'completed';
                                                             $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
                                                             $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
+                                                            if ($isRevisionStep) {
+                                                                $dotColor = '#ef4444';
+                                                                $lineColor = '#fca5a5';
+                                                                $textColor = '#dc2626';
+                                                            } elseif ($isCompleted) {
+                                                                $dotColor = '#10b981';
+                                                                $lineColor = '#10b981';
+                                                                $textColor = '#059669';
+                                                            } elseif ($isCurrentOffice && $isReceived) {
+                                                                $dotColor = '#2563eb';
+                                                                $lineColor = '#cbd5e1';
+                                                                $textColor = '#1d4ed8';
+                                                            } elseif ($isCurrentOffice || $isInTransitToThisOffice) {
+                                                                $dotColor = '#f59e0b';
+                                                                $lineColor = '#cbd5e1';
+                                                                $textColor = '#d97706';
+                                                            } elseif ($isReceived) {
+                                                                $dotColor = '#10b981';
+                                                                $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+                                                                $textColor = '#059669';
+                                                            } else {
+                                                                $dotColor = '#cbd5e1';
+                                                                $lineColor = '#e2e8f0';
+                                                                $textColor = '#64748b';
+                                                            }
                                                         @endphp
 
                                                         <div class="dts-timeline-node-wrapper" style="width: 26px; min-width: 26px; height: 26px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                            <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                                            <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isCompleted ? 'Forwarded' : ($isReceived ? 'Received/Holder' : ($isCurrentOffice || $isInTransitToThisOffice ? 'In Transit / Incoming' : 'Pending'))) }})">
                                                                 @if ($isRevisionStep)
                                                                     <i class="fa-solid fa-rotate-left" style="font-size: 10px;"></i>
-                                                                @elseif ($isReceived)
+                                                                @elseif ($isCompleted || $isReceived)
                                                                     <i class="fa-solid fa-check" style="font-size: 10px;"></i>
                                                                 @else
                                                                     {{ $index + 1 }}
@@ -2712,19 +2770,39 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                                         @php
                                                                                             $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
                                                                                             $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
+                                                                                            $cIsCompleted = ($cIsReceived && $cIsForwarded) || strtolower($child->status ?? '') === 'completed';
                                                                                             $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
-                                                                                            $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
-                                                                                            $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                                            if ($cIsCompleted) {
+                                                                                                $cDotColor = '#10b981';
+                                                                                                $cLineColor = '#10b981';
+                                                                                                $cTextColor = '#059669';
+                                                                                            } elseif ($cIsCurrent && $cIsReceived) {
+                                                                                                $cDotColor = '#2563eb';
+                                                                                                $cLineColor = '#cbd5e1';
+                                                                                                $cTextColor = '#1d4ed8';
+                                                                                            } elseif ($cIsCurrent) {
+                                                                                                $cDotColor = '#f59e0b';
+                                                                                                $cLineColor = '#cbd5e1';
+                                                                                                $cTextColor = '#d97706';
+                                                                                            } elseif ($cIsReceived) {
+                                                                                                $cDotColor = '#10b981';
+                                                                                                $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                                                $cTextColor = '#059669';
+                                                                                            } else {
+                                                                                                $cDotColor = '#cbd5e1';
+                                                                                                $cLineColor = '#e2e8f0';
+                                                                                                $cTextColor = '#64748b';
+                                                                                            }
                                                                                         @endphp
                                                                                         <div class="dts-timeline-node-wrapper" style="width: 20px; min-width: 20px; height: 20px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                                                            <div class="dts-timeline-node-dot" style="width: 20px; height: 20px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
-                                                                                                @if ($cIsReceived)
+                                                                                            <div class="dts-timeline-node-dot" style="width: 20px; height: 20px; border-radius: 50%; background: {{ $cDotColor }}; color: {{ ($cDotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
+                                                                                                @if ($cIsCompleted || $cIsReceived)
                                                                                                     <i class="fa-solid fa-check" style="font-size: 8px;"></i>
                                                                                                 @else
                                                                                                     {{ $cStepIdx + 1 }}
                                                                                                 @endif
                                                                                             </div>
-                                                                                            <span style="position: absolute; top: 23px; left: 50%; transform: translateX(-50%); font-size: 8.5px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
+                                                                                            <span style="position: absolute; top: 23px; left: 50%; transform: translateX(-50%); font-size: 8.5px; font-weight: 700; color: {{ $cTextColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
                                                                                                 {{ $cStep->office_code }}
                                                                                             </span>
                                                                                         </div>
@@ -2916,6 +2994,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 @php
                                                     $isReceived = !is_null($step->date_in) || $t->status === 'completed';
                                                     $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                    $isCompleted = ($isReceived && $isForwarded) || strtolower($t->status ?? '') === 'completed';
                                                     $hasRevision = !empty($t->revision_requested_by_sequence);
                                                     $revReqSeq = $t->revision_requested_by_sequence ?? null;
                                                     $revType = $t->revision_resubmit_type ?? null;
@@ -2931,32 +3010,43 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         }
                                                     }
 
-                                                    if ($isRevisionStep) {
-                                                        $dotColor = '#2563eb';
-                                                        $lineColor = '#3b82f6';
-                                                        $textColor = '#2563eb';
-                                                    } elseif ($isReceived) {
-                                                        $dotColor = '#10b981';
-                                                        $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
-                                                        $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
-                                                        $textColor = '#10b981';
-                                                    } else {
-                                                        $dotColor = '#dc2626';
-                                                        $lineColor = '#dc2626';
-                                                        $textColor = '#dc2626';
-                                                    }
-
-                                                    $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
-                                                    $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                                    $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && strtolower($t->status ?? '') !== 'completed';
+                                                    $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && strtolower($t->status ?? '') !== 'completed';
                                                     $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
                                                     $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
+                                                    if ($isRevisionStep) {
+                                                        $dotColor = '#ef4444';
+                                                        $lineColor = '#fca5a5';
+                                                        $textColor = '#dc2626';
+                                                    } elseif ($isCompleted) {
+                                                        $dotColor = '#10b981';
+                                                        $lineColor = '#10b981';
+                                                        $textColor = '#059669';
+                                                    } elseif ($isCurrentOffice && $isReceived) {
+                                                        $dotColor = '#2563eb';
+                                                        $lineColor = '#cbd5e1';
+                                                        $textColor = '#1d4ed8';
+                                                    } elseif ($isCurrentOffice || $isInTransitToThisOffice) {
+                                                        $dotColor = '#f59e0b';
+                                                        $lineColor = '#cbd5e1';
+                                                        $textColor = '#d97706';
+                                                    } elseif ($isReceived) {
+                                                        $dotColor = '#10b981';
+                                                        $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+                                                        $textColor = '#059669';
+                                                    } else {
+                                                        $dotColor = '#cbd5e1';
+                                                        $lineColor = '#e2e8f0';
+                                                        $textColor = '#64748b';
+                                                    }
                                                 @endphp
 
                                                 <div class="dts-timeline-node-wrapper" style="width: 26px; min-width: 26px; height: 26px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                    <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                                    <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isCompleted ? 'Forwarded' : ($isReceived ? 'Received/Holder' : ($isCurrentOffice || $isInTransitToThisOffice ? 'In Transit / Incoming' : 'Pending'))) }})">
                                                         @if ($isRevisionStep)
                                                             <i class="fa-solid fa-rotate-left" style="font-size: 10px;"></i>
-                                                        @elseif ($isReceived)
+                                                        @elseif ($isCompleted || $isReceived)
                                                             <i class="fa-solid fa-check" style="font-size: 10px;"></i>
                                                         @else
                                                             {{ $index + 1 }}
@@ -3098,19 +3188,39 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                                     @php
                                                                                         $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
                                                                                         $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
+                                                                                        $cIsCompleted = ($cIsReceived && $cIsForwarded) || strtolower($child->status ?? '') === 'completed';
                                                                                         $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
-                                                                                        $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
-                                                                                        $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                                        if ($cIsCompleted) {
+                                                                                            $cDotColor = '#10b981';
+                                                                                            $cLineColor = '#10b981';
+                                                                                            $cTextColor = '#059669';
+                                                                                        } elseif ($cIsCurrent && $cIsReceived) {
+                                                                                            $cDotColor = '#2563eb';
+                                                                                            $cLineColor = '#cbd5e1';
+                                                                                            $cTextColor = '#1d4ed8';
+                                                                                        } elseif ($cIsCurrent) {
+                                                                                            $cDotColor = '#f59e0b';
+                                                                                            $cLineColor = '#cbd5e1';
+                                                                                            $cTextColor = '#d97706';
+                                                                                        } elseif ($cIsReceived) {
+                                                                                            $cDotColor = '#10b981';
+                                                                                            $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                                            $cTextColor = '#059669';
+                                                                                        } else {
+                                                                                            $cDotColor = '#cbd5e1';
+                                                                                            $cLineColor = '#e2e8f0';
+                                                                                            $cTextColor = '#64748b';
+                                                                                        }
                                                                                     @endphp
                                                                                     <div class="dts-timeline-node-wrapper" style="width: 20px; min-width: 20px; height: 20px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                                                        <div class="dts-timeline-node-dot" style="width: 20px; height: 20px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
-                                                                                            @if ($cIsReceived)
+                                                                                        <div class="dts-timeline-node-dot" style="width: 20px; height: 20px; border-radius: 50%; background: {{ $cDotColor }}; color: {{ ($cDotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
+                                                                                            @if ($cIsCompleted || $cIsReceived)
                                                                                                 <i class="fa-solid fa-check" style="font-size: 8px;"></i>
                                                                                             @else
                                                                                                 {{ $cStepIdx + 1 }}
                                                                                             @endif
                                                                                         </div>
-                                                                                        <span style="position: absolute; top: 23px; left: 50%; transform: translateX(-50%); font-size: 8.5px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
+                                                                                        <span style="position: absolute; top: 23px; left: 50%; transform: translateX(-50%); font-size: 8.5px; font-weight: 700; color: {{ $cTextColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
                                                                                             {{ $cStep->office_code }}
                                                                                         </span>
                                                                                     </div>
@@ -3337,6 +3447,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     @php
                                                         $isReceived = !is_null($step->date_in) || $t->status === 'completed';
                                                         $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                        $isCompleted = ($isReceived && $isForwarded) || strtolower($t->status ?? '') === 'completed';
                                                         $hasRevision = !empty($t->revision_requested_by_sequence);
                                                         $revReqSeq = $t->revision_requested_by_sequence ?? null;
                                                         $revType = $t->revision_resubmit_type ?? null;
@@ -3352,30 +3463,43 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                             }
                                                         }
 
-                                                        if ($isRevisionStep) {
-                                                            $dotColor = '#2563eb';
-                                                            $lineColor = '#3b82f6';
-                                                            $textColor = '#2563eb';
-                                                        } elseif ($isReceived) {
-                                                            $dotColor = '#10b981';
-                                                            $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
-                                                            $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
-                                                            $textColor = '#10b981';
-                                                        } else {
-                                                            $dotColor = '#dc2626';
-                                                            $lineColor = '#dc2626';
-                                                            $textColor = '#dc2626';
-                                                        }
-                                                        $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                        $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && strtolower($t->status ?? '') !== 'completed';
+                                                        $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && strtolower($t->status ?? '') !== 'completed';
                                                         $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
                                                         $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
+                                                        if ($isRevisionStep) {
+                                                            $dotColor = '#ef4444';
+                                                            $lineColor = '#fca5a5';
+                                                            $textColor = '#dc2626';
+                                                        } elseif ($isCompleted) {
+                                                            $dotColor = '#10b981';
+                                                            $lineColor = '#10b981';
+                                                            $textColor = '#059669';
+                                                        } elseif ($isCurrentOffice && $isReceived) {
+                                                            $dotColor = '#2563eb';
+                                                            $lineColor = '#cbd5e1';
+                                                            $textColor = '#1d4ed8';
+                                                        } elseif ($isCurrentOffice || $isInTransitToThisOffice) {
+                                                            $dotColor = '#f59e0b';
+                                                            $lineColor = '#cbd5e1';
+                                                            $textColor = '#d97706';
+                                                        } elseif ($isReceived) {
+                                                            $dotColor = '#10b981';
+                                                            $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+                                                            $textColor = '#059669';
+                                                        } else {
+                                                            $dotColor = '#cbd5e1';
+                                                            $lineColor = '#e2e8f0';
+                                                            $textColor = '#64748b';
+                                                        }
                                                     @endphp
 
                                                     <div class="dts-timeline-node-wrapper" style="width: 24px; min-width: 24px; height: 24px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                        <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer;" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                                        <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isCompleted ? 'Forwarded' : ($isReceived ? 'Received/Holder' : ($isCurrentOffice || $isInTransitToThisOffice ? 'In Transit / Incoming' : 'Pending'))) }})">
                                                             @if ($isRevisionStep)
                                                                 <i class="fa-solid fa-rotate-left" style="font-size: 9px;"></i>
-                                                            @elseif ($isReceived)
+                                                            @elseif ($isCompleted || $isReceived)
                                                                 <i class="fa-solid fa-check" style="font-size: 9px;"></i>
                                                             @else
                                                                 {{ $index + 1 }}
@@ -3495,6 +3619,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 @php
                                                     $isReceived = !is_null($step->date_in) || $t->status === 'completed';
                                                     $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                    $isCompleted = ($isReceived && $isForwarded) || strtolower($t->status ?? '') === 'completed';
                                                     $hasRevision = !empty($t->revision_requested_by_sequence);
                                                     $revReqSeq = $t->revision_requested_by_sequence ?? null;
                                                     $revType = $t->revision_resubmit_type ?? null;
@@ -3510,30 +3635,43 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         }
                                                     }
 
-                                                    if ($isRevisionStep) {
-                                                        $dotColor = '#2563eb';
-                                                        $lineColor = '#3b82f6';
-                                                        $textColor = '#2563eb';
-                                                    } elseif ($isReceived) {
-                                                        $dotColor = '#10b981';
-                                                        $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
-                                                        $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
-                                                        $textColor = '#10b981';
-                                                    } else {
-                                                        $dotColor = '#dc2626';
-                                                        $lineColor = '#dc2626';
-                                                        $textColor = '#dc2626';
-                                                    }
-                                                    $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                    $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && strtolower($t->status ?? '') !== 'completed';
+                                                    $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && strtolower($t->status ?? '') !== 'completed';
                                                     $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
                                                     $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
+                                                    if ($isRevisionStep) {
+                                                        $dotColor = '#ef4444';
+                                                        $lineColor = '#fca5a5';
+                                                        $textColor = '#dc2626';
+                                                    } elseif ($isCompleted) {
+                                                        $dotColor = '#10b981';
+                                                        $lineColor = '#10b981';
+                                                        $textColor = '#059669';
+                                                    } elseif ($isCurrentOffice && $isReceived) {
+                                                        $dotColor = '#2563eb';
+                                                        $lineColor = '#cbd5e1';
+                                                        $textColor = '#1d4ed8';
+                                                    } elseif ($isCurrentOffice || $isInTransitToThisOffice) {
+                                                        $dotColor = '#f59e0b';
+                                                        $lineColor = '#cbd5e1';
+                                                        $textColor = '#d97706';
+                                                    } elseif ($isReceived) {
+                                                        $dotColor = '#10b981';
+                                                        $lineColor = $isForwarded ? '#10b981' : '#cbd5e1';
+                                                        $textColor = '#059669';
+                                                    } else {
+                                                        $dotColor = '#cbd5e1';
+                                                        $lineColor = '#e2e8f0';
+                                                        $textColor = '#64748b';
+                                                    }
                                                 @endphp
 
                                                     <div class="dts-timeline-node-wrapper" style="width: 24px; min-width: 24px; height: 24px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                        <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer;" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                                        <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isCompleted ? 'Forwarded' : ($isReceived ? 'Received/Holder' : ($isCurrentOffice || $isInTransitToThisOffice ? 'In Transit / Incoming' : 'Pending'))) }})">
                                                             @if ($isRevisionStep)
                                                                 <i class="fa-solid fa-rotate-left" style="font-size: 9px;"></i>
-                                                            @elseif ($isReceived)
+                                                            @elseif ($isCompleted || $isReceived)
                                                                 <i class="fa-solid fa-check" style="font-size: 9px;"></i>
                                                             @else
                                                                 {{ $index + 1 }}

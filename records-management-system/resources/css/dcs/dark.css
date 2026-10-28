@@ -251,8 +251,29 @@
     color: #94a3b8 !important;
 }
 
-[data-theme="dark"] .sig-history-people {
+[data-theme="dark"] .sig-history-people,
+[data-theme="dark"] .sig-history-group-label,
+[data-theme="dark"] .sig-history-detail-name {
     color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .sig-history-item.is-compact {
+    background: #1e293b !important;
+}
+
+[data-theme="dark"] .sig-history-compact-body {
+    border-top-color: #334155 !important;
+}
+
+[data-theme="dark"] .sig-history-detail-role,
+[data-theme="dark"] .sig-history-summary-dates,
+[data-theme="dark"] .sig-history-summary-people,
+[data-theme="dark"] .sig-history-detail-desig {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .sig-history-group-parent {
+    color: #93c5fd !important;
 }
 
 [data-theme="dark"] .sig-section-num {
@@ -265,6 +286,33 @@
     background: #1e293b !important;
     border-color: #334155 !important;
     color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .sig-replace-banner {
+    background: rgba(245, 158, 11, 0.12) !important;
+    border-color: rgba(245, 158, 11, 0.35) !important;
+    color: #fbbf24 !important;
+}
+
+[data-theme="dark"] .sig-history-tab {
+    background: #0b1220 !important;
+    border-color: #334155 !important;
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .sig-history-tab span {
+    background: #1e293b !important;
+}
+
+[data-theme="dark"] .sig-history-tab.is-active {
+    background: #1d4ed8 !important;
+    border-color: #1d4ed8 !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] .sig-history-tab.is-active span {
+    background: rgba(255, 255, 255, 0.22) !important;
+    color: #fff !important;
 }
 
 [data-theme="dark"] .sig-history-item.is-active {

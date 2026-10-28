@@ -68,10 +68,18 @@ new #[Layout('layouts.dcs')] class extends Component {
     public string $sigReviewedByDesignation = '';
     public string $sigApprovedByName = '';
     public string $sigApprovedByDesignation = '';
+    /** Recent list filter: all | parent:{id} | kind */
+    public string $sigHistoryTab = 'all';
     /** @var list<array{name: string}> */
     public array $sigReviewers = [['name' => '']];
     /** @var list<array{position: string, name: string}> */
     public array $sigApprovals = [['position' => '', 'name' => '']];
+
+    public function setSigHistoryTab(string $tab): void
+    {
+        $tab = trim($tab);
+        $this->sigHistoryTab = $tab !== '' ? $tab : 'all';
+    }
 
     public function with(): array
     {
@@ -80,6 +88,7 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     public function updatedSigFormKind(): void
     {
+        $this->sigHistoryTab = 'all';
         $this->loadSignatoryTemplateFields();
     }
 
@@ -190,6 +199,21 @@ new #[Layout('layouts.dcs')] class extends Component {
     {
         unset($this->sigApprovals[$index]);
         $this->sigApprovals = array_values($this->sigApprovals) ?: [['position' => '', 'name' => '']];
+    }
+
+    public function beginNewSignatoryAssignment(): void
+    {
+        $this->sigEffectiveFrom = now()->toDateString();
+        $this->sigEffectiveUntil = '';
+        $this->sigPreparedByName = '';
+        $this->sigPreparedByDesignation = '';
+        $this->sigReviewedByName = '';
+        $this->sigReviewedByDesignation = '';
+        $this->sigApprovedByName = '';
+        $this->sigApprovedByDesignation = '';
+        $this->sigReviewers = [['name' => '']];
+        $this->sigApprovals = [['position' => '', 'name' => '']];
+        $this->flashToast('Fields cleared for a new assignment. Save when ready — the current active set ends automatically.', 'info');
     }
 
     public function saveSignatoryTemplate(): void
@@ -1785,10 +1809,26 @@ new #[Layout('layouts.dcs')] class extends Component {
             'programCourses' => $programCourses,
             'signatoryTemplatesReady' => Schema::hasTable('dcs_signatory_templates'),
             'signatoryAssignments' => OfficeIntakeHelper::listSignatoryAssignments($this->sigFormKind),
-            'sigParentOptions' => $docTypeParents,
+            'sigHistoryTabs' => OfficeIntakeHelper::signatoryHistoryDocTypeTabs($this->sigFormKind, $docTypeParents),
+            'signatoryAssignmentGroups' => OfficeIntakeHelper::groupedSignatoryAssignments(
+                $this->sigFormKind,
+                $this->sigHistoryTab !== '' ? $this->sigHistoryTab : 'all'
+            ),
+            'sigParentOptions' => $docTypeParents->filter(
+                fn ($type) => ! OfficeIntakeHelper::isDefaultExcludedDrfParent((string) ($type->doc_type_name ?? ''))
+            )->values(),
+            // Forms / Logbooks stay opt-in — only listed here so admin can unlock them later for office DRF.
+            'sigFutureParentOptions' => $docTypeParents->filter(
+                fn ($type) => OfficeIntakeHelper::isDefaultExcludedDrfParent((string) ($type->doc_type_name ?? ''))
+            )->values(),
             'sigSubOptions' => ($this->sigParentTypeId !== '' && isset($docTypeSubs[(string) $this->sigParentTypeId]))
                 ? $docTypeSubs[(string) $this->sigParentTypeId]
                 : collect(),
+            'sigHasActiveAssignment' => OfficeIntakeHelper::hasActiveSignatoryAssignment(
+                $this->sigFormKind,
+                $this->sigDocTypeKind,
+                $this->resolvedSigDocTypeId()
+            ),
         ];
     }
 
@@ -1952,7 +1992,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         <div class="panel-toolbar">
             <div>
                 <h2 class="sig-panel-title">Signatory assignments</h2>
-                <p class="panel-subtitle">Per form, document kind, Document Types catalog, and date window. Catalog types named Internal / External are from Document Types — not the Kind field.</p>
+                <p class="panel-subtitle">Assign prepared / reviewed / approved names per Document Type (and sub-type). Saving a new assignment for the same type ends the previous one and applies the new names immediately.</p>
             </div>
         </div>
         @if(!($signatoryTemplatesReady ?? false))
@@ -1960,7 +2000,6 @@ new #[Layout('layouts.dcs')] class extends Component {
         @else
             @php
                 $today = now()->toDateString();
-                $parentNameById = collect($sigParentOptions)->keyBy('id');
             @endphp
             <div class="sig-layout">
                 <div class="sig-editor">
@@ -1969,7 +2008,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <span class="sig-section-num">1</span>
                             <div>
                                 <h3 class="sig-section-title">Scope</h3>
-                                <p class="sig-section-hint">Leave catalog empty for a Kind-only fallback. Picking a catalog type (e.g. Forms, Logbooks) scopes signatories to that Document Type.</p>
+                                <p class="sig-section-hint"><strong>Document type</strong> is the catalog entry (Internal, External…). Forms &amp; Logbooks are <em>not</em> in office DRF until you opt them in under “Enable later” below and save names.</p>
                             </div>
                         </div>
                         <div class="sig-scope-grid">
@@ -1981,32 +2020,46 @@ new #[Layout('layouts.dcs')] class extends Component {
                                 </select>
                             </div>
                             <div class="st-field sig-field">
-                                <label class="st-label">Document kind</label>
-                                <select class="st-input" wire:model.live="sigDocTypeKind" @disabled($sigParentTypeId !== '')>
-                                    <option value="internal">Internal docs</option>
-                                    <option value="external">External docs</option>
-                                </select>
-                                @if($sigParentTypeId !== '')
-                                    <span class="sig-field-note">Set from catalog name</span>
-                                @endif
-                            </div>
-                            <div class="st-field sig-field">
-                                <label class="st-label">Catalog type <span class="st-optional">Document Types</span></label>
+                                <label class="st-label">Document type <span class="st-optional">catalog</span></label>
                                 <select class="st-input" wire:model.live="sigParentTypeId">
-                                    <option value="">None — use kind fallback</option>
+                                    <option value="">Kind fallback only</option>
                                     @foreach($sigParentOptions as $type)
                                         <option value="{{ $type->id }}">{{ $type->doc_type_name }}</option>
                                     @endforeach
+                                    @if(($sigFutureParentOptions ?? collect())->isNotEmpty())
+                                        <optgroup label="Enable later for office DRF">
+                                            @foreach($sigFutureParentOptions as $type)
+                                                <option value="{{ $type->id }}">{{ $type->doc_type_name }}</option>
+                                            @endforeach
+                                        </optgroup>
+                                    @endif
                                 </select>
                             </div>
                             <div class="st-field sig-field">
-                                <label class="st-label">Sub-type <span class="st-optional">optional</span></label>
-                                <select class="st-input" wire:model.live="sigSubTypeId" @disabled($sigParentTypeId === '')>
-                                    <option value="">Whole catalog type</option>
+                                <label class="st-label">Sub-type @if(($sigSubOptions ?? collect())->count())<span class="st-optional">optional</span>@else<span class="st-optional">none</span>@endif</label>
+                                <select class="st-input" wire:model.live="sigSubTypeId" @disabled($sigParentTypeId === '' || ($sigSubOptions ?? collect())->count() < 1)>
+                                    <option value="">{{ ($sigSubOptions ?? collect())->count() ? 'Whole type (fallback)' : 'Whole type (no sub-types)' }}</option>
                                     @foreach($sigSubOptions as $sub)
                                         <option value="{{ $sub->id }}">{{ $sub->doc_type_name }}</option>
                                     @endforeach
                                 </select>
+                                @if($sigParentTypeId !== '' && ($sigSubOptions ?? collect())->count() < 1)
+                                    <span class="sig-field-note">No sub-types — save against this whole type. For Forms/Logbooks, that unlocks them in office DRF.</span>
+                                @elseif(($sigSubOptions ?? collect())->count() && $sigSubTypeId === '')
+                                    <span class="sig-field-note">Office intake can pick a sub-type — assign here when you can, or leave Whole type as fallback.</span>
+                                @endif
+                            </div>
+                            <div class="st-field sig-field">
+                                <label class="st-label">Kind fallback</label>
+                                <select class="st-input" wire:model.live="sigDocTypeKind" @disabled($sigParentTypeId !== '')>
+                                    <option value="internal">Internal</option>
+                                    <option value="external">External</option>
+                                </select>
+                                @if($sigParentTypeId !== '')
+                                    <span class="sig-field-note">Follows the document type name</span>
+                                @else
+                                    <span class="sig-field-note">Used only when Document type is empty</span>
+                                @endif
                             </div>
                             <div class="st-field sig-field">
                                 <label class="st-label">From</label>
@@ -2015,6 +2068,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <div class="st-field sig-field">
                                 <label class="st-label">Until <span class="st-optional">blank = open</span></label>
                                 <input class="st-input" type="date" wire:model="sigEffectiveUntil">
+                                <span class="sig-field-note">Leave blank; save again anytime to replace the active set for this type.</span>
                             </div>
                         </div>
                     </div>
@@ -2089,101 +2143,177 @@ new #[Layout('layouts.dcs')] class extends Component {
                     </div>
 
                     <div class="sig-actions">
-                        <p class="sig-actions-hint">Saving closes any open window for the same scope and starts this one.</p>
-                        <button type="button" class="btn-primary" wire:click="saveSignatoryTemplate" wire:loading.attr="disabled">
-                            <span wire:loading.remove wire:target="saveSignatoryTemplate"><i class="fa-solid fa-floppy-disk"></i> Save assignment</span>
-                            <span wire:loading wire:target="saveSignatoryTemplate">Saving…</span>
-                        </button>
+                        @if($sigHasActiveAssignment ?? false)
+                            <div class="sig-replace-banner" role="status">
+                                <strong>Active assignment exists</strong>
+                                <span>You don’t need to end it first. Click <em>Start new assignment</em> to clear the names, edit them, then save — the current active set ends automatically and the new one takes over.</span>
+                            </div>
+                            <div class="sig-actions-row">
+                                <button type="button" class="btn-secondary" wire:click="beginNewSignatoryAssignment">
+                                    <i class="fa-solid fa-plus"></i> Start new assignment
+                                </button>
+                                <button type="button" class="btn-primary" wire:click="saveSignatoryTemplate" wire:loading.attr="disabled" wire:confirm="Save this as the new active set? The current open assignment for this type will end.">
+                                    <span wire:loading.remove wire:target="saveSignatoryTemplate"><i class="fa-solid fa-floppy-disk"></i> Replace active &amp; save</span>
+                                    <span wire:loading wire:target="saveSignatoryTemplate">Saving…</span>
+                                </button>
+                            </div>
+                        @else
+                            <p class="sig-actions-hint">No active assignment for this scope yet. Fill the names and save.</p>
+                            <button type="button" class="btn-primary" wire:click="saveSignatoryTemplate" wire:loading.attr="disabled">
+                                <span wire:loading.remove wire:target="saveSignatoryTemplate"><i class="fa-solid fa-floppy-disk"></i> Save assignment</span>
+                                <span wire:loading wire:target="saveSignatoryTemplate">Saving…</span>
+                            </button>
+                        @endif
                     </div>
                 </div>
 
                 <aside class="sig-history" aria-label="Recent signatories">
                     <div class="sig-history-head">
                         <h3 class="sig-section-title">Recent signatories</h3>
-                        <span class="sig-history-count">{{ $signatoryAssignments->count() }}</span>
+                        @php
+                            $activeHistTab = collect($sigHistoryTabs ?? [])->firstWhere('key', $sigHistoryTab)
+                                ?? collect($sigHistoryTabs ?? [])->first();
+                        @endphp
+                        <span class="sig-history-count">{{ (int) ($activeHistTab['count'] ?? 0) }}</span>
                     </div>
-                    <p class="sig-history-sub">{{ strtoupper($sigFormKind) }} assignments</p>
+                    <div class="sig-history-tabs" role="tablist" aria-label="Document types">
+                        @foreach(($sigHistoryTabs ?? []) as $tab)
+                            <button
+                                type="button"
+                                role="tab"
+                                class="sig-history-tab {{ $sigHistoryTab === $tab['key'] ? 'is-active' : '' }}"
+                                aria-selected="{{ $sigHistoryTab === $tab['key'] ? 'true' : 'false' }}"
+                                wire:click="setSigHistoryTab('{{ $tab['key'] }}')"
+                            >
+                                {{ $tab['label'] }} <span>{{ (int) $tab['count'] }}</span>
+                            </button>
+                        @endforeach
+                    </div>
+                    <p class="sig-history-sub">{{ strtoupper($sigFormKind) }} · {{ $activeHistTab['label'] ?? 'All' }} · ended rows stay compact (click to view)</p>
                     <div class="sig-history-list">
-                        @forelse($signatoryAssignments as $row)
-                            @php
-                                $fromRaw = data_get($row, 'effective_from');
-                                $untilRaw = data_get($row, 'effective_until');
-                                $from = $fromRaw ? \Carbon\Carbon::parse($fromRaw)->toDateString() : null;
-                                $until = $untilRaw ? \Carbon\Carbon::parse($untilRaw)->toDateString() : null;
-                                $active = ($from === null || $from <= $today) && ($until === null || $until >= $today);
-                                $scheduled = $from && $from > $today;
-                                $hasCatalog = filled(data_get($row, 'doc_type_id'));
-                                $catalogLabel = data_get($row, 'doc_type_name');
-                                $parentId = (int) data_get($row, 'doc_type_parent_id', 0);
-                                if ($parentId > 0 && $catalogLabel) {
-                                    $parent = $parentNameById->get($parentId);
-                                    if ($parent) {
-                                        $catalogLabel = $parent->doc_type_name.' → '.$catalogLabel;
-                                    }
-                                }
-                                if (! $catalogLabel) {
-                                    $catalogLabel = $hasCatalog
-                                        ? ('Type #'.data_get($row, 'doc_type_id'))
-                                        : 'Kind fallback only';
-                                }
-                                $kindLabel = ucfirst((string) ($row->doc_type_kind ?? '—'));
-                                $payloadRaw = data_get($row, 'payload');
-                                $payload = is_array($payloadRaw)
-                                    ? $payloadRaw
-                                    : (is_string($payloadRaw) ? (json_decode($payloadRaw, true) ?: []) : []);
-                                $people = [];
-                                if (($row->form_kind ?? $sigFormKind) === 'dcn') {
-                                    foreach ((array) ($payload['reviewers'] ?? []) as $rev) {
-                                        $n = trim((string) (is_array($rev) ? ($rev['name'] ?? '') : $rev));
-                                        if ($n !== '') {
-                                            $people[] = $n;
-                                        }
-                                    }
-                                    foreach ((array) ($payload['approvals'] ?? []) as $apr) {
-                                        $n = trim((string) (is_array($apr) ? ($apr['name'] ?? '') : ''));
-                                        if ($n !== '') {
-                                            $people[] = $n;
-                                        }
-                                    }
-                                } else {
-                                    foreach (['prepared_by_name', 'reviewed_by_name', 'approved_by_name'] as $key) {
-                                        $n = trim((string) ($payload[$key] ?? ''));
-                                        if ($n !== '') {
-                                            $people[] = $n;
-                                        }
-                                    }
-                                }
-                                $peoplePreview = $people !== []
-                                    ? implode(' · ', array_slice($people, 0, 3)).(count($people) > 3 ? '…' : '')
-                                    : 'No names saved';
-                            @endphp
-                            <article class="sig-history-item {{ $active ? 'is-active' : '' }}" wire:key="sig-hist-{{ $row->id }}">
-                                <div class="sig-history-top">
-                                    <div class="sig-history-title-wrap">
-                                        <span class="sig-history-k">Catalog</span>
-                                        <strong class="sig-history-type">{{ $catalogLabel }}</strong>
+                        @forelse($signatoryAssignmentGroups as $parentGroup)
+                            <div class="sig-history-parent" wire:key="sig-p-{{ $parentGroup['key'] }}">
+                                <div class="sig-history-group-parent">{{ $parentGroup['label'] }}</div>
+                                @foreach($parentGroup['children'] as $child)
+                                    <div class="sig-history-group" wire:key="sig-g-{{ $parentGroup['key'] }}-{{ $child['key'] }}">
+                                        <div class="sig-history-group-label">{{ $child['label'] }}</div>
+                                        @foreach($child['items'] as $row)
+                                            @php
+                                                $fromRaw = data_get($row, 'effective_from');
+                                                $untilRaw = data_get($row, 'effective_until');
+                                                $from = $fromRaw ? \Carbon\Carbon::parse($fromRaw)->toDateString() : null;
+                                                $until = $untilRaw ? \Carbon\Carbon::parse($untilRaw)->toDateString() : null;
+                                                $active = ($from === null || $from <= $today) && ($until === null || $until >= $today);
+                                                $scheduled = $from && $from > $today;
+                                                $kindLabel = ucfirst((string) ($row->doc_type_kind ?? '—'));
+                                                $payloadRaw = data_get($row, 'payload');
+                                                $payload = is_array($payloadRaw)
+                                                    ? $payloadRaw
+                                                    : (is_string($payloadRaw) ? (json_decode($payloadRaw, true) ?: []) : []);
+                                                $detailRows = [];
+                                                if (($row->form_kind ?? $sigFormKind) === 'dcn') {
+                                                    foreach ((array) ($payload['reviewers'] ?? []) as $i => $rev) {
+                                                        $n = trim((string) (is_array($rev) ? ($rev['name'] ?? '') : $rev));
+                                                        if ($n !== '') {
+                                                            $detailRows[] = ['role' => 'Reviewer '.($i + 1), 'name' => $n, 'designation' => ''];
+                                                        }
+                                                    }
+                                                    foreach ((array) ($payload['approvals'] ?? []) as $i => $apr) {
+                                                        if (! is_array($apr)) {
+                                                            continue;
+                                                        }
+                                                        $n = trim((string) ($apr['name'] ?? ''));
+                                                        $p = trim((string) ($apr['position'] ?? ''));
+                                                        if ($n !== '' || $p !== '') {
+                                                            $detailRows[] = ['role' => 'Approval '.($i + 1), 'name' => $n, 'designation' => $p];
+                                                        }
+                                                    }
+                                                } else {
+                                                    $detailRows = [
+                                                        ['role' => 'Prepared by', 'name' => trim((string) ($payload['prepared_by_name'] ?? '')), 'designation' => trim((string) ($payload['prepared_by_designation'] ?? ''))],
+                                                        ['role' => 'Reviewed by', 'name' => trim((string) ($payload['reviewed_by_name'] ?? '')), 'designation' => trim((string) ($payload['reviewed_by_designation'] ?? ''))],
+                                                        ['role' => 'Approved by', 'name' => trim((string) ($payload['approved_by_name'] ?? '')), 'designation' => trim((string) ($payload['approved_by_designation'] ?? ''))],
+                                                    ];
+                                                    $detailRows = array_values(array_filter($detailRows, fn ($r) => $r['name'] !== '' || $r['designation'] !== ''));
+                                                }
+                                                $peoplePreview = collect($detailRows)->pluck('name')->filter()->take(3)->implode(' · ');
+                                                if ($peoplePreview === '') {
+                                                    $peoplePreview = 'No names saved';
+                                                } elseif (count($detailRows) > 3) {
+                                                    $peoplePreview .= '…';
+                                                }
+                                            @endphp
+                                            @if($active || $scheduled)
+                                                <article class="sig-history-item {{ $active ? 'is-active' : 'is-scheduled' }}" wire:key="sig-hist-{{ $row->id }}">
+                                                    <div class="sig-history-top">
+                                                        <div class="sig-history-title-wrap">
+                                                            <span class="sig-history-k">Window</span>
+                                                            <strong class="sig-history-type">{{ $from ?: '—' }} → {{ $until ?: 'open' }}</strong>
+                                                        </div>
+                                                        @if($active)
+                                                            <span class="sig-pill is-active">Active</span>
+                                                        @else
+                                                            <span class="sig-pill is-scheduled">Scheduled</span>
+                                                        @endif
+                                                    </div>
+                                                    <div class="sig-history-meta">
+                                                        <span>{{ strtoupper((string) ($row->form_kind ?? $sigFormKind)) }}</span>
+                                                        <span aria-hidden="true">·</span>
+                                                        <span>{{ $kindLabel }} kind</span>
+                                                    </div>
+                                                    <ul class="sig-history-detail">
+                                                        @forelse($detailRows as $d)
+                                                            <li>
+                                                                <span class="sig-history-detail-role">{{ $d['role'] }}</span>
+                                                                <span class="sig-history-detail-name">{{ $d['name'] !== '' ? $d['name'] : '—' }}</span>
+                                                                @if($d['designation'] !== '')
+                                                                    <span class="sig-history-detail-desig">{{ $d['designation'] }}</span>
+                                                                @endif
+                                                            </li>
+                                                        @empty
+                                                            <li><span class="sig-history-detail-name">{{ $peoplePreview }}</span></li>
+                                                        @endforelse
+                                                    </ul>
+                                                </article>
+                                            @else
+                                                <details class="sig-history-item is-ended is-compact" wire:key="sig-hist-{{ $row->id }}">
+                                                    <summary class="sig-history-summary">
+                                                        <span class="sig-history-summary-main">
+                                                            <span class="sig-pill is-ended">Ended</span>
+                                                            <span class="sig-history-summary-dates">{{ $from ?: '—' }} → {{ $until ?: '—' }}</span>
+                                                        </span>
+                                                        <span class="sig-history-summary-people">{{ $peoplePreview }}</span>
+                                                    </summary>
+                                                    <div class="sig-history-compact-body">
+                                                        <div class="sig-history-meta">
+                                                            <span>{{ strtoupper((string) ($row->form_kind ?? $sigFormKind)) }}</span>
+                                                            <span aria-hidden="true">·</span>
+                                                            <span>{{ $kindLabel }} kind</span>
+                                                        </div>
+                                                        <ul class="sig-history-detail">
+                                                            @forelse($detailRows as $d)
+                                                                <li>
+                                                                    <span class="sig-history-detail-role">{{ $d['role'] }}</span>
+                                                                    <span class="sig-history-detail-name">{{ $d['name'] !== '' ? $d['name'] : '—' }}</span>
+                                                                    @if($d['designation'] !== '')
+                                                                        <span class="sig-history-detail-desig">{{ $d['designation'] }}</span>
+                                                                    @endif
+                                                                </li>
+                                                            @empty
+                                                                <li><span class="sig-history-detail-name">No names saved</span></li>
+                                                            @endforelse
+                                                        </ul>
+                                                    </div>
+                                                </details>
+                                            @endif
+                                        @endforeach
                                     </div>
-                                    @if($active)
-                                        <span class="sig-pill is-active">Active</span>
-                                    @elseif($scheduled)
-                                        <span class="sig-pill is-scheduled">Scheduled</span>
-                                    @else
-                                        <span class="sig-pill is-ended">Ended</span>
-                                    @endif
-                                </div>
-                                <div class="sig-history-meta">
-                                    <span>{{ strtoupper((string) ($row->form_kind ?? $sigFormKind)) }}</span>
-                                    <span aria-hidden="true">·</span>
-                                    <span>{{ $kindLabel }} kind</span>
-                                    <span aria-hidden="true">·</span>
-                                    <span>{{ $from ?: '—' }} → {{ $until ?: 'open' }}</span>
-                                </div>
-                                <p class="sig-history-people">{{ $peoplePreview }}</p>
-                            </article>
+                                @endforeach
+                            </div>
                         @empty
                             <div class="sig-history-empty">
                                 <i class="fa-regular fa-clock"></i>
-                                <span>No {{ strtoupper($sigFormKind) }} signatories yet.</span>
+                                <span>No {{ strtoupper($sigFormKind) }} signatories for {{ $activeHistTab['label'] ?? 'this type' }}.</span>
                             </div>
                         @endforelse
                     </div>

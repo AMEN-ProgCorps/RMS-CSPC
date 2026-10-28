@@ -1606,6 +1606,67 @@ body {
     margin-bottom: 4px;
 }
 
+.sig-replace-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #fde68a;
+    background: #fffbeb;
+    color: #92400e;
+    font-size: 0.78rem;
+    line-height: 1.4;
+}
+.sig-replace-banner strong {
+    font-size: 0.8rem;
+}
+.sig-actions-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.sig-history-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 0 0 8px;
+}
+.sig-history-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--set-border, #e2e8f0);
+    background: var(--set-surface, #fff);
+    color: var(--set-text-muted, #64748b);
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.sig-history-tab span {
+    display: inline-flex;
+    min-width: 1.1rem;
+    justify-content: center;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--set-chip-bg, #f1f5f9);
+    color: inherit;
+    font-size: 0.68rem;
+}
+.sig-history-tab.is-active {
+    background: var(--set-accent, #0d2a7a);
+    border-color: var(--set-accent, #0d2a7a);
+    color: #fff;
+}
+.sig-history-tab.is-active span {
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+}
 .sig-history-sub {
     margin: 0 0 10px;
     font-size: 0.72rem;
@@ -1639,6 +1700,116 @@ body {
     font-size: 0.74rem;
     line-height: 1.35;
     color: var(--set-text, #0f172a);
+}
+
+.sig-history-parent {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.sig-history-group-parent {
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--set-accent, #0d2a7a);
+    padding: 4px 2px 0;
+}
+
+.sig-history-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-left: 2px;
+}
+
+.sig-history-group-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--set-text, #0f172a);
+}
+
+.sig-history-detail {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sig-history-detail li {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 2px 8px;
+    font-size: 0.74rem;
+    line-height: 1.3;
+}
+
+.sig-history-detail-role {
+    color: var(--set-text-muted, #64748b);
+    font-weight: 650;
+}
+
+.sig-history-detail-name {
+    color: var(--set-text, #0f172a);
+    font-weight: 600;
+}
+
+.sig-history-detail-desig {
+    grid-column: 2;
+    color: var(--set-text-subtle, #94a3b8);
+    font-size: 0.7rem;
+}
+
+.sig-history-item.is-compact {
+    padding: 0;
+    background: color-mix(in srgb, var(--set-bg, #f8fafc) 80%, white);
+}
+
+.sig-history-item.is-compact > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 7px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sig-history-item.is-compact > summary::-webkit-details-marker {
+    display: none;
+}
+
+.sig-history-summary-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.sig-history-summary-dates {
+    font-size: 0.72rem;
+    font-weight: 650;
+    color: var(--set-text-muted, #64748b);
+}
+
+.sig-history-summary-people {
+    font-size: 0.7rem;
+    color: var(--set-text-subtle, #94a3b8);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sig-history-compact-body {
+    padding: 0 10px 8px;
+    border-top: 1px solid var(--set-border, #e2e8f0);
+}
+
+.sig-history-item.is-compact[open] {
+    background: var(--set-surface, #fff);
 }
 
 .sig-history-count {

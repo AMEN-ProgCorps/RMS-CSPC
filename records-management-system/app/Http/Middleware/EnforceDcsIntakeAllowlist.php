@@ -38,6 +38,8 @@ class EnforceDcsIntakeAllowlist
         'dcs.office.dcn.preview',
         'dcs.office.dcn.store',
         'dcs.office.dcn.update',
+        'dcs.office.random-checks',
+        'dcs.office.random-checks.show',
         'dcs.api.office.revisable-documents',
         'dcs.api.office-intake.print-ready',
     ];

@@ -100,6 +100,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                             </div>
                             <div class="reg-grid-2-1">
                                 @include('pages.dcs.office.partials.dcn-department-field', [
+                                    'departmentFieldLabel' => 'Source unit',
                                     'userOfficeId' => $userOfficeId ?? 0,
                                     'userOfficeCode' => $userOfficeCode ?? '',
                                     'userOfficeName' => $userOfficeName ?? '',

@@ -1580,6 +1580,10 @@ document.addEventListener("DOMContentLoaded", async function () {
             lockOfficeIntakeRegistrationIdentity();
             return;
         }
+        if (window.__officeIntakeDocTypeLocked) {
+            lockOfficeIntakeDocTypeIdentity();
+            return;
+        }
         if (window.__recurIdentityLocked) {
             lockRecurRegistrationIdentity();
             return;
@@ -2279,7 +2283,37 @@ async function applyOfficeIntakePrefill(prefill) {
         lockRecurRegistrationIdentity();
     } else if (prefill.intake === 'dcn' || prefill.versionType === 'revised') {
         lockOfficeIntakeRegistrationIdentity();
+    } else if (prefill.docTypeId || prefill.subTypeId) {
+        // New DRF from office intake: catalog type/subtype chosen by the office stays locked.
+        lockOfficeIntakeDocTypeIdentity();
     }
+}
+
+/** Lock only Document Type / Sub-type from office intake (new DRF). Version stays editable. */
+function lockOfficeIntakeDocTypeIdentity() {
+    window.__officeIntakeDocTypeLocked = true;
+    const form = document.getElementById('masterForm');
+    ['docType', 'subType'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (id === 'subType' && (el.closest('#subTypeField')?.hidden || el.options.length < 2) && !el.value) {
+            return;
+        }
+        el.disabled = true;
+        el.setAttribute('disabled', 'disabled');
+        el.classList.add('reg-identity-locked');
+        const name = el.getAttribute('name');
+        if (!name || !form) return;
+        let hidden = form.querySelector(`input[type="hidden"][data-lock-for="${id}"]`);
+        if (!hidden) {
+            hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = name;
+            hidden.dataset.lockFor = id;
+            form.appendChild(hidden);
+        }
+        hidden.value = el.value || '';
+    });
 }
 
 /** Apply checklist visibility + DCN/DRF/masterlist fields from office intake (safe to re-run after type/subtype change). */

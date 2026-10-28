@@ -1159,13 +1159,20 @@ class OfficeIntakeHelper
         $kind = str_contains(mb_strtolower($typeName.' '.$subName), 'external') ? 'external' : 'internal';
         $requestId = (int) ($matched->request_id ?? 0);
 
+        $catalog = self::resolveIntakeCatalogSelection(
+            (int) ($matched->doc_type_id ?? 0) ?: null,
+            (int) ($matched->sub_type_id ?? 0) ?: null
+        );
+
         return [
             'previous_document_no' => $previous,
             'matched_title' => $matchedTitle,
             'matched_originator' => trim((string) ($matched->originator_label ?? '')),
             'masterlist_id' => (int) ($matched->ml_id ?? 0),
             'request_id' => $requestId,
-            'doc_type_kind' => $kind,
+            'doc_type_kind' => $catalog['doc_type_kind'] ?: $kind,
+            'doc_type_id' => $catalog['doc_type_id'],
+            'sub_type_id' => $catalog['sub_type_id'],
             'distribute_office_ids' => self::distributionOfficeIdsForRequest($requestId),
         ];
     }
@@ -1276,6 +1283,8 @@ class OfficeIntakeHelper
         $kind = 'internal';
         $label = '';
         $officeIds = [];
+        $docTypeId = null;
+        $subTypeId = null;
         if ($registered) {
             $typeName = trim((string) ($registered->doc_type_name ?? ''));
             $subName = trim((string) ($registered->sub_type_name ?? ''));
@@ -1283,6 +1292,8 @@ class OfficeIntakeHelper
             if (str_contains(mb_strtolower($typeName.' '.$subName), 'external')) {
                 $kind = 'external';
             }
+            $docTypeId = (int) ($registered->doc_type_id ?? 0) ?: null;
+            $subTypeId = (int) ($registered->sub_type_id ?? 0) ?: null;
             $officeIds = self::distributionOfficeIdsForRequest((int) ($registered->request_id ?? 0));
         }
 
@@ -1292,6 +1303,8 @@ class OfficeIntakeHelper
             'descriptionReason' => '',
             'from_dcn' => $dcnId,
             'docTypeKind' => $kind,
+            'docTypeId' => $docTypeId,
+            'subTypeId' => $subTypeId,
             'docTypeLabel' => $label,
             'lockDocType' => $registered !== null,
             'distributeOfficeIds' => $officeIds,
@@ -1684,6 +1697,8 @@ class OfficeIntakeHelper
             'drfTitle' => 'required|string',
             'originatorName' => 'required|string',
             'docTypeKind' => 'required|in:internal,external',
+            'docTypeId' => 'nullable|integer',
+            'subTypeId' => 'nullable|integer',
             'descriptionReason' => 'required|string|max:5000',
             'distributeToOffice' => 'required|array|min:1',
             'distributeToOffice.*' => 'required|integer',
@@ -1697,6 +1712,45 @@ class OfficeIntakeHelper
             'drfMode' => 'nullable|in:recurring',
             'confirmDataCorrect' => 'accepted',
         ]);
+
+        // External is kind-only. Internal requires catalog document type (+ sub-type when present).
+        if (($data['docTypeKind'] ?? '') === 'external') {
+            $data['docTypeId'] = null;
+            $data['subTypeId'] = null;
+        } else {
+            if (empty($data['docTypeId'])) {
+                throw ValidationException::withMessages([
+                    'docTypeId' => 'Select a document type.',
+                ]);
+            }
+            if (Schema::hasTable('dcs_doc_types')) {
+                $hasSubs = DB::table('dcs_doc_types')->where('parent_id', (int) $data['docTypeId'])->exists();
+                if ($hasSubs && empty($data['subTypeId'])) {
+                    throw ValidationException::withMessages([
+                        'subTypeId' => 'Select a sub-type for this internal document type.',
+                    ]);
+                }
+            }
+        }
+
+        $catalog = self::resolveIntakeCatalogSelection(
+            isset($data['docTypeId']) ? (int) $data['docTypeId'] : null,
+            isset($data['subTypeId']) ? (int) $data['subTypeId'] : null
+        );
+        if (($data['docTypeKind'] ?? '') === 'internal' && ! $catalog['doc_type_id'] && ! $catalog['sub_type_id']) {
+            throw ValidationException::withMessages([
+                'docTypeId' => 'Select a document type.',
+            ]);
+        }
+        if ($catalog['doc_type_id'] || $catalog['sub_type_id']) {
+            $data['docTypeKind'] = $catalog['doc_type_kind'];
+        } else {
+            $data['docTypeKind'] = in_array(($data['docTypeKind'] ?? ''), ['internal', 'external'], true)
+                ? $data['docTypeKind']
+                : 'internal';
+        }
+        $data['resolvedDocTypeId'] = $catalog['doc_type_id'];
+        $data['resolvedSubTypeId'] = $catalog['sub_type_id'];
 
         $sourceDcnId = (int) ($data['from_dcn'] ?? 0);
         if ($sourceDcnId > 0) {
@@ -1728,9 +1782,17 @@ class OfficeIntakeHelper
                 ?: trim((string) $request->input('finderOriginator', ''));
             $previousMasterlistId = (int) ($resolved['masterlist_id'] ?? 0);
             $previousRequestId = (int) ($resolved['request_id'] ?? 0);
-            // Prefer registered Internal/External when the finder resolved a match.
+            // Prefer registered catalog type / kind when the finder resolved a match.
             if (! empty($resolved['doc_type_kind'])) {
                 $data['docTypeKind'] = $resolved['doc_type_kind'];
+            }
+            if (! empty($resolved['doc_type_id'])) {
+                $data['resolvedDocTypeId'] = (int) $resolved['doc_type_id'];
+            }
+            if (array_key_exists('sub_type_id', $resolved)) {
+                $data['resolvedSubTypeId'] = ! empty($resolved['sub_type_id'])
+                    ? (int) $resolved['sub_type_id']
+                    : null;
             }
             // Keep the DRF title aligned with the selected document family unless the office typed another title.
             if ($previousTitle !== '' && trim((string) ($data['drfTitle'] ?? '')) === '') {
@@ -1773,6 +1835,12 @@ class OfficeIntakeHelper
                     'doc_type_kind' => $data['docTypeKind'] ?? null,
                     'description_reason' => trim((string) ($data['descriptionReason'] ?? '')) ?: null,
                 ];
+                if (Schema::hasColumn('dcs_office_intake_drf', 'doc_type_id')) {
+                    $row['doc_type_id'] = ! empty($data['resolvedDocTypeId']) ? (int) $data['resolvedDocTypeId'] : null;
+                }
+                if (Schema::hasColumn('dcs_office_intake_drf', 'sub_type_id')) {
+                    $row['sub_type_id'] = ! empty($data['resolvedSubTypeId']) ? (int) $data['resolvedSubTypeId'] : null;
+                }
 
                 if ($sourceDcnId > 0) {
                     $row['source_office_dcn_id'] = $sourceDcnId;
@@ -2127,7 +2195,9 @@ class OfficeIntakeHelper
             'drfDate' => 'required|date',
             'drfTitle' => 'required|string',
             'originatorName' => 'required|string',
-            'docTypeKind' => 'required|in:internal,external',
+            'docTypeKind' => 'nullable|in:internal,external',
+            'docTypeId' => 'nullable|integer',
+            'subTypeId' => 'nullable|integer',
             'descriptionReason' => 'required|string|max:5000',
             'distributeToOffice' => 'required|array|min:1',
             'distributeToOffice.*' => 'required|integer',
@@ -2140,6 +2210,18 @@ class OfficeIntakeHelper
             'confirmDataCorrect' => 'accepted',
         ]);
 
+        $catalog = self::resolveIntakeCatalogSelection(
+            isset($data['docTypeId']) ? (int) $data['docTypeId'] : null,
+            isset($data['subTypeId']) ? (int) $data['subTypeId'] : null
+        );
+        if ($catalog['doc_type_id'] || $catalog['sub_type_id']) {
+            $data['docTypeKind'] = $catalog['doc_type_kind'];
+        } else {
+            $data['docTypeKind'] = in_array(($data['docTypeKind'] ?? ''), ['internal', 'external'], true)
+                ? $data['docTypeKind']
+                : 'internal';
+        }
+
         self::assertNoOpenDuplicateDrf(
             (string) ($data['drfTitle'] ?? ''),
             (string) ($data['originatorName'] ?? ''),
@@ -2147,7 +2229,7 @@ class OfficeIntakeHelper
         );
 
         $now = now();
-        DB::transaction(function () use ($data, $id, $now) {
+        DB::transaction(function () use ($data, $catalog, $id, $now) {
             $row = [
                 'drf_date' => $data['drfDate'] ?? null,
                 'doc_title' => $data['drfTitle'],
@@ -2158,6 +2240,12 @@ class OfficeIntakeHelper
             }
             if (Schema::hasColumn('dcs_office_intake_drf', 'doc_type_kind')) {
                 $row['doc_type_kind'] = $data['docTypeKind'] ?? null;
+            }
+            if (Schema::hasColumn('dcs_office_intake_drf', 'doc_type_id')) {
+                $row['doc_type_id'] = $catalog['doc_type_id'];
+            }
+            if (Schema::hasColumn('dcs_office_intake_drf', 'sub_type_id')) {
+                $row['sub_type_id'] = $catalog['sub_type_id'];
             }
             if (Schema::hasColumn('dcs_office_intake_drf', 'description_reason')) {
                 $row['description_reason'] = trim((string) ($data['descriptionReason'] ?? '')) ?: null;
@@ -2549,6 +2637,505 @@ class OfficeIntakeHelper
         }
 
         return $query->limit(100)->get();
+    }
+
+    /**
+     * Classify a signatory window relative to $today (Y-m-d).
+     */
+    public static function signatoryAssignmentStatus(object $row, ?string $today = null): string
+    {
+        $today = $today ?: now()->toDateString();
+        $fromRaw = data_get($row, 'effective_from');
+        $untilRaw = data_get($row, 'effective_until');
+        $from = $fromRaw ? \Carbon\Carbon::parse($fromRaw)->toDateString() : null;
+        $until = $untilRaw ? \Carbon\Carbon::parse($untilRaw)->toDateString() : null;
+
+        if ($from && $from > $today) {
+            return 'scheduled';
+        }
+        if (($from === null || $from <= $today) && ($until === null || $until >= $today)) {
+            return 'active';
+        }
+
+        return 'ended';
+    }
+
+    /**
+     * @return array{active: int, scheduled: int, ended: int, total: int}
+     */
+    public static function signatoryAssignmentStatusCounts(string $formKind = 'drf'): array
+    {
+        $today = now()->toDateString();
+        $counts = ['active' => 0, 'scheduled' => 0, 'ended' => 0, 'total' => 0];
+        foreach (self::listSignatoryAssignments($formKind) as $row) {
+            $status = self::signatoryAssignmentStatus($row, $today);
+            $counts[$status]++;
+            $counts['total']++;
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Nest assignments by catalog parent → subtype (or Kind fallback) for Settings history.
+     *
+     * @param  string|null  $parentKeyFilter  e.g. parent:12, kind, or null/all for every type
+     * @return list<array{key: string, label: string, children: list<array{key: string, label: string, items: \Illuminate\Support\Collection<int, object>}>}>
+     */
+    public static function groupedSignatoryAssignments(string $formKind = 'drf', ?string $parentKeyFilter = null): array
+    {
+        $rows = self::listSignatoryAssignments($formKind);
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $parentNameById = collect();
+        if (Schema::hasTable('dcs_doc_types')) {
+            $parentIds = $rows->pluck('doc_type_parent_id')->filter(fn ($id) => (int) $id > 0)->unique()->values();
+            $orphanParentIds = $rows
+                ->filter(fn ($row) => (int) data_get($row, 'doc_type_id', 0) > 0 && ! (int) data_get($row, 'doc_type_parent_id', 0))
+                ->pluck('doc_type_id')
+                ->unique();
+            $ids = $parentIds->merge($orphanParentIds)->unique()->filter()->values()->all();
+            if ($ids !== []) {
+                $parentNameById = DB::table('dcs_doc_types')
+                    ->whereIn('id', $ids)
+                    ->get(['id', 'doc_type_name'])
+                    ->keyBy('id');
+            }
+        }
+
+        $parents = [];
+        foreach ($rows as $row) {
+            $docTypeId = (int) data_get($row, 'doc_type_id', 0);
+            $parentId = (int) data_get($row, 'doc_type_parent_id', 0);
+            $typeName = trim((string) data_get($row, 'doc_type_name', ''));
+            $kind = strtolower(trim((string) data_get($row, 'doc_type_kind', '')));
+
+            if ($docTypeId < 1) {
+                $parentKey = 'kind';
+                $parentLabel = 'Kind fallback';
+                $childKey = 'kind:'.($kind !== '' ? $kind : 'unknown');
+                $childLabel = $kind !== '' ? ucfirst($kind).' docs' : 'Unspecified kind';
+            } elseif ($parentId > 0) {
+                $parent = $parentNameById->get($parentId);
+                $parentKey = 'parent:'.$parentId;
+                $parentLabel = $parent ? trim((string) $parent->doc_type_name) : ('Type #'.$parentId);
+                $childKey = 'sub:'.$docTypeId;
+                $childLabel = $typeName !== '' ? $typeName : ('Subtype #'.$docTypeId);
+            } else {
+                $parentKey = 'parent:'.$docTypeId;
+                $parentLabel = $typeName !== '' ? $typeName : ('Type #'.$docTypeId);
+                $childKey = 'whole';
+                $childLabel = 'Whole catalog type';
+            }
+
+            if (! isset($parents[$parentKey])) {
+                $parents[$parentKey] = [
+                    'key' => $parentKey,
+                    'label' => $parentLabel,
+                    'sort' => mb_strtolower($parentLabel),
+                    'children' => [],
+                ];
+            }
+            if (! isset($parents[$parentKey]['children'][$childKey])) {
+                $parents[$parentKey]['children'][$childKey] = [
+                    'key' => $childKey,
+                    'label' => $childLabel,
+                    'sort' => mb_strtolower($childLabel),
+                    'items' => collect(),
+                ];
+            }
+            $parents[$parentKey]['children'][$childKey]['items']->push($row);
+        }
+
+        $grouped = collect($parents)
+            ->sortBy('sort')
+            ->map(function (array $parent) {
+                $children = collect($parent['children'])
+                    ->sortBy('sort')
+                    ->map(fn (array $child) => [
+                        'key' => $child['key'],
+                        'label' => $child['label'],
+                        'items' => $child['items'],
+                    ])
+                    ->values()
+                    ->all();
+
+                return [
+                    'key' => $parent['key'],
+                    'label' => $parent['label'],
+                    'children' => $children,
+                ];
+            })
+            ->values();
+
+        if ($parentKeyFilter && $parentKeyFilter !== 'all') {
+            $grouped = $grouped->filter(fn (array $parent) => $parent['key'] === $parentKeyFilter)->values();
+        }
+
+        return $grouped->all();
+    }
+
+    /**
+     * Document-type tabs for Settings recent signatories (catalog parents + kind fallback if used).
+     *
+     * @param  \Illuminate\Support\Collection<int, object>|iterable<int, object>  $docTypeParents
+     * @return list<array{key: string, label: string, count: int}>
+     */
+    public static function signatoryHistoryDocTypeTabs(string $formKind, $docTypeParents): array
+    {
+        $groups = self::groupedSignatoryAssignments($formKind);
+        $countByKey = [];
+        foreach ($groups as $group) {
+            $count = 0;
+            foreach ($group['children'] as $child) {
+                $count += $child['items']->count();
+            }
+            $countByKey[$group['key']] = $count;
+        }
+
+        $tabs = [
+            [
+                'key' => 'all',
+                'label' => 'All',
+                'count' => array_sum($countByKey),
+            ],
+        ];
+
+        foreach ($docTypeParents as $type) {
+            $id = (int) ($type->id ?? 0);
+            if ($id < 1) {
+                continue;
+            }
+            $name = trim((string) ($type->doc_type_name ?? ''));
+            $key = 'parent:'.$id;
+            $count = (int) ($countByKey[$key] ?? 0);
+            // Forms / Logbooks stay off the tabs until an assignment exists (opt-in unlock).
+            if (self::isDefaultExcludedDrfParent($name) && $count < 1) {
+                continue;
+            }
+            $tabs[] = [
+                'key' => $key,
+                'label' => $name !== '' ? $name : ('Type #'.$id),
+                'count' => $count,
+            ];
+            unset($countByKey[$key]);
+        }
+
+        if (isset($countByKey['kind'])) {
+            $tabs[] = [
+                'key' => 'kind',
+                'label' => 'Kind fallback',
+                'count' => (int) $countByKey['kind'],
+            ];
+        }
+
+        return $tabs;
+    }
+
+    /**
+     * Whether an open (active) assignment already exists for this form + catalog/kind scope.
+     */
+    public static function hasActiveSignatoryAssignment(
+        string $formKind,
+        string $docTypeKind = 'internal',
+        ?int $docTypeId = null
+    ): bool {
+        $hit = self::signatoryTemplate($formKind, $docTypeKind, $docTypeId, null, false);
+
+        return is_array($hit);
+    }
+
+    /**
+     * Default-excluded DRF parents (Forms / Logbooks) until admin assigns signatories for them.
+     */
+    public static function isDefaultExcludedDrfParent(string $name): bool
+    {
+        $n = mb_strtolower(trim($name));
+
+        return in_array($n, ['forms', 'logbooks', 'logbook'], true);
+    }
+
+    /**
+     * Shown for DRF intake / Settings DRF catalog: normal parents, plus Forms/Logbooks
+     * only after admin saves a signatory assignment for that parent or one of its sub-types.
+     */
+    public static function isDrfEligibleDocTypeParent(string $name, ?int $parentId = null): bool
+    {
+        if (! self::isDefaultExcludedDrfParent($name)) {
+            return true;
+        }
+        if (! $parentId || $parentId < 1 || ! Schema::hasTable('dcs_signatory_templates')) {
+            return false;
+        }
+        if (! Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
+            return false;
+        }
+
+        $childIds = Schema::hasTable('dcs_doc_types')
+            ? DB::table('dcs_doc_types')->where('parent_id', $parentId)->pluck('id')->map(fn ($id) => (int) $id)->all()
+            : [];
+        $ids = array_values(array_filter(array_merge([$parentId], $childIds)));
+
+        return DB::table('dcs_signatory_templates')
+            ->where('form_kind', 'drf')
+            ->whereIn('doc_type_id', $ids)
+            ->exists();
+    }
+
+    /**
+     * Active Document Types tree for office intake / Settings DRF catalog pickers.
+     *
+     * @param  'all'|'internal'|'external'|null  $kindFilter  When set, only parents matching that kind.
+     * @return array{parents: list<object>, childrenByParent: array<string, list<object>>, parentKind: array<string, string>}
+     */
+    public static function intakeDocTypeCatalog(?string $kindFilter = null, bool $drfEligibleOnly = true): array
+    {
+        if (! Schema::hasTable('dcs_doc_types')) {
+            return ['parents' => [], 'childrenByParent' => [], 'parentKind' => []];
+        }
+
+        $parentsQ = DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name');
+        SettingsRecycleHelper::applyNotDeleted($parentsQ, 'dcs_doc_types');
+        $parents = $parentsQ->get(['id', 'doc_type_name']);
+
+        $subsQ = DB::table('dcs_doc_types')->whereNotNull('parent_id')->orderBy('doc_type_name');
+        SettingsRecycleHelper::applyNotDeleted($subsQ, 'dcs_doc_types');
+        $subs = $subsQ->get(['id', 'doc_type_name', 'parent_id']);
+
+        $parentKind = [];
+        $filteredParents = [];
+        foreach ($parents as $parent) {
+            $name = trim((string) ($parent->doc_type_name ?? ''));
+            $pid = (int) ($parent->id ?? 0);
+            if ($drfEligibleOnly && ! self::isDrfEligibleDocTypeParent($name, $pid > 0 ? $pid : null)) {
+                continue;
+            }
+            $kind = str_contains(mb_strtolower($name), 'external') ? 'external' : 'internal';
+            $parentKind[(string) (int) $parent->id] = $kind;
+            if ($kindFilter === 'internal' || $kindFilter === 'external') {
+                if ($kind !== $kindFilter) {
+                    continue;
+                }
+            }
+            $filteredParents[] = $parent;
+        }
+
+        $allowedParentIds = collect($filteredParents)->map(fn ($p) => (int) $p->id)->all();
+        $childrenByParent = [];
+        foreach ($subs as $sub) {
+            $pid = (int) ($sub->parent_id ?? 0);
+            if ($pid < 1 || ! in_array($pid, $allowedParentIds, true)) {
+                continue;
+            }
+            $key = (string) $pid;
+            $childrenByParent[$key] ??= [];
+            $childrenByParent[$key][] = $sub;
+            $parentName = '';
+            foreach ($filteredParents as $p) {
+                if ((int) $p->id === $pid) {
+                    $parentName = trim((string) ($p->doc_type_name ?? ''));
+                    break;
+                }
+            }
+            $subName = trim((string) ($sub->doc_type_name ?? ''));
+            $parentKind[(string) (int) $sub->id] = str_contains(mb_strtolower($parentName.' '.$subName), 'external')
+                ? 'external'
+                : 'internal';
+        }
+
+        return [
+            'parents' => $filteredParents,
+            'childrenByParent' => $childrenByParent,
+            'parentKind' => $parentKind,
+        ];
+    }
+
+    /**
+     * Resolve kind + normalized parent/sub ids from catalog selection.
+     *
+     * @return array{doc_type_id: ?int, sub_type_id: ?int, doc_type_kind: string}
+     */
+    public static function resolveIntakeCatalogSelection(?int $docTypeId, ?int $subTypeId): array
+    {
+        $parentId = $docTypeId && $docTypeId > 0 ? $docTypeId : null;
+        $childId = $subTypeId && $subTypeId > 0 ? $subTypeId : null;
+        $kind = 'internal';
+
+        if (! Schema::hasTable('dcs_doc_types')) {
+            return ['doc_type_id' => $parentId, 'sub_type_id' => $childId, 'doc_type_kind' => $kind];
+        }
+
+        $label = '';
+        if ($childId) {
+            $child = DB::table('dcs_doc_types')->where('id', $childId)->first(['id', 'doc_type_name', 'parent_id']);
+            if ($child) {
+                $parentId = (int) ($child->parent_id ?? 0) ?: $parentId;
+                $label = trim((string) ($child->doc_type_name ?? ''));
+            } else {
+                $childId = null;
+            }
+        }
+        if ($parentId) {
+            $parent = DB::table('dcs_doc_types')->where('id', $parentId)->whereNull('parent_id')->first(['id', 'doc_type_name']);
+            if ($parent) {
+                $label = trim((string) ($parent->doc_type_name ?? '').' '.$label);
+            } else {
+                $parentId = null;
+                $childId = null;
+            }
+        }
+
+        if (str_contains(mb_strtolower($label), 'external')) {
+            $kind = 'external';
+        }
+
+        return [
+            'doc_type_id' => $parentId,
+            'sub_type_id' => $childId,
+            'doc_type_kind' => $kind,
+        ];
+    }
+
+    /**
+     * DRF signatory payload from Settings for a catalog selection only (no personal fallback).
+     *
+     * @return array<string, string>|null
+     */
+    public static function drfSignatoryPrefill(string $docTypeKind = 'internal', ?int $docTypeId = null, ?int $subTypeId = null): ?array
+    {
+        $kind = in_array($docTypeKind, ['internal', 'external'], true) ? $docTypeKind : 'internal';
+
+        // External has no catalog pickers — use kind-level Settings assignment only.
+        if ($kind === 'external' && (! $docTypeId || $docTypeId < 1) && (! $subTypeId || $subTypeId < 1)) {
+            $template = self::signatoryTemplate('drf', 'external', null, null, false);
+
+            return is_array($template) ? self::normalizeDrfSignatoryPayload($template) : null;
+        }
+
+        $resolved = self::resolveIntakeCatalogSelection($docTypeId, $subTypeId);
+        $lookupId = $resolved['sub_type_id'] ?: $resolved['doc_type_id'];
+        if (! $lookupId) {
+            return null;
+        }
+
+        $kind = in_array($docTypeKind, ['internal', 'external'], true)
+            ? $docTypeKind
+            : $resolved['doc_type_kind'];
+
+        // Catalog match only — do not fall back to kind-wide or previous personal DRF.
+        $template = self::signatoryTemplate('drf', $kind, $lookupId, null, false);
+        if (! is_array($template)) {
+            return null;
+        }
+
+        return self::normalizeDrfSignatoryPayload($template);
+    }
+
+    /**
+     * Compact map for office DRF create JS autofill (no extra round-trips).
+     *
+     * @return array{
+     *     byDocTypeId: array<string, array<string, string>>,
+     *     byKind: array<string, array<string, string>>,
+     *     parentKind: array<string, string>
+     * }
+     */
+    public static function drfSignatoryTemplateMap(): array
+    {
+        $byDocTypeId = [];
+        $byKind = [];
+        $parentKind = [];
+
+        $catalog = self::intakeDocTypeCatalog();
+        foreach ($catalog['parents'] as $parent) {
+            $pid = (int) ($parent->id ?? 0);
+            if ($pid < 1) {
+                continue;
+            }
+            $name = trim((string) ($parent->doc_type_name ?? ''));
+            $kind = str_contains(mb_strtolower($name), 'external') ? 'external' : 'internal';
+            $parentKind[(string) $pid] = $kind;
+            foreach ($catalog['childrenByParent'][(string) $pid] ?? [] as $sub) {
+                $sid = (int) ($sub->id ?? 0);
+                if ($sid < 1) {
+                    continue;
+                }
+                $subName = trim((string) ($sub->doc_type_name ?? ''));
+                $subKind = str_contains(mb_strtolower($name.' '.$subName), 'external') ? 'external' : 'internal';
+                $parentKind[(string) $sid] = $subKind;
+            }
+        }
+
+        if (! Schema::hasTable('dcs_signatory_templates')) {
+            return compact('byDocTypeId', 'byKind', 'parentKind');
+        }
+
+        $day = now()->toDateString();
+        $query = DB::table('dcs_signatory_templates')->where('form_kind', 'drf')->orderByDesc('id');
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_from')) {
+            $query->where(function ($q) use ($day) {
+                $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', $day);
+            });
+        }
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
+            $query->where(function ($q) use ($day) {
+                $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $day);
+            });
+        }
+        foreach ($query->get() as $row) {
+            $payload = $row->payload ?? null;
+            if (is_string($payload)) {
+                $decoded = json_decode($payload, true);
+                $payload = is_array($decoded) ? $decoded : null;
+            }
+            $normalized = is_array($payload) ? self::normalizeDrfSignatoryPayload($payload) : null;
+            if ($normalized === null) {
+                continue;
+            }
+            $docTypeId = (int) data_get($row, 'doc_type_id', 0);
+            if ($docTypeId > 0) {
+                $key = (string) $docTypeId;
+                if (! isset($byDocTypeId[$key])) {
+                    $byDocTypeId[$key] = $normalized;
+                }
+            } else {
+                $kind = strtolower(trim((string) data_get($row, 'doc_type_kind', '')));
+                if (in_array($kind, ['internal', 'external'], true) && ! isset($byKind[$kind])) {
+                    $byKind[$kind] = $normalized;
+                }
+            }
+        }
+
+        return compact('byDocTypeId', 'byKind', 'parentKind');
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, string>|null
+     */
+    private static function normalizeDrfSignatoryPayload(array $payload): ?array
+    {
+        $keys = [
+            'prepared_by_name',
+            'prepared_by_designation',
+            'reviewed_by_name',
+            'reviewed_by_designation',
+            'approved_by_name',
+            'approved_by_designation',
+        ];
+        $out = [];
+        $any = false;
+        foreach ($keys as $key) {
+            $val = trim((string) ($payload[$key] ?? ''));
+            $out[$key] = $val;
+            if ($val !== '') {
+                $any = true;
+            }
+        }
+
+        return $any ? $out : null;
     }
 
     /**
@@ -4567,11 +5154,26 @@ class OfficeIntakeHelper
 
         $kind = strtolower(trim((string) ($drf->doc_type_kind ?? '')));
         $parentMap = RegisterQueryHelper::parentTypeIdMap();
-        $docTypeId = match ($kind) {
-            'internal' => $parentMap['internal_docs'] ?? null,
-            'external' => $parentMap['external_docs'] ?? null,
-            default => null,
-        };
+        $storedParentId = (int) ($drf->doc_type_id ?? 0);
+        $storedSubId = (int) ($drf->sub_type_id ?? 0);
+        if ($storedParentId > 0 || $storedSubId > 0) {
+            $resolved = self::resolveIntakeCatalogSelection(
+                $storedParentId > 0 ? $storedParentId : null,
+                $storedSubId > 0 ? $storedSubId : null
+            );
+            $docTypeId = $resolved['doc_type_id'];
+            $subTypeId = $resolved['sub_type_id'];
+            if (! empty($resolved['doc_type_kind'])) {
+                $kind = $resolved['doc_type_kind'];
+            }
+        } else {
+            $docTypeId = match ($kind) {
+                'internal' => $parentMap['internal_docs'] ?? null,
+                'external' => $parentMap['external_docs'] ?? null,
+                default => null,
+            };
+            $subTypeId = null;
+        }
 
         $drfDate = ! empty($drf->drf_date)
             ? \Carbon\Carbon::parse($drf->drf_date)->format('Y-m-d')
@@ -4587,6 +5189,7 @@ class OfficeIntakeHelper
             'versionType' => $versionType,
             'checklistIds' => [1, 3, 5],
             'docTypeId' => $docTypeId,
+            'subTypeId' => $subTypeId,
             'docTypeKind' => $kind !== '' ? $kind : null,
             'drfTitle' => trim((string) ($drf->doc_title ?? '')),
             'drfDate' => $drfDate,

@@ -25,6 +25,12 @@
 }
 
 /* Sidebar = same navy as DTS/RDP .navigation */
+[data-theme="dark"] .side-nav .ofi-nav-badge {
+    background: #2563eb !important;
+    color: #fff !important;
+    box-shadow: 0 0 0 2px #0b1220;
+}
+
 [data-theme="dark"] .side-nav {
     background: #0f172a !important;
     border-right: 1px solid #1e293b !important;

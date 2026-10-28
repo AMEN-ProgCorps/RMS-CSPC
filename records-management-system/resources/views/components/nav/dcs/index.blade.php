@@ -59,8 +59,8 @@
                     <span>Incoming</span>
                     <span
                         id="ofiIncomingBadge"
-                        class="ofi-nav-empty-hint"
-                        style="opacity:1;background:#2563eb;color:#fff;border-radius:999px;padding:0 6px;font-size:11px;{{ $incomingCount > 0 ? '' : 'display:none;' }}"
+                        class="ofi-nav-badge"
+                        style="{{ $incomingCount > 0 ? '' : 'display:none;' }}"
                         data-ofi-incoming-badge
                         @if($incomingCount < 1) hidden @endif
                     >{{ $incomingCount }}</span>

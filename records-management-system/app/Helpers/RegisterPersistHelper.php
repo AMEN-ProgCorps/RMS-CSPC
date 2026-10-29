@@ -3444,9 +3444,12 @@ class RegisterPersistHelper
             $request->merge(['recur_stack_group' => $group]);
             self::attachEmptyStackPredecessors((int) $picked->id, $group);
         }
+        $pickedId = (int) $picked->id;
         DB::table('dcs_masterlist_registration')
-            ->where('id', (int) $picked->id)
+            ->where('id', $pickedId)
             ->update($update);
+
+        DocumentStorageService::ensureCorrectLifecyclePlacement($pickedId);
     }
 
     /**

@@ -25,6 +25,14 @@
 }
 
 /* Sidebar = same navy as DTS/RDP .navigation */
+[data-theme="dark"] .side-nav .ofi-nav-badge,
+[data-theme="dark"] .top-nav-tab-badge,
+[data-theme="dark"] .dcs-top-tabs-host .top-nav-tab-badge {
+    background: #2563eb !important;
+    color: #fff !important;
+    box-shadow: 0 0 0 2px #0b1220;
+}
+
 [data-theme="dark"] .side-nav {
     background: #0f172a !important;
     border-right: 1px solid #1e293b !important;
@@ -222,6 +230,125 @@
 
 [data-theme="dark"] .st-year-count {
     color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .sig-editor,
+[data-theme="dark"] .sig-history,
+[data-theme="dark"] .sig-history-item,
+[data-theme="dark"] .sig-people-table,
+[data-theme="dark"] .sig-dcn-block {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .sig-panel-title,
+[data-theme="dark"] .sig-section-title,
+[data-theme="dark"] .sig-role,
+[data-theme="dark"] .sig-history-type,
+[data-theme="dark"] .sig-dcn-block-head {
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .sig-section-hint,
+[data-theme="dark"] .sig-actions-hint,
+[data-theme="dark"] .sig-history-meta,
+[data-theme="dark"] .sig-history-sub,
+[data-theme="dark"] .sig-field-note,
+[data-theme="dark"] .sig-history-k,
+[data-theme="dark"] .sig-history-empty {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .sig-history-people,
+[data-theme="dark"] .sig-history-group-label,
+[data-theme="dark"] .sig-history-detail-name {
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .sig-history-item.is-compact {
+    background: #1e293b !important;
+}
+
+[data-theme="dark"] .sig-history-compact-body {
+    border-top-color: #334155 !important;
+}
+
+[data-theme="dark"] .sig-history-detail-role,
+[data-theme="dark"] .sig-history-summary-dates,
+[data-theme="dark"] .sig-history-summary-people,
+[data-theme="dark"] .sig-history-detail-desig {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .sig-history-group-parent {
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .sig-section-num {
+    background: rgba(96, 165, 250, 0.16) !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .sig-history-count,
+[data-theme="dark"] .sig-dcn-index {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .sig-replace-banner {
+    background: rgba(245, 158, 11, 0.12) !important;
+    border-color: rgba(245, 158, 11, 0.35) !important;
+    color: #fbbf24 !important;
+}
+
+[data-theme="dark"] .sig-history-tab {
+    background: #0b1220 !important;
+    border-color: #334155 !important;
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .sig-history-tab span {
+    background: #1e293b !important;
+}
+
+[data-theme="dark"] .sig-history-tab.is-active {
+    background: #1d4ed8 !important;
+    border-color: #1d4ed8 !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] .sig-history-tab.is-active span {
+    background: rgba(255, 255, 255, 0.22) !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] .sig-history-item.is-active {
+    background: rgba(22, 101, 52, 0.18) !important;
+    border-color: rgba(74, 222, 128, 0.35) !important;
+}
+
+[data-theme="dark"] .sig-pill.is-active {
+    color: #86efac !important;
+    background: rgba(22, 101, 52, 0.28) !important;
+}
+
+[data-theme="dark"] .sig-pill.is-ended {
+    color: #94a3b8 !important;
+    background: #1e293b !important;
+}
+
+[data-theme="dark"] .sig-pill.is-scheduled {
+    color: #fdba74 !important;
+    background: rgba(234, 88, 12, 0.22) !important;
+}
+
+[data-theme="dark"] .sig-actions {
+    border-top-color: #334155 !important;
+}
+
+[data-theme="dark"] .sig-link-btn {
+    color: #93c5fd !important;
 }
 
 [data-theme="dark"] .st-bulk-table tbody tr.st-year-header td {

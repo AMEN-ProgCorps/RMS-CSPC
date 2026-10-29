@@ -120,7 +120,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
             if ($this->actionFilter === 'calendar') {
                 $query->where('admin_logs.changes', 'ilike', '%calendar%');
             } elseif ($this->actionFilter === 'blocked') {
-                $query->where('admin_logs.changes', 'ilike', 'Blocked DCS access%');
+                $query->where(function ($blocked) {
+                    $blocked->where('admin_logs.changes', 'ilike', 'Blocked DCS access%')
+                        ->orWhere('admin_logs.changes', 'ilike', 'Denied admin DCS page%')
+                        ->orWhere('admin_logs.changes', 'ilike', 'Denied DCS page%')
+                        ->orWhere('admin_logs.changes', 'ilike', 'Denied DCS access%');
+                });
             } else {
                 $query->where('admin_logs.changes', 'ilike', $this->actionFilter . '%');
             }
@@ -154,7 +159,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
                 $q->where('changes', 'like', 'Created office DRF%')
                     ->orWhere('changes', 'like', 'Created office DCN%');
             })->count(),
-            'blocked' => (clone $base)->where('changes', 'like', 'Blocked DCS access%')->count(),
+            'blocked' => (clone $base)->where(function ($blocked) {
+                $blocked->where('changes', 'ilike', 'Blocked DCS access%')
+                    ->orWhere('changes', 'ilike', 'Denied admin DCS page%')
+                    ->orWhere('changes', 'ilike', 'Denied DCS page%')
+                    ->orWhere('changes', 'ilike', 'Denied DCS access%');
+            })->count(),
             'other' => (clone $base)->where(function ($q) {
                 $q->where('changes', 'like', 'Exported %')
                     ->orWhere('changes', 'like', 'DCS settings:%')
@@ -363,8 +373,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
                                     $badgeClass = 'stamp'; $actionIcon = 'fa-eraser'; $actionLabel = 'Stamp Removed';
                                 } elseif (str_starts_with($changes, 'Created office DRF') || str_starts_with($changes, 'Created office DCN')) {
                                     $badgeClass = 'intake'; $actionIcon = 'fa-building'; $actionLabel = 'Office Intake';
-                                } elseif (str_starts_with($changes, 'Blocked DCS access')) {
-                                    $badgeClass = 'blocked'; $actionIcon = 'fa-ban'; $actionLabel = 'Blocked';
+                                } elseif (str_starts_with($changes, 'Blocked DCS access')
+                                    || str_starts_with($changes, 'Denied admin DCS page')
+                                    || str_starts_with($changes, 'Denied DCS page')
+                                    || str_starts_with($changes, 'Denied DCS access')) {
+                                    $badgeClass = 'blocked'; $actionIcon = 'fa-ban'; $actionLabel = 'Denied';
                                 } elseif (str_starts_with($changes, 'Exported ')) {
                                     $badgeClass = 'export'; $actionIcon = 'fa-file-export'; $actionLabel = 'Exported';
                                 } elseif (str_starts_with($changes, 'DCS settings:')) {

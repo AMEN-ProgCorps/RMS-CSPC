@@ -148,7 +148,7 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                 </div>
                 <div class="reg-grid-2-1">
                     <div class="reg-field">
-                        <label>Department</label>
+                        <label>Source unit</label>
                         <div class="ofi-show-value">{{ $departmentLabel ?: '—' }}</div>
                     </div>
                     <div class="reg-field">

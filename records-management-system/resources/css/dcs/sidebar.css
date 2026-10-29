@@ -686,14 +686,84 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.active.dropdown sum
     background: var(--accent-subtle);
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item > a span:not(.tooltip),
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown > span > span:not(.tooltip),
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown summary > span:not(.tooltip) {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item > a span:not(.tooltip):not(.ofi-nav-badge),
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown > span > span:not(.tooltip):not(.ofi-nav-badge),
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown summary > span:not(.tooltip):not(.ofi-nav-badge),
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item > a span:not(.tooltip):not(.ofi-nav-badge),
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item.dropdown > span > span:not(.tooltip):not(.ofi-nav-badge),
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item.dropdown summary > span:not(.tooltip):not(.ofi-nav-badge) {
     opacity: 0;
     width: 0;
     overflow: hidden;
     transform: translateX(-8px);
     pointer-events: none;
+}
+
+/* Incoming / Request count badge — keep inside collapsed rail, anchored on the icon */
+.side-nav .ofi-nav-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #2563eb;
+    color: #fff !important;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    opacity: 1 !important;
+    width: auto !important;
+    overflow: visible !important;
+    transform: none !important;
+    pointer-events: none;
+    flex-shrink: 0;
+}
+/* Closed Document Registration → badge on parent; open → badge on Request */
+.side-nav .nav-item.dropdown details[open] > summary > .ofi-nav-badge-parent {
+    display: none !important;
+}
+
+.side-nav .sub-dropdown .ofi-nav-badge-inline,
+.side-nav .dropdown-float .ofi-nav-badge-inline {
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
+    margin-left: 8px;
+    vertical-align: middle;
+    box-shadow: none !important;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item > a,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown summary,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item > a,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item.dropdown summary {
+    position: relative;
+}
+
+/* Collapsed rail: pin parent/top-level badges on the icon — never flyout/submenu rows */
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item > a > .ofi-nav-badge:not(.ofi-nav-badge-inline),
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown > details > summary > .ofi-nav-badge-parent,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item > a > .ofi-nav-badge:not(.ofi-nav-badge-inline),
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item.dropdown > details > summary > .ofi-nav-badge-parent {
+    position: absolute;
+    top: 4px;
+    left: 30px;
+    margin-left: 0;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    z-index: 2;
+    box-shadow: 0 0 0 2px var(--dcs-sidebar-bg, #0b1220);
+}
+
+/* Collapsed rail keeps parent badge on the icon even if details was left open */
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown details[open] > summary > .ofi-nav-badge-parent,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item.dropdown details[open] > summary > .ofi-nav-badge-parent {
+    display: inline-flex !important;
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dcs-account-footer,

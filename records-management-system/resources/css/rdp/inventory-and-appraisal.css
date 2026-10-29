@@ -263,6 +263,48 @@
     border-color: #334155;
 }
 
+.ia-dup-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+.ia-dup-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    background-color: #f1f5f9;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+}
+.ia-dup-chip.is-viewer {
+    background-color: #ecfdf5;
+    color: #047857;
+    border-color: #6ee7b7;
+}
+.ia-dup-chip-code {
+    font-weight: 800;
+    color: inherit;
+}
+[data-theme="dark"] .ia-dup-chip {
+    background-color: #1e293b;
+    color: #e2e8f0;
+    border-color: #475569;
+}
+[data-theme="dark"] .ia-dup-chip.is-viewer {
+    background-color: rgba(16, 185, 129, 0.16);
+    color: #6ee7b7;
+    border-color: rgba(52, 211, 153, 0.45);
+}
+[data-theme="dark"] .ia-dup-chip .ia-dup-chip-code,
+[data-theme="dark"] .ia-dup-chip strong {
+    color: inherit !important;
+}
+
 /* ---------- Input / Select / Textarea ---------- */
 .ia-input,
 select.ia-input {

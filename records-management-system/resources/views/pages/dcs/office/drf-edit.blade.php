@@ -113,7 +113,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                             'userOfficeCode' => $userOfficeCode ?? '',
                             'userOfficeName' => $userOfficeName ?? '',
                             'userOfficeLabel' => $userOfficeLabel ?? '',
-                            'departmentFieldLabel' => 'Department',
+                            'departmentFieldLabel' => 'Source unit',
                         ])
                         <div class="reg-field">
                             <label>Date <span class="ofi-req">*</span></label>

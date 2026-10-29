@@ -766,6 +766,16 @@ td.sticky-col-4 {
     transition: transform 0.15s ease;
 }
 
+.db-category-count {
+    margin-left: 4px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0;
+}
+
 /* ═══════════════════════════════════
    EXPAND / COLLAPSE REVISIONS
    ═══════════════════════════════════ */

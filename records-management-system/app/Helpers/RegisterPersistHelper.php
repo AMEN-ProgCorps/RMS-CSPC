@@ -121,12 +121,26 @@ class RegisterPersistHelper
         self::logAdminChange($label . $details);
     }
 
-    /** Log blocked full-DCS or allowlist access attempts (once per session per path). */
+    /** Log denied full-DCS or allowlist access attempts (once per session per path). */
     public static function logDcsBlockedAccess(Request $request, string $reason): void
     {
         try {
             $adminId = auth()->id();
             if (!$adminId) {
+                return;
+            }
+
+            // Browser / CDN speculative loads are not real visits — skip noise.
+            $purpose = strtolower(trim(
+                (string) ($request->headers->get('Sec-Purpose')
+                    ?: $request->headers->get('Purpose')
+                    ?: '')
+            ));
+            if ($purpose !== '' && (str_contains($purpose, 'prefetch') || str_contains($purpose, 'prerender'))) {
+                return;
+            }
+            if ($request->headers->get('Sec-Fetch-Dest') === 'empty'
+                && strtolower((string) $request->headers->get('Sec-Fetch-Mode')) === 'no-cors') {
                 return;
             }
 
@@ -138,10 +152,25 @@ class RegisterPersistHelper
             session()->put($sessionKey, true);
 
             $routeName = $request->route()?->getName();
-            $detail = $routeName ? (' — route: ' . $routeName) : (' — path: ' . $path);
+            $detail = $routeName ? ('route: ' . $routeName) : ('path: ' . $path);
             $method = strtoupper($request->method());
+            $referer = (string) $request->headers->get('Referer', '');
+            $from = '';
+            if ($referer !== '') {
+                $fromPath = parse_url($referer, PHP_URL_PATH);
+                if (is_string($fromPath) && $fromPath !== '') {
+                    $from = ' — from: ' . $fromPath;
+                }
+            }
 
-            self::logAdminChange('Blocked DCS access (' . $reason . ') — ' . $method . $detail);
+            // Clearer copy: office-intake roles are redirected away from admin pages; not a security incident.
+            $label = match (true) {
+                str_contains($reason, 'intake allowlist') => 'Denied admin DCS page (office intake role)',
+                str_contains($reason, 'full DCS') => 'Denied DCS page (full DCS required)',
+                default => 'Denied DCS access (' . $reason . ')',
+            };
+
+            self::logAdminChange($label . ' — ' . $method . ' — ' . $detail . $from);
         } catch (\Throwable $e) {
             // Non-fatal
         }
@@ -3415,9 +3444,12 @@ class RegisterPersistHelper
             $request->merge(['recur_stack_group' => $group]);
             self::attachEmptyStackPredecessors((int) $picked->id, $group);
         }
+        $pickedId = (int) $picked->id;
         DB::table('dcs_masterlist_registration')
-            ->where('id', (int) $picked->id)
+            ->where('id', $pickedId)
             ->update($update);
+
+        DocumentStorageService::ensureCorrectLifecyclePlacement($pickedId);
     }
 
     /**

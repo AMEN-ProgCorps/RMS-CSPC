@@ -97,12 +97,100 @@ class DocumentStorageService
             $folders[] = "DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/{$prefix}_DOCINFO_ECOPY";
             if (! in_array($prefix, ['FORMS', 'LOGBOOKS'], true)) {
                 $folders[] = "DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/{$prefix}_DOCINFO_ECOPY/LATEST_{$prefix}_DOCINFO_ECOPY";
-                $folders[] = "DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/{$prefix}_DOCINFO_ECOPY/OBSELETE_{$prefix}_DOCINFO_ECOPY";
+                $folders[] = "DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/{$prefix}_DOCINFO_ECOPY/SUPERSEDED_{$prefix}_DOCINFO_ECOPY";
+                $folders[] = "DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/{$prefix}_DOCINFO_ECOPY/OBSOLETE_{$prefix}_DOCINFO_ECOPY";
             }
             $folders[] = "DCS/DCC_MASTERLIST/{$prefix}_MASTERLIST";
         }
 
         return $folders;
+    }
+
+    /** Canonical lifecycle leaf token written to Drive. */
+    public static function normalizeLifecycle(mixed $lifecycle, ?bool $latestAlias = null): string
+    {
+        $raw = strtolower(trim((string) $lifecycle));
+        if (in_array($raw, ['latest', 'superseded', 'obsolete'], true)) {
+            return $raw;
+        }
+        // Legacy misspelling still maps to obsolete.
+        if ($raw === 'obselete' || $raw === 'archived') {
+            return 'obsolete';
+        }
+        if ($latestAlias === null) {
+            return 'latest';
+        }
+
+        return $latestAlias ? 'latest' : 'obsolete';
+    }
+
+    public static function lifecycleFromRevisionStatus(?string $status): string
+    {
+        $status = strtolower(trim((string) $status));
+        if ($status === '' || $status === 'latest') {
+            return 'latest';
+        }
+        if ($status === 'superseded') {
+            return 'superseded';
+        }
+        if (in_array($status, ['obsolete', 'obselete', 'archived'], true)) {
+            return 'obsolete';
+        }
+
+        return 'latest';
+    }
+
+    public static function docinfoLifecycleLeafToken(string $lifecycle, string $prefix): string
+    {
+        $lifecycle = self::normalizeLifecycle($lifecycle);
+        $token = match ($lifecycle) {
+            'superseded' => 'SUPERSEDED',
+            'obsolete' => 'OBSOLETE',
+            default => 'LATEST',
+        };
+
+        return "{$token}_{$prefix}_DOCINFO_ECOPY";
+    }
+
+    /** True if path already sits under the write-canonical leaf for this lifecycle (OBSELETE counts as obsolete source only). */
+    public static function pathMatchesLifecycle(?string $path, string $lifecycle): bool
+    {
+        $path = ltrim(str_replace(['\\'], '/', (string) $path), '/');
+        $lifecycle = self::normalizeLifecycle($lifecycle);
+        if ($path === '') {
+            return false;
+        }
+
+        if (preg_match('#/(?:DCC_DRF_ECOPY|DCC_DCN_ECOPY|DCC_D&R_ECOPY)/\d{4}_[^/]+_ECOPY/#', $path)) {
+            $inferred = self::inferFormScanLifecycleFromPath($path);
+
+            return $inferred === $lifecycle;
+        }
+
+        return match ($lifecycle) {
+            'superseded' => (bool) preg_match('#/SUPERSEDED_[^/]+_DOCINFO_ECOPY/#', $path),
+            'obsolete' => (bool) preg_match('#/OBSOLETE_[^/]+_DOCINFO_ECOPY/#', $path),
+            default => (bool) preg_match('#/LATEST_[^/]+_DOCINFO_ECOPY/#', $path)
+                && ! preg_match('#/(?:SUPERSEDED|OBSOLETE|OBSELETE)_[^/]+_DOCINFO_ECOPY/#', $path),
+        };
+    }
+
+    public static function inferFormScanLifecycleFromPath(?string $path): string
+    {
+        $path = ltrim(str_replace(['\\'], '/', (string) $path), '/');
+        if (preg_match('#/\d{4}_[^/]+_ECOPY/SUPERSEDED/#i', $path)) {
+            return 'superseded';
+        }
+        if (preg_match('#/\d{4}_[^/]+_ECOPY/(?:OBSOLETE|OBSELETE)/#i', $path)) {
+            return 'obsolete';
+        }
+
+        return 'latest';
+    }
+
+    public static function isLegacyObsoleteLeaf(?string $path): bool
+    {
+        return (bool) preg_match('#/OBSELETE_[^/]+_DOCINFO_ECOPY/#', ltrim(str_replace(['\\'], '/', (string) $path), '/'));
     }
 
     public static function isDccStoragePath(?string $path): bool
@@ -191,6 +279,7 @@ class DocumentStorageService
      * @param  array{
      *     group?: string,
      *     latest?: bool,
+     *     lifecycle?: string,
      *     year?: int|string,
      *     date?: string,
      *     cluster?: string,
@@ -211,15 +300,18 @@ class DocumentStorageService
 
         $category = self::normalizeDcsCategory($category);
         $year = self::dccYearFromValue($context['year'] ?? $context['date'] ?? $filename);
+        $lifecycle = array_key_exists('lifecycle', $context)
+            ? self::normalizeLifecycle($context['lifecycle'])
+            : self::normalizeLifecycle(null, array_key_exists('latest', $context) ? (bool) $context['latest'] : true);
 
         if (in_array($category, ['drf', 'syllabi'], true)) {
-            return "DCS/DCC_ECOPY/DCC_DRF_ECOPY/{$year}_DRF_ECOPY/{$filename}";
+            return self::buildFormYearRelativePath('DRF', $year, $filename, $lifecycle);
         }
         if (in_array($category, ['dcn', 'revisions'], true)) {
-            return "DCS/DCC_ECOPY/DCC_DCN_ECOPY/{$year}_DCN_ECOPY/{$filename}";
+            return self::buildFormYearRelativePath('DCN', $year, $filename, $lifecycle);
         }
         if (in_array($category, ['distribution', 'retrieval'], true)) {
-            return "DCS/DCC_ECOPY/DCC_D&R_ECOPY/{$year}_D&R_ECOPY/{$filename}";
+            return self::buildFormYearRelativePath('D&R', $year, $filename, $lifecycle);
         }
         if ($category === 'generated_reports') {
             return "DCS/DCC_GENERATED_REPORTS/{$filename}";
@@ -232,8 +324,7 @@ class DocumentStorageService
                 'file' => 'The document type could not be resolved, so the scan was not filed. Choose Internal, External, Internal Forms, Forms, or Logbooks and try again.',
             ]);
         }
-        $latest = array_key_exists('latest', $context) ? (bool) $context['latest'] : true;
-        $leaf = ($latest ? 'LATEST' : 'OBSELETE') . "_{$prefix}_DOCINFO_ECOPY";
+        $leaf = self::docinfoLifecycleLeafToken($lifecycle, $prefix);
 
         if (in_array($group, ['forms', 'logbooks'], true)) {
             $cluster = self::dccFolderLabel($context['cluster'] ?? null, 'UNASSIGNED CLUSTER');
@@ -245,12 +336,37 @@ class DocumentStorageService
         return "DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/{$prefix}_DOCINFO_ECOPY/{$leaf}/{$filename}";
     }
 
-    /** @return array{group: string, latest: bool, cluster: string, office_name: string} */
+    /**
+     * DRF / DCN / D&R: new uploads stay in the year folder; superseded/obsolete nest under that year.
+     */
+    public static function buildFormYearRelativePath(string $formToken, string $year, string $filename, string $lifecycle = 'latest'): string
+    {
+        $formToken = strtoupper(trim($formToken));
+        $root = match ($formToken) {
+            'DRF' => 'DCS/DCC_ECOPY/DCC_DRF_ECOPY',
+            'DCN' => 'DCS/DCC_ECOPY/DCC_DCN_ECOPY',
+            'D&R' => 'DCS/DCC_ECOPY/DCC_D&R_ECOPY',
+            default => 'DCS/DCC_ECOPY/DCC_DRF_ECOPY',
+        };
+        $yearFolder = "{$year}_{$formToken}_ECOPY";
+        $lifecycle = self::normalizeLifecycle($lifecycle);
+        if ($lifecycle === 'superseded') {
+            return "{$root}/{$yearFolder}/SUPERSEDED/{$filename}";
+        }
+        if ($lifecycle === 'obsolete') {
+            return "{$root}/{$yearFolder}/OBSOLETE/{$filename}";
+        }
+
+        return "{$root}/{$yearFolder}/{$filename}";
+    }
+
+    /** @return array{group: string, latest: bool, lifecycle: string, cluster: string, office_name: string} */
     public static function inferDccContextFromPath(?string $path): array
     {
         $defaults = [
             'group' => '',
             'latest' => true,
+            'lifecycle' => 'latest',
             'cluster' => '',
             'office_name' => '',
         ];
@@ -264,7 +380,19 @@ class DocumentStorageService
                 continue;
             }
             $defaults['group'] = $group;
-            $defaults['latest'] = ! str_contains($path, "OBSELETE_{$prefix}_DOCINFO_ECOPY");
+            if (str_contains($path, "SUPERSEDED_{$prefix}_DOCINFO_ECOPY")) {
+                $defaults['lifecycle'] = 'superseded';
+                $defaults['latest'] = false;
+            } elseif (
+                str_contains($path, "OBSOLETE_{$prefix}_DOCINFO_ECOPY")
+                || str_contains($path, "OBSELETE_{$prefix}_DOCINFO_ECOPY")
+            ) {
+                $defaults['lifecycle'] = 'obsolete';
+                $defaults['latest'] = false;
+            } else {
+                $defaults['lifecycle'] = 'latest';
+                $defaults['latest'] = true;
+            }
             if (in_array($group, ['forms', 'logbooks'], true)
                 && preg_match('#/DCC_DOCINFO_ECOPY/' . preg_quote($prefix, '#') . '_DOCINFO_ECOPY/([^/]+)/([^/]+)/#', $path, $m)
             ) {
@@ -505,22 +633,166 @@ class DocumentStorageService
     /**
      * @param  array<string, mixed>  $context
      */
-    public static function relocateDocinfoToObsolete(?string $relativePath, array $context = []): ?string
+    public static function relocateDocinfoToLifecycle(?string $relativePath, string $lifecycle, array $context = []): ?string
     {
         if (! is_string($relativePath) || trim($relativePath) === '') {
             return $relativePath;
         }
 
         $relativePath = ltrim(str_replace(['\\'], '/', $relativePath), '/');
-        if (str_contains($relativePath, 'OBSELETE_')) {
+        $lifecycle = self::normalizeLifecycle($lifecycle);
+        if (
+            $lifecycle === 'obsolete'
+            && self::pathMatchesLifecycle($relativePath, 'obsolete')
+            && ! self::isLegacyObsoleteLeaf($relativePath)
+        ) {
+            return $relativePath;
+        }
+        if ($lifecycle !== 'obsolete' && self::pathMatchesLifecycle($relativePath, $lifecycle)) {
             return $relativePath;
         }
 
         $inferred = self::inferDccContextFromPath($relativePath);
-        $context = array_merge($inferred, $context, ['latest' => false]);
+        $context = array_merge($inferred, $context, [
+            'lifecycle' => $lifecycle,
+            'latest' => $lifecycle === 'latest',
+        ]);
         $newPath = self::buildDccRelativePath('masterlist', basename($relativePath), $context);
+        if ($newPath === $relativePath) {
+            return $relativePath;
+        }
 
-        return self::moveDcsFile($relativePath, $newPath);
+        $moved = self::moveDcsFile($relativePath, $newPath);
+        if ($moved !== $relativePath) {
+            self::rememberDocumentDataPath($relativePath, $moved);
+        }
+
+        return $moved;
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    public static function relocateDocinfoToObsolete(?string $relativePath, array $context = []): ?string
+    {
+        return self::relocateDocinfoToLifecycle($relativePath, 'obsolete', $context);
+    }
+
+    /**
+     * Move DOCINFO (+ linked DRF/D&R/DCN) so Drive leaf matches DB revision_status.
+     */
+    public static function ensureCorrectLifecyclePlacement(int $masterlistId): ?string
+    {
+        if ($masterlistId < 1 || ! Schema::hasTable('dcs_masterlist_registration')) {
+            return null;
+        }
+
+        $ml = DB::table('dcs_masterlist_registration')->where('id', $masterlistId)->first();
+        if (! $ml) {
+            return null;
+        }
+
+        $lifecycle = self::lifecycleFromRevisionStatus($ml->revision_status ?? null);
+        $path = ltrim(str_replace(['\\'], '/', (string) ($ml->scanned_masterlist ?? '')), '/');
+        $finalPath = $path !== '' ? $path : null;
+
+        if ($path !== '') {
+            $group = self::dccGroupKeyFromDocTypeId($ml->doc_type_id ?? null);
+            if ($group === '' && ! empty($ml->request_id) && Schema::hasTable('dcs_document_requests')) {
+                $typeId = DB::table('dcs_document_requests')->where('id', $ml->request_id)->value('doc_type_id');
+                $group = self::dccGroupKeyFromDocTypeId($typeId);
+            }
+            if ($group === '') {
+                logger()->warning('Skipped lifecycle harden for masterlist '.$masterlistId.' because its document type could not be resolved.');
+            } else {
+                $source = self::sourceClusterOfficeForMasterlist($masterlistId);
+                $context = [
+                    'group' => $group,
+                    'lifecycle' => $lifecycle,
+                    'latest' => $lifecycle === 'latest',
+                    'date' => $ml->effectivity_date ?? null,
+                    'cluster' => $source['cluster'],
+                    'office_name' => $source['office_name'],
+                ];
+                $needsMove = ! self::pathMatchesLifecycle($path, $lifecycle)
+                    || ($lifecycle === 'obsolete' && self::isLegacyObsoleteLeaf($path));
+                if ($needsMove) {
+                    $moved = self::relocateDocinfoToLifecycle($path, $lifecycle, $context);
+                    if (is_string($moved) && $moved !== '' && $moved !== $path) {
+                        $payload = ['scanned_masterlist' => $moved];
+                        if (Schema::hasColumn('dcs_masterlist_registration', 'updated_at')) {
+                            $payload['updated_at'] = now();
+                        }
+                        DB::table('dcs_masterlist_registration')->where('id', $masterlistId)->update($payload);
+                        $finalPath = $moved;
+                    }
+                }
+            }
+        }
+
+        $requestId = (int) ($ml->request_id ?? 0);
+        if ($requestId > 0) {
+            self::moveLinkedFormScansForRequest($requestId, $lifecycle);
+        }
+
+        return $finalPath;
+    }
+
+    /**
+     * Move DRF / DCN / D&R scans for a request into year/SUPERSEDED or year/OBSOLETE (latest → bare year).
+     */
+    public static function moveLinkedFormScansForRequest(int $requestId, string $lifecycle): void
+    {
+        if ($requestId < 1) {
+            return;
+        }
+        $lifecycle = self::normalizeLifecycle($lifecycle);
+
+        $sources = [
+            ['table' => 'dcs_document_request_form', 'column' => 'scanned_drf', 'category' => 'drf', 'token' => 'DRF'],
+            ['table' => 'dcs_document_change_notice', 'column' => 'scanned_dcn', 'category' => 'dcn', 'token' => 'DCN'],
+            ['table' => 'dcs_document_distribution', 'column' => 'scanned_distribution', 'category' => 'distribution', 'token' => 'D&R'],
+        ];
+
+        foreach ($sources as $source) {
+            if (! Schema::hasTable($source['table']) || ! Schema::hasColumn($source['table'], $source['column'])) {
+                continue;
+            }
+            $rows = DB::table($source['table'])
+                ->where('request_id', $requestId)
+                ->whereNotNull($source['column'])
+                ->where($source['column'], '!=', '')
+                ->get(['id', $source['column']]);
+            foreach ($rows as $row) {
+                $path = ltrim(str_replace(['\\'], '/', (string) data_get($row, $source['column'])), '/');
+                if ($path === '') {
+                    continue;
+                }
+                if (self::inferFormScanLifecycleFromPath($path) === $lifecycle
+                    && ! ($lifecycle === 'obsolete' && preg_match('#/\d{4}_[^/]+_ECOPY/OBSELETE/#i', $path))
+                ) {
+                    continue;
+                }
+                $year = self::dccYearFromValue($path);
+                if (preg_match('#/(\d{4})_[^/]+_ECOPY/#', $path, $m)) {
+                    $year = $m[1];
+                }
+                $newPath = self::buildFormYearRelativePath($source['token'], $year, basename($path), $lifecycle);
+                if ($newPath === $path) {
+                    continue;
+                }
+                $moved = self::moveDcsFile($path, $newPath);
+                if ($moved === $path) {
+                    continue;
+                }
+                self::rememberDocumentDataPath($path, $moved);
+                $payload = [$source['column'] => $moved];
+                if (Schema::hasColumn($source['table'], 'updated_at')) {
+                    $payload['updated_at'] = now();
+                }
+                DB::table($source['table'])->where('id', $row->id)->update($payload);
+            }
+        }
     }
 
     /**
@@ -536,39 +808,11 @@ class DocumentStorageService
         $rows = DB::table('dcs_masterlist_registration')
             ->whereIn('doc_no', $familyNos)
             ->whereIn('request_id', $requestIds)
-            ->where('id', '!=', $tipId)
-            ->whereNotNull('scanned_masterlist')
-            ->where('scanned_masterlist', '!=', '')
-            ->get(['id', 'scanned_masterlist', 'doc_type_id', 'request_id']);
+            ->get(['id']);
 
         foreach ($rows as $row) {
-            $path = ltrim(str_replace(['\\'], '/', (string) $row->scanned_masterlist), '/');
-            if ($path === '' || str_contains($path, 'OBSELETE_')) {
-                continue;
-            }
-
-            $context = self::inferDccContextFromPath($path);
-            $source = self::sourceClusterOfficeForMasterlist((int) $row->id);
-            if ($source['cluster'] !== '') {
-                $context['cluster'] = $source['cluster'];
-            }
-            if ($source['office_name'] !== '') {
-                $context['office_name'] = $source['office_name'];
-            }
-            $group = self::dccGroupKeyFromDocTypeId($row->doc_type_id);
-            if ($group === '') {
-                logger()->warning('Skipped obsolete move for masterlist '.$row->id.' because its document type could not be resolved.');
-
-                continue;
-            }
-            $context['group'] = $group;
-
-            $newPath = self::relocateDocinfoToObsolete($path, $context);
-            if (is_string($newPath) && $newPath !== '' && $newPath !== $path) {
-                DB::table('dcs_masterlist_registration')
-                    ->where('id', $row->id)
-                    ->update(['scanned_masterlist' => $newPath, 'updated_at' => now()]);
-            }
+            // Tip ($tipId) → LATEST; priors → OBSOLETE/SUPERSEDED per DB revision_status (+ linked forms).
+            self::ensureCorrectLifecyclePlacement((int) $row->id);
         }
     }
 
@@ -638,15 +882,19 @@ class DocumentStorageService
         }
 
         $source = self::sourceClusterOfficeForMasterlist($masterlistId);
-        $status = strtolower(trim((string) ($ml->revision_status ?? 'latest')));
+        $lifecycle = self::lifecycleFromRevisionStatus($ml->revision_status ?? null);
         $newPath = self::buildDccRelativePath('masterlist', basename($path), [
             'group' => $group,
-            'latest' => $status !== 'obsolete',
+            'lifecycle' => $lifecycle,
+            'latest' => $lifecycle === 'latest',
             'date' => $ml->effectivity_date ?? null,
             'cluster' => $source['cluster'],
             'office_name' => $source['office_name'],
         ]);
         if ($newPath === $path) {
+            // Still harden linked forms if needed.
+            self::ensureCorrectLifecyclePlacement($masterlistId);
+
             return $path;
         }
 
@@ -662,6 +910,9 @@ class DocumentStorageService
             $payload['updated_at'] = now();
         }
         DB::table('dcs_masterlist_registration')->where('id', $masterlistId)->update($payload);
+
+        // Re-run harden so linked DRF/D&R/DCN follow the same lifecycle.
+        self::ensureCorrectLifecyclePlacement($masterlistId);
 
         return $moved;
     }

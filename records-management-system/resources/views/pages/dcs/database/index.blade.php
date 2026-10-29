@@ -636,17 +636,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             })->values();
 
             // Sequential # restarts for each document type (Internal 1..n, External 1..n, …).
+            // Category badge counts skip deleted tips so recycle-bin rows don't inflate the total.
             $typeCounters = [];
-            $groups = $groups->map(function (array $group) use (&$typeCounters) {
+            $typeSeqCounters = [];
+            $groups = $groups->map(function (array $group) use (&$typeCounters, &$typeSeqCounters) {
                 $catName = (string) ($group['parent']['doc_type_name'] ?? 'Uncategorized');
-                $typeCounters[$catName] = ($typeCounters[$catName] ?? 0) + 1;
-                $group['type_seq'] = $typeCounters[$catName];
+                $typeSeqCounters[$catName] = ($typeSeqCounters[$catName] ?? 0) + 1;
+                $group['type_seq'] = $typeSeqCounters[$catName];
+                if (empty($group['parent']['is_deleted'])) {
+                    $typeCounters[$catName] = ($typeCounters[$catName] ?? 0) + 1;
+                }
 
                 return $group;
             })->values();
 
             $total = $groups->count();
-            $perPage = 20;
+            // ALL mixes every type in category order (Logbooks last). A small page size
+            // buried trailing types on page 2+ while collapsed headers looked "empty".
+            $perPage = ($this->docTypeId === 'all' || $this->docTypeId === '') ? 100 : 20;
             $lastPage = max(1, (int) ceil($total / $perPage));
             $page = min(max(1, $this->page), $lastPage);
 
@@ -664,6 +671,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'page' => $paginate ? $page : 1,
                 'per_page' => $paginate ? $perPage : $total,
                 'last_page' => $paginate ? $lastPage : 1,
+                'category_totals' => $typeCounters,
             ];
         } catch (\Throwable $e) {
             $refId = uniqid('err_');
@@ -677,6 +685,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'total' => 0,
                 'page' => 1,
                 'per_page' => 50,
+                'category_totals' => [],
                 'last_page' => 1,
                 'error' => "An error occurred (ref: {$refId})",
             ];
@@ -1786,11 +1795,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @endphp
 
                         @if($catName !== $lastCategory)
+                            @php
+                                $catTotal = (int) (($list['category_totals'][$catName] ?? 0));
+                                if ($catTotal < 1) {
+                                    $catTotal = collect($list['data'] ?? [])
+                                        ->filter(fn ($g) => ($g['parent']['doc_type_name'] ?? '') === $catName
+                                            && empty($g['parent']['is_deleted']))
+                                        ->count();
+                                }
+                            @endphp
                             <tr class="db-category-row">
                                 <td colspan="47">
                                     <span class="db-category-toggle" :class="{ expanded: categories['{{ $catSlug }}'] }" x-on:click="toggleCategory('{{ $catSlug }}')">
                                         <span class="db-category-chevron" x-text="categories['{{ $catSlug }}'] ? '▼' : '▶'"></span>
                                         {{ strtoupper($catName) }}
+                                        <span class="db-category-count">{{ $catTotal }}</span>
                                     </span>
                                 </td>
                             </tr>

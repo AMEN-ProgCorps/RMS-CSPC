@@ -57,6 +57,45 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             strtolower((string) request()->query('mode', '')) === 'recurring'
             || old('drfMode') === 'recurring'
         );
+        $docCatalog = OfficeIntakeHelper::intakeDocTypeCatalog();
+        $sigTemplateMap = OfficeIntakeHelper::drfSignatoryTemplateMap();
+        $lockDocType = (bool) ($prefill['lockDocType'] ?? false);
+        $oldDocTypeKind = (string) old('docTypeKind', (string) ($prefill['docTypeKind'] ?? ''));
+        if (! in_array($oldDocTypeKind, ['internal', 'external'], true)) {
+            $oldDocTypeKind = '';
+        }
+        $oldDocTypeId = (string) old('docTypeId', (string) ($prefill['docTypeId'] ?? ''));
+        $oldSubTypeId = (string) old('subTypeId', (string) ($prefill['subTypeId'] ?? ''));
+        if ($oldDocTypeKind === 'external') {
+            $oldDocTypeId = '';
+            $oldSubTypeId = '';
+        }
+        $sigPrefill = null;
+        if ($oldDocTypeKind === 'external') {
+            $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill('external', null, null);
+        } elseif ($oldDocTypeId !== '' || $lockDocType) {
+            $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill(
+                $oldDocTypeKind !== '' ? $oldDocTypeKind : 'internal',
+                $oldDocTypeId !== '' ? (int) $oldDocTypeId : null,
+                $oldSubTypeId !== '' ? (int) $oldSubTypeId : null
+            );
+        }
+        $parentKindMap = $sigTemplateMap['parentKind'] ?? [];
+        $docTypeParentsForJs = [];
+        foreach ($docCatalog['parents'] as $type) {
+            $id = (int) ($type->id ?? 0);
+            if ($id < 1) {
+                continue;
+            }
+            $name = (string) ($type->doc_type_name ?? '');
+            $kind = $parentKindMap[(string) $id]
+                ?? (str_contains(mb_strtolower($name), 'external') ? 'external' : 'internal');
+            $docTypeParentsForJs[] = [
+                'id' => $id,
+                'name' => $name,
+                'kind' => $kind,
+            ];
+        }
 
         return [
             'offices' => RegisterQueryHelper::jsCatalog()['offices'] ?? [],
@@ -65,7 +104,14 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             'prefill' => $prefill,
             'fromDcnId' => $fromDcnId,
             'isRecurring' => $isRecurring,
-            'prevSignatories' => OfficeIntakeHelper::previousDrfSignatories(),
+            'docTypeParents' => $docCatalog['parents'],
+            'docTypeChildrenByParent' => $docCatalog['childrenByParent'],
+            'docTypeParentsForJs' => $docTypeParentsForJs,
+            'oldDocTypeKind' => $oldDocTypeKind,
+            'oldDocTypeId' => $oldDocTypeId,
+            'oldSubTypeId' => $oldSubTypeId,
+            'sigPrefill' => $sigPrefill,
+            'sigTemplateMap' => $sigTemplateMap,
             'userOfficeId' => $office['id'],
             'userOfficeCode' => $office['code'],
             'userOfficeName' => $office['name'],
@@ -127,7 +173,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                             'userOfficeCode' => $userOfficeCode ?? '',
                             'userOfficeName' => $userOfficeName ?? '',
                             'userOfficeLabel' => $userOfficeLabel ?? '',
-                            'departmentFieldLabel' => 'Department',
+                            'departmentFieldLabel' => 'Source unit',
                         ])
                         <div class="reg-field">
                             <label>Date <span class="ofi-req">*</span></label>
@@ -141,23 +187,63 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                             <div id="drfSuggestTitle" class="ofi-suggest" hidden></div>
                         @endif
                     </div>
-                    <div class="reg-field">
+                    <div class="reg-field" id="ofiDrfDocTypeBlock">
                         <label>Type of document <span class="ofi-req">*</span></label>
                         @php
                             $lockDocType = (bool) ($prefill['lockDocType'] ?? false);
-                            $docTypeKind = old('docTypeKind', $prefill['docTypeKind'] ?? 'internal');
+                            $docTypeKind = (string) ($oldDocTypeKind ?? '');
+                            $selectedParent = (string) ($oldDocTypeId ?? '');
+                            $selectedSub = (string) ($oldSubTypeId ?? '');
+                            $parentKindMap = $sigTemplateMap['parentKind'] ?? [];
+                            $parentsForKind = $docTypeKind === ''
+                                ? collect()
+                                : collect($docTypeParents ?? [])->filter(function ($type) use ($docTypeKind, $parentKindMap) {
+                                    $k = $parentKindMap[(string) $type->id] ?? (str_contains(mb_strtolower((string) $type->doc_type_name), 'external') ? 'external' : 'internal');
+
+                                    return $k === $docTypeKind;
+                                })->values();
+                            $parentSubs = ($selectedParent !== '' && isset($docTypeChildrenByParent[$selectedParent]))
+                                ? $docTypeChildrenByParent[$selectedParent]
+                                : [];
+                            $showCatalog = $docTypeKind === 'internal';
                         @endphp
                         @if($lockDocType)
-                            <input type="hidden" name="docTypeKind" value="{{ $docTypeKind }}">
+                            <input type="hidden" name="docTypeKind" id="drfDocTypeKind" value="{{ $docTypeKind !== '' ? $docTypeKind : 'internal' }}">
+                            <input type="hidden" name="docTypeId" id="drfDocTypeId" value="{{ $selectedParent }}">
+                            <input type="hidden" name="subTypeId" id="drfSubTypeId" value="{{ $selectedSub }}">
                             <div class="ofi-radio-row">
                                 <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind !== 'external')> Internal</label>
                                 <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === 'external')> External</label>
                             </div>
-                            <p class="ofi-hint">This follows the document being revised and cannot be changed.</p>
+                            @if(!empty($prefill['docTypeLabel']))
+                                <p class="ofi-hint">Document type: {{ $prefill['docTypeLabel'] }}</p>
+                            @endif
+                            <p class="ofi-hint">This follows the document being revised and cannot be changed. RFIO will register with this type.</p>
                         @else
-                            <div class="ofi-radio-row">
+                            <div class="ofi-radio-row" style="margin-top:6px;">
                                 <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked($docTypeKind === 'internal')> Internal</label>
-                                <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" @checked($docTypeKind === 'external')> External</label>
+                                <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" required @checked($docTypeKind === 'external')> External</label>
+                            </div>
+                            {{-- Catalog pickers only for Internal. Hidden until Internal is chosen (External = kind only). --}}
+                            <div class="reg-grid-2{{ ! $showCatalog ? ' is-ofi-hidden' : '' }}" style="margin-top:10px;" id="ofiDrfCatalogPickers" @if(! $showCatalog) hidden @endif>
+                                <div class="reg-field" style="margin:0;" id="ofiDrfDocTypeWrap">
+                                    <label for="drfDocTypeId">Document type <span class="ofi-req">*</span></label>
+                                    <select id="drfDocTypeId" name="docTypeId" @required($showCatalog) @disabled(! $showCatalog)>
+                                        <option value="">Select document type…</option>
+                                        @foreach($parentsForKind as $type)
+                                            <option value="{{ $type->id }}" @selected((string) $type->id === $selectedParent)>{{ $type->doc_type_name }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div class="reg-field" style="margin:0;" id="ofiDrfSubTypeWrap">
+                                    <label for="drfSubTypeId">Sub-type <span id="drfSubTypeReq" class="ofi-req" @if(count($parentSubs) < 1) hidden @endif>*</span></label>
+                                    <select id="drfSubTypeId" name="subTypeId" @disabled(! $showCatalog || $selectedParent === '') @if($showCatalog && count($parentSubs) > 0) required @endif>
+                                        <option value="">{{ count($parentSubs) > 0 ? 'Select sub-type…' : ($selectedParent !== '' ? 'No sub-types' : 'Select a document type first') }}</option>
+                                        @foreach($parentSubs as $sub)
+                                            <option value="{{ $sub->id }}" @selected((string) $sub->id === $selectedSub)>{{ $sub->doc_type_name }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
                             </div>
                             <p id="drfRecurDocTypeHint" class="ofi-hint" hidden>This follows the registered document and cannot be changed after Find document.</p>
                         @endif
@@ -198,34 +284,29 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                         </div>
                     </div>
 
-                    @php $prevSig = $prevSignatories ?? null; @endphp
+                    @php
+                        $templateSig = $sigPrefill ?? null;
+                    @endphp
                     <div class="ofi-sig-block" id="ofiDrfSigBlock">
                         <p class="ofi-sig-heading">Signatories</p>
-                        @if($prevSig)
-                            <div class="ofi-suggest" id="drfPrevSigSuggest">
-                                <p class="ofi-suggest-label">Suggested from your last DRF (shown in the fields). Press Tab on an empty field to use it, or type a different name.</p>
-                            </div>
-                        @endif
                         <div class="ofi-sig-group">
                             <p class="ofi-sig-label">Prepared by</p>
                             <div class="reg-grid-2">
                                 <div class="reg-field">
                                     <label for="preparedByName">Name <span class="ofi-req">*</span></label>
                                     <input type="text" id="preparedByName" name="preparedByName"
-                                        value="{{ old('preparedByName') }}"
+                                        value="{{ old('preparedByName', $templateSig['prepared_by_name'] ?? '') }}"
                                         required maxlength="255"
-                                        placeholder="{{ ($prevSig['prepared_by_name'] ?? '') !== '' ? $prevSig['prepared_by_name'] : 'Prepared by name' }}"
-                                        data-sig-key="prepared_by_name"
-                                        data-prev-sig="{{ $prevSig['prepared_by_name'] ?? '' }}">
+                                        placeholder="Prepared by name"
+                                        data-sig-key="prepared_by_name">
                                 </div>
                                 <div class="reg-field">
                                     <label for="preparedByDesignation">Designation <span class="ofi-req">*</span></label>
                                     <input type="text" id="preparedByDesignation" name="preparedByDesignation"
-                                        value="{{ old('preparedByDesignation') }}"
+                                        value="{{ old('preparedByDesignation', $templateSig['prepared_by_designation'] ?? '') }}"
                                         required maxlength="255"
-                                        placeholder="{{ ($prevSig['prepared_by_designation'] ?? '') !== '' ? $prevSig['prepared_by_designation'] : 'Prepared by designation' }}"
-                                        data-sig-key="prepared_by_designation"
-                                        data-prev-sig="{{ $prevSig['prepared_by_designation'] ?? '' }}">
+                                        placeholder="Prepared by designation"
+                                        data-sig-key="prepared_by_designation">
                                 </div>
                             </div>
                         </div>
@@ -235,20 +316,18 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                                 <div class="reg-field">
                                     <label for="reviewedByName">Name <span class="ofi-req">*</span></label>
                                     <input type="text" id="reviewedByName" name="reviewedByName"
-                                        value="{{ old('reviewedByName') }}"
+                                        value="{{ old('reviewedByName', $templateSig['reviewed_by_name'] ?? '') }}"
                                         required maxlength="255"
-                                        placeholder="{{ ($prevSig['reviewed_by_name'] ?? '') !== '' ? $prevSig['reviewed_by_name'] : 'Reviewed by name' }}"
-                                        data-sig-key="reviewed_by_name"
-                                        data-prev-sig="{{ $prevSig['reviewed_by_name'] ?? '' }}">
+                                        placeholder="Reviewed by name"
+                                        data-sig-key="reviewed_by_name">
                                 </div>
                                 <div class="reg-field">
                                     <label for="reviewedByDesignation">Designation <span class="ofi-req">*</span></label>
                                     <input type="text" id="reviewedByDesignation" name="reviewedByDesignation"
-                                        value="{{ old('reviewedByDesignation') }}"
+                                        value="{{ old('reviewedByDesignation', $templateSig['reviewed_by_designation'] ?? '') }}"
                                         required maxlength="255"
-                                        placeholder="{{ ($prevSig['reviewed_by_designation'] ?? '') !== '' ? $prevSig['reviewed_by_designation'] : 'Reviewed by designation' }}"
-                                        data-sig-key="reviewed_by_designation"
-                                        data-prev-sig="{{ $prevSig['reviewed_by_designation'] ?? '' }}">
+                                        placeholder="Reviewed by designation"
+                                        data-sig-key="reviewed_by_designation">
                                 </div>
                             </div>
                         </div>
@@ -258,20 +337,18 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                                 <div class="reg-field">
                                     <label for="approvedByName">Name <span class="ofi-req">*</span></label>
                                     <input type="text" id="approvedByName" name="approvedByName"
-                                        value="{{ old('approvedByName') }}"
+                                        value="{{ old('approvedByName', $templateSig['approved_by_name'] ?? '') }}"
                                         required maxlength="255"
-                                        placeholder="{{ ($prevSig['approved_by_name'] ?? '') !== '' ? $prevSig['approved_by_name'] : 'Approved by name' }}"
-                                        data-sig-key="approved_by_name"
-                                        data-prev-sig="{{ $prevSig['approved_by_name'] ?? '' }}">
+                                        placeholder="Approved by name"
+                                        data-sig-key="approved_by_name">
                                 </div>
                                 <div class="reg-field">
                                     <label for="approvedByDesignation">Designation <span class="ofi-req">*</span></label>
                                     <input type="text" id="approvedByDesignation" name="approvedByDesignation"
-                                        value="{{ old('approvedByDesignation') }}"
+                                        value="{{ old('approvedByDesignation', $templateSig['approved_by_designation'] ?? '') }}"
                                         required maxlength="255"
-                                        placeholder="{{ ($prevSig['approved_by_designation'] ?? '') !== '' ? $prevSig['approved_by_designation'] : 'Approved by designation' }}"
-                                        data-sig-key="approved_by_designation"
-                                        data-prev-sig="{{ $prevSig['approved_by_designation'] ?? '' }}">
+                                        placeholder="Approved by designation"
+                                        data-sig-key="approved_by_designation">
                                 </div>
                             </div>
                         </div>
@@ -302,6 +379,9 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
 window.__ofiOffices = @json($offices);
 window.__ofiClusters = @json($clusters);
 window.__ofiOldDistribute = @json($oldDistributeOfficeIds);
+window.__ofiDocTypeChildren = @json($docTypeChildrenByParent ?? []);
+window.__ofiDocTypeParents = @json($docTypeParentsForJs ?? []);
+window.__ofiSigTemplateMap = @json($sigTemplateMap ?? ['byDocTypeId' => [], 'byKind' => [], 'parentKind' => []]);
 window.__ofiSourceConfigs = [
     {
         key: 'distribute',
@@ -345,18 +425,160 @@ window.__ofiSourceConfigs = [
         });
     }
 
-    form.querySelectorAll('[data-prev-sig]').forEach(function (input) {
-        input.addEventListener('keydown', function (e) {
-            if (e.key !== 'Tab' || e.shiftKey || input.value.trim() !== '') return;
-            const prev = (input.getAttribute('data-prev-sig') || '').trim();
-            if (!prev) return;
-            e.preventDefault();
-            input.value = prev;
-            const end = input.value.length;
-            try { input.setSelectionRange(end, end); } catch (_) {}
+    const parentSelect = document.getElementById('drfDocTypeId');
+    const subSelect = document.getElementById('drfSubTypeId');
+    const subReq = document.getElementById('drfSubTypeReq');
+    const catalogPickers = document.getElementById('ofiDrfCatalogPickers');
+    const subTypeWrap = document.getElementById('ofiDrfSubTypeWrap');
+    const childrenByParent = window.__ofiDocTypeChildren || {};
+    const allParents = window.__ofiDocTypeParents || [];
+    const sigMap = window.__ofiSigTemplateMap || { byDocTypeId: {}, byKind: {}, parentKind: {} };
+
+    function selectedKind() {
+        const checked = form.querySelector('input[name="docTypeKind"]:checked');
+        if (checked) return checked.value === 'external' ? 'external' : 'internal';
+        const hidden = form.querySelector('input[type="hidden"][name="docTypeKind"]');
+        if (hidden && (hidden.value === 'external' || hidden.value === 'internal')) return hidden.value;
+        return '';
+    }
+
+    function resolveTemplate() {
+        const kind = selectedKind();
+        if (kind === 'external') {
+            return (sigMap.byKind || {}).external || null;
+        }
+        const parentId = parentSelect ? String(parentSelect.value || '') : '';
+        const subId = subSelect && !subSelect.disabled ? String(subSelect.value || '') : '';
+        const byId = sigMap.byDocTypeId || {};
+        if (subId && byId[subId]) return byId[subId];
+        if (parentId && byId[parentId]) return byId[parentId];
+        return null;
+    }
+
+    function clearSignatories() {
+        form.querySelectorAll('#ofiDrfSigBlock [data-sig-key]').forEach(function (input) {
+            input.value = '';
+            input.dataset.autoFilled = '0';
             input.dispatchEvent(new Event('input', { bubbles: true }));
         });
+    }
+
+    function applySignatories(payload) {
+        clearSignatories();
+        if (!payload) return;
+        form.querySelectorAll('#ofiDrfSigBlock [data-sig-key]').forEach(function (input) {
+            const key = input.getAttribute('data-sig-key');
+            const next = payload[key] ? String(payload[key]) : '';
+            input.value = next;
+            input.dataset.autoFilled = next !== '' ? '1' : '0';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    }
+
+    function syncCatalogVisibility() {
+        const kind = selectedKind();
+        // Only Internal shows Document type + Sub-type. None selected and External keep them hidden.
+        const showInternalCatalog = kind === 'internal';
+        if (catalogPickers) {
+            catalogPickers.hidden = !showInternalCatalog;
+            catalogPickers.classList.toggle('is-ofi-hidden', !showInternalCatalog);
+        }
+        if (parentSelect && parentSelect.tagName === 'SELECT') {
+            parentSelect.disabled = !showInternalCatalog;
+            parentSelect.required = showInternalCatalog;
+            if (!showInternalCatalog) parentSelect.value = '';
+        }
+        if (subSelect && subSelect.tagName === 'SELECT' && !showInternalCatalog) {
+            subSelect.disabled = true;
+            subSelect.required = false;
+            subSelect.value = '';
+            if (subReq) subReq.hidden = true;
+        }
+    }
+
+    function rebuildParentOptions(keepValue) {
+        if (!parentSelect || parentSelect.tagName !== 'SELECT') return;
+        const kind = selectedKind();
+        const showInternalCatalog = kind === 'internal';
+        const previous = keepValue && showInternalCatalog ? String(parentSelect.value || '') : '';
+        const list = showInternalCatalog
+            ? allParents.filter(function (p) { return (p.kind || 'internal') === 'internal'; })
+            : [];
+        parentSelect.innerHTML = '';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'Select document type…';
+        parentSelect.appendChild(placeholder);
+        list.forEach(function (p) {
+            const opt = document.createElement('option');
+            opt.value = String(p.id);
+            opt.textContent = p.name || ('Type #' + p.id);
+            if (previous && previous === String(p.id)) opt.selected = true;
+            parentSelect.appendChild(opt);
+        });
+        if (previous && !list.some(function (p) { return String(p.id) === previous; })) {
+            parentSelect.value = '';
+        }
+    }
+
+    function rebuildSubOptions(keepValue) {
+        if (!parentSelect || !subSelect || parentSelect.tagName !== 'SELECT') return;
+        const kind = selectedKind();
+        const showInternalCatalog = kind === 'internal';
+        const parentId = String(parentSelect.value || '');
+        const kids = showInternalCatalog && parentId && childrenByParent[parentId] ? childrenByParent[parentId] : [];
+        const previous = keepValue && showInternalCatalog ? String(subSelect.value || '') : '';
+        subSelect.innerHTML = '';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = kids.length ? 'Select sub-type…' : (parentId ? 'No sub-types' : 'Select a document type first');
+        subSelect.appendChild(placeholder);
+        if (showInternalCatalog) {
+            kids.forEach(function (sub) {
+                const opt = document.createElement('option');
+                opt.value = String(sub.id);
+                opt.textContent = sub.doc_type_name || ('Type #' + sub.id);
+                if (previous && previous === String(sub.id)) opt.selected = true;
+                subSelect.appendChild(opt);
+            });
+        }
+        subSelect.disabled = !showInternalCatalog || !parentId;
+        if (showInternalCatalog && kids.length) {
+            subSelect.required = true;
+            if (subReq) subReq.hidden = false;
+        } else {
+            subSelect.required = false;
+            subSelect.value = '';
+            if (subReq) subReq.hidden = true;
+        }
+    }
+
+    function refreshSignatoriesForSelection() {
+        applySignatories(resolveTemplate());
+    }
+
+    form.querySelectorAll('input[name="docTypeKind"]').forEach(function (radio) {
+        radio.addEventListener('change', function () {
+            syncCatalogVisibility();
+            rebuildParentOptions(false);
+            rebuildSubOptions(false);
+            refreshSignatoriesForSelection();
+        });
     });
+    if (parentSelect && parentSelect.tagName === 'SELECT') {
+        parentSelect.addEventListener('change', function () {
+            rebuildSubOptions(false);
+            refreshSignatoriesForSelection();
+        });
+    }
+    if (subSelect && subSelect.tagName === 'SELECT') {
+        subSelect.addEventListener('change', function () {
+            refreshSignatoriesForSelection();
+        });
+    }
+
+    syncCatalogVisibility();
+
     form.addEventListener('submit', function (e) {
         if (e.submitter && e.submitter.id === 'ofiDrfPreviewBtn') return;
         if (!confirmBox.checked) {
@@ -411,19 +633,11 @@ window.__ofiSourceConfigs = [
         saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
     });
 
-    // Tab-fill from last personal DRF when a signatory field is empty.
-    const prevSig = @json($prevSignatories ?? null);
-    form.querySelectorAll('#ofiDrfSigBlock [data-sig-key]').forEach(function (input) {
-        input.addEventListener('keydown', function (e) {
-            if (e.key !== 'Tab' || e.shiftKey || input.value.trim() !== '') return;
-            if (!prevSig) return;
-            const key = input.getAttribute('data-sig-key');
-            const val = prevSig[key] ? String(prevSig[key]) : '';
-            if (!val) return;
-            e.preventDefault();
-            input.value = val;
+    if (@json(!empty($templateSig))) {
+        form.querySelectorAll('#ofiDrfSigBlock [data-sig-key]').forEach(function (input) {
+            if (input.value.trim() !== '') input.dataset.autoFilled = '1';
         });
-    });
+    }
 })();
 </script>
 @if($isRecurring ?? false)

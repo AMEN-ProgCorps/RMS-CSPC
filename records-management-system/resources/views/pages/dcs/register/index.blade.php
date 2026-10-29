@@ -1511,6 +1511,18 @@ document.addEventListener("DOMContentLoaded", async function () {
             if (modeEl) modeEl.value = 'new';
         }
 
+        // Quick actions / intake land with a known mode — Version Type stays locked.
+        if (versionSelect?.value && (urlType === 'new' || urlType === 'revised' || urlType === 'recurring')) {
+            if (typeof lockVersionTypeSelect === 'function') {
+                lockVersionTypeSelect();
+            } else {
+                versionSelect.disabled = true;
+                versionSelect.setAttribute('disabled', 'disabled');
+                versionSelect.classList.add('reg-identity-locked');
+                window.__versionTypeLocked = true;
+            }
+        }
+
         // Quick actions land with ?type= set — unlock Document Type right away so it
         // isn't stuck disabled if later init work throws or Livewire remorphs the DOM.
         if (versionSelect?.value) {
@@ -1580,6 +1592,10 @@ document.addEventListener("DOMContentLoaded", async function () {
             lockOfficeIntakeRegistrationIdentity();
             return;
         }
+        if (window.__officeIntakeDocTypeLocked) {
+            lockOfficeIntakeDocTypeIdentity();
+            return;
+        }
         if (window.__recurIdentityLocked) {
             lockRecurRegistrationIdentity();
             return;
@@ -1588,12 +1604,17 @@ document.addEventListener("DOMContentLoaded", async function () {
             lockReviseRegistrationIdentity();
             return;
         }
+        if (window.__versionTypeLocked) {
+            lockVersionTypeSelect();
+        }
         const urlType = new URLSearchParams(location.search).get('type');
         if (urlType !== 'new' && urlType !== 'revised' && urlType !== 'recurring') return;
 
         const vs = document.getElementById('versionType');
         const dt = document.getElementById('docType');
         if (!vs?.value || !dt) return;
+
+        lockVersionTypeSelect();
 
         if (dt.disabled) {
             dt.disabled = false;
@@ -1899,6 +1920,7 @@ async function applyInventoryRecurPrefillFromUrl() {
 
 function lockReviseRegistrationIdentity() {
     window.__reviseIdentityLocked = true;
+    window.__versionTypeLocked = true;
     const versionEl = document.getElementById('versionType');
     if (versionEl) {
         const reviseOpt = [...versionEl.options].find((opt) => /revis/i.test(opt.textContent || ''));
@@ -1932,6 +1954,7 @@ function lockReviseRegistrationIdentity() {
 
 function lockRecurRegistrationIdentity() {
     window.__recurIdentityLocked = true;
+    window.__versionTypeLocked = true;
     const form = document.getElementById('masterForm');
     ['versionType', 'docType', 'subType'].forEach((id) => {
         const el = document.getElementById(id);
@@ -2038,9 +2061,34 @@ function officeIntakeCheckChecklist(id) {
     toggleSection(parseInt(id, 10), true);
 }
 
-function lockOfficeIntakeRegistrationIdentity() {
+/**
+ * Lock Version Type + Document Type (+ subtype) for office intake.
+ * @param {'new'|'revised'|null} forceMode  Keep current mode when null; use for New vs DCN.
+ */
+function lockOfficeIntakeRegistrationIdentity(forceMode = null) {
     window.__officeIntakeIdentityLocked = true;
+    window.__versionTypeLocked = true;
     const form = document.getElementById('masterForm');
+    const mode = document.getElementById('registrationMode');
+    const versionSelect = document.getElementById('versionType');
+    const wanted = String(forceMode || mode?.value || '').toLowerCase();
+    if (versionSelect && wanted) {
+        let match = null;
+        if (wanted === 'recurring') {
+            match = [...versionSelect.options].find((opt) => /recur/i.test(opt.text || ''));
+        } else if (wanted === 'revised') {
+            match = [...versionSelect.options].find((opt) => /revis/i.test(opt.text || ''));
+        } else if (wanted === 'new') {
+            match = [...versionSelect.options].find((opt) => /new/i.test(opt.text || '') && !/revis/i.test(opt.text || ''));
+        }
+        if (match?.value) {
+            versionSelect.value = match.value;
+            versionSelect.dataset.lastValid = match.value;
+        }
+        if (mode && (wanted === 'new' || wanted === 'revised' || wanted === 'recurring')) {
+            mode.value = wanted;
+        }
+    }
     ['versionType', 'docType', 'subType'].forEach((id) => {
         const el = document.getElementById(id);
         if (!el) return;
@@ -2058,21 +2106,6 @@ function lockOfficeIntakeRegistrationIdentity() {
             form.appendChild(hidden);
         }
         if (hidden) hidden.value = el.value || '';
-    });
-    const versionSelect = document.getElementById('versionType');
-    if (versionSelect) {
-        const revised = [...versionSelect.options].find((opt) => /revis/i.test(opt.text || ''));
-        if (revised) {
-            versionSelect.value = revised.value;
-            versionSelect.dataset.lastValid = revised.value;
-        }
-    }
-    const mode = document.getElementById('registrationMode');
-    if (mode) mode.value = 'revised';
-    ['versionType', 'docType', 'subType'].forEach((id) => {
-        const el = document.getElementById(id);
-        const hidden = form?.querySelector(`input[type="hidden"][data-lock-for="${id}"]`);
-        if (el && hidden) hidden.value = el.value || '';
     });
 }
 
@@ -2275,11 +2308,68 @@ async function applyOfficeIntakePrefill(prefill) {
         }
     } catch (_) { /* ignore */ }
 
+    // Version Type is fixed by the request shape and must stay locked:
+    // no DCN → New, DCN → Revised, Recurring DRF → Recurring.
     if (prefill.versionType === 'recurring') {
         lockRecurRegistrationIdentity();
     } else if (prefill.intake === 'dcn' || prefill.versionType === 'revised') {
-        lockOfficeIntakeRegistrationIdentity();
+        lockOfficeIntakeRegistrationIdentity('revised');
+    } else {
+        // New DRF (no DCN): lock New + office-chosen document type/subtype.
+        lockOfficeIntakeRegistrationIdentity('new');
     }
+}
+
+/**
+ * Disable Version Type and mirror value in a hidden input so disabled selects still POST.
+ * Used once the registration mode is known (New / Revised / Recurring).
+ */
+function lockVersionTypeSelect() {
+    window.__versionTypeLocked = true;
+    const form = document.getElementById('masterForm');
+    const el = document.getElementById('versionType');
+    if (!el) return;
+    el.disabled = true;
+    el.setAttribute('disabled', 'disabled');
+    el.classList.add('reg-identity-locked');
+    const name = el.getAttribute('name');
+    if (!name || !form) return;
+    let hidden = form.querySelector('input[type="hidden"][data-lock-for="versionType"]');
+    if (!hidden) {
+        hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = name;
+        hidden.dataset.lockFor = 'versionType';
+        form.appendChild(hidden);
+    }
+    hidden.value = el.value || '';
+}
+
+/** Lock only Document Type / Sub-type from office intake (legacy helper; prefer full identity lock). */
+function lockOfficeIntakeDocTypeIdentity() {
+    window.__officeIntakeDocTypeLocked = true;
+    const form = document.getElementById('masterForm');
+    ['docType', 'subType'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (id === 'subType' && (el.closest('#subTypeField')?.hidden || el.options.length < 2) && !el.value) {
+            return;
+        }
+        el.disabled = true;
+        el.setAttribute('disabled', 'disabled');
+        el.classList.add('reg-identity-locked');
+        const name = el.getAttribute('name');
+        if (!name || !form) return;
+        let hidden = form.querySelector(`input[type="hidden"][data-lock-for="${id}"]`);
+        if (!hidden) {
+            hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = name;
+            hidden.dataset.lockFor = id;
+            form.appendChild(hidden);
+        }
+        hidden.value = el.value || '';
+    });
 }
 
 /** Apply checklist visibility + DCN/DRF/masterlist fields from office intake (safe to re-run after type/subtype change). */
@@ -5590,6 +5680,14 @@ async function handleVersionChange() {
         lockOfficeIntakeRegistrationIdentity();
         return;
     }
+    if (window.__recurIdentityLocked) {
+        lockRecurRegistrationIdentity();
+        return;
+    }
+    if (window.__reviseIdentityLocked) {
+        lockReviseRegistrationIdentity();
+        return;
+    }
     const versionSelect = document.getElementById("versionType");
     const versionId = versionSelect.value;
     const docTypeSelect = document.getElementById("docType");
@@ -5734,6 +5832,12 @@ async function handleVersionChange() {
     if (docTypeSelect && hasVersion) {
         docTypeSelect.disabled = false;
         docTypeSelect.removeAttribute("disabled");
+    }
+
+    // Once New / Revised / Recurring is chosen, Version Type stays locked
+    // (no DCN → New, DCN path → Revised, Recurring DRF → Recurring).
+    if (hasVersion) {
+        lockVersionTypeSelect();
     }
 }
 

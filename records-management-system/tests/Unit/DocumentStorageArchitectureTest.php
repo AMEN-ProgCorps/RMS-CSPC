@@ -118,9 +118,23 @@ class DocumentStorageArchitectureTest extends TestCase
             'DCS/DCC_ECOPY/DCC_D&R_ECOPY/2026_D&R_ECOPY/2026-12-28_D&R_Policy_Rev1.pdf',
             DocumentStorageService::buildDccRelativePath('distribution', '2026-12-28_D&R_Policy_Rev1.pdf', ['date' => '2026-12-28'])
         );
+        $this->assertSame(
+            'DCS/DCC_ECOPY/DCC_DRF_ECOPY/2026_DRF_ECOPY/SUPERSEDED/scan.pdf',
+            DocumentStorageService::buildDccRelativePath('drf', 'scan.pdf', [
+                'date' => '2026-01-01',
+                'lifecycle' => 'superseded',
+            ])
+        );
+        $this->assertSame(
+            'DCS/DCC_ECOPY/DCC_D&R_ECOPY/2026_D&R_ECOPY/OBSOLETE/scan.pdf',
+            DocumentStorageService::buildDccRelativePath('distribution', 'scan.pdf', [
+                'date' => '2026-01-01',
+                'lifecycle' => 'obsolete',
+            ])
+        );
     }
 
-    public function test_dcc_docinfo_latest_and_obsolete_paths(): void
+    public function test_dcc_docinfo_lifecycle_paths(): void
     {
         $this->assertSame(
             'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/LATEST_INTERNAL_DOCINFO_ECOPY/doc.pdf',
@@ -130,10 +144,24 @@ class DocumentStorageArchitectureTest extends TestCase
             ])
         );
         $this->assertSame(
-            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/OBSELETE_INTERNAL_DOCINFO_ECOPY/doc.pdf',
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/SUPERSEDED_INTERNAL_DOCINFO_ECOPY/doc.pdf',
+            DocumentStorageService::buildDccRelativePath('masterlist', 'doc.pdf', [
+                'group' => 'internal_docs',
+                'lifecycle' => 'superseded',
+            ])
+        );
+        $this->assertSame(
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/OBSOLETE_INTERNAL_DOCINFO_ECOPY/doc.pdf',
             DocumentStorageService::buildDccRelativePath('masterlist', 'doc.pdf', [
                 'group' => 'internal_docs',
                 'latest' => false,
+            ])
+        );
+        $this->assertSame(
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/OBSOLETE_INTERNAL_DOCINFO_ECOPY/doc.pdf',
+            DocumentStorageService::buildDccRelativePath('masterlist', 'doc.pdf', [
+                'group' => 'internal_docs',
+                'lifecycle' => 'obsolete',
             ])
         );
         $this->assertSame(
@@ -144,6 +172,82 @@ class DocumentStorageArchitectureTest extends TestCase
                 'cluster' => 'ADMINISTRATIVE CLUSTER',
                 'office_name' => 'ACCOUNTING UNIT',
             ])
+        );
+    }
+
+    public function test_dcc_lifecycle_path_rules_never_cross_wrong_leaf(): void
+    {
+        $superseded = DocumentStorageService::buildDccRelativePath('masterlist', 'doc.pdf', [
+            'group' => 'internal_docs',
+            'lifecycle' => 'superseded',
+        ]);
+        $obsolete = DocumentStorageService::buildDccRelativePath('masterlist', 'doc.pdf', [
+            'group' => 'internal_docs',
+            'lifecycle' => 'obsolete',
+        ]);
+        $latest = DocumentStorageService::buildDccRelativePath('masterlist', 'doc.pdf', [
+            'group' => 'internal_docs',
+            'lifecycle' => 'latest',
+        ]);
+
+        $this->assertStringContainsString('SUPERSEDED_', $superseded);
+        $this->assertStringNotContainsString('LATEST_', $superseded);
+        $this->assertStringContainsString('OBSOLETE_', $obsolete);
+        $this->assertStringNotContainsString('SUPERSEDED_', $obsolete);
+        $this->assertStringNotContainsString('OBSELETE_', $obsolete);
+        $this->assertStringContainsString('LATEST_', $latest);
+        $this->assertTrue(DocumentStorageService::pathMatchesLifecycle($latest, 'latest'));
+        $this->assertTrue(DocumentStorageService::pathMatchesLifecycle($superseded, 'superseded'));
+        $this->assertTrue(DocumentStorageService::pathMatchesLifecycle($obsolete, 'obsolete'));
+        $this->assertFalse(DocumentStorageService::pathMatchesLifecycle($latest, 'superseded'));
+        $this->assertFalse(DocumentStorageService::pathMatchesLifecycle($superseded, 'obsolete'));
+    }
+
+    public function test_infer_dcc_context_maps_legacy_obselete_to_obsolete(): void
+    {
+        $ctx = DocumentStorageService::inferDccContextFromPath(
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/OBSELETE_INTERNAL_DOCINFO_ECOPY/doc.pdf'
+        );
+        $this->assertSame('obsolete', $ctx['lifecycle']);
+        $this->assertFalse($ctx['latest']);
+        $this->assertSame('internal_docs', $ctx['group']);
+        $this->assertTrue(DocumentStorageService::isLegacyObsoleteLeaf(
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/OBSELETE_INTERNAL_DOCINFO_ECOPY/doc.pdf'
+        ));
+
+        $sup = DocumentStorageService::inferDccContextFromPath(
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/SUPERSEDED_INTERNAL_DOCINFO_ECOPY/doc.pdf'
+        );
+        $this->assertSame('superseded', $sup['lifecycle']);
+
+        $this->assertSame(
+            'obsolete',
+            DocumentStorageService::inferFormScanLifecycleFromPath(
+                'DCS/DCC_ECOPY/DCC_DRF_ECOPY/2026_DRF_ECOPY/OBSELETE/scan.pdf'
+            )
+        );
+        $this->assertSame(
+            'superseded',
+            DocumentStorageService::inferFormScanLifecycleFromPath(
+                'DCS/DCC_ECOPY/DCC_DRF_ECOPY/2026_DRF_ECOPY/SUPERSEDED/scan.pdf'
+            )
+        );
+    }
+
+    public function test_dcc_static_folders_include_superseded_and_obsolete(): void
+    {
+        $folders = DocumentStorageService::dccStaticFolders();
+        $this->assertContains(
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/SUPERSEDED_INTERNAL_DOCINFO_ECOPY',
+            $folders
+        );
+        $this->assertContains(
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/OBSOLETE_INTERNAL_DOCINFO_ECOPY',
+            $folders
+        );
+        $this->assertNotContains(
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/OBSELETE_INTERNAL_DOCINFO_ECOPY',
+            $folders
         );
     }
 

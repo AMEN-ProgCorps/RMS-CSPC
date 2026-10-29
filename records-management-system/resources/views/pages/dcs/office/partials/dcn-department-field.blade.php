@@ -8,9 +8,9 @@ DCS file: Locked Department / source unit on office DCN and DRF. Always the sign
     if ($officeName === '') {
         $officeName = $officeLabel !== '' ? $officeLabel : $officeCode;
     }
-    $departmentFieldLabel = trim((string) ($departmentFieldLabel ?? 'Department'));
+    $departmentFieldLabel = trim((string) ($departmentFieldLabel ?? 'Source unit'));
     if ($departmentFieldLabel === '') {
-        $departmentFieldLabel = 'Department';
+        $departmentFieldLabel = 'Source unit';
     }
 @endphp
 <div class="reg-field">

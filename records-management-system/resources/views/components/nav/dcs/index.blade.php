@@ -59,8 +59,8 @@
                     <span>Incoming</span>
                     <span
                         id="ofiIncomingBadge"
-                        class="ofi-nav-empty-hint"
-                        style="opacity:1;background:#2563eb;color:#fff;border-radius:999px;padding:0 6px;font-size:11px;{{ $incomingCount > 0 ? '' : 'display:none;' }}"
+                        class="ofi-nav-badge"
+                        style="{{ $incomingCount > 0 ? '' : 'display:none;' }}"
                         data-ofi-incoming-badge
                         @if($incomingCount < 1) hidden @endif
                     >{{ $incomingCount }}</span>
@@ -125,14 +125,28 @@
         @endif
 
         @if($isFullDcs)
-            @php $canReviewIntake = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake(); @endphp
+            @php
+                $canReviewIntake = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
+                $pendingRequestCount = $canReviewIntake
+                    ? \App\Helpers\OfficeIntakeHelper::pendingOfficeRequestTotal()
+                    : 0;
+            @endphp
             @if($canRegister)
                 @if($enableTopTabs)
                     <li class="nav-item {{ request()->is('dcs/register*') || request()->routeIs('dcs.requests.*') ? 'active' : '' }}">
                         <a href="{{ route('dcs.register.create', absolute: false) }}">
                             <i class="fa-regular fa-pen-to-square"></i>
                             <span>Document Registration</span>
-                            <span class="tooltip">Document Registration</span>
+                            @if($canReviewIntake)
+                                <span
+                                    id="ofiRequestBadge"
+                                    class="ofi-nav-badge"
+                                    style="{{ $pendingRequestCount > 0 ? '' : 'display:none;' }}"
+                                    data-ofi-request-badge
+                                    @if($pendingRequestCount < 1) hidden @endif
+                                >{{ $pendingRequestCount }}</span>
+                            @endif
+                            <span class="tooltip">Document Registration{{ $canReviewIntake && $pendingRequestCount > 0 ? ' · '.$pendingRequestCount.' pending request'.($pendingRequestCount === 1 ? '' : 's') : '' }}</span>
                         </a>
                     </li>
                 @else
@@ -141,6 +155,14 @@
                             <summary class="dropdown-trigger">
                                 <i class="fa-regular fa-pen-to-square"></i>
                                 <span>Document Registration</span>
+                                @if($canReviewIntake)
+                                    <span
+                                        class="ofi-nav-badge ofi-nav-badge-parent"
+                                        style="{{ $pendingRequestCount > 0 ? '' : 'display:none;' }}"
+                                        data-ofi-request-badge
+                                        @if($pendingRequestCount < 1) hidden @endif
+                                    >{{ $pendingRequestCount }}</span>
+                                @endif
                                 <i class="fas fa-caret-down arrow"></i>
                                 <span class="tooltip">Document Registration</span>
                             </summary>
@@ -156,7 +178,16 @@
                                 </li>
                                 @if($canReviewIntake)
                                     <li>
-                                        <a href="{{ route('dcs.requests.index', absolute: false) }}" class="{{ request()->routeIs('dcs.requests.*') ? 'active-sub' : '' }}">Request</a>
+                                        <a href="{{ route('dcs.requests.index', absolute: false) }}" class="{{ request()->routeIs('dcs.requests.*') ? 'active-sub' : '' }}">
+                                            Request
+                                            <span
+                                                id="ofiRequestBadge"
+                                                class="ofi-nav-badge ofi-nav-badge-inline"
+                                                style="{{ $pendingRequestCount > 0 ? '' : 'display:none;' }}"
+                                                data-ofi-request-badge
+                                                @if($pendingRequestCount < 1) hidden @endif
+                                            >{{ $pendingRequestCount }}</span>
+                                        </a>
                                     </li>
                                 @endif
                             </ul>
@@ -168,6 +199,13 @@
                     <a href="{{ route('dcs.requests.index', absolute: false) }}">
                         <i class="fa-solid fa-inbox"></i>
                         <span>Request</span>
+                        <span
+                            id="ofiRequestBadge"
+                            class="ofi-nav-badge"
+                            style="{{ $pendingRequestCount > 0 ? '' : 'display:none;' }}"
+                            data-ofi-request-badge
+                            @if($pendingRequestCount < 1) hidden @endif
+                        >{{ $pendingRequestCount }}</span>
                         <span class="tooltip">Pending office DRF &amp; DCN</span>
                     </a>
                 </li>

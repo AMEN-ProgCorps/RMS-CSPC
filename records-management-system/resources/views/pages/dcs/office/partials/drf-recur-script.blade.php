@@ -219,34 +219,82 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         });
     }
 
-    function lockDocTypeKind(kind) {
-        const radios = form.querySelectorAll('input[name="docTypeKind"]');
-        if (!radios.length) return;
+    function ensureHidden(name, value) {
+        let el = form.querySelector('input[type="hidden"][name="' + name + '"][data-drf-recur-lock="1"]');
+        if (!el) {
+            el = document.createElement('input');
+            el.type = 'hidden';
+            el.name = name;
+            el.dataset.drfRecurLock = '1';
+            form.appendChild(el);
+        }
+        el.value = value == null ? '' : String(value);
+        return el;
+    }
+
+    function lockDocTypeKind(kind, docTypeId, subTypeId) {
         const value = kind === 'external' ? 'external' : 'internal';
+        ensureHidden('docTypeKind', value);
+
+        const radios = form.querySelectorAll('input[type="radio"][name="docTypeKind"]');
         radios.forEach(function (radio) {
             radio.checked = radio.value === value;
             radio.disabled = true;
         });
-        let hidden = form.querySelector('input[type="hidden"][name="docTypeKind"][data-drf-recur-lock="1"]');
-        if (!hidden) {
-            hidden = document.createElement('input');
-            hidden.type = 'hidden';
-            hidden.name = 'docTypeKind';
-            hidden.dataset.drfRecurLock = '1';
-            form.appendChild(hidden);
+        // Rebuild parent list for this kind before selecting.
+        radios.forEach(function (radio) {
+            if (radio.value === value) {
+                radio.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+
+        const parentSelect = document.getElementById('drfDocTypeId');
+        const subSelect = document.getElementById('drfSubTypeId');
+        const parentId = docTypeId ? String(docTypeId) : '';
+        const childId = subTypeId ? String(subTypeId) : '';
+
+        if (parentSelect && parentSelect.tagName === 'SELECT') {
+            if (parentId) parentSelect.value = parentId;
+            parentSelect.disabled = true;
+            parentSelect.removeAttribute('name');
+            parentSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            ensureHidden('docTypeId', parentId);
+            if (subSelect) {
+                const applySub = function () {
+                    if (childId && [].some.call(subSelect.options, function (o) { return o.value === childId; })) {
+                        subSelect.value = childId;
+                        subSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    subSelect.disabled = true;
+                    subSelect.removeAttribute('name');
+                    ensureHidden('subTypeId', subSelect.value || childId || '');
+                };
+                applySub();
+                setTimeout(applySub, 0);
+            }
         }
-        hidden.value = value;
+
         const hintEl = document.getElementById('drfRecurDocTypeHint');
         if (hintEl) hintEl.hidden = false;
     }
 
     function unlockDocTypeKind() {
-        const radios = form.querySelectorAll('input[name="docTypeKind"]');
+        const parentSelect = document.getElementById('drfDocTypeId');
+        const subSelect = document.getElementById('drfSubTypeId');
+        if (parentSelect && parentSelect.tagName === 'SELECT') {
+            parentSelect.disabled = false;
+            parentSelect.setAttribute('name', 'docTypeId');
+        }
+        if (subSelect && subSelect.tagName === 'SELECT') {
+            subSelect.disabled = !parentSelect || !parentSelect.value;
+            subSelect.setAttribute('name', 'subTypeId');
+        }
+        form.querySelectorAll('input[type="hidden"][data-drf-recur-lock="1"]').forEach(function (el) {
+            el.remove();
+        });
+        const radios = form.querySelectorAll('input[type="radio"][name="docTypeKind"]');
         radios.forEach(function (radio) {
             radio.disabled = false;
-        });
-        form.querySelectorAll('input[type="hidden"][name="docTypeKind"][data-drf-recur-lock="1"]').forEach(function (el) {
-            el.remove();
         });
         const hintEl = document.getElementById('drfRecurDocTypeHint');
         if (hintEl) hintEl.hidden = true;
@@ -360,8 +408,8 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
                 setStatus('Document selected. Choose a different document if this is not the one to recur.', true);
             }
             showFieldSuggestions(data);
-            if (data.doc_type_kind) {
-                lockDocTypeKind(data.doc_type_kind);
+            if (data.doc_type_kind || data.doc_type_id || data.sub_type_id) {
+                lockDocTypeKind(data.doc_type_kind, data.doc_type_id, data.sub_type_id);
             }
             showSelected(data);
             // Park focus on the finder card — never Distribute, never a removed suggestion btn.

@@ -959,6 +959,12 @@ body.ofi-docno-use-open {
     gap: 22px;
     padding: 28px 28px 32px;
 }
+/* .reg-grid-2 sets display:grid which would otherwise override the HTML hidden attribute */
+#ofiDrfCatalogPickers[hidden],
+#ofiDrfCatalogPickers.is-ofi-hidden {
+    display: none !important;
+}
+
 .ofi-drf-form .reg-grid-2 {
     margin: 0;
     gap: 20px;
@@ -3213,10 +3219,21 @@ body.ofi-modal-open {
 [data-theme="dark"] .ofi-docno-use-meta dt {
     color: #94a3b8;
 }
-[data-theme="dark"] .ofi-header h1,
+[data-theme="dark"] .ofi-header h1 {
+    color: #f8fafc;
+    background: transparent;
+    border-color: transparent;
+}
+[data-theme="dark"] .ofi-header p strong {
+    color: #e2e8f0;
+}
 [data-theme="dark"] .ofi-dcn-selected {
     background: #131c2e;
     border-color: #1e3a5f;
+}
+[data-theme="dark"] .ofi-doc-panel-head {
+    background: #1d4ed8;
+    color: #fff;
 }
 [data-theme="dark"] .ofi-dcn-selected-head span,
 [data-theme="dark"] .ofi-dcn-reselect:hover {

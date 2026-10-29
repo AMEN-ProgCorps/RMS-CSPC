@@ -56,7 +56,7 @@ DCS file: Read-only DRF summary on the admin request screen. Comma-separated ori
                 <dd><x-dcs.originator-lines :name="$originator" /></dd>
             </div>
             <div class="ofi-review-field">
-                <dt>Department</dt>
+                <dt>Source unit</dt>
                 <dd>{{ $meta['office'] ?? '—' }}</dd>
             </div>
             <div class="ofi-review-field">

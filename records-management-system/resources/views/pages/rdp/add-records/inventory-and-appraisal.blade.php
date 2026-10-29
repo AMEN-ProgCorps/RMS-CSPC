@@ -4820,16 +4820,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                     fn ($c) => strcasecmp(trim((string) $c), $viewerOffice) === 0
                                 );
                             @endphp
-                            <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px;">
+                            <div class="ia-dup-chip-list">
                                 @foreach($duplicate_offices as $offCode)
                                     @php
                                         $offObj = collect($officesList)->firstWhere('office_code', $offCode);
                                         $offName = $offObj->office_name ?? $offCode;
                                         $isViewerOffice = $viewerOffice !== '' && strcasecmp(trim((string) $offCode), $viewerOffice) === 0;
                                     @endphp
-                                    <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; {{ $isViewerOffice ? 'background-color: #ecfdf5; color: #047857; border: 1px solid #6ee7b7;' : 'background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;' }}">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                                        <span><strong>{{ $offCode }}</strong> — {{ $offName }}</span>
+                                    <span class="ia-dup-chip {{ $isViewerOffice ? 'is-viewer' : '' }}">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                        <span class="ia-dup-chip-text"><strong class="ia-dup-chip-code">{{ $offCode }}</strong> — {{ $offName }}</span>
                                     </span>
                                 @endforeach
                             </div>

@@ -345,7 +345,7 @@ function showDcsDropdownFloat(navItem) {
     if (!links.length) return;
 
     const summary = navItem.querySelector('summary');
-    const titleEl = summary?.querySelector('span:not(.tooltip)');
+    const titleEl = summary?.querySelector('span:not(.tooltip):not(.ofi-nav-badge):not(.ofi-nav-badge-parent)');
     const titleText = titleEl?.textContent?.trim() || 'Menu';
     const iconEl = summary?.querySelector('i:not(.arrow)');
 

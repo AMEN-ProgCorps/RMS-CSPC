@@ -85,6 +85,22 @@
     box-shadow: 0 1px 3px 0 rgba(4, 56, 153, 0.08);
 }
 
+.dcs-top-tabs-host .top-nav-tab-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #2563eb;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+}
+
 .dcs-top-tabs-host .top-nav-tab-item.active .top-nav-tab-indicator {
     position: absolute;
     bottom: -1px;

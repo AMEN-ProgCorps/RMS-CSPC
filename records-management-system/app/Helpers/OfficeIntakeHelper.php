@@ -1235,6 +1235,14 @@ class OfficeIntakeHelper
         ];
     }
 
+    /** Total open office DRF + DCN waiting in Admin Request. */
+    public static function pendingOfficeRequestTotal(): int
+    {
+        $counts = self::pendingOfficeRequestCounts();
+
+        return (int) ($counts['drf'] ?? 0) + (int) ($counts['dcn'] ?? 0);
+    }
+
     private static function countOpenIntake(string $table): int
     {
         if (! Schema::hasTable($table)) {

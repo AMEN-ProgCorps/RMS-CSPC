@@ -152,6 +152,20 @@ DCS file: DCS toast. Same look on every DCS screen.
                 badge.style.display = 'none';
             }
         });
+        Livewire.on('office-request-count', function (payload) {
+            var data = Array.isArray(payload) ? payload[0] : payload;
+            var count = Math.max(0, parseInt((data && data.count != null) ? data.count : (data ?? 0), 10) || 0);
+            document.querySelectorAll('[data-ofi-request-badge]').forEach(function (badge) {
+                badge.textContent = String(count);
+                if (count > 0) {
+                    badge.hidden = false;
+                    badge.style.display = '';
+                } else {
+                    badge.hidden = true;
+                    badge.style.display = 'none';
+                }
+            });
+        });
         Livewire.hook('commit', function (_ref) {
             var succeed = _ref.succeed;
             succeed(function () { queueMicrotask(scanToasts); });

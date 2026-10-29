@@ -25,7 +25,9 @@
 }
 
 /* Sidebar = same navy as DTS/RDP .navigation */
-[data-theme="dark"] .side-nav .ofi-nav-badge {
+[data-theme="dark"] .side-nav .ofi-nav-badge,
+[data-theme="dark"] .top-nav-tab-badge,
+[data-theme="dark"] .dcs-top-tabs-host .top-nav-tab-badge {
     background: #2563eb !important;
     color: #fff !important;
     box-shadow: 0 0 0 2px #0b1220;

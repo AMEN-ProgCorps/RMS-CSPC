@@ -402,10 +402,13 @@
                     ],
             ];
             if ($isIntakeReviewer) {
+                $pendingRequestCount = \App\Helpers\OfficeIntakeHelper::pendingOfficeRequestTotal();
                 $tabs[] = [
                     'label' => 'Request',
                     'url' => route('dcs.requests.index'),
                     'active' => request()->routeIs('dcs.requests.*'),
+                    'badge' => $pendingRequestCount,
+                    'badgeAttr' => 'data-ofi-request-badge',
                 ];
             }
         }
@@ -790,10 +793,22 @@
         @endif
 
         @foreach($tabs as $tab)
+            @php
+                $tabBadge = (int) ($tab['badge'] ?? 0);
+                $tabBadgeAttr = (string) ($tab['badgeAttr'] ?? '');
+            @endphp
             <a href="{{ $tab['url'] }}" 
                class="top-nav-tab-item {{ $tab['active'] ? 'active' : '' }}"
-               title="{{ $tab['label'] }}">
+               title="{{ $tab['label'] }}{{ $tabBadge > 0 ? ' · '.$tabBadge : '' }}">
                 <span class="top-nav-tab-label">{{ $tab['label'] }}</span>
+                @if(array_key_exists('badge', $tab))
+                    <span
+                        class="top-nav-tab-badge"
+                        @if($tabBadgeAttr !== '') {{ $tabBadgeAttr }} @endif
+                        style="{{ $tabBadge > 0 ? '' : 'display:none;' }}"
+                        @if($tabBadge < 1) hidden @endif
+                    >{{ $tabBadge }}</span>
+                @endif
                 @if($tab['active'])
                     <span class="top-nav-tab-indicator"></span>
                 @endif

@@ -62,9 +62,5 @@ new class extends Component {
     }
 }; ?>
 
-@if(
-    (\App\Helpers\RegisterQueryHelper::canAccessOfficeIntake() && ! \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake())
-    || \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake()
-)
-    <div wire:poll.5s.keep-alive="tick" class="dcs-incoming-live" hidden></div>
-@endif
+{{-- Always keep a single root tag; Livewire cannot root on Blade @if markers. --}}
+<div wire:poll.5s.keep-alive="tick" class="dcs-incoming-live" hidden aria-hidden="true"></div>

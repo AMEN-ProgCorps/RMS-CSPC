@@ -326,9 +326,10 @@ class RdpRetentionService
         ?string $remTotal = null,
         ?string $actionDate = null
     ): object {
-        $hasRemarks = !empty(trim((string)$remarks));
-        $hasTrigger = !empty($keyWordId);
-        $hasImmunity = $hasRemarks && $hasTrigger;
+        $cleanRemarks = trim((string)$remarks);
+        $hasRemarks = !empty($cleanRemarks) && $cleanRemarks !== '—';
+        $hasTrigger = !empty($keyWordId) || $hasRemarks;
+        $hasImmunity = $hasRemarks;
 
         $hasActionDate = !empty(trim((string)$actionDate)) && trim((string)$actionDate) !== '—';
         $isActionBeforeBool = filter_var($isActionBefore, FILTER_VALIDATE_BOOLEAN);
@@ -362,12 +363,12 @@ class RdpRetentionService
                     $effectiveIsPerm = $isPerm;
                 } else {
                     // Was Original Retention first -> now switched to Remark Retention!
-                    $usesRemarkRetention = true;
-                    $isImmune = !$hasRemarkRetentionConfigured;
-                    $effectiveActive = $remActive;
-                    $effectiveStorage = $remStorage;
-                    $effectiveTotal = $remTotal;
-                    $effectiveIsPerm = false;
+                    $usesRemarkRetention = $hasRemarkRetentionConfigured;
+                    $isImmune = false;
+                    $effectiveActive = $remActive ?: $origActive;
+                    $effectiveStorage = $remStorage ?: $origStorage;
+                    $effectiveTotal = $remTotal ?: $origTotal;
+                    $effectiveIsPerm = $hasRemarkRetentionConfigured ? false : $isPerm;
                 }
             } else {
                 // Action date is blank -> stays in initial configured state!
@@ -375,9 +376,9 @@ class RdpRetentionService
                     // Remark Retention first
                     $usesRemarkRetention = true;
                     $isImmune = !$hasRemarkRetentionConfigured;
-                    $effectiveActive = $remActive;
-                    $effectiveStorage = $remStorage;
-                    $effectiveTotal = $remTotal;
+                    $effectiveActive = $remActive ?: $origActive;
+                    $effectiveStorage = $remStorage ?: $origStorage;
+                    $effectiveTotal = $remTotal ?: $origTotal;
                     $effectiveIsPerm = false;
                 } else {
                     // Remark Retention later -> waiting for action trigger (e.g. "After settled")!

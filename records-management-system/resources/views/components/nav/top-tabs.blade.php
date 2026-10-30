@@ -732,6 +732,11 @@
                     'active' => request()->routeIs('admin.rdp.record-series'),
                 ],
                 [
+                    'label' => 'Series Brackets',
+                    'url' => route('admin.rdp.brackets'),
+                    'active' => request()->routeIs('admin.rdp.brackets'),
+                ],
+                [
                     'label' => 'Remark Key Triggers',
                     'url' => route('admin.rdp.remark-key-triggers'),
                     'active' => request()->routeIs('admin.rdp.remark-key-triggers'),

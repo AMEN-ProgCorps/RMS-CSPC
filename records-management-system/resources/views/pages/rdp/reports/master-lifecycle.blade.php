@@ -2,6 +2,7 @@
 
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Computed;
 use Livewire\Volt\Component;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -30,10 +31,76 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
     // View / Edit Record Details & Action Date Modal Properties
     public bool $showRecordModal = false;
     public ?int $selectedRecordId = null;
-    public ?object $selectedRecord = null;
     public ?string $editActionDate = '';
     public ?string $recordModalSuccess = null;
     public ?string $recordModalError = null;
+
+    #[Computed]
+    public function selectedRecord(): ?object
+    {
+        if (!$this->selectedRecordId) return null;
+
+        $rec = DB::table('rdp_record')
+            ->leftJoin('rdp_period_covered', 'rdp_record.id', '=', 'rdp_period_covered.period_owner')
+            ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
+            ->leftJoin('rdp_record_series as parent_series', 'rdp_record_series.parent_id', '=', 'parent_series.id')
+            ->leftJoin('rdp_retention_period as sub_ret', 'rdp_record_series.retention_period', '=', 'sub_ret.id')
+            ->leftJoin('rdp_retention_period as parent_ret', 'parent_series.retention_period', '=', 'parent_ret.id')
+            ->leftJoin('rdp_remarks_logic as sub_rem', 'rdp_record_series.remarks', '=', 'sub_rem.id')
+            ->leftJoin('rdp_remarks_logic as parent_rem', 'parent_series.remarks', '=', 'parent_rem.id')
+            ->leftJoin('rdp_remark_key_triggers as sub_trig', 'sub_rem.key_word_id', '=', 'sub_trig.id')
+            ->leftJoin('rdp_remark_key_triggers as parent_trig', 'parent_rem.key_word_id', '=', 'parent_trig.id')
+            ->leftJoin('rdp_mediums', 'rdp_record.medium', '=', 'rdp_mediums.id')
+            ->where('rdp_record.id', $this->selectedRecordId)
+            ->select([
+                'rdp_record.*',
+                'rdp_period_covered.date_covered',
+                'rdp_period_covered.date_covered_end',
+                'rdp_period_covered.volume as period_volume',
+                'rdp_record_series.series_title',
+                'rdp_record_series.item_number as series_item_number',
+                'rdp_record_series.is_retention_period_permanent as sub_perm',
+                'parent_series.is_retention_period_permanent as parent_perm',
+                'sub_ret.active_period as sub_active',
+                'sub_ret.storage_period as sub_storage',
+                'sub_ret.total_period as sub_total',
+                'parent_ret.active_period as parent_active',
+                'parent_ret.storage_period as parent_storage',
+                'parent_ret.total_period as parent_total',
+                'rdp_mediums.medium_name',
+                DB::raw('COALESCE(sub_rem.remarks_value, parent_rem.remarks_value) as eff_remarks'),
+                DB::raw('COALESCE(sub_rem.key_word_id, parent_rem.key_word_id) as eff_key_word_id'),
+                DB::raw('COALESCE(sub_rem.active_period_backup, parent_rem.active_period_backup) as eff_rem_active'),
+                DB::raw('COALESCE(sub_rem.storage_period_backup, parent_rem.storage_period_backup) as eff_rem_storage'),
+                DB::raw('COALESCE(sub_rem.total_period_backup, parent_rem.total_period_backup) as eff_rem_total'),
+                DB::raw('COALESCE(sub_trig.is_action_before, parent_trig.is_action_before) as eff_is_action_before'),
+                DB::raw('COALESCE(sub_trig.key_word, parent_trig.key_word) as trigger_keyword'),
+            ])
+            ->first();
+
+        if ($rec) {
+            $isPerm = (bool)($rec->sub_perm ?? false) || (bool)($rec->parent_perm ?? false);
+            $effActive = $rec->sub_active ?: $rec->parent_active;
+            $effStorage = $rec->sub_storage ?: $rec->parent_storage;
+            $effTotal = $rec->sub_total ?: $rec->parent_total;
+
+            $rec->immunity = \App\Services\RdpRetentionService::resolveImmunity(
+                $effActive,
+                $effStorage,
+                $effTotal,
+                $isPerm,
+                $rec->eff_remarks,
+                $rec->eff_key_word_id,
+                $rec->eff_is_action_before,
+                $rec->eff_rem_active,
+                $rec->eff_rem_storage,
+                $rec->eff_rem_total,
+                $rec->action_date
+            );
+        }
+
+        return $rec;
+    }
 
     /**
      * Check if user has role clearance to access the Generalized Records report.
@@ -525,30 +592,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
 
     public function openRecordModal(int $recordId): void
     {
-        $rec = DB::table('rdp_record')
-            ->leftJoin('rdp_period_covered', 'rdp_record.id', '=', 'rdp_period_covered.period_owner')
-            ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
-            ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
-            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
-            ->where('rdp_record.id', $recordId)
-            ->select([
-                'rdp_record.*',
-                'rdp_period_covered.date_covered',
-                'rdp_period_covered.date_covered_end',
-                'rdp_period_covered.volume as period_volume',
-                'rdp_record_series.series_title',
-                'rdp_record_series.item_number as series_item_number',
-                'rdp_retention_period.active_period',
-                'rdp_retention_period.storage_period',
-                'rdp_retention_period.total_period',
-                'rdp_retention_period.is_permanent as retention_is_permanent',
-                'rdp_remarks_logic.remarks_value as disposition_provision',
-            ])
-            ->first();
+        $this->selectedRecordId = $recordId;
+        unset($this->selectedRecord);
+        $rec = $this->selectedRecord;
 
         if ($rec) {
-            $this->selectedRecordId = $recordId;
-            $this->selectedRecord = $rec;
             $this->editActionDate = !empty($rec->action_date)
                 ? (string)$rec->action_date
                 : (!empty($rec->transferred_to_nap3_at) ? Carbon::parse($rec->transferred_to_nap3_at)->format('Y-m-d') : '');
@@ -562,7 +610,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
     {
         $this->showRecordModal = false;
         $this->selectedRecordId = null;
-        $this->selectedRecord = null;
+        unset($this->selectedRecord);
         $this->editActionDate = '';
         $this->recordModalSuccess = null;
         $this->recordModalError = null;
@@ -577,11 +625,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             $parsedDate = !empty($val) ? Carbon::parse($val)->format('Y-m-d') : null;
 
             $targetIds = [$this->selectedRecordId];
-            if ($this->selectedRecord) {
+            $rec = $this->selectedRecord;
+            if ($rec) {
                 $siblingIds = DB::table('rdp_record')
-                    ->where('record_series_id', $this->selectedRecord->record_series_id)
-                    ->whereRaw('TRIM(UPPER(description)) = ?', [trim(mb_strtoupper((string)$this->selectedRecord->description))])
-                    ->where('office_own', $this->selectedRecord->office_own)
+                    ->where('record_series_id', $rec->record_series_id)
+                    ->whereRaw('TRIM(UPPER(description)) = ?', [trim(mb_strtoupper((string)$rec->description))])
+                    ->where('office_own', $rec->office_own)
                     ->pluck('id')
                     ->all();
                 if (!empty($siblingIds)) {
@@ -596,10 +645,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                     'updated_at'  => Carbon::now(),
                 ]);
 
-            $this->recordModalSuccess = 'Action date updated successfully!';
-            if ($this->selectedRecord) {
-                $this->selectedRecord->action_date = $parsedDate;
-            }
+            unset($this->selectedRecord);
+
+            $this->recordModalSuccess = !empty($parsedDate)
+                ? 'Action date saved and retention logic triggered successfully!'
+                : 'Action date cleared successfully!';
         } catch (\Throwable $e) {
             $this->recordModalError = 'Failed to update action date: ' . $e->getMessage();
         }
@@ -2706,13 +2756,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                                     </td>
                                     <td style="text-align: center; font-size: 11px;">{{ $root->recorded_at_office ?: 'ALL' }}</td>
                                     <td style="text-align: center;">
-                                        <button type="button" 
-                                                wire:click="openRecordModal({{ $rec->id }})" 
-                                                class="ml-action-btn" 
-                                                style="padding: 3px 8px; font-size: 11px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; font-weight: 700; color: #1e293b; cursor: pointer;" 
-                                                title="View & Edit Action Date">
-                                            View
-                                        </button>
+                                        @php
+                                            $needsResolution = (empty($rec->formatted_action_date) || $rec->formatted_action_date === '—')
+                                                && !empty($rec->immunity?->has_immunity)
+                                                && !in_array($rec->status, ['disposed', 'revised'])
+                                                && (!$root->is_retention_period_permanent || !empty($rec->immunity?->has_remark_config));
+                                        @endphp
+                                        @if($needsResolution)
+                                            <button type="button" 
+                                                    wire:click="openRecordModal({{ $rec->id }})" 
+                                                    class="ml-action-btn" 
+                                                    style="padding: 3px 9px; font-size: 11px; background: #eff6ff; border: 1.5px solid #2563eb; border-radius: 4px; font-weight: 800; color: #1d4ed8; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;" 
+                                                    title="Event Trigger Pending — Click to Resolve Action Date">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                                <span>Resolve Action</span>
+                                            </button>
+                                        @else
+                                            <button type="button" 
+                                                    wire:click="openRecordModal({{ $rec->id }})" 
+                                                    class="ml-action-btn" 
+                                                    style="padding: 3px 8px; font-size: 11px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; font-weight: 700; color: #1e293b; cursor: pointer;" 
+                                                    title="View Record Details & Action Date">
+                                                View
+                                            </button>
+                                        @endif
                                     </td>
                                 </tr>
 
@@ -2992,13 +3059,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                                             </td>
                                             <td style="text-align: center; font-size: 11px;">{{ $sub->recorded_at_office ?: 'ALL' }}</td>
                                             <td style="text-align: center;">
-                                                <button type="button" 
-                                                        wire:click="openRecordModal({{ $sRec->id }})" 
-                                                        class="ml-action-btn" 
-                                                        style="padding: 3px 8px; font-size: 11px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; font-weight: 700; color: #1e293b; cursor: pointer;" 
-                                                        title="View & Edit Action Date">
-                                                    View
-                                                </button>
+                                                @php
+                                                    $sNeedsResolution = (empty($sRec->formatted_action_date) || $sRec->formatted_action_date === '—')
+                                                        && !empty($sRec->immunity?->has_immunity)
+                                                        && !in_array($sRec->status, ['disposed', 'revised'])
+                                                        && (!$sub->is_retention_period_permanent || !empty($sRec->immunity?->has_remark_config));
+                                                @endphp
+                                                @if($sNeedsResolution)
+                                                    <button type="button" 
+                                                            wire:click="openRecordModal({{ $sRec->id }})" 
+                                                            class="ml-action-btn" 
+                                                            style="padding: 3px 9px; font-size: 11px; background: #eff6ff; border: 1.5px solid #2563eb; border-radius: 4px; font-weight: 800; color: #1d4ed8; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;" 
+                                                            title="Event Trigger Pending — Click to Resolve Action Date">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                                        <span>Resolve Action</span>
+                                                    </button>
+                                                @else
+                                                    <button type="button" 
+                                                            wire:click="openRecordModal({{ $sRec->id }})" 
+                                                            class="ml-action-btn" 
+                                                            style="padding: 3px 8px; font-size: 11px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; font-weight: 700; color: #1e293b; cursor: pointer;" 
+                                                            title="View Record Details & Action Date">
+                                                        View
+                                                    </button>
+                                                @endif
                                             </td>
                                         </tr>
 
@@ -3258,17 +3342,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
     @endif
 
     <!-- Record Details & Action Date Modal -->
-    @if($showRecordModal && $selectedRecord)
+    @php
+        $recObj = $this->selectedRecord;
+    @endphp
+    @if($showRecordModal && $recObj)
         <div class="ml-modal-overlay" wire:click.self="closeRecordModal">
-            <div class="ml-modal-dialog" style="max-width: 540px;">
+            <div class="ml-modal-dialog" style="max-width: 560px;">
                 <div style="display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <div>
                         <div style="font-size: 16px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px;">
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                            <span>Record Details & Action Date</span>
+                            <span>Record Details & Action Resolution</span>
                         </div>
                         <div style="font-size: 12px; color: #64748b; margin-top: 2px;">
-                            Manage lifecycle actions and update the official disposition action date.
+                            Manage lifecycle actions and configure the official disposition action date.
                         </div>
                     </div>
                     <button type="button" wire:click="closeRecordModal" class="ml-chevron-btn" style="width: 28px; height: 28px; font-size: 20px; color: #64748b;" title="Close">&times;</button>
@@ -3289,24 +3376,61 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                 @endif
 
                 <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <!-- Event Trigger Resolution Callout -->
+                    @if(!empty($recObj->immunity?->has_immunity))
+                        @if(!empty($recObj->action_date))
+                            <div style="background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 8px; padding: 12px 14px; font-size: 12px; color: #166534;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                                    <div style="font-weight: 800; display: flex; align-items: center; gap: 6px; font-size: 12.5px;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                                        <span>Action Trigger Resolved</span>
+                                    </div>
+                                    <span style="background: #dcfce7; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 800; text-transform: uppercase;">Active Countdown</span>
+                                </div>
+                                <div style="color: #374151; margin-top: 2px;">
+                                    <strong>Trigger Condition:</strong> {{ $recObj->eff_remarks ?: $recObj->disposition_provision }}
+                                </div>
+                                <div style="margin-top: 6px; font-size: 11.5px; color: #15803d; font-weight: 600;">
+                                    Retention countdown active since <strong>{{ \Carbon\Carbon::parse($recObj->action_date)->format('M d, Y') }}</strong> (Effective Total: <strong>{{ $recObj->immunity?->effective_total ?? '—' }}</strong>).
+                                </div>
+                            </div>
+                        @else
+                            <div style="background: #fffbeb; border: 1.5px solid #fde68a; border-radius: 8px; padding: 12px 14px; font-size: 12px; color: #92400e;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                                    <div style="font-weight: 800; display: flex; align-items: center; gap: 6px; font-size: 12.5px;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                        <span>Action Trigger Pending (Protected from Disposal)</span>
+                                    </div>
+                                    <span style="background: #fef3c7; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 800; text-transform: uppercase;">Awaiting Action</span>
+                                </div>
+                                <div style="color: #4b5563; margin-top: 2px;">
+                                    <strong>Trigger Condition:</strong> {{ $recObj->eff_remarks ?: $recObj->disposition_provision }}
+                                </div>
+                                <div style="margin-top: 6px; font-size: 11.5px; color: #b45309; font-weight: 600;">
+                                    This record is currently immune from disposal until the event Action Date is recorded. Once set, retention will compute using <strong>{{ $recObj->immunity?->effective_total ?? '—' }}</strong>.
+                                </div>
+                            </div>
+                        @endif
+                    @endif
+
                     <!-- Record Info Summary -->
                     <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px;">
                         <div>
                             <span style="color: #64748b; font-weight: 600; display: block; font-size: 11px;">ITEM & SERIES TITLE</span>
                             <span style="font-weight: 700; color: #0f172a;">
-                                {{ $selectedRecord->item_number ? $selectedRecord->item_number . ' - ' : '' }}{{ $selectedRecord->series_title ?? 'N/A' }}
+                                {{ $recObj->series_item_number ? $recObj->series_item_number . ' - ' : ($recObj->item_number ? $recObj->item_number . ' - ' : '') }}{{ $recObj->series_title ?? 'N/A' }}
                             </span>
                         </div>
                         <div>
                             <span style="color: #64748b; font-weight: 600; display: block; font-size: 11px;">CURRENT STATUS</span>
                             <span style="display: inline-block; margin-top: 2px;">
-                                @if($selectedRecord->status === 'revised')
+                                @if($recObj->status === 'revised')
                                     <span class="ml-badge ml-badge-revised">Revised</span>
-                                @elseif($selectedRecord->status === 'disposed')
+                                @elseif($recObj->status === 'disposed')
                                     <span class="ml-badge ml-badge-disposed">Disposed</span>
-                                @elseif($selectedRecord->status === 'expired')
+                                @elseif($recObj->status === 'expired')
                                     <span class="ml-badge ml-badge-expired">Expired</span>
-                                @elseif($selectedRecord->status === 'pending_rds')
+                                @elseif($recObj->status === 'pending_rds')
                                     <span class="ml-badge ml-badge-pending">Pending RDS</span>
                                 @else
                                     <span class="ml-badge ml-badge-active">Active</span>
@@ -3315,21 +3439,21 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                         </div>
                         <div style="grid-column: span 2;">
                             <span style="color: #64748b; font-weight: 600; display: block; font-size: 11px;">RECORD DESCRIPTION</span>
-                            <span style="font-weight: 600; color: #1e293b;">{{ $selectedRecord->description ?? '—' }}</span>
+                            <span style="font-weight: 600; color: #1e293b;">{{ $recObj->description ?? '—' }}</span>
                         </div>
                         <div>
                             <span style="color: #64748b; font-weight: 600; display: block; font-size: 11px;">PERIOD COVERED</span>
-                            <span style="font-weight: 600; color: #1e293b;">{{ $selectedRecord->date_covered ?? '—' }}</span>
+                            <span style="font-weight: 600; color: #1e293b;">{{ $recObj->date_covered ?? '—' }}</span>
                         </div>
                         <div>
                             <span style="color: #64748b; font-weight: 600; display: block; font-size: 11px;">VOLUME / MEDIUM</span>
                             <span style="font-weight: 600; color: #1e293b;">
-                                {{ $selectedRecord->volume ?? '—' }} / {{ $selectedRecord->medium_name ?? '—' }}
+                                {{ $recObj->volume ?? '—' }} / {{ $recObj->medium_name ?: ($recObj->medium ?? '—') }}
                             </span>
                         </div>
                         <div style="grid-column: span 2;">
                             <span style="color: #64748b; font-weight: 600; display: block; font-size: 11px;">DISPOSITION PROVISION (REMARKS)</span>
-                            <span style="font-weight: 500; color: #334155;">{{ $selectedRecord->disposition_provision ?: '—' }}</span>
+                            <span style="font-weight: 500; color: #334155;">{{ $recObj->eff_remarks ?: ($recObj->disposition_provision ?: '—') }}</span>
                         </div>
                     </div>
 
@@ -3337,13 +3461,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                     <div>
                         <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">
                             Action Date
+                            @if(!empty($recObj->immunity?->has_immunity) && empty($recObj->action_date))
+                                <span style="font-size: 11px; color: #b45309; font-weight: 700; margin-left: 6px;">(Required to Resolve Trigger)</span>
+                            @endif
                         </label>
                         <input type="date" 
                                wire:model="editActionDate" 
                                class="ml-search-input" 
                                style="width: 100%; padding: 8px 12px; font-size: 13px; font-weight: 600; color: #1e293b;">
                         <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">
-                            Official date of disposition or lifecycle update. Leave blank to clear.
+                            @if(!empty($recObj->immunity?->has_immunity))
+                                Official date the event/action occurred (e.g. audit finalized, case settled, or contract ended). Leave blank to clear.
+                            @else
+                                Official date of disposition or lifecycle update. Leave blank to clear.
+                            @endif
                         </span>
                     </div>
 
@@ -3351,10 +3482,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                         <button type="button" wire:click="closeRecordModal" class="ml-action-btn" style="padding: 8px 16px;">
                             Close
                         </button>
-                        <button type="button" wire:click="saveRecordActionDate" class="ml-action-btn ml-generate-btn" style="padding: 8px 18px; display: inline-flex; align-items: center; gap: 6px;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                            <span>Save Action Date</span>
-                        </button>
+                        @if(!empty($recObj->immunity?->has_immunity) && empty($recObj->action_date))
+                            <button type="button" wire:click="saveRecordActionDate" class="ml-action-btn ml-generate-btn" style="padding: 8px 18px; display: inline-flex; align-items: center; gap: 6px; background: #2563eb;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                <span>Resolve Action</span>
+                            </button>
+                        @else
+                            <button type="button" wire:click="saveRecordActionDate" class="ml-action-btn ml-generate-btn" style="padding: 8px 18px; display: inline-flex; align-items: center; gap: 6px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                                <span>{{ !empty($recObj->action_date) ? 'Update Action Date' : 'Save Action Date' }}</span>
+                            </button>
+                        @endif
                     </div>
                 </div>
             </div>

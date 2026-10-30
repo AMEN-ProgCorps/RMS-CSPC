@@ -32,6 +32,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
     public bool $showRecordModal = false;
     public ?int $selectedRecordId = null;
     public ?string $editActionDate = '';
+    public ?string $editCustomActive = '';
+    public ?string $editCustomStorage = '';
+    public ?string $editCustomTotal = '';
+    public bool $showCustomRetentionFields = false;
     public ?string $recordModalSuccess = null;
     public ?string $recordModalError = null;
 
@@ -97,6 +101,31 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                 $rec->eff_rem_total,
                 $rec->action_date
             );
+
+            // Compute dynamic lifecycle status
+            $isRevised = false;
+            $dLow = mb_strtolower((string)$rec->description);
+            if (str_contains($dLow, '[revised]') || str_contains($dLow, '(revised)') || preg_match('/\b(revised|superseded)\b/i', $dLow)) {
+                $isRevised = true;
+            }
+
+            $isExpired = \App\Services\RdpRetentionService::isPeriodExpiredWithImmunity(
+                $rec->date_covered,
+                $rec->date_covered_end ?: $rec->date_covered,
+                $rec->immunity,
+                $rec->action_date
+            );
+            $isTransferred = (bool)($rec->transferred_to_nap3 ?? false);
+
+            if ($isRevised) {
+                $rec->status = 'revised';
+            } elseif ($isTransferred) {
+                $rec->status = 'disposed';
+            } elseif ($isExpired) {
+                $rec->status = 'expired';
+            } else {
+                $rec->status = 'active';
+            }
         }
 
         return $rec;
@@ -600,6 +629,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             $this->editActionDate = !empty($rec->action_date)
                 ? (string)$rec->action_date
                 : (!empty($rec->transferred_to_nap3_at) ? Carbon::parse($rec->transferred_to_nap3_at)->format('Y-m-d') : '');
+            
+            $this->editCustomActive = $rec->eff_rem_active ?? $rec->sub_active ?? $rec->parent_active ?? '';
+            $this->editCustomStorage = $rec->eff_rem_storage ?? $rec->sub_storage ?? $rec->parent_storage ?? '';
+            $this->editCustomTotal = $rec->eff_rem_total ?? $rec->sub_total ?? $rec->parent_total ?? '';
+            $this->showCustomRetentionFields = false;
+
             $this->recordModalSuccess = null;
             $this->recordModalError = null;
             $this->showRecordModal = true;
@@ -612,8 +647,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         $this->selectedRecordId = null;
         unset($this->selectedRecord);
         $this->editActionDate = '';
+        $this->editCustomActive = '';
+        $this->editCustomStorage = '';
+        $this->editCustomTotal = '';
+        $this->showCustomRetentionFields = false;
         $this->recordModalSuccess = null;
         $this->recordModalError = null;
+    }
+
+    public function setTodayActionDate(): void
+    {
+        $this->editActionDate = Carbon::today()->format('Y-m-d');
+    }
+
+    public function toggleCustomRetentionFields(): void
+    {
+        $this->showCustomRetentionFields = !$this->showCustomRetentionFields;
     }
 
     public function saveRecordActionDate(): void
@@ -636,6 +685,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                 if (!empty($siblingIds)) {
                     $targetIds = array_values(array_unique(array_merge($targetIds, $siblingIds)));
                 }
+
+                // If user toggled and modified custom retention fields, save to series remarks logic
+                if ($this->showCustomRetentionFields && !empty($rec->record_series_id)) {
+                    $remarksId = DB::table('rdp_record_series')->where('id', $rec->record_series_id)->value('remarks');
+                    if ($remarksId) {
+                        DB::table('rdp_remarks_logic')->where('id', $remarksId)->update([
+                            'active_period_backup'  => trim((string)$this->editCustomActive) ?: null,
+                            'storage_period_backup' => trim((string)$this->editCustomStorage) ?: null,
+                            'total_period_backup'   => trim((string)$this->editCustomTotal) ?: null,
+                        ]);
+                    }
+                }
             }
 
             DB::table('rdp_record')
@@ -648,7 +709,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             unset($this->selectedRecord);
 
             $this->recordModalSuccess = !empty($parsedDate)
-                ? 'Action date saved and retention logic triggered successfully!'
+                ? 'Action resolved successfully! Retention countdown is now active.'
                 : 'Action date cleared successfully!';
         } catch (\Throwable $e) {
             $this->recordModalError = 'Failed to update action date: ' . $e->getMessage();
@@ -1812,6 +1873,43 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             background: #1d4ed8;
             border-color: #1d4ed8;
             color: #ffffff;
+        }
+
+        .ml-btn-resolve-action {
+            height: 26px;
+            padding: 0 10px;
+            font-size: 11px;
+            font-weight: 800;
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1.5px solid #3b82f6;
+            border-radius: 5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            box-shadow: 0 1px 2px rgba(59, 130, 246, 0.1);
+            white-space: nowrap;
+        }
+
+        .ml-btn-resolve-action:hover {
+            background: #2563eb;
+            color: #ffffff;
+            border-color: #2563eb;
+            box-shadow: 0 2px 5px rgba(37, 99, 235, 0.25);
+            transform: translateY(-1px);
+        }
+
+        [data-theme="dark"] .ml-btn-resolve-action {
+            background: rgba(37, 99, 235, 0.18) !important;
+            color: #93c5fd !important;
+            border-color: #3b82f6 !important;
+        }
+
+        [data-theme="dark"] .ml-btn-resolve-action:hover {
+            background: #2563eb !important;
+            color: #ffffff !important;
         }
 
         /* Generate Form Modal */
@@ -3457,25 +3555,108 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                         </div>
                     </div>
 
-                    <!-- Action Date Input -->
-                    <div>
-                        <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">
-                            Action Date
-                            @if(!empty($recObj->immunity?->has_immunity) && empty($recObj->action_date))
-                                <span style="font-size: 11px; color: #b45309; font-weight: 700; margin-left: 6px;">(Required to Resolve Trigger)</span>
-                            @endif
-                        </label>
+                    <!-- Action Date & Retention Configuration -->
+                    <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                            <label style="font-size: 13px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 6px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: #2563eb;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                <span>Action Event Date</span>
+                                @if(!empty($recObj->immunity?->has_immunity) && empty($recObj->action_date))
+                                    <span style="font-size: 10.5px; background: #fef3c7; color: #b45309; padding: 1px 6px; border-radius: 4px; font-weight: 800; border: 1px solid #fde68a;">Required</span>
+                                @endif
+                            </label>
+                            <button type="button" wire:click="setTodayActionDate" class="ml-action-btn" style="height: 26px; padding: 0 8px; font-size: 11px; font-weight: 700; color: #2563eb; border-color: #bfdbfe; background: #eff6ff;">
+                                Set to Today
+                            </button>
+                        </div>
+
                         <input type="date" 
-                               wire:model="editActionDate" 
+                               wire:model.live="editActionDate" 
                                class="ml-search-input" 
-                               style="width: 100%; padding: 8px 12px; font-size: 13px; font-weight: 600; color: #1e293b;">
+                               style="width: 100%; padding: 8px 12px; font-size: 13px; font-weight: 700; color: #1e293b; background: #ffffff;">
                         <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">
                             @if(!empty($recObj->immunity?->has_immunity))
-                                Official date the event/action occurred (e.g. audit finalized, case settled, or contract ended). Leave blank to clear.
+                                Official date the event occurred (e.g. audit completion, case settlement, or contract termination).
                             @else
                                 Official date of disposition or lifecycle update. Leave blank to clear.
                             @endif
                         </span>
+
+                        <!-- Configured Retention Summary & Toggle -->
+                        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed #cbd5e1;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                <span style="font-size: 11.5px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.3px;">
+                                    Effective Retention Logic
+                                </span>
+                                <button type="button" 
+                                        wire:click="toggleCustomRetentionFields" 
+                                        style="background: none; border: none; color: #2563eb; font-size: 11px; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0;">
+                                    {{ $showCustomRetentionFields ? 'Hide Custom Fields' : 'Configure / Override Retention' }}
+                                </button>
+                            </div>
+
+                            @if(!$showCustomRetentionFields)
+                                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px; font-size: 11.5px; text-align: center;">
+                                    <div>
+                                        <div style="color: #64748b; font-size: 10px; font-weight: 700;">ACTIVE</div>
+                                        <div style="font-weight: 800; color: #0f172a; margin-top: 2px;">{{ $editCustomActive ?: ($recObj->immunity?->effective_active ?? '—') }}</div>
+                                    </div>
+                                    <div>
+                                        <div style="color: #64748b; font-size: 10px; font-weight: 700;">STORAGE</div>
+                                        <div style="font-weight: 800; color: #0f172a; margin-top: 2px;">{{ $editCustomStorage ?: ($recObj->immunity?->effective_storage ?? '—') }}</div>
+                                    </div>
+                                    <div>
+                                        <div style="color: #64748b; font-size: 10px; font-weight: 700;">TOTAL RETENTION</div>
+                                        <div style="font-weight: 800; color: #1d4ed8; margin-top: 2px;">{{ $editCustomTotal ?: ($recObj->immunity?->effective_total ?? '—') }}</div>
+                                    </div>
+                                </div>
+                            @else
+                                <div style="background: #ffffff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                                    <div>
+                                        <label style="font-size: 10px; font-weight: 700; color: #475569; display: block; margin-bottom: 3px;">ACTIVE</label>
+                                        <input type="text" wire:model.live="editCustomActive" placeholder="e.g. 5 YEARS" style="width: 100%; padding: 5px 8px; font-size: 11.5px; font-weight: 700; border: 1px solid #cbd5e1; border-radius: 4px;">
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 10px; font-weight: 700; color: #475569; display: block; margin-bottom: 3px;">STORAGE</label>
+                                        <input type="text" wire:model.live="editCustomStorage" placeholder="e.g. —" style="width: 100%; padding: 5px 8px; font-size: 11.5px; font-weight: 700; border: 1px solid #cbd5e1; border-radius: 4px;">
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 10px; font-weight: 700; color: #475569; display: block; margin-bottom: 3px;">TOTAL</label>
+                                        <input type="text" wire:model.live="editCustomTotal" placeholder="e.g. 5 YEARS" style="width: 100%; padding: 5px 8px; font-size: 11.5px; font-weight: 700; border: 1px solid #2563eb; border-radius: 4px; color: #1d4ed8;">
+                                    </div>
+                                </div>
+                            @endif
+
+                            <!-- Live Formula & Disposal Preview -->
+                            @if(!empty($editActionDate))
+                                @php
+                                    $actionYr = null;
+                                    try {
+                                        $actionYr = \Carbon\Carbon::parse($editActionDate)->year;
+                                    } catch (\Throwable $e) {}
+                                    $totStr = trim((string)($editCustomTotal ?: ($recObj->immunity?->effective_total ?? '')));
+                                    $totYears = preg_match('/(\d+)/', $totStr, $m) ? (int)$m[1] : 0;
+                                    $isPermNow = strtolower($totStr) === 'permanent' || ($recObj->immunity?->effective_is_perm && empty($editCustomTotal));
+                                @endphp
+                                @if($actionYr)
+                                    <div style="margin-top: 10px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 8px 12px; font-size: 11.5px; color: #1e40af; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
+                                        <div>
+                                            <span style="font-weight: 700;">Formula Calculation:</span>
+                                            <span>Action Year <strong>{{ $actionYr }}</strong> + Retention <strong>{{ $isPermNow ? 'PERMANENT' : ($totYears . ' yrs') }}</strong></span>
+                                        </div>
+                                        <div style="font-weight: 800; color: #1d4ed8;">
+                                            @if($isPermNow)
+                                                <span>Permanent Preservation</span>
+                                            @elseif($totYears > 0)
+                                                <span>Scheduled Disposal: {{ $actionYr + $totYears }}</span>
+                                            @else
+                                                <span>Custom Schedule</span>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @endif
+                            @endif
+                        </div>
                     </div>
 
                     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
@@ -3483,9 +3664,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                             Close
                         </button>
                         @if(!empty($recObj->immunity?->has_immunity) && empty($recObj->action_date))
-                            <button type="button" wire:click="saveRecordActionDate" class="ml-action-btn ml-generate-btn" style="padding: 8px 18px; display: inline-flex; align-items: center; gap: 6px; background: #2563eb;">
+                            <button type="button" wire:click="saveRecordActionDate" class="ml-action-btn ml-generate-btn" style="padding: 8px 20px; display: inline-flex; align-items: center; gap: 6px; background: #2563eb;">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                                <span>Resolve Action</span>
+                                <span>Resolve Action & Activate Retention</span>
                             </button>
                         @else
                             <button type="button" wire:click="saveRecordActionDate" class="ml-action-btn ml-generate-btn" style="padding: 8px 18px; display: inline-flex; align-items: center; gap: 6px;">

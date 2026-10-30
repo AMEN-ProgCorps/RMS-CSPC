@@ -44,7 +44,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
     {
         if (!$this->selectedRecordId) return null;
 
-        $rec = DB::table('rdp_record')
+        $mediumTable = Schema::hasTable('rdp_recorded_value')
+            ? 'rdp_recorded_value'
+            : (Schema::hasTable('rdp_records_medium')
+                ? 'rdp_records_medium'
+                : (Schema::hasTable('rdp_medium') ? 'rdp_medium' : null));
+
+        $query = DB::table('rdp_record')
             ->leftJoin('rdp_period_covered', 'rdp_record.id', '=', 'rdp_period_covered.period_owner')
             ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
             ->leftJoin('rdp_record_series as parent_series', 'rdp_record_series.parent_id', '=', 'parent_series.id')
@@ -53,33 +59,39 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             ->leftJoin('rdp_remarks_logic as sub_rem', 'rdp_record_series.remarks', '=', 'sub_rem.id')
             ->leftJoin('rdp_remarks_logic as parent_rem', 'parent_series.remarks', '=', 'parent_rem.id')
             ->leftJoin('rdp_remark_key_triggers as sub_trig', 'sub_rem.key_word_id', '=', 'sub_trig.id')
-            ->leftJoin('rdp_remark_key_triggers as parent_trig', 'parent_rem.key_word_id', '=', 'parent_trig.id')
-            ->leftJoin('rdp_mediums', 'rdp_record.medium', '=', 'rdp_mediums.id')
-            ->where('rdp_record.id', $this->selectedRecordId)
-            ->select([
-                'rdp_record.*',
-                'rdp_period_covered.date_covered',
-                'rdp_period_covered.date_covered_end',
-                'rdp_period_covered.volume as period_volume',
-                'rdp_record_series.series_title',
-                'rdp_record_series.item_number as series_item_number',
-                'rdp_record_series.is_retention_period_permanent as sub_perm',
-                'parent_series.is_retention_period_permanent as parent_perm',
-                'sub_ret.active_period as sub_active',
-                'sub_ret.storage_period as sub_storage',
-                'sub_ret.total_period as sub_total',
-                'parent_ret.active_period as parent_active',
-                'parent_ret.storage_period as parent_storage',
-                'parent_ret.total_period as parent_total',
-                'rdp_mediums.medium_name',
-                DB::raw('COALESCE(sub_rem.remarks_value, parent_rem.remarks_value) as eff_remarks'),
-                DB::raw('COALESCE(sub_rem.key_word_id, parent_rem.key_word_id) as eff_key_word_id'),
-                DB::raw('COALESCE(sub_rem.active_period_backup, parent_rem.active_period_backup) as eff_rem_active'),
-                DB::raw('COALESCE(sub_rem.storage_period_backup, parent_rem.storage_period_backup) as eff_rem_storage'),
-                DB::raw('COALESCE(sub_rem.total_period_backup, parent_rem.total_period_backup) as eff_rem_total'),
-                DB::raw('COALESCE(sub_trig.is_action_before, parent_trig.is_action_before) as eff_is_action_before'),
-                DB::raw('COALESCE(sub_trig.key_word, parent_trig.key_word) as trigger_keyword'),
-            ])
+            ->leftJoin('rdp_remark_key_triggers as parent_trig', 'parent_rem.key_word_id', '=', 'parent_trig.id');
+
+        if ($mediumTable) {
+            $query->leftJoin("$mediumTable as med_tbl", 'rdp_record.records_medium', '=', 'med_tbl.id');
+        }
+
+        $selects = [
+            'rdp_record.*',
+            'rdp_period_covered.date_covered',
+            'rdp_period_covered.date_covered_end',
+            'rdp_period_covered.volume as period_volume',
+            'rdp_record_series.series_title',
+            'rdp_record_series.item_number as series_item_number',
+            'rdp_record_series.is_retention_period_permanent as sub_perm',
+            'parent_series.is_retention_period_permanent as parent_perm',
+            'sub_ret.active_period as sub_active',
+            'sub_ret.storage_period as sub_storage',
+            'sub_ret.total_period as sub_total',
+            'parent_ret.active_period as parent_active',
+            'parent_ret.storage_period as parent_storage',
+            'parent_ret.total_period as parent_total',
+            $mediumTable ? 'med_tbl.medium_name' : DB::raw('NULL as medium_name'),
+            DB::raw('COALESCE(sub_rem.remarks_value, parent_rem.remarks_value) as eff_remarks'),
+            DB::raw('COALESCE(sub_rem.key_word_id, parent_rem.key_word_id) as eff_key_word_id'),
+            DB::raw('COALESCE(sub_rem.active_period_backup, parent_rem.active_period_backup) as eff_rem_active'),
+            DB::raw('COALESCE(sub_rem.storage_period_backup, parent_rem.storage_period_backup) as eff_rem_storage'),
+            DB::raw('COALESCE(sub_rem.total_period_backup, parent_rem.total_period_backup) as eff_rem_total'),
+            DB::raw('COALESCE(sub_trig.is_action_before, parent_trig.is_action_before) as eff_is_action_before'),
+            DB::raw('COALESCE(sub_trig.key_word, parent_trig.key_word) as trigger_keyword'),
+        ];
+
+        $rec = $query->where('rdp_record.id', $this->selectedRecordId)
+            ->select($selects)
             ->first();
 
         if ($rec) {
@@ -676,16 +688,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             $targetIds = [$this->selectedRecordId];
             $rec = $this->selectedRecord;
             if ($rec) {
-                $siblingIds = DB::table('rdp_record')
-                    ->where('record_series_id', $rec->record_series_id)
-                    ->whereRaw('TRIM(UPPER(description)) = ?', [trim(mb_strtoupper((string)$rec->description))])
-                    ->where('office_own', $rec->office_own)
-                    ->pluck('id')
-                    ->all();
-                if (!empty($siblingIds)) {
-                    $targetIds = array_values(array_unique(array_merge($targetIds, $siblingIds)));
-                }
-
                 // If user toggled and modified custom retention fields, save to series remarks logic
                 if ($this->showCustomRetentionFields && !empty($rec->record_series_id)) {
                     $remarksId = DB::table('rdp_record_series')->where('id', $rec->record_series_id)->value('remarks');
@@ -2860,7 +2862,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                                             $dispProv = $rec->disposition_provision ?? $root->remarks;
                                             $hasRemarks = !empty($dispProv) && $dispProv !== '—';
                                             $noActionDate = empty($rec->formatted_action_date) || $rec->formatted_action_date === '—';
-                                            $needsResolution = $hasRemarks && $noActionDate && !in_array($rec->status, ['disposed', 'revised']);
+                                            $isBatchParent = !empty($rec->is_batch) && !empty($rec->sub_periods);
+                                            // In batch mode (Option B), the Compiler (top row) acts as a compiled overview with "View",
+                                            // while individual Actual Data sub-rows below it have "Resolve Action".
+                                            $needsResolution = !$isBatchParent && $hasRemarks && $noActionDate && !in_array($rec->status, ['disposed', 'revised']);
                                         @endphp
                                         @if($needsResolution)
                                             <button type="button" 
@@ -2952,7 +2957,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                                             <td style="text-align: center; font-size: 11px; color: #64748b;">{{ $root->recorded_at_office ?: 'ALL' }}</td>
                                             <td style="text-align: center;">
                                                 @php
-                                                    $subNeedsResolution = $hasRemarks && $noActionDate && !in_array($subP->status, ['disposed', 'revised']);
+                                                    $subNoActionDate = empty($subP->action_date) || $subP->action_date === '—';
+                                                    $subNeedsResolution = $hasRemarks && $subNoActionDate && !in_array($subP->status, ['disposed', 'revised']);
                                                 @endphp
                                                 @if($subNeedsResolution)
                                                     <button type="button" 
@@ -3192,7 +3198,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                                                     $sDispProv = $sRec->disposition_provision ?? ($sub->remarks ?? $root->remarks);
                                                     $sHasRemarks = !empty($sDispProv) && $sDispProv !== '—';
                                                     $sNoActionDate = empty($sRec->formatted_action_date) || $sRec->formatted_action_date === '—';
-                                                    $sNeedsResolution = $sHasRemarks && $sNoActionDate && !in_array($sRec->status, ['disposed', 'revised']);
+                                                    $sIsBatchParent = !empty($sRec->is_batch) && !empty($sRec->sub_periods);
+                                                    // In batch mode (Option B), the Compiler (top row) acts as a compiled overview with "View",
+                                                    // while individual Actual Data sub-rows below it have "Resolve Action".
+                                                    $sNeedsResolution = !$sIsBatchParent && $sHasRemarks && $sNoActionDate && !in_array($sRec->status, ['disposed', 'revised']);
                                                 @endphp
                                                 @if($sNeedsResolution)
                                                     <button type="button" 
@@ -3284,7 +3293,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                                             <td style="text-align: center; font-size: 11px; color: #64748b;">{{ $sub->recorded_at_office ?: 'ALL' }}</td>
                                             <td style="text-align: center;">
                                                 @php
-                                                    $sSubNeedsResolution = $sHasRemarks && $sNoActionDate && !in_array($subP->status, ['disposed', 'revised']);
+                                                    $sSubNoActionDate = empty($subP->action_date) || $subP->action_date === '—';
+                                                    $sSubNeedsResolution = $sHasRemarks && $sSubNoActionDate && !in_array($subP->status, ['disposed', 'revised']);
                                                 @endphp
                                                 @if($sSubNeedsResolution)
                                                     <button type="button" 

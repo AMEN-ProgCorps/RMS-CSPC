@@ -2166,8 +2166,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->orderBy('id', 'asc')
             ->get();
 
-        if ($series->isEmpty()) {
-            $this->errorMessage = "There are no record series under \"{$type->type_name}\" to duplicate.";
+        $brackets = DB::table('rdp_record_series_brackets')
+            ->where(function ($q) use ($type, $series) {
+                $q->where('series_type_id', $type->id);
+                $usedBracketIds = $series->pluck('bracket_id')->filter()->unique()->all();
+                if (!empty($usedBracketIds)) {
+                    $q->orWhereIn('id', $usedBracketIds);
+                }
+            })
+            ->get();
+
+        if ($series->isEmpty() && $brackets->isEmpty()) {
+            $this->errorMessage = "There are no record series or brackets under \"{$type->type_name}\" to duplicate.";
             return;
         }
 
@@ -2176,22 +2186,109 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         try {
             $newTypeId = 0;
             $created = 0;
+            $clonedBracketsCount = 0;
 
-            DB::transaction(function () use ($series, $newTypeName, $newShortCode, &$newTypeId, &$created, $type) {
+            DB::transaction(function () use ($series, $brackets, $newTypeName, $newShortCode, &$newTypeId, &$created, &$clonedBracketsCount, $type) {
+                // 1. Create duplicated Record Series Type
                 $newTypeId = DB::table('rdp_record_series_type')->insertGetId([
-                    'type_name'    => $newTypeName,
-                    'shorted_type' => $newShortCode,
-                    'is_active'    => (bool) $type->is_active,
-                    'created_at'   => now(),
-                    'updated_at'   => now(),
+                    'type_name'      => $newTypeName,
+                    'shorted_type'   => $newShortCode,
+                    'is_active'      => (bool) $type->is_active,
+                    'series_type_id' => $type->series_type_id ?? null,
+                    'is_locked'      => false,
+                    'created_at'     => now(),
+                    'updated_at'     => now(),
                 ]);
 
-                $cloneRow = function (object $row, ?int $newParentId) use ($newTypeId, &$created): int {
+                // 2. Clone Main Brackets (rdp_record_series_brackets)
+                $mainBracketMap = []; // old_main_id => new_main_id
+                foreach ($brackets as $b) {
+                    $newMainId = DB::table('rdp_record_series_brackets')->insertGetId([
+                        'bracket_name'   => $b->bracket_name,
+                        'is_active'      => (bool) $b->is_active,
+                        'series_type_id' => $newTypeId,
+                        'created_at'     => now(),
+                        'updated_at'     => now(),
+                    ]);
+                    $mainBracketMap[$b->id] = $newMainId;
+                    $clonedBracketsCount++;
+                }
+
+                // 3. Clone Sub-Brackets (rdp_record_series_sub_brackets)
+                $subBracketMap = []; // old_sub_id => new_sub_id
+                if (!empty($mainBracketMap)) {
+                    $oldSubBrackets = DB::table('rdp_record_series_sub_brackets')
+                        ->whereIn('main_bracket_id', array_keys($mainBracketMap))
+                        ->get();
+
+                    foreach ($oldSubBrackets as $sub) {
+                        $newMainId = $mainBracketMap[$sub->main_bracket_id] ?? null;
+                        if (!$newMainId) continue;
+
+                        $newSubId = DB::table('rdp_record_series_sub_brackets')->insertGetId([
+                            'main_bracket_id'   => $newMainId,
+                            'sub_name'          => $sub->sub_name,
+                            'office_manager_id' => $sub->office_manager_id ?? null,
+                            'is_active'         => (bool) $sub->is_active,
+                            'created_at'        => now(),
+                            'updated_at'        => now(),
+                        ]);
+                        $subBracketMap[$sub->id] = $newSubId;
+                    }
+
+                    // 4. Clone Assigned Offices (rdp_office_bracket)
+                    // 4a. Main bracket generalized office assignments (where main_bracket_id is in old mains, sub_bracket_id is null)
+                    $oldMainOffices = DB::table('rdp_office_bracket')
+                        ->whereIn('main_bracket_id', array_keys($mainBracketMap))
+                        ->whereNull('sub_bracket_id')
+                        ->get();
+
+                    foreach ($oldMainOffices as $off) {
+                        $newMainId = $mainBracketMap[$off->main_bracket_id] ?? null;
+                        if (!$newMainId) continue;
+
+                        DB::table('rdp_office_bracket')->insert([
+                            'main_bracket_id' => $newMainId,
+                            'sub_bracket_id'  => null,
+                            'office_code'     => $off->office_code,
+                            'is_active'       => (bool) $off->is_active,
+                            'created_at'      => now(),
+                            'updated_at'      => now(),
+                        ]);
+                    }
+
+                    // 4b. Sub bracket office assignments (where sub_bracket_id is in old sub brackets)
+                    if (!empty($subBracketMap)) {
+                        $oldSubOffices = DB::table('rdp_office_bracket')
+                            ->whereIn('sub_bracket_id', array_keys($subBracketMap))
+                            ->get();
+
+                        foreach ($oldSubOffices as $off) {
+                            $newSubId = $subBracketMap[$off->sub_bracket_id] ?? null;
+                            if (!$newSubId) continue;
+
+                            $newMainId = ($off->main_bracket_id && isset($mainBracketMap[$off->main_bracket_id]))
+                                ? $mainBracketMap[$off->main_bracket_id]
+                                : DB::table('rdp_record_series_sub_brackets')->where('id', $newSubId)->value('main_bracket_id');
+
+                            DB::table('rdp_office_bracket')->insert([
+                                'main_bracket_id' => $newMainId,
+                                'sub_bracket_id'  => $newSubId,
+                                'office_code'     => $off->office_code,
+                                'is_active'       => (bool) $off->is_active,
+                                'created_at'      => now(),
+                                'updated_at'      => now(),
+                            ]);
+                        }
+                    }
+                }
+
+                // 5. Clone Record Series
+                $cloneRow = function (object $row, ?int $newParentId) use ($newTypeId, &$created, $mainBracketMap, $subBracketMap): int {
                     $retentionId = null;
                     if ($row->retention_period) {
                         $retention = DB::table('rdp_retention_period')->find($row->retention_period);
                         if ($retention) {
-                            // Cloned so later edits on one list never touch the other.
                             $retentionId = DB::table('rdp_retention_period')->insertGetId([
                                 'active_period'  => $retention->active_period,
                                 'storage_period' => $retention->storage_period,
@@ -2202,10 +2299,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                         }
                     }
 
+                    $newBracketId = ($row->bracket_id && isset($mainBracketMap[$row->bracket_id]))
+                        ? $mainBracketMap[$row->bracket_id]
+                        : null;
+
+                    $newSubBracketId = (isset($row->sub_bracket_id) && $row->sub_bracket_id && isset($subBracketMap[$row->sub_bracket_id]))
+                        ? $subBracketMap[$row->sub_bracket_id]
+                        : null;
+
                     $newId = DB::table('rdp_record_series')->insertGetId([
                         'series_title'                  => $row->series_title,
                         'parent_id'                     => $newParentId,
-                        'bracket_id'                    => $row->bracket_id,
+                        'bracket_id'                    => $newBracketId,
+                        'sub_bracket_id'                => $newSubBracketId,
                         'series_type'                   => $newTypeId,
                         'retention_period'              => $retentionId,
                         'is_retention_period_permanent' => (bool) $row->is_retention_period_permanent,
@@ -2225,40 +2331,39 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     return $newId;
                 };
 
-                // Clone parents first so each child can be re-pointed at its
-                // new copy; any row whose parent is missing from the set (e.g.
-                // an orphaned branch) becomes a root in the duplicate.
-                $pending = $series->keyBy('id');
-                $idMap = [];
+                if ($series->isNotEmpty()) {
+                    $pending = $series->keyBy('id');
+                    $idMap = [];
 
-                while ($pending->isNotEmpty()) {
-                    $deferred = collect();
+                    while ($pending->isNotEmpty()) {
+                        $deferred = collect();
 
-                    foreach ($pending as $row) {
-                        if ($row->parent_id !== null && !isset($idMap[$row->parent_id])) {
-                            $deferred->push($row);
-                            continue;
+                        foreach ($pending as $row) {
+                            if ($row->parent_id !== null && !isset($idMap[$row->parent_id])) {
+                                $deferred->push($row);
+                                continue;
+                            }
+
+                            $idMap[$row->id] = $cloneRow($row, $row->parent_id !== null ? $idMap[$row->parent_id] : null);
                         }
 
-                        $idMap[$row->id] = $cloneRow($row, $row->parent_id !== null ? $idMap[$row->parent_id] : null);
-                    }
-
-                    if ($deferred->count() === $pending->count()) {
-                        foreach ($deferred as $row) {
-                            $idMap[$row->id] = $cloneRow($row, null);
+                        if ($deferred->count() === $pending->count()) {
+                            foreach ($deferred as $row) {
+                                $idMap[$row->id] = $cloneRow($row, null);
+                            }
+                            break;
                         }
-                        break;
-                    }
 
-                    $pending = $deferred->keyBy('id');
+                        $pending = $deferred->keyBy('id');
+                    }
                 }
             });
 
             $this->activeTab = (string) $newTypeId;
 
-            $this->logTypeAction("Duplicated Record Series Type \"{$type->type_name}\" ({$type->shorted_type}) into \"{$newTypeName}\" ({$newShortCode}) - {$created} record series copied");
+            $this->logTypeAction("Duplicated Record Series Type \"{$type->type_name}\" ({$type->shorted_type}) into \"{$newTypeName}\" ({$newShortCode}) - {$created} record series, {$clonedBracketsCount} brackets copied");
 
-            $this->successMessage = "Record Series Type \"{$type->type_name}\" was duplicated as \"{$newTypeName}\" with {$created} copied record series.";
+            $this->successMessage = "Record Series Type \"{$type->type_name}\" was duplicated as \"{$newTypeName}\" with {$created} copied record series and {$clonedBracketsCount} configured brackets.";
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to duplicate Record Series Type: ' . $e->getMessage();
         }

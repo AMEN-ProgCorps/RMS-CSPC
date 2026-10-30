@@ -164,6 +164,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
     public function toggleAddForm(): void
     {
+        if (!$this->showAddForm && $this->isCurrentTypeLocked()) {
+            $this->clearMessages();
+            $this->errorMessage = 'This Record Series Type is locked. Please unlock it first.';
+            return;
+        }
+
         if (!$this->showAddForm && !$this->activeTypeUsable()) {
             $this->clearMessages();
             $this->errorMessage = 'This Record Series Type is deactivated and cannot accept new entries. Activate it first.';
@@ -283,6 +289,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
     public function openImportModal(): void
     {
+        if ($this->isCurrentTypeLocked()) {
+            $this->clearMessages();
+            $this->errorMessage = 'This Record Series Type is locked. Please unlock it first.';
+            return;
+        }
+
         if (!$this->activeTypeUsable()) {
             $this->clearMessages();
             $this->errorMessage = 'This Record Series Type is deactivated and cannot accept new entries. Activate it first.';
@@ -647,6 +659,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
     public function openAddRow(int $recordId, string $position = 'below'): void
     {
+        if ($this->isCurrentTypeLocked()) {
+            $this->clearMessages();
+            $this->errorMessage = 'This Record Series Type is locked. Please unlock it first.';
+            return;
+        }
+
         if (!$this->activeTypeUsable()) {
             $this->clearMessages();
             $this->errorMessage = 'This Record Series Type is deactivated and cannot accept new entries. Activate it first.';
@@ -821,6 +839,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public function startEdit(int $seriesId): void
     {
         $this->clearMessages();
+
+        if ($this->isCurrentTypeLocked()) {
+            $this->errorMessage = 'This Record Series Type is locked. Please unlock it first.';
+            return;
+        }
 
         $series = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
@@ -1131,6 +1154,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
     public function openSubsectionModal(int $seriesId): void
     {
+        if ($this->isCurrentTypeLocked()) {
+            $this->clearMessages();
+            $this->errorMessage = 'This Record Series Type is locked. Please unlock it first.';
+            return;
+        }
+
         if (!$this->activeTypeUsable()) {
             $this->clearMessages();
             $this->errorMessage = 'This Record Series Type is deactivated and cannot accept new entries. Activate it first.';
@@ -1626,6 +1655,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     {
         $this->clearMessages();
 
+        if ($this->isCurrentTypeLocked()) {
+            $this->errorMessage = 'This Record Series Type is locked. Please unlock it first.';
+            return;
+        }
+
         $series = DB::table('rdp_record_series')->where('id', $seriesId)->first();
         if (!$series) return;
 
@@ -1650,6 +1684,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public function deleteSeries(int $seriesId): void
     {
         $this->clearMessages();
+
+        if ($this->isCurrentTypeLocked()) {
+            $this->errorMessage = 'This Record Series Type is locked. Please unlock it first.';
+            return;
+        }
 
         $series = DB::table('rdp_record_series')->where('id', $seriesId)->first();
         if (!$series) return;
@@ -1761,6 +1800,50 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->first();
 
         return (bool) ($type && $type->is_active);
+    }
+
+    public function isCurrentTypeLocked(): bool
+    {
+        if (!is_numeric($this->activeTab)) {
+            return false;
+        }
+
+        $type = DB::table('rdp_record_series_type')
+            ->where('id', (int) $this->activeTab)
+            ->whereNull('deleted_at')
+            ->first();
+
+        return (bool) ($type && !empty($type->is_locked));
+    }
+
+    public function toggleLockRecordType(?string $typeId = null): void
+    {
+        $this->clearMessages();
+        $targetId = ($typeId !== null && is_numeric($typeId)) ? (int)$typeId : (is_numeric($this->activeTab) ? (int)$this->activeTab : null);
+        if (!$targetId) return;
+
+        $t = DB::table('rdp_record_series_type')->where('id', $targetId)->whereNull('deleted_at')->first();
+        if (!$t) {
+            $this->errorMessage = 'Record Series Type not found.';
+            return;
+        }
+
+        $newLocked = !((bool) ($t->is_locked ?? false));
+        DB::table('rdp_record_series_type')->where('id', $targetId)->update([
+            'is_locked'  => $newLocked,
+            'updated_at' => now(),
+        ]);
+
+        $state = $newLocked ? 'LOCKED' : 'UNLOCKED';
+        $logTable = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+        DB::table($logTable)->insert([
+            'changes'      => "Set Record Series Type #{$targetId} ({$t->type_name}) status to {$state}",
+            'admin_id'     => auth()->id(),
+            'what_system'  => 2,
+            'when_changes' => now(),
+        ]);
+
+        $this->successMessage = "Record Type '{$t->type_name}' is now {$state}.";
     }
 
     public function openRenameTypeModal(string $typeId): void
@@ -2083,8 +2166,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->orderBy('id', 'asc')
             ->get();
 
-        if ($series->isEmpty()) {
-            $this->errorMessage = "There are no record series under \"{$type->type_name}\" to duplicate.";
+        $brackets = DB::table('rdp_record_series_brackets')
+            ->where(function ($q) use ($type, $series) {
+                $q->where('series_type_id', $type->id);
+                $usedBracketIds = $series->pluck('bracket_id')->filter()->unique()->all();
+                if (!empty($usedBracketIds)) {
+                    $q->orWhereIn('id', $usedBracketIds);
+                }
+            })
+            ->get();
+
+        if ($series->isEmpty() && $brackets->isEmpty()) {
+            $this->errorMessage = "There are no record series or brackets under \"{$type->type_name}\" to duplicate.";
             return;
         }
 
@@ -2093,22 +2186,109 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         try {
             $newTypeId = 0;
             $created = 0;
+            $clonedBracketsCount = 0;
 
-            DB::transaction(function () use ($series, $newTypeName, $newShortCode, &$newTypeId, &$created, $type) {
+            DB::transaction(function () use ($series, $brackets, $newTypeName, $newShortCode, &$newTypeId, &$created, &$clonedBracketsCount, $type) {
+                // 1. Create duplicated Record Series Type
                 $newTypeId = DB::table('rdp_record_series_type')->insertGetId([
-                    'type_name'    => $newTypeName,
-                    'shorted_type' => $newShortCode,
-                    'is_active'    => (bool) $type->is_active,
-                    'created_at'   => now(),
-                    'updated_at'   => now(),
+                    'type_name'      => $newTypeName,
+                    'shorted_type'   => $newShortCode,
+                    'is_active'      => (bool) $type->is_active,
+                    'series_type_id' => $type->series_type_id ?? null,
+                    'is_locked'      => false,
+                    'created_at'     => now(),
+                    'updated_at'     => now(),
                 ]);
 
-                $cloneRow = function (object $row, ?int $newParentId) use ($newTypeId, &$created): int {
+                // 2. Clone Main Brackets (rdp_record_series_brackets)
+                $mainBracketMap = []; // old_main_id => new_main_id
+                foreach ($brackets as $b) {
+                    $newMainId = DB::table('rdp_record_series_brackets')->insertGetId([
+                        'bracket_name'   => $b->bracket_name,
+                        'is_active'      => (bool) $b->is_active,
+                        'series_type_id' => $newTypeId,
+                        'created_at'     => now(),
+                        'updated_at'     => now(),
+                    ]);
+                    $mainBracketMap[$b->id] = $newMainId;
+                    $clonedBracketsCount++;
+                }
+
+                // 3. Clone Sub-Brackets (rdp_record_series_sub_brackets)
+                $subBracketMap = []; // old_sub_id => new_sub_id
+                if (!empty($mainBracketMap)) {
+                    $oldSubBrackets = DB::table('rdp_record_series_sub_brackets')
+                        ->whereIn('main_bracket_id', array_keys($mainBracketMap))
+                        ->get();
+
+                    foreach ($oldSubBrackets as $sub) {
+                        $newMainId = $mainBracketMap[$sub->main_bracket_id] ?? null;
+                        if (!$newMainId) continue;
+
+                        $newSubId = DB::table('rdp_record_series_sub_brackets')->insertGetId([
+                            'main_bracket_id'   => $newMainId,
+                            'sub_name'          => $sub->sub_name,
+                            'office_manager_id' => $sub->office_manager_id ?? null,
+                            'is_active'         => (bool) $sub->is_active,
+                            'created_at'        => now(),
+                            'updated_at'        => now(),
+                        ]);
+                        $subBracketMap[$sub->id] = $newSubId;
+                    }
+
+                    // 4. Clone Assigned Offices (rdp_office_bracket)
+                    // 4a. Main bracket generalized office assignments (where main_bracket_id is in old mains, sub_bracket_id is null)
+                    $oldMainOffices = DB::table('rdp_office_bracket')
+                        ->whereIn('main_bracket_id', array_keys($mainBracketMap))
+                        ->whereNull('sub_bracket_id')
+                        ->get();
+
+                    foreach ($oldMainOffices as $off) {
+                        $newMainId = $mainBracketMap[$off->main_bracket_id] ?? null;
+                        if (!$newMainId) continue;
+
+                        DB::table('rdp_office_bracket')->insert([
+                            'main_bracket_id' => $newMainId,
+                            'sub_bracket_id'  => null,
+                            'office_code'     => $off->office_code,
+                            'is_active'       => (bool) $off->is_active,
+                            'created_at'      => now(),
+                            'updated_at'      => now(),
+                        ]);
+                    }
+
+                    // 4b. Sub bracket office assignments (where sub_bracket_id is in old sub brackets)
+                    if (!empty($subBracketMap)) {
+                        $oldSubOffices = DB::table('rdp_office_bracket')
+                            ->whereIn('sub_bracket_id', array_keys($subBracketMap))
+                            ->get();
+
+                        foreach ($oldSubOffices as $off) {
+                            $newSubId = $subBracketMap[$off->sub_bracket_id] ?? null;
+                            if (!$newSubId) continue;
+
+                            $newMainId = ($off->main_bracket_id && isset($mainBracketMap[$off->main_bracket_id]))
+                                ? $mainBracketMap[$off->main_bracket_id]
+                                : DB::table('rdp_record_series_sub_brackets')->where('id', $newSubId)->value('main_bracket_id');
+
+                            DB::table('rdp_office_bracket')->insert([
+                                'main_bracket_id' => $newMainId,
+                                'sub_bracket_id'  => $newSubId,
+                                'office_code'     => $off->office_code,
+                                'is_active'       => (bool) $off->is_active,
+                                'created_at'      => now(),
+                                'updated_at'      => now(),
+                            ]);
+                        }
+                    }
+                }
+
+                // 5. Clone Record Series
+                $cloneRow = function (object $row, ?int $newParentId) use ($newTypeId, &$created, $mainBracketMap, $subBracketMap): int {
                     $retentionId = null;
                     if ($row->retention_period) {
                         $retention = DB::table('rdp_retention_period')->find($row->retention_period);
                         if ($retention) {
-                            // Cloned so later edits on one list never touch the other.
                             $retentionId = DB::table('rdp_retention_period')->insertGetId([
                                 'active_period'  => $retention->active_period,
                                 'storage_period' => $retention->storage_period,
@@ -2119,10 +2299,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                         }
                     }
 
+                    $newBracketId = ($row->bracket_id && isset($mainBracketMap[$row->bracket_id]))
+                        ? $mainBracketMap[$row->bracket_id]
+                        : null;
+
+                    $newSubBracketId = (isset($row->sub_bracket_id) && $row->sub_bracket_id && isset($subBracketMap[$row->sub_bracket_id]))
+                        ? $subBracketMap[$row->sub_bracket_id]
+                        : null;
+
                     $newId = DB::table('rdp_record_series')->insertGetId([
                         'series_title'                  => $row->series_title,
                         'parent_id'                     => $newParentId,
-                        'bracket_id'                    => $row->bracket_id,
+                        'bracket_id'                    => $newBracketId,
+                        'sub_bracket_id'                => $newSubBracketId,
                         'series_type'                   => $newTypeId,
                         'retention_period'              => $retentionId,
                         'is_retention_period_permanent' => (bool) $row->is_retention_period_permanent,
@@ -2142,40 +2331,39 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     return $newId;
                 };
 
-                // Clone parents first so each child can be re-pointed at its
-                // new copy; any row whose parent is missing from the set (e.g.
-                // an orphaned branch) becomes a root in the duplicate.
-                $pending = $series->keyBy('id');
-                $idMap = [];
+                if ($series->isNotEmpty()) {
+                    $pending = $series->keyBy('id');
+                    $idMap = [];
 
-                while ($pending->isNotEmpty()) {
-                    $deferred = collect();
+                    while ($pending->isNotEmpty()) {
+                        $deferred = collect();
 
-                    foreach ($pending as $row) {
-                        if ($row->parent_id !== null && !isset($idMap[$row->parent_id])) {
-                            $deferred->push($row);
-                            continue;
+                        foreach ($pending as $row) {
+                            if ($row->parent_id !== null && !isset($idMap[$row->parent_id])) {
+                                $deferred->push($row);
+                                continue;
+                            }
+
+                            $idMap[$row->id] = $cloneRow($row, $row->parent_id !== null ? $idMap[$row->parent_id] : null);
                         }
 
-                        $idMap[$row->id] = $cloneRow($row, $row->parent_id !== null ? $idMap[$row->parent_id] : null);
-                    }
-
-                    if ($deferred->count() === $pending->count()) {
-                        foreach ($deferred as $row) {
-                            $idMap[$row->id] = $cloneRow($row, null);
+                        if ($deferred->count() === $pending->count()) {
+                            foreach ($deferred as $row) {
+                                $idMap[$row->id] = $cloneRow($row, null);
+                            }
+                            break;
                         }
-                        break;
-                    }
 
-                    $pending = $deferred->keyBy('id');
+                        $pending = $deferred->keyBy('id');
+                    }
                 }
             });
 
             $this->activeTab = (string) $newTypeId;
 
-            $this->logTypeAction("Duplicated Record Series Type \"{$type->type_name}\" ({$type->shorted_type}) into \"{$newTypeName}\" ({$newShortCode}) - {$created} record series copied");
+            $this->logTypeAction("Duplicated Record Series Type \"{$type->type_name}\" ({$type->shorted_type}) into \"{$newTypeName}\" ({$newShortCode}) - {$created} record series, {$clonedBracketsCount} brackets copied");
 
-            $this->successMessage = "Record Series Type \"{$type->type_name}\" was duplicated as \"{$newTypeName}\" with {$created} copied record series.";
+            $this->successMessage = "Record Series Type \"{$type->type_name}\" was duplicated as \"{$newTypeName}\" with {$created} copied record series and {$clonedBracketsCount} configured brackets.";
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to duplicate Record Series Type: ' . $e->getMessage();
         }
@@ -2219,6 +2407,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $activeTypeId = is_numeric($this->activeTab) ? (int) $this->activeTab : null;
         $activeTypeRow = $activeTypeId !== null ? $seriesTypes->firstWhere('id', $activeTypeId) : null;
         $activeTypeUsable = $activeTypeRow === null ? true : (bool) $activeTypeRow->is_active;
+        $isTypeLocked = $activeTypeRow === null ? false : (bool) ($activeTypeRow->is_locked ?? false);
 
         $offices = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
             ->where('is_active', true)
@@ -2461,6 +2650,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             'parentSuggestions'       => $parentSuggestions,
             'seriesTypes'             => $seriesTypes,
             'activeTypeUsable'        => $activeTypeUsable,
+            'isTypeLocked'            => $isTypeLocked,
             'offices'                 => $offices,
             'typeIdentifiers'         => $this->typeIdentifiers(),
             'remarkKeyTriggers'       => \App\Services\RdpRemarksService::keyTriggers(),
@@ -2614,6 +2804,34 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             background: rgba(220, 38, 38, 0.16);
         }
 
+        /* Locked Record Series Type styling & grey filter overlay */
+        .ars-table-card.ars-table-card-locked {
+            background-color: #f8fafc !important;
+            filter: grayscale(85%) contrast(92%);
+            opacity: 0.85;
+            position: relative;
+            transition: all 0.2s ease-in-out;
+        }
+        .ars-table-card.ars-table-card-locked::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(148, 163, 184, 0.16);
+            pointer-events: none;
+            z-index: 5;
+            border-radius: 12px;
+        }
+        [data-theme="dark"] .ars-table-card.ars-table-card-locked {
+            background: #0b1120 !important;
+            opacity: 0.78;
+        }
+        [data-theme="dark"] .ars-table-card.ars-table-card-locked::after {
+            background: rgba(15, 23, 42, 0.45);
+        }
+
         /* Record Series Row Hover Add Buttons */
         .ars-record-row {
             position: relative;
@@ -2765,14 +2983,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 @endpush
 
 <div class="ars-container" x-data="{
-        ctxOpen: false, ctxX: 0, ctxY: 0, ctxTarget: 'unregistered', ctxLabel: 'Unregistered', ctxUnregistered: true, ctxActive: true,
-        showContextMenu(e, target, label, unregistered, active) {
+        ctxOpen: false, ctxX: 0, ctxY: 0, ctxTarget: 'unregistered', ctxLabel: 'Unregistered', ctxUnregistered: true, ctxActive: true, ctxLocked: false,
+        showContextMenu(e, target, label, unregistered, active, locked = false) {
             e.preventDefault();
             e.stopPropagation();
             this.ctxTarget = target;
             this.ctxLabel = label;
             this.ctxUnregistered = unregistered;
             this.ctxActive = active;
+            this.ctxLocked = !!locked;
             this.ctxX = e.clientX;
             this.ctxY = e.clientY;
             this.ctxOpen = true;
@@ -2854,10 +3073,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             <button type="button"
                     class="tab-btn type-tab {{ $sType->is_active ? 'type-tab-active' : 'type-tab-inactive' }} {{ $activeTab === (string)$sType->id ? 'active' : '' }}"
                     wire:click="selectTab('{{ $sType->id }}')"
-                    @contextmenu="showContextMenu($event, '{{ $sType->id }}', @js($sType->type_name), false, {{ $sType->is_active ? 'true' : 'false' }})">
+                    @contextmenu="showContextMenu($event, '{{ $sType->id }}', @js($sType->type_name), false, {{ $sType->is_active ? 'true' : 'false' }}, {{ !empty($sType->is_locked) ? 'true' : 'false' }})">
                 {{ $sType->type_name }}
                 @if(!empty($sType->shorted_type))
                     <span style="font-size: 11px; font-weight: 800; opacity: 0.75; margin-left: 2px;">({{ $sType->shorted_type }})</span>
+                @endif
+                @if(!empty($sType->is_locked))
+                    <i class="fa-solid fa-lock" style="font-size: 10.5px; color: currentColor; opacity: 0.85; margin-left: 5px;" title="Locked"></i>
                 @endif
             </button>
         @endforeach
@@ -3311,7 +3533,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     @endif
 
     <!-- Data Table Card with Alpine.js Collapsible State -->
-    <div class="ars-table-card" x-data="{ 
+    <div class="ars-table-card {{ $isTypeLocked ? 'ars-table-card-locked' : '' }}" x-data="{ 
         collapsedBrackets: {}, 
         collapsedOffices: {}, 
         search: @entangle('search').live,
@@ -3368,17 +3590,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             </div>
 
             <div style="display: flex; gap: 8px; align-items: center;">
-                @if(!$activeTypeUsable)
+                @if($isTypeLocked)
+                    <span style="font-size: 11.5px; font-weight: 700; color: #475569; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-lock" style="font-size: 11px;"></i> Locked Record Type — editing is restricted.
+                    </span>
+                @elseif(!$activeTypeUsable)
                     <span style="font-size: 11.5px; font-weight: 700; color: #7f1d1d; background: #fee2e2; border: 1px solid #fecaca; border-radius: 8px; padding: 6px 10px;">
                         This Record Series Type is inactive — activate it to add entries.
                     </span>
                 @endif
                 <button type="button" wire:click="openImportModal" class="ars-btn ars-btn-import"
-                        @if(!$activeTypeUsable) disabled style="opacity: 0.5; cursor: not-allowed;" @endif>
+                        @if(!$activeTypeUsable || $isTypeLocked) disabled style="opacity: 0.5; cursor: not-allowed;" @endif>
                     Import File
                 </button>
                 <button type="button" wire:click="toggleAddForm" class="ars-btn {{ $showAddForm ? 'ars-btn-danger' : 'ars-btn-primary' }}"
-                        @if(!$activeTypeUsable && !$showAddForm) disabled style="opacity: 0.5; cursor: not-allowed;" @endif>
+                        @if((!$activeTypeUsable || $isTypeLocked) && !$showAddForm) disabled style="opacity: 0.5; cursor: not-allowed;" @endif>
                     @if($showAddForm)
                         <span>✕</span> Cancel
                     @else
@@ -3593,7 +3819,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                     @endif
                                 </td>
                                 <td class="ars-title-cell" style="text-align: left; padding-left: {{ (($record->depth ?? 0) * 28) + 16 }}px; border: 1px solid #cbd5e1; position: relative;">
-                                    @if($activeTypeUsable)
+                                    @if($activeTypeUsable && !$isTypeLocked)
                                         <!-- Hover Add Above Button -->
                                         <div class="row-hover-btn-container row-hover-btn-top">
                                             <button type="button"
@@ -3675,11 +3901,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                     {{ $record->remarks ?? '—' }}
                                 </td>
                                 <td style="text-align: center; white-space: nowrap; width: 200px; border: 1px solid #cbd5e1;">
-                                    <button type="button" wire:click="startEdit({{ $record->id }})" class="ars-btn ars-btn-secondary" style="padding: 5px 10px; font-size: 12px; margin-right: 2px;">Edit</button>
-                                    <button type="button" wire:click="toggleActive({{ $record->id }})" class="ars-btn ars-btn-secondary" style="padding: 5px 10px; font-size: 12px; margin-right: 2px; color: {{ $record->is_active ? '#ea580c' : '#16a34a' }};">
-                                        {{ $record->is_active ? 'Deactivate' : 'Activate' }}
-                                    </button>
-                                    <button type="button" wire:click="deleteSeries({{ $record->id }})" wire:confirm="Are you sure you want to delete '{{ $record->series_title }}'?" class="ars-btn ars-btn-danger" style="padding: 5px 10px; font-size: 12px;">Delete</button>
+                                    @if(!$isTypeLocked)
+                                        <button type="button" wire:click="startEdit({{ $record->id }})" class="ars-btn ars-btn-secondary" style="padding: 5px 10px; font-size: 12px; margin-right: 2px;">Edit</button>
+                                        <button type="button" wire:click="toggleActive({{ $record->id }})" class="ars-btn ars-btn-secondary" style="padding: 5px 10px; font-size: 12px; margin-right: 2px; color: {{ $record->is_active ? '#ea580c' : '#16a34a' }};">
+                                            {{ $record->is_active ? 'Deactivate' : 'Activate' }}
+                                        </button>
+                                        <button type="button" wire:click="deleteSeries({{ $record->id }})" wire:confirm="Are you sure you want to delete '{{ $record->series_title }}'?" class="ars-btn ars-btn-danger" style="padding: 5px 10px; font-size: 12px;">Delete</button>
+                                    @else
+                                        <span style="font-size: 11px; font-weight: 700; color: #94a3b8; display: inline-flex; align-items: center; gap: 4px;">
+                                            <i class="fa-solid fa-lock" style="font-size: 10px;"></i> Locked
+                                        </span>
+                                    @endif
                                 </td>
                             </tr>
                         @endif
@@ -3823,6 +4055,14 @@ RECEIPTS;
          @click.outside="closeContextMenu()"
          @keydown.escape.window="closeContextMenu()">
         <div class="ctx-header" x-text="ctxLabel"></div>
+
+        <!-- Lock / Unlock Record Type -->
+        <button type="button" class="ctx-item" x-show="!ctxUnregistered"
+                @click="closeContextMenu(); $wire.toggleLockRecordType(ctxTarget)">
+            <svg x-show="!ctxLocked" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            <svg x-show="ctxLocked" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
+            <span x-text="ctxLocked ? 'Unlock Record Type' : 'Lock Record Type'"></span>
+        </button>
 
         <button type="button" class="ctx-item" x-show="!ctxUnregistered"
                 @click="closeContextMenu(); $wire.toggleTypeActive(ctxTarget)">

@@ -160,7 +160,102 @@ class RdpRetentionService
     }
 
     /**
-     * Determine if a specific period is expired based on its start/end dates and retention parameters.
+     * Parse a retention period duration string into whole years.
+     * E.g. "5 YEARS" -> 5, "1 YEAR" -> 1, "Permanent" -> null.
+     */
+    public static function parseDurationYears(?string $durationStr): ?int
+    {
+        if (empty($durationStr)) {
+            return null;
+        }
+
+        $str = strtolower(trim($durationStr));
+
+        if (str_contains($str, 'perm') || $str === 'p') {
+            return null; // permanent = null
+        }
+
+        // 1. Direct number of years (e.g. "5 YEARS", "1 YEAR", "2.5 years", "1 yr")
+        if (preg_match('/(\d+(?:\.\d+)?)\s*(?:year|yr|y)s?/i', $str, $m)) {
+            return (int)round((float)$m[1]);
+        }
+
+        // 2. Number of months (e.g. "6 MONTHS") -> round to years
+        if (preg_match('/(\d+)\s*(?:month|mo|m)s?/i', $str, $m)) {
+            $mCount = (int)$m[1];
+            return $mCount > 0 ? max(1, (int)round($mCount / 12)) : 0;
+        }
+
+        // 3. Simple integer
+        if (is_numeric($str)) {
+            return (int)$str;
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract the Record Period year (closing / end year) from a date or range string.
+     * E.g. "2020-05-15" -> 2020, "2018 - 2021" -> 2021, "2024" -> 2024.
+     */
+    public static function parsePeriodYear(?string $startDate, ?string $endDate = null): ?int
+    {
+        $target = !empty(trim((string)$endDate)) ? trim((string)$endDate) : trim((string)$startDate);
+        if (empty($target) || $target === '—') {
+            return null;
+        }
+
+        // Check if target is a range string like "2018 - 2021" or "2018 to 2021"
+        if (preg_match('/^(.*?)\s+(?:-|to)\s+(.*)$/i', $target, $rm)) {
+            $target = trim($rm[2]);
+        }
+
+        $clean = trim(str_replace('_', ' ', $target));
+
+        // 1. Match 4-digit year (19xx or 20xx)
+        if (preg_match('/(19\d{2}|20\d{2})/', $clean, $m)) {
+            return (int)$m[1];
+        }
+
+        // 2. Fallback parse with Carbon
+        try {
+            $carbon = Carbon::parse($clean);
+            return (int)$carbon->year;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Calculate the disposal cutoff year based on the formula:
+     * <current_year> - 1 - <total_retention_period>
+     * Records with Record Period Year <= Cutoff Year are eligible for disposal.
+     */
+    public static function calculateDisposalCutoffYear(
+        ?string $totalPeriod = null,
+        ?string $activePeriod = null,
+        ?string $storagePeriod = null,
+        ?Carbon $now = null
+    ): ?int {
+        $years = self::parseDurationYears($totalPeriod);
+        if ($years === null) {
+            $yActive = self::parseDurationYears($activePeriod) ?? 0;
+            $yStorage = self::parseDurationYears($storagePeriod) ?? 0;
+            $years = ($yActive + $yStorage) > 0 ? ($yActive + $yStorage) : null;
+        }
+
+        if ($years === null || $years < 0) {
+            return null;
+        }
+
+        $currentYear = $now ? (int)$now->year : (int)Carbon::now()->year;
+        return $currentYear - 1 - $years;
+    }
+
+    /**
+     * Determine if a specific period is expired based on the year formula:
+     * <current_year> - 1 - <total_retention_period>
+     * A record is expired if its Record Period Year <= Cutoff Year.
      */
     public static function isPeriodExpired(
         ?string $startDate,
@@ -179,26 +274,17 @@ class RdpRetentionService
             return false;
         }
 
-        $endCarbon = self::parsePeriodEndDate($startDate, $endDate);
-        if (!$endCarbon) {
+        $recordYear = self::parsePeriodYear($startDate, $endDate);
+        if (!$recordYear) {
             return false;
         }
 
-        $months = self::parseDurationMonths($totalPeriod);
-        if ($months === null) {
-            $mActive = self::parseDurationMonths($activePeriod) ?? 0;
-            $mStorage = self::parseDurationMonths($storagePeriod) ?? 0;
-            $months = ($mActive + $mStorage) > 0 ? ($mActive + $mStorage) : null;
-        }
-
-        if ($months === null || $months <= 0) {
+        $cutoffYear = self::calculateDisposalCutoffYear($totalPeriod, $activePeriod, $storagePeriod, $now);
+        if ($cutoffYear === null) {
             return false;
         }
 
-        $expirationDate = $endCarbon->copy()->addMonths($months);
-        $checkDate = $now ?? Carbon::now();
-
-        return $expirationDate->lte($checkDate);
+        return ($recordYear <= $cutoffYear);
     }
 
     /**
@@ -240,9 +326,10 @@ class RdpRetentionService
         ?string $remTotal = null,
         ?string $actionDate = null
     ): object {
-        $hasRemarks = !empty(trim((string)$remarks));
-        $hasTrigger = !empty($keyWordId);
-        $hasImmunity = $hasRemarks && $hasTrigger;
+        $cleanRemarks = trim((string)$remarks);
+        $hasRemarks = !empty($cleanRemarks) && $cleanRemarks !== '—';
+        $hasTrigger = !empty($keyWordId) || $hasRemarks;
+        $hasImmunity = $hasRemarks;
 
         $hasActionDate = !empty(trim((string)$actionDate)) && trim((string)$actionDate) !== '—';
         $isActionBeforeBool = filter_var($isActionBefore, FILTER_VALIDATE_BOOLEAN);
@@ -276,12 +363,12 @@ class RdpRetentionService
                     $effectiveIsPerm = $isPerm;
                 } else {
                     // Was Original Retention first -> now switched to Remark Retention!
-                    $usesRemarkRetention = true;
-                    $isImmune = !$hasRemarkRetentionConfigured;
-                    $effectiveActive = $remActive;
-                    $effectiveStorage = $remStorage;
-                    $effectiveTotal = $remTotal;
-                    $effectiveIsPerm = false;
+                    $usesRemarkRetention = $hasRemarkRetentionConfigured;
+                    $isImmune = false;
+                    $effectiveActive = $remActive ?: $origActive;
+                    $effectiveStorage = $remStorage ?: $origStorage;
+                    $effectiveTotal = $remTotal ?: $origTotal;
+                    $effectiveIsPerm = $hasRemarkRetentionConfigured ? false : $isPerm;
                 }
             } else {
                 // Action date is blank -> stays in initial configured state!
@@ -289,9 +376,9 @@ class RdpRetentionService
                     // Remark Retention first
                     $usesRemarkRetention = true;
                     $isImmune = !$hasRemarkRetentionConfigured;
-                    $effectiveActive = $remActive;
-                    $effectiveStorage = $remStorage;
-                    $effectiveTotal = $remTotal;
+                    $effectiveActive = $remActive ?: $origActive;
+                    $effectiveStorage = $remStorage ?: $origStorage;
+                    $effectiveTotal = $remTotal ?: $origTotal;
                     $effectiveIsPerm = false;
                 } else {
                     // Remark Retention later -> waiting for action trigger (e.g. "After settled")!

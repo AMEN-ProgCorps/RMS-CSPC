@@ -48,6 +48,15 @@ new class extends Component {
         $this->open = false;
     }
 
+    public function toggleModal(): void
+    {
+        if ($this->open) {
+            $this->closeModal();
+        } else {
+            $this->openModal(null, null, null, url()->previous() ?? '');
+        }
+    }
+
     public function submit(): void
     {
         $this->errorMessage = null;
@@ -90,120 +99,183 @@ new class extends Component {
 ?>
 
 <div
-    x-data
+    x-data="{
+        isOpen: @entangle('open'),
+        init() {
+            this.$watch('isOpen', val => {
+                if (val) {
+                    document.body.classList.add('report-widget-open');
+                    window.dispatchEvent(new CustomEvent('rms-widget-opened', { detail: { widget: 'report' } }));
+                } else {
+                    document.body.classList.remove('report-widget-open');
+                    window.dispatchEvent(new CustomEvent('rms-widget-closed', { detail: { widget: 'report' } }));
+                }
+            });
+            if (this.isOpen) {
+                document.body.classList.add('report-widget-open');
+            }
+            const syncChatifyPresent = () => {
+                if (!document.getElementById('chatify-global-widget')) {
+                    document.body.classList.add('no-chatify-widget');
+                } else {
+                    document.body.classList.remove('no-chatify-widget');
+                }
+            };
+            syncChatifyPresent();
+            setTimeout(syncChatifyPresent, 400);
+        }
+    }"
     x-on:rms-open-report-problem.window="$wire.openModal($event.detail.reference || null, $event.detail.title || null, $event.detail.description || null, window.location.href)"
+    x-on:rms-widget-opened.window="if ($event.detail && $event.detail.widget !== 'report' && isOpen) { $wire.closeModal(); }"
 >
-    {{-- Sits above Chatify (56px @ bottom:24px) so the label stays visible --}}
+    <!-- Floating Trigger Button -->
     <button
         type="button"
         class="rms-report-fab"
-        title="Report a problem"
-        @click="$wire.openModal(null, null, null, window.location.href)"
-        @if($open) style="display:none" @endif
+        :class="{ 'is-open': isOpen }"
+        :title="isOpen ? 'Minimize Report' : 'Report a problem'"
+        @click="isOpen ? $wire.closeModal() : $wire.openModal(null, null, null, window.location.href)"
     >
         <span class="rms-report-fab-icon" aria-hidden="true">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <!-- Question / Report Icon -->
+            <svg x-show="!isOpen" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <!-- Close Icon -->
+            <svg x-show="isOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: none;"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </span>
-        <span class="rms-report-fab-label">Report</span>
+        <span class="rms-report-fab-label" x-text="isOpen ? 'Close' : 'Report'">Report</span>
     </button>
 
-    @if($open)
-        <div class="rms-report-overlay" wire:click.self="closeModal">
-            <div class="rms-report-modal" role="dialog" aria-modal="true" aria-labelledby="rms-report-title">
-                <div class="rms-report-header">
-                    <div class="rms-report-header-left">
-                        <div class="rms-report-header-icon" aria-hidden="true">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                        </div>
-                        <div>
-                            <h2 id="rms-report-title">Report a problem</h2>
-                            <p>Describe what went wrong. Admins will see this in Error Tickets.</p>
-                        </div>
-                    </div>
-                    <button type="button" class="rms-report-close" wire:click="closeModal" aria-label="Close">&times;</button>
-                </div>
+    <!-- Floating Report Widget Card (docked in bottom-right like Chatify) -->
+    <div
+        x-show="isOpen"
+        x-cloak
+        class="rms-report-widget-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rms-report-title"
+        @click.outside="if (isOpen) $wire.closeModal()"
+        @keydown.escape.window="if (isOpen) $wire.closeModal()"
+    >
+        <!-- Header Bar -->
+        <div class="rms-report-widget-header">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 8px #f59e0b;"></div>
+                <span style="color: #f8fafc; font-weight: 600; font-size: 14px; letter-spacing: 0.2px;">Report a Problem</span>
+                <span style="background: rgba(255, 255, 255, 0.15); color: #cbd5e1; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px;">Support</span>
+            </div>
 
-                @if($successTicket)
-                    <div class="rms-report-body">
-                        <div class="rms-report-success">
-                            <div class="rms-report-success-icon" aria-hidden="true">✓</div>
-                            <strong>Ticket {{ $successTicket }} submitted</strong>
-                            <span>Thank you — the admin team can review this in the console.</span>
-                        </div>
-                    </div>
-                    <div class="rms-report-footer">
-                        <button type="button" class="rms-report-btn primary" wire:click="closeModal">Done</button>
-                    </div>
-                @else
-                    <form wire:submit.prevent="submit">
-                        <div class="rms-report-body">
-                            <label class="rms-report-field">
-                                <span>Subject</span>
-                                <input type="text" wire:model="title" maxlength="240" required>
-                                @error('title') <em>{{ $message }}</em> @enderror
-                            </label>
-
-                            <label class="rms-report-field">
-                                <span>What happened?</span>
-                                <textarea wire:model="description" rows="5" maxlength="5000" required placeholder="Steps to reproduce, expected vs actual result…"></textarea>
-                                @error('description') <em>{{ $message }}</em> @enderror
-                            </label>
-
-                            <label class="rms-report-field">
-                                <span>Error reference <em class="rms-report-optional">(optional)</em></span>
-                                <input type="text" wire:model="reference" maxlength="32" placeholder="e.g. SRV-AB12CD">
-                            </label>
-
-                            @if($pageUrl !== '')
-                                <p class="rms-report-meta" title="{{ $pageUrl }}">
-                                    <span>Page</span>
-                                    {{ \Illuminate\Support\Str::limit($pageUrl, 72) }}
-                                </p>
-                            @endif
-
-                            @if($errorMessage)
-                                <div class="rms-report-error">{{ $errorMessage }}</div>
-                            @endif
-                        </div>
-
-                        <div class="rms-report-footer">
-                            <button type="button" class="rms-report-btn" wire:click="closeModal">Cancel</button>
-                            <button type="submit" class="rms-report-btn primary" wire:loading.attr="disabled">
-                                <span wire:loading.remove wire:target="submit">Submit ticket</span>
-                                <span wire:loading wire:target="submit">Submitting…</span>
-                            </button>
-                        </div>
-                    </form>
-                @endif
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <!-- Minimize Button -->
+                <button type="button" @click="$wire.closeModal()" title="Minimize" class="rms-report-hdr-btn">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <!-- Close Button -->
+                <button type="button" @click="$wire.closeModal()" title="Close" class="rms-report-hdr-btn">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
             </div>
         </div>
-    @endif
+
+        @if($successTicket)
+            <div class="rms-report-widget-body" style="display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
+                <div class="rms-report-success">
+                    <div class="rms-report-success-icon" aria-hidden="true">✓</div>
+                    <strong>Ticket {{ $successTicket }} submitted</strong>
+                    <span>Thank you — the admin team will review this in Error Tickets.</span>
+                </div>
+            </div>
+            <div class="rms-report-widget-footer">
+                <button type="button" class="rms-report-btn primary" @click="$wire.closeModal()">Done</button>
+            </div>
+        @else
+            <form wire:submit.prevent="submit" style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+                <div class="rms-report-widget-body">
+                    <div style="margin-bottom: 14px; padding: 10px 12px; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0; font-size: 12px; color: #64748b; line-height: 1.45;">
+                        Describe what went wrong. The admin team can view details and resolve it in the console.
+                    </div>
+
+                    <label class="rms-report-field">
+                        <span>Subject *</span>
+                        <input type="text" wire:model="title" maxlength="240" required placeholder="Brief summary of the issue...">
+                        @error('title') <em>{{ $message }}</em> @enderror
+                    </label>
+
+                    <label class="rms-report-field">
+                        <span>What happened? *</span>
+                        <textarea wire:model="description" rows="5" maxlength="5000" required placeholder="Steps to reproduce, expected vs actual result…"></textarea>
+                        @error('description') <em>{{ $message }}</em> @enderror
+                    </label>
+
+                    <label class="rms-report-field">
+                        <span>Error reference <em class="rms-report-optional">(optional)</em></span>
+                        <input type="text" wire:model="reference" maxlength="32" placeholder="e.g. SRV-AB12CD">
+                    </label>
+
+                    @if($pageUrl !== '')
+                        <p class="rms-report-meta" title="{{ $pageUrl }}">
+                            <span>Page</span>
+                            {{ \Illuminate\Support\Str::limit($pageUrl, 64) }}
+                        </p>
+                    @endif
+
+                    @if($errorMessage)
+                        <div class="rms-report-error">{{ $errorMessage }}</div>
+                    @endif
+                </div>
+
+                <div class="rms-report-widget-footer">
+                    <button type="button" class="rms-report-btn" @click="$wire.closeModal()">Cancel</button>
+                    <button type="submit" class="rms-report-btn primary" wire:loading.attr="disabled">
+                        <span wire:loading.remove wire:target="submit">Submit Ticket</span>
+                        <span wire:loading wire:target="submit">Submitting…</span>
+                    </button>
+                </div>
+            </form>
+        @endif
+    </div>
 </div>
 
 <style>
+    /* Default state: Circular icon button matching Chatify */
     .rms-report-fab {
         position: fixed;
         right: 24px;
-        bottom: 96px; /* clear Chatify FAB (56px @ bottom 24px) */
+        bottom: 92px; /* clear Chatify FAB (56px @ bottom 24px + 12px gap) */
         z-index: 999998;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        border: 1px solid rgba(15, 23, 42, 0.12);
+        height: 56px;
+        min-width: 56px;
+        width: 56px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
         background: #0f172a;
         color: #f8fafc;
-        border-radius: 999px;
-        padding: 11px 16px 11px 12px;
-        font: 600 0.85rem Inter, system-ui, sans-serif;
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.35);
         cursor: pointer;
-        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.28);
-        transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 0 0 0 14px;
+        overflow: hidden;
+        white-space: nowrap;
+        user-select: none;
+        box-sizing: border-box;
+        transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                    padding 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                    bottom 0.35s cubic-bezier(0.34, 1.25, 0.64, 1),
+                    transform 0.2s ease,
+                    background 0.2s ease,
+                    box-shadow 0.2s ease;
     }
+
+    /* Hover state: Expands to pill with label */
     .rms-report-fab:hover {
+        width: 138px;
+        padding: 0 16px 0 14px;
         background: #1e293b;
         transform: translateY(-1px);
-        box-shadow: 0 14px 32px rgba(15, 23, 42, 0.32);
+        box-shadow: 0 14px 32px rgba(15, 23, 42, 0.45);
     }
+
     .rms-report-fab-icon {
         width: 28px;
         height: 28px;
@@ -214,99 +286,125 @@ new class extends Component {
         justify-content: center;
         flex-shrink: 0;
     }
-    .rms-report-fab-label { letter-spacing: 0.01em; }
 
-    .rms-report-overlay {
-        position: fixed;
-        inset: 0;
-        z-index: 1000010;
-        background: rgba(15, 23, 42, 0.6);
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 16px;
-        animation: rmsReportFadeIn 0.18s ease-out;
-    }
-
-    .rms-report-modal {
-        width: min(480px, 100%);
-        background: #fff;
-        border-radius: 16px;
-        border: 1px solid rgba(226, 232, 240, 0.9);
-        color: #0f172a;
-        font-family: Inter, system-ui, sans-serif;
+    .rms-report-fab-label {
+        max-width: 0;
+        opacity: 0;
         overflow: hidden;
-        box-shadow:
-            0 20px 25px -5px rgba(0, 0, 0, 0.1),
-            0 8px 10px -6px rgba(0, 0, 0, 0.1);
-        animation: rmsReportPop 0.2s ease-out;
+        margin-left: 0;
+        font: 700 0.88rem Inter, system-ui, sans-serif;
+        letter-spacing: 0.01em;
+        color: #f8fafc;
+        transition: max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                    opacity 0.2s ease,
+                    margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    .rms-report-header {
-        padding: 18px 20px;
-        background: #f8fafc;
-        border-bottom: 1px solid #e2e8f0;
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
+    .rms-report-fab:hover .rms-report-fab-label {
+        max-width: 75px;
+        opacity: 1;
+        margin-left: 8px;
     }
-    .rms-report-header-left {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        min-width: 0;
+
+    /* Open state hover */
+    .rms-report-fab.is-open:hover {
+        width: 124px;
     }
-    .rms-report-header-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        background: #fff7ed;
-        color: #c2410c;
+
+    /* When Chatify widget is open, Report FAB moves UP above the Chatify card */
+    body.chatify-widget-open .rms-report-fab {
+        bottom: calc(min(620px, calc(100vh - 100px)) + 104px) !important;
+        z-index: 1000000 !important;
+    }
+
+    /* When Report Problem widget is opened, its FAB sits at bottom 24px as active toggle */
+    body.report-widget-open .rms-report-fab {
+        bottom: 24px !important;
+        z-index: 1000000 !important;
+    }
+
+    /* If Chatify is absent/disabled, Report FAB rests at bottom 24px */
+    body.no-chatify-widget .rms-report-fab {
+        bottom: 24px;
+    }
+
+    /* Floating Report Card (matches Chatify widget card layout & animation) */
+    .rms-report-widget-card {
+        position: fixed;
+        bottom: 88px;
+        right: 24px;
+        width: 420px;
+        height: 580px;
+        max-width: calc(100vw - 32px);
+        max-height: calc(100vh - 100px);
+        border-radius: 16px;
+        box-shadow: 0 20px 40px -8px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(148, 163, 184, 0.2);
+        background: #ffffff;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        z-index: 999999;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        animation: rmsReportCardPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes rmsReportCardPop {
+        from {
+            opacity: 0;
+            transform: translateY(16px) scale(0.96);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    .rms-report-widget-header {
+        background: #0f172a;
+        padding: 12px 18px;
         display: flex;
         align-items: center;
-        justify-content: center;
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        user-select: none;
         flex-shrink: 0;
-        border: 1px solid #ffedd5;
     }
-    .rms-report-header h2 {
-        margin: 0;
-        font-size: 1rem;
-        font-weight: 700;
-        color: #0f172a;
-        line-height: 1.3;
-    }
-    .rms-report-header p {
-        margin: 3px 0 0;
-        color: #64748b;
-        font-size: 0.8rem;
-        line-height: 1.4;
-    }
-    .rms-report-close {
-        border: 0;
+
+    .rms-report-hdr-btn {
         background: transparent;
-        width: 32px;
-        height: 32px;
-        border-radius: 999px;
-        font-size: 1.35rem;
-        line-height: 1;
+        border: none;
         color: #94a3b8;
         cursor: pointer;
-        display: inline-flex;
+        padding: 4px;
+        border-radius: 6px;
+        display: flex;
         align-items: center;
         justify-content: center;
-        flex-shrink: 0;
+        transition: color 0.2s, background 0.2s;
     }
-    .rms-report-close:hover {
-        background: #e2e8f0;
-        color: #475569;
+    .rms-report-hdr-btn:hover {
+        color: #f8fafc;
+        background: rgba(255, 255, 255, 0.1);
     }
 
-    .rms-report-body {
-        padding: 20px;
+    .rms-report-widget-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 18px 20px;
+        background: #ffffff;
     }
+
+    .rms-report-widget-footer {
+        padding: 12px 18px;
+        background: #f8fafc;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        flex-shrink: 0;
+    }
+
     .rms-report-field {
         display: block;
         margin-bottom: 14px;
@@ -381,7 +479,7 @@ new class extends Component {
         justify-items: center;
         text-align: center;
         gap: 8px;
-        padding: 12px 8px 4px;
+        padding: 24px 8px;
     }
     .rms-report-success-icon {
         width: 48px;
@@ -398,15 +496,6 @@ new class extends Component {
     .rms-report-success strong { color: #047857; font-size: 1rem; }
     .rms-report-success span { color: #475569; font-size: 0.88rem; line-height: 1.45; max-width: 32ch; }
 
-    .rms-report-footer {
-        padding: 14px 20px;
-        background: #f8fafc;
-        border-top: 1px solid #e2e8f0;
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 10px;
-    }
     .rms-report-btn {
         border: 1.5px solid #cbd5e1;
         background: #fff;
@@ -427,24 +516,22 @@ new class extends Component {
     .rms-report-btn.primary:hover { background: #1e293b; border-color: #1e293b; }
     .rms-report-btn:disabled { opacity: 0.65; cursor: wait; }
 
-    @keyframes rmsReportFadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-    }
-    @keyframes rmsReportPop {
-        from { opacity: 0; transform: translateY(8px) scale(0.98); }
-        to { opacity: 1; transform: translateY(0) scale(1); }
-    }
-
     @media (max-width: 767px) {
         .rms-report-fab {
             right: 16px;
-            bottom: 24px; /* Chatify hidden on mobile */
+            bottom: 24px;
+        }
+        .rms-report-widget-card {
+            right: 12px;
+            bottom: 12px;
+            width: calc(100vw - 24px);
+            max-height: calc(100vh - 24px);
+            height: calc(100vh - 24px);
         }
     }
 
     @media print {
         .rms-report-fab,
-        .rms-report-overlay { display: none !important; }
+        .rms-report-widget-card { display: none !important; }
     }
 </style>

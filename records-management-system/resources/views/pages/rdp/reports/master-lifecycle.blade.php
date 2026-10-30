@@ -2048,6 +2048,31 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             background-color: #f8fafc !important;
         }
 
+        .ml-table thead th[rowspan="2"] {
+            vertical-align: middle;
+        }
+
+        .ml-table thead th.ml-th-retention-group {
+            text-align: center;
+            border-bottom: 1px solid #cbd5e1;
+            padding: 6px 8px;
+            height: 28px;
+            box-sizing: border-box;
+            letter-spacing: 0.6px;
+        }
+
+        .ml-table thead tr:nth-child(2) th.ml-th-retention-sub {
+            top: var(--ml-head-row1-h, 28px);
+            z-index: 10;
+            padding: 6px 8px;
+            height: 28px;
+            box-sizing: border-box;
+            text-align: center;
+            border-bottom: 2px solid #cbd5e1;
+            border-right: 1px solid #e2e8f0;
+            background: #f8fafc;
+        }
+
         /* Grid lines across every cell */
         .ml-table td {
             padding: 8px 12px;
@@ -2240,6 +2265,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         [data-theme="dark"] .ml-table-wrap { background: #131c2e !important; border-color: #1e293b !important; }
         [data-theme="dark"] .ml-table { color: #cbd5e1 !important; }
         [data-theme="dark"] .ml-table thead th { background: #0b1120 !important; color: #f8fafc !important; border-color: #1e293b !important; }
+        [data-theme="dark"] .ml-table thead th.ml-th-retention-group { border-bottom-color: #1e293b !important; }
+        [data-theme="dark"] .ml-table thead tr:nth-child(2) th.ml-th-retention-sub { background: #0b1120 !important; border-bottom-color: #1e293b !important; border-right-color: #1e293b !important; }
         [data-theme="dark"] .root-series-row { background: #1a253c !important; }
         [data-theme="dark"] .sub-series-row { background: #131c2e !important; }
         [data-theme="dark"] .record-item-row { background: #0f172a !important; }
@@ -2266,6 +2293,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                 if (widget) {
                     widget.style.transition = 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
                     widget.style.transform = open ? 'translateX(-390px)' : 'translateX(0)';
+                }
+            });
+            this.syncHeaderHeight();
+            window.addEventListener('resize', () => this.syncHeaderHeight());
+        },
+        syncHeaderHeight() {
+            this.$nextTick(() => {
+                const r1 = this.$el.querySelector('.ml-th-retention-group');
+                const wrap = this.$el.querySelector('.ml-table-wrap');
+                if (r1 && wrap) {
+                    wrap.style.setProperty('--ml-head-row1-h', r1.offsetHeight + 'px');
                 }
             });
         },
@@ -2446,22 +2484,25 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             <table class="ml-table">
                 <thead>
                     <tr>
-                        <th class="col-sticky-1" style="text-align: left; padding-left: 12px;">ITEM NO.</th>
-                        <th class="col-sticky-2">RECORD SERIES TITLE & DESCRIPTION</th>
-                        <th style="min-width: 125px; text-align: center;">PERIOD COVERED</th>
-                        <th style="min-width: 90px; text-align: center;">VOLUME</th>
-                        <th style="min-width: 90px; text-align: center;">MEDIUM</th>
-                        <th style="min-width: 110px; text-align: center;">RESTRICTIONS</th>
-                        <th style="min-width: 130px; text-align: center;">LOCATION</th>
-                        <th style="min-width: 75px; text-align: center;">ACTIVE</th>
-                        <th style="min-width: 75px; text-align: center;">STORAGE</th>
-                        <th style="min-width: 80px; text-align: center;">TOTAL</th>
-                        <th style="min-width: 150px; text-align: center;">DISPOSITION PROVISION</th>
-                        <th style="min-width: 110px; text-align: center;">ACTION DATE</th>
-                        <th style="min-width: 105px; text-align: center;">REF</th>
-                        <th style="min-width: 100px; text-align: center;">STATUS</th>
-                        <th style="min-width: 100px; text-align: center;">OFFICE</th>
-                        <th style="min-width: 75px; text-align: center;">ACTION</th>
+                        <th rowspan="2" class="col-sticky-1" style="text-align: left; padding-left: 12px; vertical-align: middle;">ITEM NO.</th>
+                        <th rowspan="2" class="col-sticky-2" style="vertical-align: middle;">RECORD SERIES TITLE & DESCRIPTION</th>
+                        <th rowspan="2" style="min-width: 125px; text-align: center; vertical-align: middle;">PERIOD COVERED</th>
+                        <th rowspan="2" style="min-width: 90px; text-align: center; vertical-align: middle;">VOLUME</th>
+                        <th rowspan="2" style="min-width: 90px; text-align: center; vertical-align: middle;">MEDIUM</th>
+                        <th rowspan="2" style="min-width: 110px; text-align: center; vertical-align: middle;">RESTRICTIONS</th>
+                        <th rowspan="2" style="min-width: 130px; text-align: center; vertical-align: middle;">LOCATION</th>
+                        <th colspan="3" class="ml-th-retention-group">RETENTION</th>
+                        <th rowspan="2" style="min-width: 150px; text-align: center; vertical-align: middle;">DISPOSITION PROVISION</th>
+                        <th rowspan="2" style="min-width: 110px; text-align: center; vertical-align: middle;">ACTION DATE</th>
+                        <th rowspan="2" style="min-width: 105px; text-align: center; vertical-align: middle;">REF</th>
+                        <th rowspan="2" style="min-width: 100px; text-align: center; vertical-align: middle;">STATUS</th>
+                        <th rowspan="2" style="min-width: 100px; text-align: center; vertical-align: middle;">OFFICE</th>
+                        <th rowspan="2" style="min-width: 75px; text-align: center; vertical-align: middle;">ACTION</th>
+                    </tr>
+                    <tr>
+                        <th class="ml-th-retention-sub" style="min-width: 75px; text-align: center;">ACTIVE</th>
+                        <th class="ml-th-retention-sub" style="min-width: 75px; text-align: center;">STORAGE</th>
+                        <th class="ml-th-retention-sub" style="min-width: 80px; text-align: center;">TOTAL</th>
                     </tr>
                 </thead>
                 <tbody>

@@ -535,12 +535,6 @@
                 closeInsertModal();
                 return;
             }
-            if (e.target.closest('#docNoInsertRevise')) {
-                clearInsertShift();
-                closeInsertModal();
-                switchToRevised();
-                return;
-            }
             if (e.target.closest('#docNoInsertNext')) {
                 clearInsertShift();
                 const input = document.getElementById('masterlistDocNo');

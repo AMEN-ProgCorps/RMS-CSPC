@@ -272,11 +272,8 @@ class RegisterUpdateHelper
                 'updated_by' => auth()->id(),
                 'updated_at' => $now,
             ];
-            if (
-                ! $saveAsDraft
-                && (string) $request->input('open_appraisal') === '1'
-                && Schema::hasColumn('dcs_document_requests', 'appraisal_opt_in')
-            ) {
+            // Client rule: every registered document needs appraisal.
+            if (! $saveAsDraft && Schema::hasColumn('dcs_document_requests', 'appraisal_opt_in')) {
                 $requestUpdate['appraisal_opt_in'] = true;
             }
             DB::table('dcs_document_requests')->where('id', $id)->update(array_filter(

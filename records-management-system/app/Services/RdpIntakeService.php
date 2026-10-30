@@ -426,20 +426,63 @@ class RdpIntakeService
         if ((string) $request->input('open_appraisal') !== '1' || $requestId < 1) {
             return null;
         }
-        if (self::requestAlreadyForwarded($requestId)) {
+
+        // Already appraised — stay on edit; do not open appraisal again.
+        if (! self::adminAppraisalPending($requestId)) {
             return null;
         }
 
-        $hasOffices = DB::table('dcs_distribution_offices as d')
-            ->join('dcs_document_distribution as dist', 'dist.id', '=', 'd.distribution_id')
-            ->where('dist.request_id', $requestId)
-            ->exists();
-        if (! $hasOffices) {
-            return null;
-        }
-
+        // Distribution offices are optional — without them the controller still
+        // creates their own NAP Form 1 row.
         return redirect()
             ->route('rdp.add-records.inventory-and-appraisal', ['dcs_request_id' => $requestId])
             ->with('success', $successMessage);
+    }
+
+    /** True when this DCS request still needs the controller's appraisal record. */
+    public static function adminAppraisalPending(int $requestId): bool
+    {
+        if ($requestId < 1) {
+            return false;
+        }
+
+        if (self::requestAlreadyForwarded($requestId) || self::requestHasAppraisedIntake($requestId)) {
+            return false;
+        }
+
+        $officeOwn = '';
+        if (class_exists(\App\Helpers\RegisterQueryHelper::class)) {
+            $officeOwn = (string) (\App\Helpers\RegisterQueryHelper::rdpOfficeOwnCode() ?? '');
+        }
+        if ($officeOwn !== '' && self::adminRecordExistsForRequest($requestId, $officeOwn)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /** Any RDP intake row for this DCS request already has an appraised NAP record. */
+    public static function requestHasAppraisedIntake(int $requestId): bool
+    {
+        if ($requestId < 1 || ! DB::getSchemaBuilder()->hasTable('rdp_received_documents')) {
+            return false;
+        }
+        if (! DB::getSchemaBuilder()->hasColumn('rdp_received_documents', 'metadata')) {
+            return false;
+        }
+
+        try {
+            return DB::table('rdp_received_documents')
+                ->where('source_subsystem', 'DCS')
+                ->whereRaw("COALESCE(metadata->>'dcs_request_id', '') = ?", [(string) $requestId])
+                ->where(function ($q) {
+                    $q->whereNotNull('appraised_record_id')
+                        ->orWhere('status', 'appraised')
+                        ->orWhereRaw("COALESCE((metadata->>'dcs_admin_record')::text, '') IN ('true', '1')");
+                })
+                ->exists();
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 }

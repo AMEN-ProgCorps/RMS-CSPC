@@ -550,7 +550,7 @@ document.addEventListener('alpine:init', () => {
                             <span x-show="!loading && results.length === 0">No matching documents</span>
                         </div>
 
-                        <template x-if="loading">
+                        <template x-if="loading && results.length === 0">
                             <div class="dash-search-state">
                                 <i class="fa-solid fa-spinner fa-spin"></i>
                                 <span>Searching masterlist records...</span>
@@ -564,8 +564,8 @@ document.addEventListener('alpine:init', () => {
                             </div>
                         </template>
 
-                        <template x-if="!loading && results.length > 0">
-                            <div class="dash-search-list">
+                        <template x-if="results.length > 0">
+                            <div class="dash-search-list" :class="{ 'is-refreshing': loading }">
                                 <template x-for="doc in results" :key="doc.masterlist_id">
                                     <article class="dash-search-item dash-search-item-clickable" @click="openDetail(doc)" role="button" tabindex="0" @keydown.enter.prevent="openDetail(doc)">
                                         <div class="dash-search-item-top">
@@ -641,6 +641,39 @@ document.addEventListener('alpine:init', () => {
 
                                         <template x-if="!checklistLoading && checklistPreview">
                                             <div class="dash-cl-body">
+                                                <template x-if="activeChecklistKey === 'file' && checklistPreview && checklistPreview.preview_url">
+                                                    <div class="dash-file-preview">
+                                                        <iframe
+                                                            class="dash-file-preview-frame"
+                                                            :src="checklistPreview.preview_url"
+                                                            title="Document scan preview"
+                                                        ></iframe>
+                                                    </div>
+                                                </template>
+
+                                                <template x-if="activeChecklistKey === 'file' && checklistPreview && checklistPreview.can_verify">
+                                                    <div class="dash-file-verify">
+                                                        <button
+                                                            type="button"
+                                                            class="dash-file-verify-btn"
+                                                            :disabled="fileVerifyLoading"
+                                                            @click="verifyFileChecksum()"
+                                                        >
+                                                            <i class="fa-solid" :class="fileVerifyLoading ? 'fa-spinner fa-spin' : 'fa-shield-halved'"></i>
+                                                            <span x-text="fileVerifyLoading ? 'Verifying…' : 'Verify checksum'"></span>
+                                                        </button>
+                                                        <p
+                                                            class="dash-file-verify-msg"
+                                                            :class="{
+                                                                'is-ok': fileVerifyState === 'match',
+                                                                'is-bad': fileVerifyState === 'mismatch' || fileVerifyState === 'missing'
+                                                            }"
+                                                            x-show="fileVerifyMessage"
+                                                            x-text="fileVerifyMessage"
+                                                        ></p>
+                                                    </div>
+                                                </template>
+
                                                 <table class="dash-cl-table">
                                                     <tbody>
                                                         <template x-for="field in checklistPreview.fields" :key="field.label">
@@ -1059,6 +1092,9 @@ document.addEventListener('alpine:init', () => {
         checklistStampUrl: '',
         activeChecklistKey: '',
         activeRequestId: null,
+        fileVerifyLoading: false,
+        fileVerifyState: '',
+        fileVerifyMessage: '',
         checklistOptions: [
             { key: 'drf', label: 'DRF' },
             { key: 'dcn', label: 'DCN' },
@@ -1066,6 +1102,7 @@ document.addEventListener('alpine:init', () => {
             { key: 'approval', label: 'Approving Body' },
             { key: 'distribution', label: 'Distribution' },
             { key: 'retrieval', label: 'Retrieval' },
+            { key: 'file', label: 'Documented Information' },
         ],
         activeChecklists: null,
         search() {
@@ -1076,9 +1113,9 @@ document.addEventListener('alpine:init', () => {
             }
 
             const q = this.query.trim();
-            if (q.length < 2) {
+            if (q.length < 1) {
                 this.results = [];
-                this.open = q.length > 0;
+                this.open = false;
                 this.loading = false;
                 return;
             }
@@ -1088,6 +1125,7 @@ document.addEventListener('alpine:init', () => {
             // Keep prior results only while the same query is still loading; never mix queries.
             const seq = ++this.searchSeq;
             const requested = q;
+            // Short debounce so each typed character refreshes related matches quickly.
             this.timer = setTimeout(async () => {
                 // Drop stale timers if the user kept typing.
                 if (seq !== this.searchSeq || requested !== this.query.trim()) {
@@ -1125,7 +1163,7 @@ document.addEventListener('alpine:init', () => {
                         this.abortController = null;
                     }
                 }
-            }, 300);
+            }, 120);
         },
         clear() {
             clearTimeout(this.timer);
@@ -1203,9 +1241,12 @@ document.addEventListener('alpine:init', () => {
             this.checklistStampUrl = doc.stamp_url || '';
             document.body.classList.add('dash-cl-open');
 
+            // Show matched revision + first checklist immediately; revisions load in parallel.
+            this.applyActiveRevision(doc);
+            const checklistPromise = this.loadFirstAvailableChecklist();
+
             this.revisionsLoading = true;
             try {
-                // Load the full lineage (tip), but activate the matched revision (may be obsolete).
                 const lineageId = doc.lineage_request_id || doc.request_id;
                 const res = await fetch('/dcs/api/documents/revisions?request_id=' + lineageId);
                 this.revisions = res.ok ? await res.json() : [];
@@ -1216,12 +1257,15 @@ document.addEventListener('alpine:init', () => {
             }
 
             const matched = this.resolveMatchedRevision(doc, this.revisions);
-            this.applyActiveRevision(matched || doc);
-            if (matched && matched.request_id !== (doc.lineage_request_id || doc.request_id)) {
+            if (matched && matched.request_id && matched.request_id !== this.activeRequestId) {
+                this.applyActiveRevision(matched);
                 this.scrollActiveRevisionIntoView();
+                await this.loadFirstAvailableChecklist();
+            } else if (matched) {
+                this.applyActiveRevision(matched);
             }
 
-            await this.loadFirstAvailableChecklist();
+            await checklistPromise;
         },
         async selectRevision(rev) {
             if (!rev || rev.request_id === this.activeRequestId) return;
@@ -1258,23 +1302,76 @@ document.addEventListener('alpine:init', () => {
                 [heading]: !this.officeListExpanded[heading],
             };
         },
+        resetFileVerify() {
+            this.fileVerifyLoading = false;
+            this.fileVerifyState = '';
+            this.fileVerifyMessage = '';
+        },
         async loadChecklist(type) {
             this.activeChecklistKey = type;
             this.checklistLoading = true;
             this.checklistPreview = null;
             this.officeListExpanded = {};
+            this.resetFileVerify();
             try {
                 const res = await fetch('/dcs/api/documents/' + this.activeRequestId + '/checklist/' + type);
                 if (!res.ok) throw new Error('not found');
                 this.checklistPreview = await res.json();
+                this.resetFileVerify();
             } catch (e) {
                 this.checklistPreview = {
-                    title: 'Checklist unavailable',
-                    fields: [{ label: 'Message', value: 'Could not load this checklist.' }],
+                    title: type === 'file' ? 'Documented Information' : 'Checklist unavailable',
+                    fields: [{ label: 'Message', value: type === 'file'
+                        ? 'Documented information could not be loaded for this registration.'
+                        : 'Could not load this checklist.' }],
                     sections: [],
+                    has_file: false,
+                    can_verify: false,
                 };
             } finally {
                 this.checklistLoading = false;
+            }
+        },
+        async verifyFileChecksum() {
+            if (!this.activeRequestId || this.fileVerifyLoading) return;
+            this.fileVerifyLoading = true;
+            this.fileVerifyMessage = '';
+            this.fileVerifyState = '';
+            try {
+                const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+                const res = await fetch('/dcs/api/documents/' + this.activeRequestId + '/verify-checksum', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': csrf,
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.fileVerifyState = 'missing';
+                    this.fileVerifyMessage = data.message || 'Could not verify checksum.';
+                    return;
+                }
+                if (data.match === true) {
+                    this.fileVerifyState = 'match';
+                } else if (data.match === false) {
+                    this.fileVerifyState = 'mismatch';
+                } else {
+                    this.fileVerifyState = 'missing';
+                }
+                this.fileVerifyMessage = data.message || (
+                    this.fileVerifyState === 'match'
+                        ? 'Checksum matches the stored scan.'
+                        : (this.fileVerifyState === 'mismatch'
+                            ? 'Checksum does not match the stored scan.'
+                            : 'Checksum could not be verified.')
+                );
+            } catch (e) {
+                this.fileVerifyState = 'missing';
+                this.fileVerifyMessage = 'Could not verify checksum.';
+            } finally {
+                this.fileVerifyLoading = false;
             }
         },
         closeDetailModal() {
@@ -1289,6 +1386,7 @@ document.addEventListener('alpine:init', () => {
             this.activeChecklistKey = '';
             this.activeRequestId = null;
             this.activeChecklists = null;
+            this.resetFileVerify();
             document.body.classList.remove('dash-cl-open');
         },
     }));

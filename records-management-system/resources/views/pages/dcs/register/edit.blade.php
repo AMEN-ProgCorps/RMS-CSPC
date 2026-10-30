@@ -49,6 +49,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     $listLabel = $isDraftDoc
         ? 'Back to Drafts'
         : ($readOnly ? 'Back to Update Documents' : 'Back to List');
+    $appraisalPending = ! $isDraftDoc
+        && \App\Services\RdpIntakeService::adminAppraisalPending((int) $docRequest->id);
 @endphp
 <script>
 window.APP_CONFIG = {
@@ -1051,13 +1053,18 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                         <i class="fa-regular fa-floppy-disk"></i> Save Draft
                     </button>
-                    <button type="button" id="btnSaveAndAppraise" class="reg-btn reg-btn-appraise" onclick="window.__openAppraisalAfterSave=true; confirmSave()" title="Save, then send this document to Appraisal. Office intake will appraise after receive.">
+                    <button type="button" id="btnSaveAndAppraise" class="reg-btn reg-btn-appraise" onclick="window.__openAppraisalAfterSave=true; confirmSave()" title="Save, then open Appraisal. Every document needs appraisal.">
                         <i class="fa-solid fa-clipboard-check"></i> Save and Appraise
                     </button>
                     @else
                     <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="window.__openAppraisalAfterSave=false; confirmSave()" title="Update this document. Appraisal is not changed.">
                         <i class="fa-solid fa-floppy-disk"></i> Update Document
                     </button>
+                    @if($appraisalPending)
+                    <button type="button" id="btnSaveAndAppraise" class="reg-btn reg-btn-appraise" onclick="window.__openAppraisalAfterSave=true; confirmSave()" title="Save changes, then open Appraisal. Every document needs appraisal.">
+                        <i class="fa-solid fa-clipboard-check"></i> Update and Appraise
+                    </button>
+                    @endif
                     @endif
                     @endunless
                 </div>
@@ -1153,10 +1160,6 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
             <div class="reg-modal-body">
                 <p id="docNoInsertLead" class="reg-insert-lead"></p>
                 <div class="reg-insert-choices" id="docNoInsertChoices">
-                    <button type="button" class="reg-insert-choice" id="docNoInsertRevise">
-                        <strong>Revise this document</strong>
-                        <span>Keep this number and create the next revision (DCN).</span>
-                    </button>
                     <button type="button" class="reg-insert-choice" id="docNoInsertNext">
                         <strong>Use next free number</strong>
                         <span id="docNoInsertNextLabel">Use the next number in this group.</span>
@@ -2687,16 +2690,30 @@ async function runDraftRevNoCheck(revField) {
     const excludeRequestId = document.getElementById('requestId')?.value || '';
 
     try {
+        const allowDuplicate = document.getElementById('allowDuplicateDocNo')?.value === '1' ? '1' : '0';
+        const insertShift = document.getElementById('insertShiftConfirmed')?.value === '1' ? '1' : '0';
         const url = '/dcs/register/check-revno?doc_no=' + encodeURIComponent(docNo) +
             '&revise_no=' + encodeURIComponent(reviseNo) +
             (docTypeId ? '&doc_type_id=' + encodeURIComponent(docTypeId) : '') +
             (subTypeId ? '&sub_type_id=' + encodeURIComponent(subTypeId) : '') +
-            (excludeRequestId ? '&exclude_request_id=' + encodeURIComponent(excludeRequestId) : '');
+            (excludeRequestId ? '&exclude_request_id=' + encodeURIComponent(excludeRequestId) : '') +
+            '&insert_shift_confirmed=' + encodeURIComponent(insertShift) +
+            '&allow_duplicate_doc_no=' + encodeURIComponent(allowDuplicate);
         const res = await fetch(url);
         const data = await res.json();
 
         if (data.needs_doc_no || data.needs_doc_type) {
             if (hint) hint.innerHTML = '';
+            return;
+        }
+
+        if (allowDuplicate === '1' || data.duplicate_copy) {
+            if (hint) {
+                hint.innerHTML = '';
+                hint.style.color = '';
+            }
+            revField.style.borderColor = '';
+            revField.classList.remove('reg-input-invalid');
             return;
         }
 
@@ -2711,6 +2728,20 @@ async function runDraftRevNoCheck(revField) {
             if (hint) {
                 hint.innerHTML = '';
                 hint.style.color = '';
+            }
+            return;
+        }
+
+        if (data.allows_revision === false) {
+            revField.value = '0';
+            revField.readOnly = true;
+            revField.style.background = '#f1f5f9';
+            revField.style.borderColor = '';
+            revField.classList.remove('reg-input-invalid');
+            if (hint) {
+                hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' +
+                    escapeHtml(data.message || 'Always Rev 0 for this document type.');
+                hint.style.color = '#16a34a';
             }
             return;
         }
@@ -2783,10 +2814,13 @@ async function runDocNoLookup(docNo, hintEl, revField) {
                     hintEl.style.color = '#16a34a';
                     hintEl.dataset.valid = 'available';
                 }
+                if (typeof window.scheduleRevNoCheck === 'function') {
+                    window.scheduleRevNoCheck();
+                }
             } else {
                 docNoDuplicate = true;
                 if (hintEl) {
-                    hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> This document number is already registered. Choose Revise, the next free number, insert into this group, or register another copy.';
+                    hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> This document number is already registered. Choose the next free number, insert into this group, or register another copy.';
                     hintEl.style.color = '#dc2626';
                     hintEl.dataset.valid = 'duplicate';
                 }
@@ -2811,6 +2845,20 @@ async function runDocNoLookup(docNo, hintEl, revField) {
                 hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' + escapeHtml(data.is_self ? (data.message || 'This is the current document number.') : 'Document number is available.');
                 hintEl.style.color = '#16a34a';
                 hintEl.dataset.valid = 'available';
+            }
+            // Free / current number — clear stale "Rev 0 is taken" from a prior lookup.
+            const revHint = document.getElementById('revNoHint');
+            const revField = document.getElementById('masterlistRevisionNo');
+            if (revHint) {
+                revHint.innerHTML = '';
+                revHint.style.color = '';
+            }
+            if (revField) {
+                revField.style.borderColor = '';
+                revField.classList.remove('reg-input-invalid');
+            }
+            if (typeof window.scheduleRevNoCheck === 'function') {
+                window.scheduleRevNoCheck();
             }
         }
     } catch (e) {

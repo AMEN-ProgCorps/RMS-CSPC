@@ -796,7 +796,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                     <i class="fa-regular fa-floppy-disk"></i> Save Draft
                 </button>
-                <button type="button" id="btnSaveAndAppraise" class="reg-btn reg-btn-appraise" onclick="window.__openAppraisalAfterSave=true; confirmSave()" title="Save, then send this document to Appraisal. Office intake will appraise after receive.">
+                <button type="button" id="btnSaveAndAppraise" class="reg-btn reg-btn-appraise" onclick="window.__openAppraisalAfterSave=true; confirmSave()" title="Save, then open Appraisal. Every document needs appraisal.">
                     <i class="fa-solid fa-clipboard-check"></i> Save and Appraise
                 </button>
             </div>
@@ -847,10 +847,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="reg-modal-body">
                 <p id="docNoInsertLead" class="reg-insert-lead"></p>
                 <div class="reg-insert-choices" id="docNoInsertChoices">
-                    <button type="button" class="reg-insert-choice" id="docNoInsertRevise">
-                        <strong>Revise this document</strong>
-                        <span>Keep this number and create the next revision (DCN).</span>
-                    </button>
                     <button type="button" class="reg-insert-choice" id="docNoInsertNext">
                         <strong>Use next free number</strong>
                         <span id="docNoInsertNextLabel">Use the next number in this group.</span>
@@ -3163,7 +3159,7 @@ function applyNewModeLookupResult(data, hintEl, revField) {
 
         if (hintEl) {
             hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> ' +
-                'This document number is already registered. Choose Revise, the next free number, insert into this group, or register another copy.' +
+                'This document number is already registered. Choose the next free number, insert into this group, or register another copy.' +
                 '<br><span style="font-weight:400;font-size:11px;">You cannot save until you pick an option or enter a unique number.</span>';
             hintEl.style.color = '#dc2626';
             hintEl.dataset.valid = 'duplicate';
@@ -3191,6 +3187,13 @@ function applyNewModeLookupResult(data, hintEl, revField) {
             hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Document number is available.';
             hintEl.style.color = '#16a34a';
             hintEl.dataset.valid = 'available';
+        }
+        // Number is free — clear any stale "Rev 0 is taken" from a previous number.
+        if (typeof clearRevNoHint === 'function') {
+            clearRevNoHint();
+        }
+        if (typeof scheduleRevNoCheck === 'function') {
+            scheduleRevNoCheck();
         }
     }
 }
@@ -5834,11 +5837,9 @@ async function handleVersionChange() {
         docTypeSelect.removeAttribute("disabled");
     }
 
-    // Once New / Revised / Recurring is chosen, Version Type stays locked
-    // (no DCN → New, DCN path → Revised, Recurring DRF → Recurring).
-    if (hasVersion) {
-        lockVersionTypeSelect();
-    }
+    // Manual Register: leave Version Type editable so the user can switch
+    // New / Revised / Recurring. Quick actions (?type=…) and office intake
+    // still call lockVersionTypeSelect() on their own paths.
 }
 
 // ══════════════════════════════════════════════

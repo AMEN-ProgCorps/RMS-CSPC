@@ -1027,7 +1027,11 @@ Route::middleware(['auth'])
             Route::middleware(['dcs.full'])->group(function () {
                 Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {
                     return response()->json(RegisterQueryHelper::documentChecklistPreview($id, $type));
-                })->whereIn('type', ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval']);
+                })->whereIn('type', ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval', 'file']);
+
+                Route::post('/api/documents/{id}/verify-checksum', function (int $id) {
+                    return response()->json(RegisterQueryHelper::verifyMasterlistChecksum($id));
+                });
 
                 // Dashboard calendar reads for all full DCS users; mutations need Settings.
                 Route::get('/api/calendar/categories', fn () => CalendarHelper::categories());

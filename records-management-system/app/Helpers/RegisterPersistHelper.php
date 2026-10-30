@@ -1533,8 +1533,9 @@ class RegisterPersistHelper
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
+            // Client rule: every registered document needs appraisal.
             if (Schema::hasColumn('dcs_document_requests', 'appraisal_opt_in')) {
-                $requestRow['appraisal_opt_in'] = ! $saveAsDraft && (string) $request->input('open_appraisal') === '1';
+                $requestRow['appraisal_opt_in'] = ! $saveAsDraft;
             }
             $requestId = DB::table('dcs_document_requests')->insertGetId(array_filter($requestRow, fn ($v) => $v !== null));
 

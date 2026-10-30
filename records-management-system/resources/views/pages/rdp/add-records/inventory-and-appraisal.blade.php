@@ -1839,13 +1839,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             return;
         }
 
-        if ($this->duplicate_offices === []) {
-            $this->dcsAdminForward = false;
-            $this->errorMessage = 'Add at least one distribution office before appraisal.';
-            return;
-        }
-
-        if (\App\Services\RdpIntakeService::requestAlreadyForwarded($requestId)) {
+        $officeOwn = \App\Helpers\RegisterQueryHelper::rdpOfficeOwnCode();
+        if (is_string($officeOwn) && $officeOwn !== ''
+            && \App\Services\RdpIntakeService::adminRecordExistsForRequest($requestId, $officeOwn)) {
+            $this->dcsAdminAlreadySent = true;
+            $this->successMessage = 'Your office appraisal record is already on NAP Form 1.';
+        } elseif (\App\Services\RdpIntakeService::requestAlreadyForwarded($requestId)) {
             $this->dcsAdminAlreadySent = true;
             $this->successMessage = 'This document was already forwarded for appraisal.';
         }
@@ -1890,27 +1889,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             ->exists();
     }
 
+    /**
+     * Controller appraisal: always save the admin NAP Form 1 row.
+     * Forward to distribution offices only when Duplicate has offices.
+     */
     public function forwardToOffices(): void
     {
         if (!$this->dcsAdminForward || !$this->dcsRequestId) {
-            $this->errorMessage = 'This appraisal is not ready to forward.';
-            $this->dispatch('scroll-to-top');
-            return;
-        }
-
-        if (\App\Services\RdpIntakeService::requestAlreadyForwarded((int) $this->dcsRequestId)) {
-            $this->dcsAdminAlreadySent = true;
-            $this->errorMessage = 'This document was already forwarded for appraisal.';
-            $this->dispatch('scroll-to-top');
-            return;
-        }
-
-        if (!$this->validateRecordData(true)) {
-            return;
-        }
-
-        if ($this->duplicate_offices === []) {
-            $this->errorMessage = 'Add the distribution offices before forwarding.';
+            $this->errorMessage = 'This appraisal is not ready.';
             $this->dispatch('scroll-to-top');
             return;
         }
@@ -1924,9 +1910,21 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
         $origin = trim($origin);
 
+        if (\App\Services\RdpIntakeService::adminRecordExistsForRequest((int) $this->dcsRequestId, $origin)
+            || \App\Services\RdpIntakeService::requestAlreadyForwarded((int) $this->dcsRequestId)) {
+            $this->dcsAdminAlreadySent = true;
+            $this->errorMessage = 'This document was already appraised for your office.';
+            $this->dispatch('scroll-to-top');
+            return;
+        }
+
+        if (!$this->validateRecordData(true)) {
+            return;
+        }
+
         $title = trim($this->description);
         if ($title === '') {
-            $this->errorMessage = 'Document title is required before forwarding.';
+            $this->errorMessage = 'Document title is required before saving appraisal.';
             $this->dispatch('scroll-to-top');
             return;
         }
@@ -1947,6 +1945,24 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
         $adminRecordId = $this->insertAdminAppraisalRecord($origin);
         if ($adminRecordId === null) {
+            return;
+        }
+
+        $officeCodes = \App\Helpers\RegisterQueryHelper::resolveSysOfficeCodes($this->duplicate_offices);
+        $hasOfficesToForward = false;
+        foreach ($officeCodes as $officeCode) {
+            if ($officeCode !== '' && strcasecmp($officeCode, $origin) !== 0) {
+                $hasOfficesToForward = true;
+                break;
+            }
+        }
+
+        // No distribution offices: admin NAP Form 1 row is enough.
+        if (! $hasOfficesToForward) {
+            \App\Services\RdpIntakeService::afterDcsRequestAppraised((int) $this->dcsRequestId);
+            $this->successMessage = 'Appraisal saved for your office on NAP Form 1.';
+            $this->dcsAdminAlreadySent = true;
+            $this->dispatch('scroll-to-top');
             return;
         }
 
@@ -1978,7 +1994,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $already = 0;
         $adminInDuplicate = false;
 
-        foreach (\App\Helpers\RegisterQueryHelper::resolveSysOfficeCodes($this->duplicate_offices) as $officeCode) {
+        foreach ($officeCodes as $officeCode) {
             if ($officeCode === '') {
                 continue;
             }
@@ -2051,7 +2067,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->dcsAdminAlreadySent = true;
         $displayDocNo = trim((string) ($masterlist->doc_no ?? ''));
         $revNo = isset($masterlist->revise_no) ? (int) $masterlist->revise_no : null;
-        foreach (\App\Helpers\RegisterQueryHelper::resolveSysOfficeCodes($this->duplicate_offices) as $officeCode) {
+        foreach ($officeCodes as $officeCode) {
             if ($officeCode === '' || strcasecmp($officeCode, $origin) === 0) {
                 continue;
             }
@@ -5046,11 +5062,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             @if($dcsAdminForward)
             @if($dcsAdminAlreadySent)
-            <span style="font-size: 13px; color: #334155; font-weight: 600;">Already forwarded. Each office creates its record once.</span>
+            <span style="font-size: 13px; color: #334155; font-weight: 600;">
+                @if(count($duplicate_offices) > 0)
+                    Already appraised. Each office creates its record once.
+                @else
+                    Your office appraisal record is already on NAP Form 1.
+                @endif
+            </span>
             @else
-            <button type="button" wire:click="forwardToOffices" onclick="rdpScrollToTop()" class="ia-btn ia-btn-primary ia-btn-lg" title="Save your office inventory on NAP Form 1, then forward appraisal to the distributed offices.">
+            @php
+                $adminHasDupOffices = collect($duplicate_offices ?? [])
+                    ->filter(fn ($c) => trim((string) $c) !== '')
+                    ->isNotEmpty();
+            @endphp
+            <button type="button" wire:click="forwardToOffices" onclick="rdpScrollToTop()" class="ia-btn ia-btn-primary ia-btn-lg" title="{{ $adminHasDupOffices ? 'Save your office inventory on NAP Form 1, then forward appraisal to the distributed offices.' : 'Save your office inventory on NAP Form 1.' }}">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                Create Record and Forward
+                {{ $adminHasDupOffices ? 'Create Record and Forward' : 'Create Record' }}
             </button>
             @endif
             @elseif($dcsOfficeAlreadyDone)

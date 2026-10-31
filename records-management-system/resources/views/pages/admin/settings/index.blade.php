@@ -8,10 +8,12 @@ use Livewire\WithFileUploads;
 new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class extends Component {
     use WithFileUploads;
 
-    /** @var string Active settings category tab: general | dts | rdp | security */
+    /** @var string Active settings category tab: general | dts | rdp | dcs | security */
     public string $settingsTab = 'general';
 
     public bool $pagePrewarmingEnabled = true;
+    public bool $dcsOfficeDrfFormsEnabled = false;
+    public bool $dcsOfficeDrfLogbooksEnabled = false;
     public bool $emailAccessRequiredExternal = true;
     public bool $emailAccessRequiredApplication = true;
     public bool $emailAccessRequiredInternal = false;
@@ -397,6 +399,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $rlDcsAction = \DB::table('sys_system_settings')->where('key', 'rate_limit_dcs_action_per_minute')->value('value');
         $this->rateLimitDcsActionPerMinute = ($rlDcsAction !== null && is_numeric($rlDcsAction)) ? (int) $rlDcsAction : 20;
+
+        $this->dcsOfficeDrfFormsEnabled = \App\Helpers\OfficeIntakeHelper::isOfficeDrfParentEnabled('Forms');
+        $this->dcsOfficeDrfLogbooksEnabled = \App\Helpers\OfficeIntakeHelper::isOfficeDrfParentEnabled('Logbooks');
     }
 
     // ---- SERVER DEFAULT RECORD SERIES PICKER (DTS CONTINUITY) ----
@@ -940,6 +945,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
+                \App\Helpers\OfficeIntakeHelper::setOfficeDrfParentEnabled('Forms', $this->dcsOfficeDrfFormsEnabled);
+                \App\Helpers\OfficeIntakeHelper::setOfficeDrfParentEnabled('Logbooks', $this->dcsOfficeDrfLogbooksEnabled);
+
                 // Log activity
                 $logText = "Updated system settings. Prewarming: " . ($this->pagePrewarmingEnabled ? 'true' : 'false') . 
                              ", ExtEmail: " . ($this->emailAccessRequiredExternal ? 'true' : 'false') . 
@@ -951,6 +959,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                              ", DTSReq: " . ($this->dtsRequiredUploadFile ? 'true' : 'false') .
                              ", InactivityTimeout: " . $this->tabCloseIdleTimeoutMinutes . " mins" .
                              ", DcsDeleteCode: " . (trim($this->dcsRecycleDeleteCode) !== '' ? 'set' : 'cleared') .
+                             ", DcsOfficeForms: " . ($this->dcsOfficeDrfFormsEnabled ? 'true' : 'false') .
+                             ", DcsOfficeLogbooks: " . ($this->dcsOfficeDrfLogbooksEnabled ? 'true' : 'false') .
                              ", RateLimit: " . ($this->rateLimitEnabled ? 'true (' . $this->rateLimitDtsCreatePerMinute . '/min)' : 'false');
 
                 \DB::table('sys_admin_logs')->insert([
@@ -1783,6 +1793,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 'general'  => ['icon' => 'fa-solid fa-sliders', 'label' => 'General', 'count' => 2],
                 'dts'      => ['icon' => 'fa-solid fa-qrcode', 'label' => 'Document Tracking (DTS)', 'count' => 1],
                 'rdp'      => ['icon' => 'fa-solid fa-folder-tree', 'label' => 'Records (RDP)', 'count' => 1],
+                'dcs'      => ['icon' => 'fa-solid fa-file-shield', 'label' => 'Document Control (DCS)', 'count' => 1],
                 'security' => ['icon' => 'fa-solid fa-shield-halved', 'label' => 'Security', 'count' => 3],
             ];
         @endphp
@@ -1895,6 +1906,44 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         </div>
                         <label class="switch">
                             <input type="checkbox" wire:model="dtsAllowCustomFlowScopeSelection">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            @endif
+
+            @if($settingsTab === 'dcs')
+            <div class="settings-card">
+                <div>
+                    <div class="settings-card-header">
+                        <i class="fa-solid fa-file-shield"></i>
+                        <h3>Office DRF — Forms &amp; Logbooks</h3>
+                    </div>
+                    <p style="margin: 0 0 12px; font-size: 12px; color: #64748b; line-height: 1.4;">
+                        When enabled, offices see <strong>Forms</strong> / <strong>Logbooks</strong> as Type of document options on office DRF
+                        (alongside Internal and External). RFIO registration can then use the Forms/Logbooks checklist.
+                        Assign prepared/reviewed/approved names under DCS Settings → Signatories after enabling.
+                    </p>
+
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Enable Forms for office DRF</span>
+                            <span class="setting-desc">Adds Forms as a Type of document choice on office Document Request Forms.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="dcsOfficeDrfFormsEnabled">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Enable Logbooks for office DRF</span>
+                            <span class="setting-desc">Adds Logbooks as a Type of document choice on office Document Request Forms.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="dcsOfficeDrfLogbooksEnabled">
                             <span class="slider"></span>
                         </label>
                     </div>

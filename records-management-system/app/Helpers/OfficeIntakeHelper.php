@@ -1704,7 +1704,7 @@ class OfficeIntakeHelper
             'drfDate' => 'required|date',
             'drfTitle' => 'required|string',
             'originatorName' => 'required|string',
-            'docTypeKind' => 'required|in:internal,external',
+            'docTypeKind' => 'required|in:internal,external,forms,logbooks',
             'docTypeId' => 'nullable|integer',
             'subTypeId' => 'nullable|integer',
             'descriptionReason' => 'required|string|max:5000',
@@ -1721,11 +1721,15 @@ class OfficeIntakeHelper
             'confirmDataCorrect' => 'accepted',
         ]);
 
-        // External is kind-only. Internal requires catalog document type (+ sub-type when present).
-        if (($data['docTypeKind'] ?? '') === 'external') {
+        $postedKind = strtolower(trim((string) ($data['docTypeKind'] ?? '')));
+        $data = self::resolveOfficeDrfTypeSelection($data);
+
+        // External is kind-only. Forms/Logbooks resolve to their catalog parent.
+        // Internal requires catalog document type (+ sub-type when present).
+        if ($postedKind === 'external') {
             $data['docTypeId'] = null;
             $data['subTypeId'] = null;
-        } else {
+        } elseif (! in_array($postedKind, ['forms', 'logbooks'], true)) {
             if (empty($data['docTypeId'])) {
                 throw ValidationException::withMessages([
                     'docTypeId' => 'Select a document type.',
@@ -1745,16 +1749,18 @@ class OfficeIntakeHelper
             isset($data['docTypeId']) ? (int) $data['docTypeId'] : null,
             isset($data['subTypeId']) ? (int) $data['subTypeId'] : null
         );
-        if (($data['docTypeKind'] ?? '') === 'internal' && ! $catalog['doc_type_id'] && ! $catalog['sub_type_id']) {
+        if ($postedKind === 'internal' && ! $catalog['doc_type_id'] && ! $catalog['sub_type_id']) {
             throw ValidationException::withMessages([
                 'docTypeId' => 'Select a document type.',
             ]);
         }
-        if ($catalog['doc_type_id'] || $catalog['sub_type_id']) {
+        if (in_array($postedKind, ['forms', 'logbooks'], true)) {
+            $data['docTypeKind'] = $postedKind;
+        } elseif ($catalog['doc_type_id'] || $catalog['sub_type_id']) {
             $data['docTypeKind'] = $catalog['doc_type_kind'];
         } else {
-            $data['docTypeKind'] = in_array(($data['docTypeKind'] ?? ''), ['internal', 'external'], true)
-                ? $data['docTypeKind']
+            $data['docTypeKind'] = in_array($postedKind, ['internal', 'external'], true)
+                ? $postedKind
                 : 'internal';
         }
         $data['resolvedDocTypeId'] = $catalog['doc_type_id'];
@@ -2203,7 +2209,7 @@ class OfficeIntakeHelper
             'drfDate' => 'required|date',
             'drfTitle' => 'required|string',
             'originatorName' => 'required|string',
-            'docTypeKind' => 'nullable|in:internal,external',
+            'docTypeKind' => 'nullable|in:internal,external,forms,logbooks',
             'docTypeId' => 'nullable|integer',
             'subTypeId' => 'nullable|integer',
             'descriptionReason' => 'required|string|max:5000',
@@ -2218,15 +2224,20 @@ class OfficeIntakeHelper
             'confirmDataCorrect' => 'accepted',
         ]);
 
+        $postedKind = strtolower(trim((string) ($data['docTypeKind'] ?? '')));
+        $data = self::resolveOfficeDrfTypeSelection($data);
+
         $catalog = self::resolveIntakeCatalogSelection(
             isset($data['docTypeId']) ? (int) $data['docTypeId'] : null,
             isset($data['subTypeId']) ? (int) $data['subTypeId'] : null
         );
-        if ($catalog['doc_type_id'] || $catalog['sub_type_id']) {
+        if (in_array($postedKind, ['forms', 'logbooks'], true)) {
+            $data['docTypeKind'] = $postedKind;
+        } elseif ($catalog['doc_type_id'] || $catalog['sub_type_id']) {
             $data['docTypeKind'] = $catalog['doc_type_kind'];
         } else {
-            $data['docTypeKind'] = in_array(($data['docTypeKind'] ?? ''), ['internal', 'external'], true)
-                ? $data['docTypeKind']
+            $data['docTypeKind'] = in_array($postedKind, ['internal', 'external'], true)
+                ? $postedKind
                 : 'internal';
         }
 
@@ -2819,8 +2830,8 @@ class OfficeIntakeHelper
             $name = trim((string) ($type->doc_type_name ?? ''));
             $key = 'parent:'.$id;
             $count = (int) ($countByKey[$key] ?? 0);
-            // Forms / Logbooks stay off the tabs until an assignment exists (opt-in unlock).
-            if (self::isDefaultExcludedDrfParent($name) && $count < 1) {
+            // Forms / Logbooks stay off the tabs until admin enables them for office DRF.
+            if (self::isDefaultExcludedDrfParent($name) && ! self::isOfficeDrfParentEnabled($name) && $count < 1) {
                 continue;
             }
             $tabs[] = [
@@ -2856,7 +2867,8 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Default-excluded DRF parents (Forms / Logbooks) until admin assigns signatories for them.
+     * Default-excluded DRF parents (Forms / Logbooks) until admin enables them
+     * under Settings → Signatories (Enable for office DRF).
      */
     public static function isDefaultExcludedDrfParent(string $name): bool
     {
@@ -2865,31 +2877,171 @@ class OfficeIntakeHelper
         return in_array($n, ['forms', 'logbooks', 'logbook'], true);
     }
 
+    /** @return 'forms'|'logbooks'|null */
+    public static function officeDrfParentSlug(string $name): ?string
+    {
+        $n = mb_strtolower(trim($name));
+        if ($n === 'forms') {
+            return 'forms';
+        }
+        if (in_array($n, ['logbooks', 'logbook'], true)) {
+            return 'logbooks';
+        }
+
+        return null;
+    }
+
+    public static function officeDrfEnableSettingKey(string $name): ?string
+    {
+        $slug = self::officeDrfParentSlug($name);
+
+        return $slug !== null ? 'dcs_office_drf_'.$slug.'_enabled' : null;
+    }
+
+    private static function systemSettingsTable(): ?string
+    {
+        if (Schema::hasTable('sys_system_settings')) {
+            return 'sys_system_settings';
+        }
+        if (Schema::hasTable('system_settings')) {
+            return 'system_settings';
+        }
+
+        return null;
+    }
+
+    public static function isOfficeDrfParentEnabled(string $name): bool
+    {
+        $key = self::officeDrfEnableSettingKey($name);
+        $table = self::systemSettingsTable();
+        if ($key === null || $table === null) {
+            return false;
+        }
+
+        return DB::table($table)->where('key', $key)->value('value') === 'true';
+    }
+
+    public static function setOfficeDrfParentEnabled(string $name, bool $enabled): bool
+    {
+        $key = self::officeDrfEnableSettingKey($name);
+        $table = self::systemSettingsTable();
+        if ($key === null || $table === null) {
+            return false;
+        }
+
+        $payload = [
+            'key' => $key,
+            'value' => $enabled ? 'true' : 'false',
+            'updated_at' => now(),
+        ];
+        if (Schema::hasColumn($table, 'created_at')) {
+            $exists = DB::table($table)->where('key', $key)->exists();
+            if (! $exists) {
+                $payload['created_at'] = now();
+            }
+        }
+        DB::table($table)->updateOrInsert(['key' => $key], $payload);
+
+        return true;
+    }
+
     /**
      * Shown for DRF intake / Settings DRF catalog: normal parents, plus Forms/Logbooks
-     * only after admin saves a signatory assignment for that parent or one of its sub-types.
+     * only after admin enables them in Admin Console → System Settings.
      */
     public static function isDrfEligibleDocTypeParent(string $name, ?int $parentId = null): bool
     {
         if (! self::isDefaultExcludedDrfParent($name)) {
             return true;
         }
-        if (! $parentId || $parentId < 1 || ! Schema::hasTable('dcs_signatory_templates')) {
-            return false;
+
+        return self::isOfficeDrfParentEnabled($name);
+    }
+
+    /**
+     * Catalog parent id for Forms / Logbooks (exact name match, case-insensitive).
+     */
+    public static function findOptInDrfParentId(string $slugOrName): ?int
+    {
+        if (! Schema::hasTable('dcs_doc_types')) {
+            return null;
         }
-        if (! Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
-            return false;
+        $slug = self::officeDrfParentSlug($slugOrName);
+        if ($slug === null) {
+            return null;
+        }
+        $names = $slug === 'forms' ? ['Forms'] : ['Logbooks', 'Logbook'];
+        $q = DB::table('dcs_doc_types')->whereNull('parent_id')->where(function ($query) use ($names) {
+            foreach ($names as $i => $name) {
+                $method = $i === 0 ? 'whereRaw' : 'orWhereRaw';
+                $query->{$method}('LOWER(TRIM(doc_type_name)) = ?', [mb_strtolower($name)]);
+            }
+        });
+        SettingsRecycleHelper::applyNotDeleted($q, 'dcs_doc_types');
+        $id = (int) ($q->value('id') ?? 0);
+
+        return $id > 0 ? $id : null;
+    }
+
+    /**
+     * Enabled Forms / Logbooks options for office DRF “Type of document” radios.
+     *
+     * @return list<array{slug: string, label: string, id: int}>
+     */
+    public static function enabledOfficeDrfTypeRadios(): array
+    {
+        $out = [];
+        foreach (['Forms', 'Logbooks'] as $label) {
+            if (! self::isOfficeDrfParentEnabled($label)) {
+                continue;
+            }
+            $id = self::findOptInDrfParentId($label);
+            if (! $id) {
+                continue;
+            }
+            $slug = self::officeDrfParentSlug($label);
+            if ($slug === null) {
+                continue;
+            }
+            $out[] = [
+                'slug' => $slug,
+                'label' => $label === 'Logbooks' ? 'Logbooks' : 'Forms',
+                'id' => $id,
+            ];
         }
 
-        $childIds = Schema::hasTable('dcs_doc_types')
-            ? DB::table('dcs_doc_types')->where('parent_id', $parentId)->pluck('id')->map(fn ($id) => (int) $id)->all()
-            : [];
-        $ids = array_values(array_filter(array_merge([$parentId], $childIds)));
+        return $out;
+    }
 
-        return DB::table('dcs_signatory_templates')
-            ->where('form_kind', 'drf')
-            ->whereIn('doc_type_id', $ids)
-            ->exists();
+    /**
+     * Normalize posted Type of document: forms/logbooks → parent id + keep kind slug.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public static function resolveOfficeDrfTypeSelection(array $data): array
+    {
+        $kind = strtolower(trim((string) ($data['docTypeKind'] ?? '')));
+        if (! in_array($kind, ['forms', 'logbooks'], true)) {
+            return $data;
+        }
+        $label = $kind === 'forms' ? 'Forms' : 'Logbooks';
+        if (! self::isOfficeDrfParentEnabled($label)) {
+            throw ValidationException::withMessages([
+                'docTypeKind' => $label.' is not enabled for office DRF.',
+            ]);
+        }
+        $parentId = self::findOptInDrfParentId($kind);
+        if (! $parentId) {
+            throw ValidationException::withMessages([
+                'docTypeKind' => $label.' is not configured in Document Types.',
+            ]);
+        }
+        $data['docTypeKind'] = $kind;
+        $data['docTypeId'] = $parentId;
+        $data['subTypeId'] = null;
+
+        return $data;
     }
 
     /**
@@ -5171,13 +5323,16 @@ class OfficeIntakeHelper
             );
             $docTypeId = $resolved['doc_type_id'];
             $subTypeId = $resolved['sub_type_id'];
-            if (! empty($resolved['doc_type_kind'])) {
+            // Keep Forms/Logbooks as posted — catalog resolve would map them to "internal".
+            if (! in_array($kind, ['forms', 'logbooks'], true) && ! empty($resolved['doc_type_kind'])) {
                 $kind = $resolved['doc_type_kind'];
             }
         } else {
             $docTypeId = match ($kind) {
                 'internal' => $parentMap['internal_docs'] ?? null,
                 'external' => $parentMap['external_docs'] ?? null,
+                'forms' => self::findOptInDrfParentId('forms'),
+                'logbooks' => self::findOptInDrfParentId('logbooks'),
                 default => null,
             };
             $subTypeId = null;

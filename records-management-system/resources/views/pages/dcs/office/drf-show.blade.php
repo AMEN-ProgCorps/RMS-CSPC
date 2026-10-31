@@ -67,8 +67,21 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
 @php
     $originator = trim((string) ($drf->originator_name ?? ''));
     $kind = strtolower(trim((string) ($drf->doc_type_kind ?? '')));
-    $isInternal = $kind === 'internal';
-    $isExternal = $kind === 'external';
+    $docTypeBadges = [
+        ['slug' => 'internal', 'label' => 'Internal', 'active' => $kind === 'internal'],
+        ['slug' => 'external', 'label' => 'External', 'active' => $kind === 'external'],
+    ];
+    foreach ([['forms', 'Forms'], ['logbooks', 'Logbooks']] as [$slug, $label]) {
+        $enabled = \App\Helpers\OfficeIntakeHelper::isOfficeDrfParentEnabled($label);
+        if (! $enabled && $kind !== $slug) {
+            continue;
+        }
+        $docTypeBadges[] = [
+            'slug' => $slug,
+            'label' => $label,
+            'active' => $kind === $slug,
+        ];
+    }
     $drfDate = $drf->drf_date
         ? \App\Helpers\RegisterQueryHelper::formatSmartDate($drf->drf_date)
         : '—';
@@ -196,8 +209,9 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                 <div class="reg-field">
                     <label>Type of document</label>
                     <div class="ofi-doc-type-badges" aria-label="Type of document">
-                        <span class="ofi-doc-type-badge @if($isInternal) is-active @endif">Internal</span>
-                        <span class="ofi-doc-type-badge @if($isExternal) is-active @endif">External</span>
+                        @foreach($docTypeBadges as $badge)
+                            <span class="ofi-doc-type-badge @if(!empty($badge['active'])) is-active @endif">{{ $badge['label'] }}</span>
+                        @endforeach
                     </div>
                 </div>
 

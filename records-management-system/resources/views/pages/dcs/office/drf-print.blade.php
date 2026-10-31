@@ -378,13 +378,13 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
             display: inline-flex !important;
             align-items: center !important;
             gap: 4px !important;
+            margin-left: 0.22in !important;
             font-size: 11pt !important;
             line-height: 1 !important;
             background: transparent !important;
             color: #000 !important;
         }
-        .check-item.internal { margin-left: 0.24in !important; }
-        .check-item.external { margin-left: 0.35in !important; }
+        .check-item.is-first { margin-left: 0.24in !important; }
         .cb {
             display: inline-block !important;
             width: 0.17in !important;
@@ -768,8 +768,23 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
 
     $originator = trim((string) ($drf->originator_name ?? ''));
     $kind = strtolower(trim((string) ($drf->doc_type_kind ?? '')));
-    $isInternal = $kind === 'internal';
-    $isExternal = $kind === 'external';
+    // Always Internal + External; Forms/Logbooks when admin-enabled or this DRF already uses them.
+    $docTypeChecks = [
+        ['slug' => 'internal', 'label' => 'Internal', 'checked' => $kind === 'internal', 'class' => 'internal'],
+        ['slug' => 'external', 'label' => 'External', 'checked' => $kind === 'external', 'class' => 'external'],
+    ];
+    foreach ([['forms', 'Forms'], ['logbooks', 'Logbooks']] as [$slug, $label]) {
+        $enabled = OfficeIntakeHelper::isOfficeDrfParentEnabled($label);
+        if (! $enabled && $kind !== $slug) {
+            continue;
+        }
+        $docTypeChecks[] = [
+            'slug' => $slug,
+            'label' => $label,
+            'checked' => $kind === $slug,
+            'class' => $slug,
+        ];
+    }
     $description = trim((string) ($drf->description_reason ?? ''));
     $descLines = $description !== '' ? preg_split('/\R/u', $description) : [];
     // Pack into exactly 4 write-on lines
@@ -989,12 +1004,11 @@ window.print = function () {};
 
         <div class="check-row">
             <span class="lbl">Type of document:</span>
-            <span class="check-item internal">
-                <span class="cb">@if($isInternal)✓@endif</span> Internal
-            </span>
-            <span class="check-item external">
-                <span class="cb">@if($isExternal)✓@endif</span> External
-            </span>
+            @foreach($docTypeChecks as $i => $opt)
+                <span class="check-item {{ $opt['class'] }}{{ $i === 0 ? ' is-first' : '' }}">
+                    <span class="cb">@if(!empty($opt['checked']))✓@endif</span> {{ $opt['label'] }}
+                </span>
+            @endforeach
         </div>
 
         <div class="desc-block">

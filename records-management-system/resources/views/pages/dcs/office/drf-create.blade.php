@@ -58,21 +58,50 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             || old('drfMode') === 'recurring'
         );
         $docCatalog = OfficeIntakeHelper::intakeDocTypeCatalog();
+        $optInRadios = OfficeIntakeHelper::enabledOfficeDrfTypeRadios();
+        $optInIds = collect($optInRadios)->pluck('id')->map(fn ($id) => (int) $id)->all();
+        // Internal catalog dropdown never lists Forms/Logbooks — those are Type of document radios.
+        $catalogParents = collect($docCatalog['parents'] ?? [])
+            ->filter(fn ($type) => ! OfficeIntakeHelper::isDefaultExcludedDrfParent((string) ($type->doc_type_name ?? '')))
+            ->values()
+            ->all();
         $sigTemplateMap = OfficeIntakeHelper::drfSignatoryTemplateMap();
         $lockDocType = (bool) ($prefill['lockDocType'] ?? false);
         $oldDocTypeKind = (string) old('docTypeKind', (string) ($prefill['docTypeKind'] ?? ''));
-        if (! in_array($oldDocTypeKind, ['internal', 'external'], true)) {
-            $oldDocTypeKind = '';
+        if (! in_array($oldDocTypeKind, ['internal', 'external', 'forms', 'logbooks'], true)) {
+            // Prefill may store kind=internal with Forms parent id — promote to forms/logbooks radio.
+            $prefillTypeId = (int) ($prefill['docTypeId'] ?? 0);
+            if ($prefillTypeId > 0 && in_array($prefillTypeId, $optInIds, true)) {
+                foreach ($optInRadios as $opt) {
+                    if ((int) $opt['id'] === $prefillTypeId) {
+                        $oldDocTypeKind = (string) $opt['slug'];
+                        break;
+                    }
+                }
+            } else {
+                $oldDocTypeKind = '';
+            }
         }
         $oldDocTypeId = (string) old('docTypeId', (string) ($prefill['docTypeId'] ?? ''));
         $oldSubTypeId = (string) old('subTypeId', (string) ($prefill['subTypeId'] ?? ''));
-        if ($oldDocTypeKind === 'external') {
-            $oldDocTypeId = '';
+        if (in_array($oldDocTypeKind, ['external', 'forms', 'logbooks'], true)) {
+            if ($oldDocTypeKind === 'external') {
+                $oldDocTypeId = '';
+            } else {
+                foreach ($optInRadios as $opt) {
+                    if ($opt['slug'] === $oldDocTypeKind) {
+                        $oldDocTypeId = (string) $opt['id'];
+                        break;
+                    }
+                }
+            }
             $oldSubTypeId = '';
         }
         $sigPrefill = null;
         if ($oldDocTypeKind === 'external') {
             $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill('external', null, null);
+        } elseif (in_array($oldDocTypeKind, ['forms', 'logbooks'], true) && $oldDocTypeId !== '') {
+            $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill('internal', (int) $oldDocTypeId, null);
         } elseif ($oldDocTypeId !== '' || $lockDocType) {
             $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill(
                 $oldDocTypeKind !== '' ? $oldDocTypeKind : 'internal',
@@ -82,7 +111,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
         }
         $parentKindMap = $sigTemplateMap['parentKind'] ?? [];
         $docTypeParentsForJs = [];
-        foreach ($docCatalog['parents'] as $type) {
+        foreach ($catalogParents as $type) {
             $id = (int) ($type->id ?? 0);
             if ($id < 1) {
                 continue;
@@ -104,9 +133,10 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             'prefill' => $prefill,
             'fromDcnId' => $fromDcnId,
             'isRecurring' => $isRecurring,
-            'docTypeParents' => $docCatalog['parents'],
+            'docTypeParents' => $catalogParents,
             'docTypeChildrenByParent' => $docCatalog['childrenByParent'],
             'docTypeParentsForJs' => $docTypeParentsForJs,
+            'optInTypeRadios' => $optInRadios,
             'oldDocTypeKind' => $oldDocTypeKind,
             'oldDocTypeId' => $oldDocTypeId,
             'oldSubTypeId' => $oldSubTypeId,
@@ -195,25 +225,30 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                             $selectedParent = (string) ($oldDocTypeId ?? '');
                             $selectedSub = (string) ($oldSubTypeId ?? '');
                             $parentKindMap = $sigTemplateMap['parentKind'] ?? [];
-                            $parentsForKind = $docTypeKind === ''
-                                ? collect()
-                                : collect($docTypeParents ?? [])->filter(function ($type) use ($docTypeKind, $parentKindMap) {
+                            $optInRadios = $optInTypeRadios ?? [];
+                            $parentsForKind = $docTypeKind === 'internal'
+                                ? collect($docTypeParents ?? [])->filter(function ($type) use ($parentKindMap) {
                                     $k = $parentKindMap[(string) $type->id] ?? (str_contains(mb_strtolower((string) $type->doc_type_name), 'external') ? 'external' : 'internal');
 
-                                    return $k === $docTypeKind;
-                                })->values();
+                                    return $k === 'internal';
+                                })->values()
+                                : collect();
                             $parentSubs = ($selectedParent !== '' && isset($docTypeChildrenByParent[$selectedParent]))
                                 ? $docTypeChildrenByParent[$selectedParent]
                                 : [];
                             $showCatalog = $docTypeKind === 'internal';
+                            $isOptInKind = in_array($docTypeKind, ['forms', 'logbooks'], true);
                         @endphp
                         @if($lockDocType)
                             <input type="hidden" name="docTypeKind" id="drfDocTypeKind" value="{{ $docTypeKind !== '' ? $docTypeKind : 'internal' }}">
                             <input type="hidden" name="docTypeId" id="drfDocTypeId" value="{{ $selectedParent }}">
                             <input type="hidden" name="subTypeId" id="drfSubTypeId" value="{{ $selectedSub }}">
                             <div class="ofi-radio-row">
-                                <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind !== 'external')> Internal</label>
+                                <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === 'internal')> Internal</label>
                                 <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === 'external')> External</label>
+                                @foreach($optInRadios as $opt)
+                                    <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === $opt['slug'])> {{ $opt['label'] }}</label>
+                                @endforeach
                             </div>
                             @if(!empty($prefill['docTypeLabel']))
                                 <p class="ofi-hint">Document type: {{ $prefill['docTypeLabel'] }}</p>
@@ -223,8 +258,21 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                             <div class="ofi-radio-row" style="margin-top:6px;">
                                 <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked($docTypeKind === 'internal')> Internal</label>
                                 <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" required @checked($docTypeKind === 'external')> External</label>
+                                @foreach($optInRadios as $opt)
+                                    <label class="ofi-radio">
+                                        <input
+                                            type="radio"
+                                            name="docTypeKind"
+                                            value="{{ $opt['slug'] }}"
+                                            data-optin-doc-type-id="{{ $opt['id'] }}"
+                                            required
+                                            @checked($docTypeKind === $opt['slug'])
+                                        > {{ $opt['label'] }}
+                                    </label>
+                                @endforeach
                             </div>
-                            {{-- Catalog pickers only for Internal. Hidden until Internal is chosen (External = kind only). --}}
+                            <input type="hidden" id="drfOptInDocTypeId" name="docTypeId" value="{{ $isOptInKind ? $selectedParent : '' }}" @disabled(! $isOptInKind)>
+                            {{-- Catalog pickers only for Internal. Forms/Logbooks/External hide them. --}}
                             <div class="reg-grid-2{{ ! $showCatalog ? ' is-ofi-hidden' : '' }}" style="margin-top:10px;" id="ofiDrfCatalogPickers" @if(! $showCatalog) hidden @endif>
                                 <div class="reg-field" style="margin:0;" id="ofiDrfDocTypeWrap">
                                     <label for="drfDocTypeId">Document type <span class="ofi-req">*</span></label>
@@ -430,16 +478,38 @@ window.__ofiSourceConfigs = [
     const subReq = document.getElementById('drfSubTypeReq');
     const catalogPickers = document.getElementById('ofiDrfCatalogPickers');
     const subTypeWrap = document.getElementById('ofiDrfSubTypeWrap');
+    const optInDocTypeHidden = document.getElementById('drfOptInDocTypeId');
     const childrenByParent = window.__ofiDocTypeChildren || {};
     const allParents = window.__ofiDocTypeParents || [];
     const sigMap = window.__ofiSigTemplateMap || { byDocTypeId: {}, byKind: {}, parentKind: {} };
 
     function selectedKind() {
         const checked = form.querySelector('input[name="docTypeKind"]:checked');
-        if (checked) return checked.value === 'external' ? 'external' : 'internal';
+        if (checked) {
+            const v = String(checked.value || '');
+            if (['internal', 'external', 'forms', 'logbooks'].indexOf(v) !== -1) return v;
+        }
         const hidden = form.querySelector('input[type="hidden"][name="docTypeKind"]');
-        if (hidden && (hidden.value === 'external' || hidden.value === 'internal')) return hidden.value;
+        if (hidden) {
+            const v = String(hidden.value || '');
+            if (['internal', 'external', 'forms', 'logbooks'].indexOf(v) !== -1) return v;
+        }
         return '';
+    }
+
+    function syncOptInDocTypeId() {
+        if (!optInDocTypeHidden) return;
+        const checked = form.querySelector('input[name="docTypeKind"]:checked');
+        const kind = checked ? String(checked.value || '') : '';
+        const isOptIn = kind === 'forms' || kind === 'logbooks';
+        if (isOptIn) {
+            const id = checked.getAttribute('data-optin-doc-type-id') || '';
+            optInDocTypeHidden.disabled = false;
+            optInDocTypeHidden.value = id;
+        } else {
+            optInDocTypeHidden.disabled = true;
+            optInDocTypeHidden.value = '';
+        }
     }
 
     function resolveTemplate() {
@@ -447,9 +517,15 @@ window.__ofiSourceConfigs = [
         if (kind === 'external') {
             return (sigMap.byKind || {}).external || null;
         }
+        const byId = sigMap.byDocTypeId || {};
+        if (kind === 'forms' || kind === 'logbooks') {
+            const checked = form.querySelector('input[name="docTypeKind"]:checked');
+            const optInId = checked ? String(checked.getAttribute('data-optin-doc-type-id') || '') : '';
+            if (optInId && byId[optInId]) return byId[optInId];
+            return null;
+        }
         const parentId = parentSelect ? String(parentSelect.value || '') : '';
         const subId = subSelect && !subSelect.disabled ? String(subSelect.value || '') : '';
-        const byId = sigMap.byDocTypeId || {};
         if (subId && byId[subId]) return byId[subId];
         if (parentId && byId[parentId]) return byId[parentId];
         return null;
@@ -477,8 +553,9 @@ window.__ofiSourceConfigs = [
 
     function syncCatalogVisibility() {
         const kind = selectedKind();
-        // Only Internal shows Document type + Sub-type. None selected and External keep them hidden.
+        // Only Internal shows Document type + Sub-type. Forms/Logbooks/External hide them.
         const showInternalCatalog = kind === 'internal';
+        syncOptInDocTypeId();
         if (catalogPickers) {
             catalogPickers.hidden = !showInternalCatalog;
             catalogPickers.classList.toggle('is-ofi-hidden', !showInternalCatalog);
@@ -565,6 +642,7 @@ window.__ofiSourceConfigs = [
             refreshSignatoriesForSelection();
         });
     });
+    syncOptInDocTypeId();
     if (parentSelect && parentSelect.tagName === 'SELECT') {
         parentSelect.addEventListener('change', function () {
             rebuildSubOptions(false);

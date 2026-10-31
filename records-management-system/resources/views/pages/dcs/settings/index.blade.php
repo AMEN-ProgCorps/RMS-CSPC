@@ -1814,13 +1814,15 @@ new #[Layout('layouts.dcs')] class extends Component {
                 $this->sigFormKind,
                 $this->sigHistoryTab !== '' ? $this->sigHistoryTab : 'all'
             ),
-            'sigParentOptions' => $docTypeParents->filter(
-                fn ($type) => ! OfficeIntakeHelper::isDefaultExcludedDrfParent((string) ($type->doc_type_name ?? ''))
-            )->values(),
-            // Forms / Logbooks stay opt-in — only listed here so admin can unlock them later for office DRF.
-            'sigFutureParentOptions' => $docTypeParents->filter(
-                fn ($type) => OfficeIntakeHelper::isDefaultExcludedDrfParent((string) ($type->doc_type_name ?? ''))
-            )->values(),
+            // Catalog dropdown: normal types + Forms/Logbooks only after Admin Console enables them.
+            'sigParentOptions' => $docTypeParents->filter(function ($type) {
+                $name = (string) ($type->doc_type_name ?? '');
+                if (! OfficeIntakeHelper::isDefaultExcludedDrfParent($name)) {
+                    return true;
+                }
+
+                return OfficeIntakeHelper::isOfficeDrfParentEnabled($name);
+            })->values(),
             'sigSubOptions' => ($this->sigParentTypeId !== '' && isset($docTypeSubs[(string) $this->sigParentTypeId]))
                 ? $docTypeSubs[(string) $this->sigParentTypeId]
                 : collect(),
@@ -2008,7 +2010,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <span class="sig-section-num">1</span>
                             <div>
                                 <h3 class="sig-section-title">Scope</h3>
-                                <p class="sig-section-hint"><strong>Document type</strong> is the catalog entry (Internal, External…). Forms &amp; Logbooks are <em>not</em> in office DRF until you opt them in under “Enable later” below and save names.</p>
+                                <p class="sig-section-hint"><strong>Document type</strong> is the catalog entry (Internal, External…). Forms &amp; Logbooks appear here after an admin enables them in Admin Console → System Settings.</p>
                             </div>
                         </div>
                         <div class="sig-scope-grid">
@@ -2026,13 +2028,6 @@ new #[Layout('layouts.dcs')] class extends Component {
                                     @foreach($sigParentOptions as $type)
                                         <option value="{{ $type->id }}">{{ $type->doc_type_name }}</option>
                                     @endforeach
-                                    @if(($sigFutureParentOptions ?? collect())->isNotEmpty())
-                                        <optgroup label="Enable later for office DRF">
-                                            @foreach($sigFutureParentOptions as $type)
-                                                <option value="{{ $type->id }}">{{ $type->doc_type_name }}</option>
-                                            @endforeach
-                                        </optgroup>
-                                    @endif
                                 </select>
                             </div>
                             <div class="st-field sig-field">
@@ -2044,7 +2039,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                                     @endforeach
                                 </select>
                                 @if($sigParentTypeId !== '' && ($sigSubOptions ?? collect())->count() < 1)
-                                    <span class="sig-field-note">No sub-types — save against this whole type. For Forms/Logbooks, that unlocks them in office DRF.</span>
+                                    <span class="sig-field-note">No sub-types — save against this whole type.</span>
                                 @elseif(($sigSubOptions ?? collect())->count() && $sigSubTypeId === '')
                                     <span class="sig-field-note">Office intake can pick a sub-type — assign here when you can, or leave Whole type as fallback.</span>
                                 @endif
@@ -2071,6 +2066,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                                 <span class="sig-field-note">Leave blank; save again anytime to replace the active set for this type.</span>
                             </div>
                         </div>
+
                     </div>
 
                     <div class="sig-section">

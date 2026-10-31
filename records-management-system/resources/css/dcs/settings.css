@@ -1680,6 +1680,86 @@ body {
     color: var(--set-text-subtle, #94a3b8);
 }
 
+.sig-optin {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px dashed var(--set-border, #cbd5e1);
+    border-radius: 10px;
+    background: var(--set-surface-muted, #f8fafc);
+}
+
+.sig-optin-head {
+    margin-bottom: 10px;
+}
+
+.sig-optin-title {
+    margin: 0 0 4px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--set-text, #0f172a);
+}
+
+.sig-optin-hint {
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: var(--set-text-subtle, #64748b);
+}
+
+.sig-optin-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sig-optin-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #fff;
+    border: 1px solid var(--set-border, #e2e8f0);
+}
+
+.sig-optin-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.sig-optin-name {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--set-text, #0f172a);
+}
+
+.sig-optin-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #475569;
+}
+
+.sig-optin-badge.is-on {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.sig-optin-btn {
+    height: 32px;
+    padding: 0 12px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
 .sig-history-title-wrap {
     display: flex;
     flex-direction: column;

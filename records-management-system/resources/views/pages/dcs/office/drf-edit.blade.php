@@ -66,6 +66,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             'editReason' => trim((string) ($drf->edit_unlock_reason ?? '')),
             'lockDocType' => $lockDocType,
             'lockedTypeLabel' => $lockedTypeLabel,
+            'optInTypeRadios' => OfficeIntakeHelper::enabledOfficeDrfTypeRadios(),
             'userOfficeId' => $office['id'],
             'userOfficeCode' => $office['code'],
             'userOfficeName' => $office['name'],
@@ -128,19 +129,60 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                         <label>Type of document <span class="ofi-req">*</span></label>
                         @php
                             $docTypeKind = old('docTypeKind', $drf->doc_type_kind ?: 'internal');
+                            $optInRadios = $optInTypeRadios ?? [];
+                            $optInDocTypeId = '';
+                            foreach ($optInRadios as $opt) {
+                                if (($opt['slug'] ?? '') === $docTypeKind) {
+                                    $optInDocTypeId = (string) ($opt['id'] ?? '');
+                                    break;
+                                }
+                            }
                         @endphp
                         @if($lockDocType ?? false)
                             <input type="hidden" name="docTypeKind" value="{{ $docTypeKind }}">
+                            @if($optInDocTypeId !== '')
+                                <input type="hidden" name="docTypeId" value="{{ $optInDocTypeId }}">
+                            @endif
                             <div class="ofi-radio-row">
-                                <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind !== 'external')> Internal</label>
+                                <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === 'internal')> Internal</label>
                                 <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === 'external')> External</label>
+                                @foreach($optInRadios as $opt)
+                                    <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === $opt['slug'])> {{ $opt['label'] }}</label>
+                                @endforeach
                             </div>
                             <p class="ofi-hint">This follows the document being revised and cannot be changed.</p>
                         @else
                             <div class="ofi-radio-row">
                                 <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked($docTypeKind === 'internal')> Internal</label>
                                 <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" @checked($docTypeKind === 'external')> External</label>
+                                @foreach($optInRadios as $opt)
+                                    <label class="ofi-radio">
+                                        <input
+                                            type="radio"
+                                            name="docTypeKind"
+                                            value="{{ $opt['slug'] }}"
+                                            data-optin-doc-type-id="{{ $opt['id'] }}"
+                                            @checked($docTypeKind === $opt['slug'])
+                                        > {{ $opt['label'] }}
+                                    </label>
+                                @endforeach
                             </div>
+                            <input type="hidden" id="drfOptInDocTypeId" name="docTypeId" value="{{ $optInDocTypeId }}" @disabled(! in_array($docTypeKind, ['forms', 'logbooks'], true))>
+                            <script>
+                                document.addEventListener('DOMContentLoaded', function () {
+                                    const form = document.querySelector('form');
+                                    const hidden = document.getElementById('drfOptInDocTypeId');
+                                    if (!form || !hidden) return;
+                                    form.querySelectorAll('input[name="docTypeKind"]').forEach(function (radio) {
+                                        radio.addEventListener('change', function () {
+                                            const v = radio.value;
+                                            const isOptIn = v === 'forms' || v === 'logbooks';
+                                            hidden.disabled = !isOptIn;
+                                            hidden.value = isOptIn ? (radio.getAttribute('data-optin-doc-type-id') || '') : '';
+                                        });
+                                    });
+                                });
+                            </script>
                         @endif
                     </div>
                     <div class="reg-field">

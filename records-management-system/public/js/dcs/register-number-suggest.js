@@ -226,9 +226,44 @@
     window.openDocNoInsertModal = function (data) {
         window.__docNoInsertLookup = data || {};
         const docNo = currentDocNo();
+        const draftOnly = !!(data && (data.draft_only || (data.draft_exists && !data.exists)));
         const lead = document.getElementById('docNoInsertLead');
         if (lead) {
-            lead.textContent = docNo + ' is already registered. What should happen?';
+            if (draftOnly) {
+                const title = String((data && (data.draft_title || data.latest_title)) || '').trim();
+                lead.textContent = docNo + ' is already used in a draft'
+                    + (title ? ' (“' + title + '”)' : '')
+                    + '. What should happen?';
+            } else {
+                lead.textContent = docNo + ' is already registered. What should happen?';
+            }
+        }
+        const titleEl = document.querySelector('#docNoInsertModal .reg-modal-header h3');
+        if (titleEl) {
+            titleEl.textContent = draftOnly
+                ? 'Document number used in a draft'
+                : 'Document number already exists';
+        }
+        const shiftBtn = document.getElementById('docNoInsertShift');
+        if (shiftBtn) {
+            shiftBtn.hidden = draftOnly;
+            shiftBtn.style.display = draftOnly ? 'none' : '';
+        }
+        const keepBtn = document.getElementById('docNoInsertKeep');
+        if (keepBtn) {
+            const keepStrong = keepBtn.querySelector('strong');
+            const keepSpan = keepBtn.querySelector('span');
+            if (draftOnly) {
+                if (keepStrong) keepStrong.textContent = 'Keep this number anyway';
+                if (keepSpan) {
+                    keepSpan.textContent = 'Save as another registration with the same number. The draft stays separate until you finish or delete it.';
+                }
+            } else {
+                if (keepStrong) keepStrong.textContent = 'Register another copy with this number';
+                if (keepSpan) {
+                    keepSpan.textContent = 'Keep this number as its own registration. It will not become a revision, and other numbers stay where they are.';
+                }
+            }
         }
         const nextLabel = document.getElementById('docNoInsertNextLabel');
         if (nextLabel) {
@@ -482,14 +517,15 @@
         if (revField) {
             revField.value = '0';
             revField.dataset.userEdited = 'true';
-            revField.readOnly = true;
-            revField.style.background = '#f1f5f9';
+            revField.readOnly = false;
+            revField.classList.remove('reg-rev-locked');
+            revField.style.background = '';
             revField.style.borderColor = '';
             revField.classList.remove('reg-input-invalid');
         }
         const revHint = document.getElementById('revNoHint');
         if (revHint) {
-            revHint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Same number kept as a new registration (Rev 0). Other numbers will not move.';
+            revHint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Same number kept as a new registration (suggested Rev 0). Other numbers will not move.';
             revHint.style.color = '#16a34a';
             revHint.dataset.valid = 'duplicate-copy';
         }

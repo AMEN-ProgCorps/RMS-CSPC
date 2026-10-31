@@ -116,7 +116,7 @@
         @vite(['resources/css/dcs/update.css'])
     @elseif(request()->routeIs('dcs.register.edit'))
         @vite(['resources/css/dcs/edit.css', 'resources/css/dcs/register.css'])
-    @elseif(request()->routeIs('dcs.register.history'))
+    @elseif(request()->routeIs('dcs.register.history') || request()->routeIs('dcs.register.historyByRequest'))
         @vite(['resources/css/dcs/history.css', 'resources/css/dcs/register.css'])
     @elseif(request()->routeIs('dcs.recycle-bin'))
         @vite(['resources/css/dcs/recycle-bin.css', 'resources/css/dcs/update.css'])

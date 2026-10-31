@@ -1969,6 +1969,14 @@ class RegisterPersistHelper
                 \Log::warning('Scan rename after register skipped: '.$e->getMessage());
             }
 
+            if (! self::isAutosaveRequest($request) && RegisterEditHistoryHelper::tableReady()) {
+                RegisterEditHistoryHelper::recordBaseline(
+                    (int) $requestId,
+                    RegisterEditHistoryHelper::snapshot((int) $requestId),
+                    $saveAsDraft ? 'draft' : 'register'
+                );
+            }
+
             RegisterPersistHelper::logAdminChange(
                 ($saveAsDraft ? 'Saved draft #' : 'Registered document #') . $requestId
                 . (!empty($savedMl?->doc_no) ? ' — ' . $savedMl->doc_no : '')

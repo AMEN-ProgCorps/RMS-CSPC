@@ -202,7 +202,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         <a href="{{ $doc['edit_url'] }}" class="upd-btn-icon" title="Edit"><i class="fa-solid fa-pen"></i></a>
                                     @endif
                                     @if($doc['history_url'])
-                                        <a href="{{ $doc['history_url'] }}" class="upd-btn-icon" title="History"><i class="fa-solid fa-clock-rotate-left"></i></a>
+                                        <a href="{{ $doc['history_url'] }}" class="upd-btn-icon" title="Edit History"><i class="fa-solid fa-clock-rotate-left"></i></a>
                                     @endif
                                     @if(!empty($doc['can_delete']))
                                         <button type="button" class="upd-btn-icon danger" title="Delete"
@@ -242,7 +242,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             <a href="{{ $child['edit_url'] }}" class="upd-btn-icon" title="Edit"><i class="fa-solid fa-pen"></i></a>
                                         @endif
                                         @if($child['history_url'])
-                                            <a href="{{ $child['history_url'] }}" class="upd-btn-icon" title="History"><i class="fa-solid fa-clock-rotate-left"></i></a>
+                                            <a href="{{ $child['history_url'] }}" class="upd-btn-icon" title="Edit History"><i class="fa-solid fa-clock-rotate-left"></i></a>
                                         @endif
                                     </div>
                                 </td>

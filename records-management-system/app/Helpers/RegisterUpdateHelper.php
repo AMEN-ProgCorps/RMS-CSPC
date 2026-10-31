@@ -86,6 +86,9 @@ class RegisterUpdateHelper
 
         // Drafts saved without a sub-type may set it on edit; otherwise keep locked value.
         $isDraftRecord = RegisterQueryHelper::supportsDrafts() && ! empty($docRequest->is_draft);
+        $editHistoryBefore = (! $autosave && RegisterEditHistoryHelper::tableReady())
+            ? RegisterEditHistoryHelper::snapshot($id)
+            : null;
         if ($saveAsDraft && ! $isDraftRecord) {
             return back()->with(
                 'error',
@@ -156,10 +159,13 @@ class RegisterUpdateHelper
             }
             $slotTakenByOther = $slotQuery->exists();
         }
-        // A second registration of the same number must stay outside the latest-revision slot.
+        // A second New registration of the same number must stay outside the revision family
+        // (draft publish often sets the colliding number for the first time, so sameNumber is false).
         // Recur replaces the selected latest, so it stays in that slot and stacks with it.
         $rowStaysSeparate = $request->boolean('allow_duplicate_doc_no')
-            || ($sameNumber && ($storedSeparate || $slotTakenByOther));
+            || $storedSeparate
+            || ($slotTakenByOther && ! $versionIsRevised && ! $versionIsRecur)
+            || ($sameNumber && $slotTakenByOther);
         if ($versionIsRecur) {
             $rowStaysSeparate = false;
         }
@@ -499,12 +505,13 @@ class RegisterUpdateHelper
                         } else {
                             $masterlistData['revised_from_doc_no'] = $previousDocNo;
                         }
-                    } elseif ($masterlist && !empty($masterlist->revised_from_doc_no)) {
+                    } elseif ($masterlist && ! empty($masterlist->revised_from_doc_no)) {
                         // Keep existing lineage when doc no unchanged (do not inherit from unrelated rows).
                         $masterlistData['revised_from_doc_no'] = $masterlist->revised_from_doc_no;
                     } elseif ($dcnFrom !== null && strcasecmp($dcnFrom, $newDocNo) !== 0) {
                         $masterlistData['revised_from_doc_no'] = $dcnFrom;
-                    } else {
+                    } elseif (! $rowStaysSeparate && ($versionIsRevised || $versionIsRecur)) {
+                        // Only Revised/Recur may inherit revised_from from a same-number peer.
                         $inherited = RegisterPersistHelper::resolveRevisedFromDocNo(
                             $request,
                             $newDocNo !== '' ? $newDocNo : (string) ($masterlist->doc_no ?? ''),
@@ -769,7 +776,28 @@ class RegisterUpdateHelper
                         ->update(['revision_status' => 'latest', 'updated_at' => now()]);
                 }
             } elseif ($savedMl && ! $saveAsDraft) {
-                if ($editingObsolete) {
+                if ($rowStaysSeparate) {
+                    // Duplicate New copy — stay Latest beside the other registration; do not obsolesce it.
+                    if (RegisterQueryHelper::supportsRevisionStatus()) {
+                        DB::table('dcs_masterlist_registration')
+                            ->where('id', (int) $savedMl->id)
+                            ->update(['revision_status' => 'latest', 'updated_at' => now()]);
+
+                        // Heal peers that were wrongly obsolesced when a same-number draft was published.
+                        $heal = DB::table('dcs_masterlist_registration')
+                            ->where('doc_no', (string) $savedMl->doc_no)
+                            ->where('revise_no', (int) ($savedMl->revise_no ?? 0))
+                            ->where('doc_type_id', (int) $docRequest->doc_type_id)
+                            ->where('id', '!=', (int) $savedMl->id)
+                            ->where('revision_status', 'obsolete');
+                        if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+                            $heal->whereNotIn('request_id', function ($q) {
+                                $q->select('id')->from('dcs_document_requests')->where('is_draft', true);
+                            });
+                        }
+                        $heal->update(['revision_status' => 'latest', 'updated_at' => now()]);
+                    }
+                } elseif ($editingObsolete) {
                     // Keep the current tip as latest; do not promote this obsolete row.
                     RegisterPersistHelper::promoteLatestForDoc(
                         (string) $savedMl->doc_no,
@@ -779,11 +807,13 @@ class RegisterUpdateHelper
                 } else {
                     RegisterPersistHelper::syncRevisionStatusForMasterlist((int) $savedMl->id);
                 }
-                RegisterPersistHelper::obsoleteSelectedRevisionSources(
-                    $request,
-                    (int) $requestId,
-                    trim((string) ($savedMl->doc_no ?? ''))
-                );
+                if (! $rowStaysSeparate) {
+                    RegisterPersistHelper::obsoleteSelectedRevisionSources(
+                        $request,
+                        (int) $requestId,
+                        trim((string) ($savedMl->doc_no ?? ''))
+                    );
+                }
             }
 
             DB::commit();
@@ -831,6 +861,14 @@ class RegisterUpdateHelper
             }
 
             $publishedFromDraft = $isDraftRecord && ! $saveAsDraft;
+
+            if (is_array($editHistoryBefore)) {
+                $editHistoryAfter = RegisterEditHistoryHelper::snapshot((int) $id);
+                $historyAction = $saveAsDraft
+                    ? 'draft'
+                    : ($publishedFromDraft ? 'register' : 'update');
+                RegisterEditHistoryHelper::record((int) $id, $editHistoryBefore, $editHistoryAfter, $historyAction);
+            }
 
             RegisterPersistHelper::logAdminChange(
                 ($saveAsDraft

@@ -3121,6 +3121,7 @@ function applyNewModeLookupResult(data, hintEl, revField) {
     if (data.exists && document.getElementById('allowDuplicateDocNo')?.value === '1' && !isSharedSyllabiForm()) {
         docNoDuplicate = false;
         setSaveEnabled(true);
+        if (typeof syncRevisionNumberEditable === 'function') syncRevisionNumberEditable();
         return;
     }
     if (data.exists && isSharedSyllabiForm()) {
@@ -3133,21 +3134,22 @@ function applyNewModeLookupResult(data, hintEl, revField) {
             hintEl.dataset.valid = 'stackable';
         }
         if (revField) {
-            revField.value = '0';
-            revField.readOnly = true;
-            revField.style.background = '#f1f5f9';
+            if (revField.value === '' || revField.value == null) revField.value = '0';
+            revField.readOnly = false;
+            revField.classList.remove('reg-rev-locked');
+            revField.style.background = '';
             revField.style.borderColor = '';
             revField.classList.remove('reg-input-invalid');
         }
         const revHint = document.getElementById('revNoHint');
         if (revHint) {
-            revHint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Always Rev 0. A new college, program, or course type is another registration, not Rev 1.';
-            revHint.style.color = '#16a34a';
+            revHint.innerHTML = '<i class="fa-solid fa-circle-info"></i> Suggested Rev 0. You may change Revision No. if needed.';
+            revHint.style.color = '#475569';
             revHint.dataset.valid = 'stackable';
         }
         return;
     }
-    if (data.exists) {
+    if (data.exists || data.draft_exists || data.draft_only) {
         docNoDuplicate = true;
         setSaveEnabled(false);
         const revHint = document.getElementById('revNoHint');
@@ -3157,12 +3159,15 @@ function applyNewModeLookupResult(data, hintEl, revField) {
             revHint.dataset.valid = '';
         }
 
+        const draftOnly = !!(data.draft_only || (data.draft_exists && !data.exists));
         if (hintEl) {
             hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> ' +
-                'This document number is already registered. Choose the next free number, insert into this group, or register another copy.' +
+                (draftOnly
+                    ? 'This document number is already used in a draft. Choose the next free number, open that draft, or keep this number as another copy.'
+                    : 'This document number is already registered. Choose the next free number, insert into this group, or register another copy.') +
                 '<br><span style="font-weight:400;font-size:11px;">You cannot save until you pick an option or enter a unique number.</span>';
             hintEl.style.color = '#dc2626';
-            hintEl.dataset.valid = 'duplicate';
+            hintEl.dataset.valid = draftOnly ? 'draft_duplicate' : 'duplicate';
         }
         if (typeof window.openDocNoInsertModal === 'function') {
             window.openDocNoInsertModal(data);
@@ -3170,6 +3175,7 @@ function applyNewModeLookupResult(data, hintEl, revField) {
         window.markDocNoInsertReady = function () {
             docNoDuplicate = false;
             setSaveEnabled(true);
+            if (typeof syncRevisionNumberEditable === 'function') syncRevisionNumberEditable();
         };
     } else if (data.wrong_type) {
         docNoDuplicate = false;
@@ -3192,9 +3198,31 @@ function applyNewModeLookupResult(data, hintEl, revField) {
         if (typeof clearRevNoHint === 'function') {
             clearRevNoHint();
         }
+        if (typeof syncRevisionNumberEditable === 'function') {
+            syncRevisionNumberEditable();
+        }
         if (typeof scheduleRevNoCheck === 'function') {
             scheduleRevNoCheck();
         }
+    }
+}
+
+/** Revision No. stays editable except Recurring (keeps the selected document's Rev). */
+function syncRevisionNumberEditable() {
+    const revField = document.getElementById('masterlistRevisionNo');
+    if (!revField || revField.disabled) return;
+
+    if (typeof isRecurringMode === 'function' && isRecurringMode()) {
+        if (typeof lockRecurRevisionField === 'function') lockRecurRevisionField();
+        return;
+    }
+
+    revField.readOnly = false;
+    revField.classList.remove('reg-rev-locked');
+    revField.style.background = '';
+    revField.style.cursor = '';
+    if (revField.value === '' || revField.value == null) {
+        revField.value = '0';
     }
 }
 
@@ -3257,11 +3285,10 @@ function docNoPrefixForSelection() {
 function syncDocumentNumberLock() {
     const input = document.getElementById('masterlistDocNo');
     if (!input) return;
-    const prefix = typeof docNoPrefixForSelection === 'function' ? docNoPrefixForSelection() : '';
-    const lock = isFixedFormDocNo(prefix) || isFixedFormDocNo(input.value);
-    input.readOnly = lock;
-    input.style.background = lock ? '#f1f5f9' : '';
-    input.style.cursor = lock ? 'default' : '';
+    // Syllabi / TOS / other types: Document No. stays editable (prefix may still autofill).
+    input.readOnly = false;
+    input.style.background = '';
+    input.style.cursor = '';
 }
 
 function updateDocNoPrefixHint() {
@@ -3553,12 +3580,11 @@ function applyRevisionMode() {
         if (revField) {
             revField.value = 0;
             delete revField.dataset.recurRev;
-            revField.readOnly = false;
-            revField.classList.remove('reg-rev-locked');
-            revField.style.background = '';
-            revField.style.cursor = '';
             revField.removeAttribute('min');
             revField.setAttribute('title', 'Suggested: 0 for new documents');
+        }
+        if (typeof syncRevisionNumberEditable === 'function') {
+            syncRevisionNumberEditable();
         }
         if (hintEl) {
             hintEl.innerHTML = '';
@@ -3696,34 +3722,11 @@ async function runRevNoCheck(seq) {
         return;
     }
 
-    // Non-revisable types always use Rev 0. An existing number still has to be
-    // resolved in the document-number modal, except the shared syllabi form number.
-    if (!isRevisedMode() && typeof currentTypeAllowsRevision === 'function' && !currentTypeAllowsRevision()) {
-        revNoDuplicate = false;
-        revField.value = '0';
-        revField.readOnly = true;
-        revField.style.background = '#f1f5f9';
-        revField.style.borderColor = '';
-        revField.classList.remove('reg-input-invalid');
-        if (docNoDuplicate && !isSharedSyllabiForm()) {
-            if (hint) {
-                hint.innerHTML = '';
-                hint.style.color = '';
-                hint.dataset.valid = '';
-            }
-            setSaveEnabled(false);
-            return;
-        }
-        if (hint) {
-            hint.innerHTML = isSharedSyllabiForm()
-                ? '<i class="fa-solid fa-circle-check"></i> Always Rev 0. A new college, program, or course type is another registration, not Rev 1.'
-                : '<i class="fa-solid fa-circle-check"></i> Always Rev 0 for this document type.';
-            hint.style.color = '#16a34a';
-            hint.dataset.valid = 'stackable';
-        }
-        if (!docNoDuplicate) setSaveEnabled(true);
-        return;
-    }
+    // Keep Revision No. editable (including Syllabi / TOS / non-revisable types).
+    revField.readOnly = false;
+    revField.classList.remove('reg-rev-locked');
+    revField.style.background = '';
+    revField.style.cursor = '';
 
     const reviseNo = revField.value === '' ? '0' : revField.value;
     const docTypeId = document.getElementById('docType')?.value || '';
@@ -3761,15 +3764,16 @@ async function runRevNoCheck(seq) {
 
         if (data.allows_revision === false && !isRevisedMode()) {
             revNoDuplicate = false;
-            revField.value = '0';
-            revField.readOnly = true;
-            revField.style.background = '#f1f5f9';
+            if (revField.value === '' || revField.value == null) revField.value = '0';
+            revField.readOnly = false;
+            revField.classList.remove('reg-rev-locked');
+            revField.style.background = '';
             revField.style.borderColor = '';
             revField.classList.remove('reg-input-invalid');
             if (hint && !docNoDuplicate) {
-                hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' +
-                    escapeHtml(data.message || 'Rev 0 is allowed for stacked registrations.');
-                hint.style.color = '#16a34a';
+                hint.innerHTML = '<i class="fa-solid fa-circle-info"></i> ' +
+                    escapeHtml(data.message || 'Suggested Rev 0 for this document type. You may change it.');
+                hint.style.color = '#475569';
                 hint.dataset.valid = 'stackable';
             }
             if (!docNoDuplicate) setSaveEnabled(true);
@@ -6008,6 +6012,12 @@ function handleDocTypeChange() {
     resetSupersedeFinder();
     syncRecurFinder();
     syncNonRevisableTypeUi();
+    if (typeof syncRevisionNumberEditable === 'function') {
+        syncRevisionNumberEditable();
+    }
+    if (typeof syncDocumentNumberLock === 'function') {
+        syncDocumentNumberLock();
+    }
     window.DCSScanNamePreview?.update();
 }
 
@@ -6124,6 +6134,12 @@ function validateChecklistState() {
         if (typeof updateRegistrationMode === 'function') {
             updateRegistrationMode();
         }
+    }
+    if (typeof syncRevisionNumberEditable === 'function') {
+        syncRevisionNumberEditable();
+    }
+    if (typeof syncDocumentNumberLock === 'function') {
+        syncDocumentNumberLock();
     }
 
     if (!isSyllabiLike) {

@@ -47,7 +47,7 @@ use Illuminate\Support\Facades\Storage;
  * visibleRequestIds, latestEditableRequestIds, documentSearchParams,
  * buildLineageMergeEdges, revisionFamilyDocNos, mergeUpdateListLineageGroups,
  * promoteLatestForLineageGroups, updateList, draftList, recycleBinList, reviewList,
- * history, reviewCompare, searchDocuments, documentRevisions,
+ * history, editHistoryPage, reviewCompare, searchDocuments, documentRevisions,
  * checklistPresenceForRequests, docNosForRevisionLookup, primaryDcnRevisionDocNo,
  * dcnReferencedDocNosForRequest, healRevisedFromFromDcnForActiveFamily,
  * expandRenumberFamily, familyReviseNumbers, familyRevisionScans,
@@ -3485,7 +3485,7 @@ class RegisterQueryHelper
                 'is_draft' => $isDraft,
                 'is_latest' => $status === 'latest' || $status === '',
                 'edit_url' => route('dcs.register.edit', $doc->id),
-                'history_url' => (!$isDraft && $docNo !== '') ? route('dcs.register.history', $docNo) : null,
+                'history_url' => $isDraft ? null : self::editHistoryUrlForRow((int) $doc->id, $docNo),
                 'can_delete' => $status === 'latest' || $status === '',
                 'can_edit' => $viewerCanEdit || self::canEditDocument((int) $doc->id, $doc),
             ];
@@ -5172,6 +5172,190 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * History link for Update list rows (works even when Document No. is empty / N/A).
+     */
+    public static function editHistoryUrlForRow(int $requestId, string $docNo): ?string
+    {
+        if ($requestId < 1) {
+            return null;
+        }
+        $docNo = trim($docNo);
+        if ($docNo !== '' && strcasecmp($docNo, 'N/A') !== 0) {
+            return route('dcs.register.history', $docNo);
+        }
+
+        return route('dcs.register.historyByRequest', $requestId);
+    }
+
+    /**
+     * Field-level edit history for a registration without a usable document number.
+     *
+     * @return array{docNo:string,docTitle:string,lineageDocNos:list<string>,latestRequestId:?int,canEdit:bool,entries:list<array<string,mixed>>}
+     */
+    public static function editHistoryPageByRequest(int $requestId): array
+    {
+        if ($requestId < 1) {
+            abort(404, 'Document not found.');
+        }
+
+        $visibleIds = self::visibleRequestIds();
+        if (! in_array($requestId, $visibleIds, true)) {
+            abort(404, 'Document not found.');
+        }
+
+        $ml = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('ml.request_id', $requestId);
+        self::applyNotDeleted($ml, 'dr');
+        $ml = $ml
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->first([
+                'ml.request_id',
+                'ml.doc_no',
+                'ml.doc_title',
+                'ml.revise_no',
+            ]);
+
+        if (! $ml) {
+            abort(404, 'Document not found.');
+        }
+
+        $docNo = trim((string) ($ml->doc_no ?? ''));
+        if ($docNo !== '' && strcasecmp($docNo, 'N/A') !== 0) {
+            return self::editHistoryPage($docNo);
+        }
+
+        $entries = RegisterEditHistoryHelper::listForRequest($requestId);
+        foreach ($entries as &$entry) {
+            $entry['revise_no'] = (int) ($ml->revise_no ?? 0);
+            $entry['doc_no'] = $docNo !== '' ? $docNo : 'N/A';
+            $entry['is_latest'] = true;
+        }
+        unset($entry);
+
+        return [
+            'docNo' => $docNo !== '' ? $docNo : 'N/A',
+            'docTitle' => (string) ($ml->doc_title ?: 'Untitled'),
+            'lineageDocNos' => [],
+            'latestRequestId' => $requestId,
+            'canEdit' => self::canEditDocument($requestId),
+            'entries' => $entries,
+        ];
+    }
+
+    /**
+     * Field-level edit history page for a document number (lineage-aware).
+     *
+     * @return array{docNo:string,docTitle:string,lineageDocNos:list<string>,latestRequestId:?int,canEdit:bool,entries:list<array<string,mixed>>}
+     */
+    public static function editHistoryPage(string $docNo): array
+    {
+        $docNo = trim($docNo);
+        if ($docNo === '' || strcasecmp($docNo, 'N/A') === 0) {
+            abort(404, 'Document not found.');
+        }
+
+        $anchor = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('ml.doc_no', $docNo);
+        self::applyNotDeleted($anchor, 'dr');
+        self::applyOfficeScope($anchor, 'dr');
+        $anchor = $anchor
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->select('ml.doc_no', 'ml.doc_title', 'dr.doc_type_id', 'dr.sub_type_id')
+            ->first();
+
+        if (! $anchor) {
+            abort(404, 'Document not found.');
+        }
+
+        $visibleIds = self::visibleRequestIds();
+        $docTypeId = (int) $anchor->doc_type_id;
+        $subTypeId = $anchor->sub_type_id ? (int) $anchor->sub_type_id : null;
+        $familyNos = self::expandRenumberFamily($docNo, $docTypeId, $subTypeId, $visibleIds);
+        if ($familyNos === []) {
+            $familyNos = self::buildRenumberChain($docNo, $docTypeId, $subTypeId, $visibleIds);
+        }
+        if ($familyNos === []) {
+            $familyNos = [$docNo];
+        }
+
+        $mls = collect();
+        foreach ($familyNos as $chainDocNo) {
+            $query = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->whereIn('ml.request_id', $visibleIds)
+                ->where('ml.doc_no', $chainDocNo)
+                ->where('dr.doc_type_id', $docTypeId);
+
+            if ($subTypeId) {
+                $query->where('dr.sub_type_id', $subTypeId);
+            } else {
+                $query->whereNull('dr.sub_type_id');
+            }
+
+            self::applyNotDeleted($query, 'dr');
+
+            foreach ($query
+                ->orderByDesc('ml.revise_no')
+                ->orderByDesc('ml.id')
+                ->get([
+                    'ml.request_id',
+                    'ml.doc_no',
+                    'ml.doc_title',
+                    'ml.revise_no',
+                ]) as $row) {
+                $mls->push($row);
+            }
+        }
+
+        $mls = $mls
+            ->unique(fn ($row) => (int) $row->request_id)
+            ->sort(function ($a, $b) {
+                $revCmp = ((int) ($b->revise_no ?? 0)) <=> ((int) ($a->revise_no ?? 0));
+                if ($revCmp !== 0) {
+                    return $revCmp;
+                }
+
+                return ((int) ($b->request_id ?? 0)) <=> ((int) ($a->request_id ?? 0));
+            })
+            ->values();
+
+        if ($mls->isEmpty()) {
+            abort(404, 'Document not found.');
+        }
+
+        $byRequest = [];
+        foreach ($mls as $ml) {
+            $byRequest[(int) $ml->request_id] = [
+                'revise_no' => (int) ($ml->revise_no ?? 0),
+                'doc_no' => (string) ($ml->doc_no ?? ''),
+            ];
+        }
+
+        $latestRequestId = (int) $mls->first()->request_id;
+        $entries = RegisterEditHistoryHelper::listForRequests(array_keys($byRequest), 300);
+        foreach ($entries as &$entry) {
+            $meta = $byRequest[(int) ($entry['request_id'] ?? 0)] ?? null;
+            $entry['revise_no'] = $meta['revise_no'] ?? null;
+            $entry['doc_no'] = $meta['doc_no'] ?? null;
+            $entry['is_latest'] = (int) ($entry['request_id'] ?? 0) === $latestRequestId;
+        }
+        unset($entry);
+
+        return [
+            'docNo' => $docNo,
+            'docTitle' => (string) ($mls->first()->doc_title ?: $docNo),
+            'lineageDocNos' => $mls->pluck('doc_no')->filter()->unique()->values()->all(),
+            'latestRequestId' => $latestRequestId,
+            'canEdit' => self::canEditDocument($latestRequestId),
+            'entries' => $entries,
+        ];
+    }
+
     private static function hstSyllabiTableFromRows(array $rows): array
     {
         $byKey = [];
@@ -6144,7 +6328,7 @@ class RegisterQueryHelper
                 'approval' => false,
                 'distribution' => false,
                 'retrieval' => false,
-                'file' => false,
+                'file' => true,
             ];
         }
         unset($row);
@@ -7024,6 +7208,37 @@ class RegisterQueryHelper
     }
 
     /**
+     * Field-level edit history for a registration (newest first).
+     *
+     * @return array{title:string,type:string,entries:list<array<string,mixed>>,fields:list<array{label:string,value:string}>,sections:list<mixed>}
+     */
+    public static function documentEditHistory(int $requestId, bool $assertAccess = true): array
+    {
+        if ($assertAccess) {
+            self::assertFullDcsUser();
+
+            $visibleIds = self::visibleRequestIds();
+            if (! in_array((int) $requestId, $visibleIds, true)) {
+                abort(404);
+            }
+        }
+
+        if (! DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->exists()) {
+            abort(404);
+        }
+
+        $entries = RegisterEditHistoryHelper::listForRequest($requestId);
+
+        return [
+            'title' => 'Edit History',
+            'type' => 'edit_history',
+            'entries' => $entries,
+            'fields' => [],
+            'sections' => [],
+        ];
+    }
+
+    /**
      * Re-hash the masterlist scan for a registration and compare to the stored checksum.
      *
      * @return array{ok: bool, match: bool|null, checksum: string|null, stored: string|null, message: string}
@@ -7564,6 +7779,13 @@ class RegisterQueryHelper
 
         if ($result['found']) {
             $matches = $result['matches'];
+            $draftMatches = collect();
+            if (self::supportsDrafts()) {
+                $draftMatches = $matches->filter(fn ($row) => ! empty($row->is_draft))->values();
+                if ($excludeRequestId > 0) {
+                    $draftMatches = $draftMatches->filter(fn ($row) => (int) $row->id !== $excludeRequestId)->values();
+                }
+            }
             // Draft rows must not make a Doc No look "already registered" while still being edited.
             if (self::supportsDrafts() && ! $request->boolean('include_drafts')) {
                 $matches = $matches->filter(fn ($row) => empty($row->is_draft))->values();
@@ -7572,6 +7794,30 @@ class RegisterQueryHelper
                 $matches = $matches->filter(fn ($row) => (int) $row->id !== $excludeRequestId)->values();
             }
             if ($matches->isEmpty()) {
+                // Only other drafts use this number — warn so New registration does not silently collide.
+                if ($draftMatches->isNotEmpty()) {
+                    $draft = $draftMatches->first();
+                    $draftMl = DB::table('dcs_masterlist_registration')
+                        ->where('request_id', (int) $draft->id)
+                        ->orderByDesc('revise_no')
+                        ->orderByDesc('id')
+                        ->first();
+
+                    return [
+                        'exists' => false,
+                        'draft_exists' => true,
+                        'draft_only' => true,
+                        'draft_request_id' => (int) $draft->id,
+                        'draft_title' => $draftMl->doc_title ?? null,
+                        'existing_request_id' => (int) $draft->id,
+                        'latest_title' => $draftMl->doc_title ?? null,
+                        'message' => 'This document number is already used in a draft'
+                            .(! empty($draftMl->doc_title) ? ' ("'.$draftMl->doc_title.'")' : '')
+                            .'. Choose another number, open that draft, or register another copy.',
+                        'next_rev' => null,
+                    ];
+                }
+
                 return [
                     'exists' => false,
                     'is_self' => true,
@@ -7594,6 +7840,7 @@ class RegisterQueryHelper
                     'message' => 'Document number already exists.',
                     'existing_request_id' => (int) ($latest->request_id ?? 0),
                     'latest_title' => $latest->doc_title ?? null,
+                    'draft_exists' => $draftMatches->isNotEmpty(),
                 ];
             }
             if ($latest) {

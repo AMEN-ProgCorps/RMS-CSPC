@@ -5,6 +5,7 @@
  */
 
 use App\Helpers\DcsDatabaseColumns;
+use App\Helpers\DocumentNumberSeriesHelper;
 use App\Helpers\RegisterQueryHelper;
 use App\Models\PersonalSetting;
 use Carbon\Carbon;
@@ -624,9 +625,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     return $catCompare;
                 }
 
-                // Keep sequential document numbers together (CSPC-PM-01, CSPC-PM-02, …).
+                // Keep related prefixes together (CSPC-LB-CCS-* then CSPC-LB-CTHBM-*),
+                // then natural order within the series (incl. 05a / 05b / 05c).
                 $docA = (string) ($a['parent']['doc_no'] ?? $a['doc_no'] ?? '');
                 $docB = (string) ($b['parent']['doc_no'] ?? $b['doc_no'] ?? '');
+                $seriesA = DocumentNumberSeriesHelper::prefixGroupKey($docA);
+                $seriesB = DocumentNumberSeriesHelper::prefixGroupKey($docB);
+                $bySeries = strnatcasecmp(
+                    $seriesA !== '' ? $seriesA : $docA,
+                    $seriesB !== '' ? $seriesB : $docB
+                );
+                if ($bySeries !== 0) {
+                    return $bySeries;
+                }
                 $byDoc = strnatcasecmp($docA, $docB);
                 if ($byDoc !== 0) {
                     return $byDoc;
@@ -635,14 +646,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 return ($b['parent']['request_id'] ?? 0) <=> ($a['parent']['request_id'] ?? 0);
             })->values();
 
-            // Sequential # restarts for each document type (Internal 1..n, External 1..n, …).
-            // Category badge counts skip deleted tips so recycle-bin rows don't inflate the total.
+            // Sequential # restarts for each document type (Internal 1..n, …).
+            // Related prefixes stay contiguous via sort above; no separator bands here.
             $typeCounters = [];
             $typeSeqCounters = [];
             $groups = $groups->map(function (array $group) use (&$typeCounters, &$typeSeqCounters) {
                 $catName = (string) ($group['parent']['doc_type_name'] ?? 'Uncategorized');
                 $typeSeqCounters[$catName] = ($typeSeqCounters[$catName] ?? 0) + 1;
                 $group['type_seq'] = $typeSeqCounters[$catName];
+                $group['series_key'] = DocumentNumberSeriesHelper::prefixGroupKey(
+                    (string) ($group['parent']['doc_no'] ?? $group['doc_no'] ?? '')
+                );
                 if (empty($group['parent']['is_deleted'])) {
                     $typeCounters[$catName] = ($typeCounters[$catName] ?? 0) + 1;
                 }

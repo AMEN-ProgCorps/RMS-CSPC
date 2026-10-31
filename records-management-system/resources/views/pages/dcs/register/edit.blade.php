@@ -2733,15 +2733,16 @@ async function runDraftRevNoCheck(revField) {
         }
 
         if (data.allows_revision === false) {
-            revField.value = '0';
-            revField.readOnly = true;
-            revField.style.background = '#f1f5f9';
+            if (revField.value === '' || revField.value == null) revField.value = '0';
+            revField.readOnly = false;
+            revField.classList.remove('reg-rev-locked');
+            revField.style.background = '';
             revField.style.borderColor = '';
             revField.classList.remove('reg-input-invalid');
             if (hint) {
-                hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' +
-                    escapeHtml(data.message || 'Always Rev 0 for this document type.');
-                hint.style.color = '#16a34a';
+                hint.innerHTML = '<i class="fa-solid fa-circle-info"></i> ' +
+                    escapeHtml(data.message || 'Suggested Rev 0 for this document type. You may change it.');
+                hint.style.color = '#475569';
             }
             return;
         }
@@ -2803,33 +2804,19 @@ async function runDocNoLookup(docNo, hintEl, revField) {
                 hintEl.dataset.valid = 'stackable';
             }
         } else if (data.exists && !data.is_self) {
-            const input = document.getElementById('masterlistDocNo');
-            const original = String(input?.dataset.originalDocNo || '').trim();
-            const current = String(input?.value || '').trim();
-            const stillOriginal = original !== '' && current.toLowerCase() === original.toLowerCase();
-            if (stillOriginal) {
+            // Draft publish colliding with a registered number must always show the modal
+            // (even when the draft already had that number saved).
+            docNoDuplicate = true;
+            if (hintEl) {
+                hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> This document number is already registered. Choose the next free number, insert into this group, or register another copy.';
+                hintEl.style.color = '#dc2626';
+                hintEl.dataset.valid = 'duplicate';
+            }
+            window.markDocNoInsertReady = function () {
                 docNoDuplicate = false;
-                if (hintEl) {
-                    hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> This document keeps its current number.';
-                    hintEl.style.color = '#16a34a';
-                    hintEl.dataset.valid = 'available';
-                }
-                if (typeof window.scheduleRevNoCheck === 'function') {
-                    window.scheduleRevNoCheck();
-                }
-            } else {
-                docNoDuplicate = true;
-                if (hintEl) {
-                    hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> This document number is already registered. Choose the next free number, insert into this group, or register another copy.';
-                    hintEl.style.color = '#dc2626';
-                    hintEl.dataset.valid = 'duplicate';
-                }
-                window.markDocNoInsertReady = function () {
-                    docNoDuplicate = false;
-                };
-                if (typeof window.openDocNoInsertModal === 'function') {
-                    window.openDocNoInsertModal(data);
-                }
+            };
+            if (typeof window.openDocNoInsertModal === 'function') {
+                window.openDocNoInsertModal(data);
             }
         } else if (data.wrong_type) {
             docNoDuplicate = false;
@@ -8976,6 +8963,7 @@ document.addEventListener("click", function (e) {
 document.addEventListener('DOMContentLoaded', function () {
     refreshOfficeSeeMore();
 });
+
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
 @include('pages.dcs.register.partials.scan-name-preview')

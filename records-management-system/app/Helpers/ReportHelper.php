@@ -615,6 +615,99 @@ class ReportHelper
     }
 
     /**
+     * Keep same-prefix sequential doc nos contiguous (CSPC-LB-CCS-* then CSPC-LB-CTHBM-*).
+     * Revision families stay intact; letter variants (05a/05b) share one series.
+     */
+    private function clusterMasterlistByDocSeries($records)
+    {
+        $chunks = [];
+        $current = null;
+        foreach (collect($records) as $row) {
+            if (is_object($row) && ! empty($row->_family_lead)) {
+                if ($current !== null) {
+                    $chunks[] = $current;
+                }
+                $current = collect([$row]);
+            } else {
+                if ($current === null) {
+                    $current = collect();
+                }
+                $current->push($row);
+            }
+        }
+        if ($current !== null && $current->isNotEmpty()) {
+            $chunks[] = $current;
+        }
+
+        $sorted = collect($chunks)->sort(function ($a, $b) {
+            $la = $a->first();
+            $lb = $b->first();
+            $ka = DocumentNumberSeriesHelper::prefixGroupKey((string) ($la->doc_no ?? ''));
+            $kb = DocumentNumberSeriesHelper::prefixGroupKey((string) ($lb->doc_no ?? ''));
+            $cmp = strnatcasecmp($ka !== '' ? $ka : (string) ($la->doc_no ?? ''), $kb !== '' ? $kb : (string) ($lb->doc_no ?? ''));
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+
+            return strnatcasecmp((string) ($la->doc_no ?? ''), (string) ($lb->doc_no ?? ''));
+        })->values();
+
+        $flat = collect();
+        foreach ($sorted as $chunk) {
+            foreach ($chunk as $row) {
+                $flat->push($row);
+            }
+        }
+
+        return $flat->values();
+    }
+
+    /**
+     * Recompute prefix bands after a row subset is selected for export/print.
+     * Item numbers restart at each series band (same as full masterlist).
+     */
+    private function refreshMasterlistSeriesSeparators($rows)
+    {
+        $counter = 0;
+        $lastSeries = null;
+
+        return collect($rows)->map(function ($row) use (&$counter, &$lastSeries) {
+            $asArray = is_array($row);
+            $docNo = (string) ($asArray ? ($row['doc_no'] ?? '') : ($row->doc_no ?? ''));
+            $itemNo = $asArray ? ($row['item_no'] ?? '') : ($row->item_no ?? '');
+            $seriesKey = DocumentNumberSeriesHelper::prefixGroupKey($docNo);
+            $isLead = $itemNo !== '' && $itemNo !== null;
+            $showSeparator = false;
+
+            if ($isLead) {
+                if ($lastSeries !== null && $seriesKey !== '' && $seriesKey !== $lastSeries) {
+                    $showSeparator = true;
+                    $counter = 0;
+                }
+                if ($seriesKey !== '') {
+                    $lastSeries = $seriesKey;
+                }
+                $counter++;
+                if ($asArray) {
+                    $row['item_no'] = $counter;
+                    $row['series_key'] = $seriesKey;
+                    $row['show_series_separator'] = $showSeparator;
+                } else {
+                    $row->item_no = $counter;
+                    $row->series_key = $seriesKey;
+                    $row->show_series_separator = $showSeparator;
+                }
+            } elseif ($asArray) {
+                $row['show_series_separator'] = false;
+            } else {
+                $row->show_series_separator = false;
+            }
+
+            return $row;
+        })->values();
+    }
+
+    /**
      * Keep each document's revisions together. Date sorts use only the latest
      * document in the family, so an older revision does not move the group.
      */
@@ -938,10 +1031,23 @@ class ReportHelper
 
         $records = RegisterQueryHelper::hydrateMasterlists($query->get(), ['types']);
         $records = $this->sortMasterlistFamilies($records, $filters);
+        $records = $this->clusterMasterlistByDocSeries($records);
 
         $counter = 0;
-        $rows = $records->map(function ($ml) use (&$counter, $filters) {
+        $lastSeries = null;
+        $rows = $records->map(function ($ml) use (&$counter, &$lastSeries, $filters) {
             $doc = $ml->request;
+            $seriesKey = DocumentNumberSeriesHelper::prefixGroupKey((string) ($ml->doc_no ?? ''));
+            $showSeparator = false;
+            if (is_object($ml) && ! empty($ml->_family_lead)) {
+                if ($lastSeries !== null && $seriesKey !== '' && $seriesKey !== $lastSeries) {
+                    $showSeparator = true;
+                    $counter = 0;
+                }
+                if ($seriesKey !== '') {
+                    $lastSeries = $seriesKey;
+                }
+            }
 
             return [
                 'ml_id'            => (int) ($ml->id ?? 0),
@@ -957,11 +1063,16 @@ class ReportHelper
                 'sub_type'         => $doc?->subType?->doc_type_name ?? null,
                 'type_key'         => (int) ($doc?->doc_type_id ?? $ml->doc_type_id ?? 0)
                     . '|' . (int) ($doc?->sub_type_id ?? 0),
+                'series_key'       => $seriesKey,
+                'series_label'     => DocumentNumberSeriesHelper::prefixGroupLabel((string) ($ml->doc_no ?? '')),
+                'show_series_separator' => $showSeparator,
                 'pdf_path'         => $ml->scanned_masterlist
                     ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false) : null,
                 'revision_status'  => strtolower(trim((string) ($ml->revision_status ?? ''))),
             ];
         })->values();
+
+        $rows = self::withOriginatorRowspans($rows);
 
         $columns = [
             'item_no'          => 'Item<br>No.',
@@ -980,6 +1091,95 @@ class ReportHelper
             'title'      => 'Document Masterlist',
             'total_rows' => $rows->count(),
         ]);
+    }
+
+    /**
+     * Merge consecutive same-originator cells within one doc-no series (rowspan).
+     * Call again on each printed/preview page slice so spans never cross page breaks.
+     *
+     * @param  iterable<int, array<string, mixed>|object>  $rows
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>|object>
+     */
+    public static function withOriginatorRowspans($rows)
+    {
+        $list = collect($rows)->values();
+        $n = $list->count();
+        if ($n === 0) {
+            return $list;
+        }
+
+        $norm = static function ($row): array {
+            $asArray = is_array($row);
+            $originator = trim((string) ($asArray ? ($row['originator'] ?? '') : ($row->originator ?? '')));
+            $series = (string) ($asArray ? ($row['series_key'] ?? '') : ($row->series_key ?? ''));
+            if ($series === '') {
+                $docNo = (string) ($asArray ? ($row['doc_no'] ?? '') : ($row->doc_no ?? ''));
+                $series = DocumentNumberSeriesHelper::prefixGroupKey($docNo);
+            }
+            $sep = (bool) ($asArray
+                ? ($row['show_series_separator'] ?? false)
+                : ($row->show_series_separator ?? false));
+
+            return [
+                'originator' => mb_strtolower($originator),
+                'series' => $series,
+                'sep' => $sep,
+                'empty' => $originator === '',
+            ];
+        };
+
+        for ($i = 0; $i < $n; $i++) {
+            $row = $list[$i];
+            if (is_array($row)) {
+                $row['originator_rowspan'] = 1;
+                $row['originator_skip'] = false;
+            } else {
+                $row->originator_rowspan = 1;
+                $row->originator_skip = false;
+            }
+            $list[$i] = $row;
+        }
+
+        $i = 0;
+        while ($i < $n) {
+            $meta = $norm($list[$i]);
+            if ($meta['empty']) {
+                $i++;
+                continue;
+            }
+            $j = $i + 1;
+            while ($j < $n) {
+                $next = $norm($list[$j]);
+                if ($next['sep'] || $next['empty'] || $next['series'] !== $meta['series'] || $next['originator'] !== $meta['originator']) {
+                    break;
+                }
+                $j++;
+            }
+            $span = $j - $i;
+            $lead = $list[$i];
+            if (is_array($lead)) {
+                $lead['originator_rowspan'] = $span;
+                $lead['originator_skip'] = false;
+            } else {
+                $lead->originator_rowspan = $span;
+                $lead->originator_skip = false;
+            }
+            $list[$i] = $lead;
+            for ($k = $i + 1; $k < $j; $k++) {
+                $cont = $list[$k];
+                if (is_array($cont)) {
+                    $cont['originator_rowspan'] = 0;
+                    $cont['originator_skip'] = true;
+                } else {
+                    $cont->originator_rowspan = 0;
+                    $cont->originator_skip = true;
+                }
+                $list[$k] = $cont;
+            }
+            $i = $j;
+        }
+
+        return $list->values();
     }
 
     // ════════════════════════════════════════════
@@ -2142,6 +2342,11 @@ class ReportHelper
                 return $selectedIndices->contains($idx);
             })->values();
             $isFiltered = true;
+        }
+
+        if ($isFiltered && $category === 'masterlist') {
+            $rows = $this->refreshMasterlistSeriesSeparators($rows);
+            $rows = self::withOriginatorRowspans($rows);
         }
 
         $categories = $this->getReportCategories();

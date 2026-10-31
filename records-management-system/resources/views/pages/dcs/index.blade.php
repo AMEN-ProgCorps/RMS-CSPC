@@ -1222,7 +1222,7 @@ document.addEventListener('alpine:init', () => {
             } else if (this.detailDoc?.request_id === rev.request_id && this.detailDoc?.checklists) {
                 this.activeChecklists = this.detailDoc.checklists;
             } else {
-                this.activeChecklists = { masterlist: true };
+                this.activeChecklists = { masterlist: true, file: true };
             }
         },
         scrollActiveRevisionIntoView() {

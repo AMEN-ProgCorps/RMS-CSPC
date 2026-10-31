@@ -575,7 +575,7 @@ DCS file: On-screen Generate Report and Monitoring table. Masterlist originators
                 @else
                     @php
                         $cols = collect($result['columns'] ?? [])->except(['pdf_path'])->all();
-                        $rows = $preview['rows'];
+                        $rows = \App\Helpers\ReportHelper::withOriginatorRowspans($preview['rows'])->all();
                         $keys = array_keys($cols);
                         $previewKey = 'preview-'.$category.'-'.$sub.'-'.$period.'-'.$asOf.'-'.$dateFrom.'-'.$dateTo.'-'.$sortBy.'-'.$sortDir.'-'.md5(json_encode([$originator, $sourceUnit, $revisionStatus, $revNo, $subTypeIds, $monitoringDocType, $monitoringSubTypeIds]));
                     @endphp
@@ -602,6 +602,11 @@ DCS file: On-screen Generate Report and Monitoring table. Masterlist originators
                             </thead>
                             <tbody>
                                 @forelse($rows as $row)
+                                    @if(!empty($row['show_series_separator']))
+                                        <tr class="rpt-series-sep" aria-hidden="true">
+                                            <td colspan="{{ max(count($keys), 1) + 1 }}"></td>
+                                        </tr>
+                                    @endif
                                     <tr>
                                         <td class="rpt-select-col">
                                             @if(!empty($row['ml_id']))
@@ -610,7 +615,12 @@ DCS file: On-screen Generate Report and Monitoring table. Masterlist originators
                                         </td>
                                         @foreach($keys as $key)
                                             @if($key === 'originator')
-                                                <td class="rpt-originator"><x-dcs.originator-lines :name="$row[$key] ?? ''" /></td>
+                                                @if(empty($row['originator_skip']))
+                                                    @php $origSpan = max(1, (int) ($row['originator_rowspan'] ?? 1)); @endphp
+                                                    <td class="rpt-originator rpt-originator-span" @if($origSpan > 1) rowspan="{{ $origSpan }}" @endif>
+                                                        <x-dcs.originator-lines :name="$row[$key] ?? ''" />
+                                                    </td>
+                                                @endif
                                             @else
                                                 <td class="{{ in_array($key, ['doc_no', 'rev_no', 'doc_title', 'effectivity_date'], true) ? 'rpt-ml-center' : '' }}">{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '—' }}</td>
                                             @endif

@@ -26,7 +26,7 @@
 }
 </script>
 
-<div id="chatify-global-widget" style="position: fixed; bottom: 24px; right: 24px; z-index: 999999; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+<div id="chatify-global-widget" style="position: fixed; bottom: 24px; right: 24px; z-index: 999999; font-family: 'Inter', system-ui, -apple-system, sans-serif; transition: bottom 0.35s cubic-bezier(0.34, 1.25, 0.64, 1);">
     <!-- Chat Window Container -->
     <div id="chatify-widget-card" 
          style="display: none; opacity: 0; transform: translateY(16px) scale(0.96); transition: opacity 0.25s ease, transform 0.25s ease; position: absolute; bottom: 72px; right: 0; width: 420px; height: 620px; max-width: calc(100vw - 32px); max-height: calc(100vh - 100px); border-radius: 16px; box-shadow: 0 20px 40px -8px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(148, 163, 184, 0.2); background: #ffffff; overflow: hidden; flex-direction: column;">
@@ -72,24 +72,98 @@
                 type="button" 
                 onclick="toggleChatifyWidget()" 
                 title="Chatify Messages"
-                style="width: 56px; height: 56px; border-radius: 28px; background: linear-gradient(135deg, #1d4ed8, #2563eb); border: none; box-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2); cursor: pointer; display: flex; align-items: center; justify-content: center; color: #ffffff; transition: transform 0.2s ease, box-shadow 0.2s ease;"
-                onmouseover="this.style.transform='scale(1.06)'" 
-                onmouseout="this.style.transform='scale(1)'">
+                class="rms-chatify-fab">
             
-            <!-- Chat Icon -->
-            <svg id="chatify-icon-chat" width="26" height="26" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-            </svg>
+            <span class="rms-chatify-fab-icon">
+                <!-- Chat Icon -->
+                <svg id="chatify-icon-chat" width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                </svg>
 
-            <!-- Close Icon -->
-            <svg id="chatify-icon-close" width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
-            </svg>
+                <!-- Close Icon -->
+                <svg id="chatify-icon-close" width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </span>
+
+            <span id="chatify-widget-btn-label" class="rms-chatify-fab-label">Chatify</span>
         </button>
     </div>
 </div>
 
 <style>
+.rms-chatify-fab {
+    height: 56px;
+    min-width: 56px;
+    width: 56px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #1d4ed8, #2563eb);
+    border: none;
+    box-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0 0 0 15px;
+    color: #ffffff;
+    overflow: hidden;
+    white-space: nowrap;
+    text-decoration: none;
+    user-select: none;
+    box-sizing: border-box;
+    transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                padding 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 0.2s ease,
+                box-shadow 0.2s ease;
+}
+
+.rms-chatify-fab:hover {
+    width: 134px;
+    padding: 0 16px 0 15px;
+    transform: translateY(-1px);
+    box-shadow: 0 12px 28px -4px rgba(37, 99, 235, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.rms-chatify-fab-icon {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.rms-chatify-fab-label {
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    margin-left: 0;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    color: #ffffff;
+    transition: max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.2s ease,
+                margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.rms-chatify-fab:hover .rms-chatify-fab-label {
+    max-width: 75px;
+    opacity: 1;
+    margin-left: 8px;
+}
+
+/* When Chatify is open, close hover shows "Close" cleanly */
+body.chatify-widget-open .rms-chatify-fab:hover {
+    width: 120px;
+}
+
+/* When Report Problem widget is opened, Chatify moves UP above the Report Card */
+body.report-widget-open #chatify-global-widget {
+    bottom: calc(min(580px, calc(100vh - 100px)) + 104px) !important;
+    z-index: 1000000 !important;
+}
+
 @media print {
     #chatify-global-widget,
     #chatify-widget-card,
@@ -422,7 +496,10 @@
         }
 
         if (isOpen) {
+            document.body.classList.add('chatify-widget-open');
             setWidgetVisibility(true, false);
+        } else {
+            document.body.classList.remove('chatify-widget-open');
         }
 
         updateUnreadBadge();
@@ -589,6 +666,14 @@
         playNotificationSound();
     });
 
+    window.addEventListener('rms-widget-opened', function(e) {
+        if (e.detail && e.detail.widget !== 'chatify' && isOpen) {
+            isOpen = false;
+            sessionStorage.setItem('chatify_widget_open', false);
+            setWidgetVisibility(false, true);
+        }
+    });
+
     window.toggleChatifyWidget = function() {
         if (!isTabletOrDesktop()) {
             return;
@@ -697,6 +782,11 @@
         }
 
         if (show) {
+            document.body.classList.add('chatify-widget-open');
+            window.dispatchEvent(new CustomEvent('rms-widget-opened', { detail: { widget: 'chatify' } }));
+            const labelEl = document.getElementById('chatify-widget-btn-label');
+            if (labelEl) labelEl.textContent = 'Close';
+
             if (iframe && (!iframe.src || iframe.src.includes('about:blank') || iframe.src === '')) {
                 const loader = document.getElementById('chatify-iframe-loader');
                 if (loader && !chatifyLoadedOnce) loader.style.display = 'flex';
@@ -719,6 +809,11 @@
             }
             btn.setAttribute('title', 'Minimize Chatify');
         } else {
+            document.body.classList.remove('chatify-widget-open');
+            window.dispatchEvent(new CustomEvent('rms-widget-closed', { detail: { widget: 'chatify' } }));
+            const labelEl = document.getElementById('chatify-widget-btn-label');
+            if (labelEl) labelEl.textContent = 'Chatify';
+
             if (animate) {
                 card.style.opacity = '0';
                 card.style.transform = 'translateY(16px) scale(0.96)';

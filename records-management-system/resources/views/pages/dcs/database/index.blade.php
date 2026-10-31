@@ -646,8 +646,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 return ($b['parent']['request_id'] ?? 0) <=> ($a['parent']['request_id'] ?? 0);
             })->values();
 
-            // Sequential # restarts for each document type (Internal 1..n, …).
+            // Sequential # restarts for each document type (Internal 1..n, External 1..n, …).
             // Related prefixes stay contiguous via sort above; no separator bands here.
+            // Category badge counts skip deleted tips so recycle-bin rows don't inflate the total.
             $typeCounters = [];
             $typeSeqCounters = [];
             $groups = $groups->map(function (array $group) use (&$typeCounters, &$typeSeqCounters) {

@@ -3059,6 +3059,11 @@
     border-color: #1e3a8a !important;
 }
 
+[data-theme="dark"] .rpt-ml-table tbody tr.rpt-series-sep td {
+    background: #1e3a5f !important;
+    border-color: #334155 !important;
+}
+
 [data-theme="dark"] .st-table tbody tr,
 [data-theme="dark"] .st-table tbody td,
 [data-theme="dark"] .st-family-child,

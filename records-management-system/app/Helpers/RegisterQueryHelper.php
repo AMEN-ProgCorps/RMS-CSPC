@@ -47,7 +47,7 @@ use Illuminate\Support\Facades\Storage;
  * visibleRequestIds, latestEditableRequestIds, documentSearchParams,
  * buildLineageMergeEdges, revisionFamilyDocNos, mergeUpdateListLineageGroups,
  * promoteLatestForLineageGroups, updateList, draftList, recycleBinList, reviewList,
- * history, reviewCompare, searchDocuments, documentRevisions,
+ * history, editHistoryPage, reviewCompare, searchDocuments, documentRevisions,
  * checklistPresenceForRequests, docNosForRevisionLookup, primaryDcnRevisionDocNo,
  * dcnReferencedDocNosForRequest, healRevisedFromFromDcnForActiveFamily,
  * expandRenumberFamily, familyReviseNumbers, familyRevisionScans,
@@ -1842,6 +1842,7 @@ class RegisterQueryHelper
             'approval' => false,
             'distribution' => false,
             'retrieval' => false,
+            'file' => false,
         ];
 
         return $row;
@@ -3484,7 +3485,7 @@ class RegisterQueryHelper
                 'is_draft' => $isDraft,
                 'is_latest' => $status === 'latest' || $status === '',
                 'edit_url' => route('dcs.register.edit', $doc->id),
-                'history_url' => (!$isDraft && $docNo !== '') ? route('dcs.register.history', $docNo) : null,
+                'history_url' => $isDraft ? null : self::editHistoryUrlForRow((int) $doc->id, $docNo),
                 'can_delete' => $status === 'latest' || $status === '',
                 'can_edit' => $viewerCanEdit || self::canEditDocument((int) $doc->id, $doc),
             ];
@@ -5171,6 +5172,190 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * History link for Update list rows (works even when Document No. is empty / N/A).
+     */
+    public static function editHistoryUrlForRow(int $requestId, string $docNo): ?string
+    {
+        if ($requestId < 1) {
+            return null;
+        }
+        $docNo = trim($docNo);
+        if ($docNo !== '' && strcasecmp($docNo, 'N/A') !== 0) {
+            return route('dcs.register.history', $docNo);
+        }
+
+        return route('dcs.register.historyByRequest', $requestId);
+    }
+
+    /**
+     * Field-level edit history for a registration without a usable document number.
+     *
+     * @return array{docNo:string,docTitle:string,lineageDocNos:list<string>,latestRequestId:?int,canEdit:bool,entries:list<array<string,mixed>>}
+     */
+    public static function editHistoryPageByRequest(int $requestId): array
+    {
+        if ($requestId < 1) {
+            abort(404, 'Document not found.');
+        }
+
+        $visibleIds = self::visibleRequestIds();
+        if (! in_array($requestId, $visibleIds, true)) {
+            abort(404, 'Document not found.');
+        }
+
+        $ml = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('ml.request_id', $requestId);
+        self::applyNotDeleted($ml, 'dr');
+        $ml = $ml
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->first([
+                'ml.request_id',
+                'ml.doc_no',
+                'ml.doc_title',
+                'ml.revise_no',
+            ]);
+
+        if (! $ml) {
+            abort(404, 'Document not found.');
+        }
+
+        $docNo = trim((string) ($ml->doc_no ?? ''));
+        if ($docNo !== '' && strcasecmp($docNo, 'N/A') !== 0) {
+            return self::editHistoryPage($docNo);
+        }
+
+        $entries = RegisterEditHistoryHelper::listForRequest($requestId);
+        foreach ($entries as &$entry) {
+            $entry['revise_no'] = (int) ($ml->revise_no ?? 0);
+            $entry['doc_no'] = $docNo !== '' ? $docNo : 'N/A';
+            $entry['is_latest'] = true;
+        }
+        unset($entry);
+
+        return [
+            'docNo' => $docNo !== '' ? $docNo : 'N/A',
+            'docTitle' => (string) ($ml->doc_title ?: 'Untitled'),
+            'lineageDocNos' => [],
+            'latestRequestId' => $requestId,
+            'canEdit' => self::canEditDocument($requestId),
+            'entries' => $entries,
+        ];
+    }
+
+    /**
+     * Field-level edit history page for a document number (lineage-aware).
+     *
+     * @return array{docNo:string,docTitle:string,lineageDocNos:list<string>,latestRequestId:?int,canEdit:bool,entries:list<array<string,mixed>>}
+     */
+    public static function editHistoryPage(string $docNo): array
+    {
+        $docNo = trim($docNo);
+        if ($docNo === '' || strcasecmp($docNo, 'N/A') === 0) {
+            abort(404, 'Document not found.');
+        }
+
+        $anchor = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('ml.doc_no', $docNo);
+        self::applyNotDeleted($anchor, 'dr');
+        self::applyOfficeScope($anchor, 'dr');
+        $anchor = $anchor
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->select('ml.doc_no', 'ml.doc_title', 'dr.doc_type_id', 'dr.sub_type_id')
+            ->first();
+
+        if (! $anchor) {
+            abort(404, 'Document not found.');
+        }
+
+        $visibleIds = self::visibleRequestIds();
+        $docTypeId = (int) $anchor->doc_type_id;
+        $subTypeId = $anchor->sub_type_id ? (int) $anchor->sub_type_id : null;
+        $familyNos = self::expandRenumberFamily($docNo, $docTypeId, $subTypeId, $visibleIds);
+        if ($familyNos === []) {
+            $familyNos = self::buildRenumberChain($docNo, $docTypeId, $subTypeId, $visibleIds);
+        }
+        if ($familyNos === []) {
+            $familyNos = [$docNo];
+        }
+
+        $mls = collect();
+        foreach ($familyNos as $chainDocNo) {
+            $query = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->whereIn('ml.request_id', $visibleIds)
+                ->where('ml.doc_no', $chainDocNo)
+                ->where('dr.doc_type_id', $docTypeId);
+
+            if ($subTypeId) {
+                $query->where('dr.sub_type_id', $subTypeId);
+            } else {
+                $query->whereNull('dr.sub_type_id');
+            }
+
+            self::applyNotDeleted($query, 'dr');
+
+            foreach ($query
+                ->orderByDesc('ml.revise_no')
+                ->orderByDesc('ml.id')
+                ->get([
+                    'ml.request_id',
+                    'ml.doc_no',
+                    'ml.doc_title',
+                    'ml.revise_no',
+                ]) as $row) {
+                $mls->push($row);
+            }
+        }
+
+        $mls = $mls
+            ->unique(fn ($row) => (int) $row->request_id)
+            ->sort(function ($a, $b) {
+                $revCmp = ((int) ($b->revise_no ?? 0)) <=> ((int) ($a->revise_no ?? 0));
+                if ($revCmp !== 0) {
+                    return $revCmp;
+                }
+
+                return ((int) ($b->request_id ?? 0)) <=> ((int) ($a->request_id ?? 0));
+            })
+            ->values();
+
+        if ($mls->isEmpty()) {
+            abort(404, 'Document not found.');
+        }
+
+        $byRequest = [];
+        foreach ($mls as $ml) {
+            $byRequest[(int) $ml->request_id] = [
+                'revise_no' => (int) ($ml->revise_no ?? 0),
+                'doc_no' => (string) ($ml->doc_no ?? ''),
+            ];
+        }
+
+        $latestRequestId = (int) $mls->first()->request_id;
+        $entries = RegisterEditHistoryHelper::listForRequests(array_keys($byRequest), 300);
+        foreach ($entries as &$entry) {
+            $meta = $byRequest[(int) ($entry['request_id'] ?? 0)] ?? null;
+            $entry['revise_no'] = $meta['revise_no'] ?? null;
+            $entry['doc_no'] = $meta['doc_no'] ?? null;
+            $entry['is_latest'] = (int) ($entry['request_id'] ?? 0) === $latestRequestId;
+        }
+        unset($entry);
+
+        return [
+            'docNo' => $docNo,
+            'docTitle' => (string) ($mls->first()->doc_title ?: $docNo),
+            'lineageDocNos' => $mls->pluck('doc_no')->filter()->unique()->values()->all(),
+            'latestRequestId' => $latestRequestId,
+            'canEdit' => self::canEditDocument($latestRequestId),
+            'entries' => $entries,
+        ];
+    }
+
     private static function hstSyllabiTableFromRows(array $rows): array
     {
         $byKey = [];
@@ -5363,9 +5548,32 @@ class RegisterQueryHelper
             $select[] = 'ml.stack_group';
         }
 
-        // Dashboard typeahead: smaller candidate window for faster round-trips.
+        // Dashboard typeahead: lean select + modest candidate window.
+        if ($dashboardSearch) {
+            $select = [
+                'ml.id',
+                'ml.request_id',
+                'ml.doc_no',
+                'ml.doc_title',
+                'ml.revise_no',
+                'ml.effectivity_date',
+                'ml.scanned_masterlist',
+                'og.originator_name as originator_name',
+                'dr.doc_type_id',
+                'dr.sub_type_id',
+                'dt.doc_type_name as type_name',
+                'st.doc_type_name as sub_type_name',
+            ];
+            if (self::supportsRevisionStatus()) {
+                $select[] = 'ml.revision_status';
+            }
+            if ($hasKeywords) {
+                $select[] = 'ml.keywords';
+            }
+        }
+
         $fetchLimit = $dashboardSearch
-            ? 30
+            ? 40
             : (count(self::searchTokens($q)) > 1 ? 80 : ($allRevisions ? 50 : 20));
 
         $rows = $query->orderByDesc('ml.revise_no')
@@ -5390,7 +5598,20 @@ class RegisterQueryHelper
             return [];
         }
 
-        if ($dashboardSearch || $latestOnly) {
+        if ($dashboardSearch) {
+            // Keep every registration (stacked same doc_no copies included).
+            // Dedupe only identical request rows, not by document number.
+            $seen = [];
+            $rows = $rows->filter(function ($m) use (&$seen) {
+                $key = (int) ($m->request_id ?? 0) ?: ('ml:' . (int) ($m->id ?? 0));
+                if (isset($seen[$key])) {
+                    return false;
+                }
+                $seen[$key] = true;
+
+                return true;
+            })->values();
+        } elseif ($latestOnly) {
             $seen = [];
             $rows = $rows->filter(function ($m) use (&$seen) {
                 $key = strtolower(trim((string) ($m->doc_no ?? ''))) . '|'
@@ -5438,7 +5659,7 @@ class RegisterQueryHelper
             ->sortByDesc(fn ($m) => (int) ($m->_search_score ?? 0))
             ->values();
 
-        $rows = $rows->take($dashboardSearch ? 12 : 15);
+        $rows = $rows->take($dashboardSearch ? 20 : 15);
 
         $requestIds = $rows->pluck('request_id')->all();
         // Dashboard typeahead skips checklist existence probes — loaded when a result is opened.
@@ -5487,6 +5708,7 @@ class RegisterQueryHelper
                     . ($isSuperseded ? ' (Superseded)' : ''),
                 'checklists' => $dashboardSearch ? [
                     'masterlist' => true,
+                    'file' => true,
                 ] : [
                     'drf' => isset($drfIds[$m->request_id]),
                     'dcn' => isset($dcnIds[$m->request_id]),
@@ -5494,10 +5716,15 @@ class RegisterQueryHelper
                     'approval' => isset($approvalIds[$m->request_id]),
                     'distribution' => isset($distIds[$m->request_id]),
                     'retrieval' => isset($retIds[$m->request_id]),
+                    'file' => true,
                 ],
                 'edit_url' => route('dcs.register.edit', $m->request_id, false),
-                'stamp_url' => route('dcs.stamping.index', self::documentSearchParams($m), false),
-                'inventory_url' => route('dcs.database.index', self::documentSearchParams($m), false),
+                'stamp_url' => $dashboardSearch
+                    ? null
+                    : route('dcs.stamping.index', self::documentSearchParams($m), false),
+                'inventory_url' => $dashboardSearch
+                    ? null
+                    : route('dcs.database.index', self::documentSearchParams($m), false),
                 'match_request_id' => isset($m->match_request_id) ? (int) $m->match_request_id : (int) $m->request_id,
                 'match_revise_no' => isset($m->match_revise_no) ? (int) $m->match_revise_no : (int) ($m->revise_no ?? 0),
                 'match_masterlist_id' => isset($m->match_masterlist_id) ? (int) $m->match_masterlist_id : (int) $m->id,
@@ -6049,6 +6276,7 @@ class RegisterQueryHelper
                 'approval' => false,
                 'distribution' => false,
                 'retrieval' => false,
+                'file' => false,
             ];
         }
 
@@ -6060,6 +6288,8 @@ class RegisterQueryHelper
         }
         foreach (DB::table('dcs_masterlist_registration')->whereIn('request_id', $requestIds)->pluck('request_id') as $id) {
             $out[(int) $id]['masterlist'] = true;
+            // Document Information tab is available for every registered masterlist.
+            $out[(int) $id]['file'] = true;
         }
         foreach (DB::table('dcs_document_distribution')->whereIn('request_id', $requestIds)->pluck('request_id') as $id) {
             $out[(int) $id]['distribution'] = true;
@@ -6098,6 +6328,7 @@ class RegisterQueryHelper
                 'approval' => false,
                 'distribution' => false,
                 'retrieval' => false,
+                'file' => true,
             ];
         }
         unset($row);
@@ -6951,7 +7182,7 @@ class RegisterQueryHelper
     {
         self::assertFullDcsUser();
 
-        $allowed = ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval'];
+        $allowed = ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval', 'file'];
         if (!in_array($type, $allowed, true)) {
             abort(404);
         }
@@ -6968,11 +7199,73 @@ class RegisterQueryHelper
             'approval' => self::previewApproval($requestId),
             'distribution' => self::previewDistribution($requestId),
             'retrieval' => self::previewRetrieval($requestId),
+            'file' => self::previewFile($requestId),
         };
 
         $preview['fields'] = array_merge(self::previewTypeFields($requestId), $preview['fields'] ?? []);
 
         return $preview;
+    }
+
+    /**
+     * Field-level edit history for a registration (newest first).
+     *
+     * @return array{title:string,type:string,entries:list<array<string,mixed>>,fields:list<array{label:string,value:string}>,sections:list<mixed>}
+     */
+    public static function documentEditHistory(int $requestId, bool $assertAccess = true): array
+    {
+        if ($assertAccess) {
+            self::assertFullDcsUser();
+
+            $visibleIds = self::visibleRequestIds();
+            if (! in_array((int) $requestId, $visibleIds, true)) {
+                abort(404);
+            }
+        }
+
+        if (! DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->exists()) {
+            abort(404);
+        }
+
+        $entries = RegisterEditHistoryHelper::listForRequest($requestId);
+
+        return [
+            'title' => 'Edit History',
+            'type' => 'edit_history',
+            'entries' => $entries,
+            'fields' => [],
+            'sections' => [],
+        ];
+    }
+
+    /**
+     * Re-hash the masterlist scan for a registration and compare to the stored checksum.
+     *
+     * @return array{ok: bool, match: bool|null, checksum: string|null, stored: string|null, message: string}
+     */
+    public static function verifyMasterlistChecksum(int $requestId): array
+    {
+        self::assertFullDcsUser();
+
+        $visibleIds = self::visibleRequestIds();
+        if (! in_array($requestId, $visibleIds, true)) {
+            abort(404);
+        }
+
+        $ml = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
+        if (! $ml) {
+            abort(404);
+        }
+
+        $path = trim((string) ($ml->scanned_masterlist ?? ''));
+        $stored = Schema::hasColumn('dcs_masterlist_registration', 'file_checksum')
+            ? (string) ($ml->file_checksum ?? '')
+            : '';
+        $algo = Schema::hasColumn('dcs_masterlist_registration', 'file_checksum_algo')
+            ? (string) ($ml->file_checksum_algo ?? 'sha256')
+            : 'sha256';
+
+        return DocumentStorageService::verifyScanChecksum($path, $stored, $algo);
     }
 
     private static function previewTypeFields(int $requestId): array
@@ -7161,6 +7454,115 @@ class RegisterQueryHelper
                 self::previewOfficesSection('Source Offices', $offices),
             ])),
         ];
+    }
+
+    private static function previewFile(int $requestId): array
+    {
+        $ml = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
+        if (! $ml) {
+            abort(404);
+        }
+        self::attachOriginatorNames([$ml]);
+
+        $path = trim((string) ($ml->scanned_masterlist ?? ''));
+        $previewUrl = $path !== '' ? self::scanUrl($path, false) : null;
+        $checksum = Schema::hasColumn('dcs_masterlist_registration', 'file_checksum')
+            ? trim((string) ($ml->file_checksum ?? ''))
+            : '';
+        $algo = Schema::hasColumn('dcs_masterlist_registration', 'file_checksum_algo')
+            ? trim((string) ($ml->file_checksum_algo ?? 'sha256'))
+            : 'sha256';
+        $size = Schema::hasColumn('dcs_masterlist_registration', 'file_size')
+            ? (int) ($ml->file_size ?? 0)
+            : 0;
+        $mime = Schema::hasColumn('dcs_masterlist_registration', 'file_mime')
+            ? trim((string) ($ml->file_mime ?? ''))
+            : '';
+
+        $registrant = null;
+        $creatorId = (int) ($ml->created_by ?? 0);
+        if ($creatorId < 1) {
+            $creatorId = (int) (DB::table('dcs_document_requests')->where('id', $requestId)->value('created_by') ?? 0);
+        }
+        if ($creatorId > 0) {
+            $detailsTable = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+            if (Schema::hasTable($detailsTable)) {
+                $details = DB::table($detailsTable)->where('account_id', $creatorId)->first(['first_name', 'last_name']);
+                $registrant = trim(trim((string) ($details->first_name ?? '')) . ' ' . trim((string) ($details->last_name ?? '')));
+            }
+            if ($registrant === null || $registrant === '') {
+                $accountTable = Schema::hasTable('sys_accounts') ? 'sys_accounts' : 'accounts';
+                if (Schema::hasTable($accountTable)) {
+                    $registrant = trim((string) (DB::table($accountTable)->where('id', $creatorId)->value('username') ?? ''));
+                }
+            }
+        }
+
+        $keywords = Schema::hasColumn('dcs_masterlist_registration', 'keywords')
+            ? ($ml->keywords ?? null)
+            : null;
+        $modified = null;
+        if (! empty($ml->updated_at)) {
+            $modified = self::formatDisplayDate($ml->updated_at);
+            try {
+                $modified .= ' ' . \Carbon\Carbon::parse($ml->updated_at)->format('h:i A');
+            } catch (\Throwable) {
+            }
+        }
+
+        $checksumStatus = $checksum !== '' ? 'Saved' : 'Missing';
+        $checksumDisplay = $checksum !== ''
+            ? strtoupper($algo !== '' ? $algo : 'sha256') . ' ' . $checksum
+            : null;
+
+        $fields = [
+            self::previewField('Document Title', $ml->doc_title),
+            self::previewField('Keywords', $keywords),
+            self::previewField('Author / Creator', $ml->originator_name ?? null),
+            self::previewField('Receipt Date', self::formatDisplayDate($ml->doc_receipt_date)),
+            self::previewField('Registered Date', self::formatDisplayDate($ml->doc_registered_date)),
+            self::previewField('Effectivity Date', self::formatDisplayDate($ml->effectivity_date)),
+            self::previewField('Last Modified', $modified),
+            self::previewField('File Format', $path !== '' ? ($mime !== '' ? $mime : 'application/pdf') : null),
+            self::previewField('File Size', $size > 0 ? self::formatFileSize($size) : null),
+            self::previewField('Storage Path', $path !== '' ? $path : null),
+            self::previewField('Registrant', $registrant !== '' ? $registrant : null),
+        ];
+        // Checksum is integrity metadata only (detect replaced/corrupt files). Show when present.
+        if ($checksumDisplay !== null) {
+            $fields[] = self::previewField('Checksum', $checksumDisplay);
+            $fields[] = self::previewField('Checksum Status', $checksumStatus);
+        }
+
+        return [
+            'title' => 'Documented Information',
+            'type' => 'file',
+            'doc_no' => $ml->doc_no,
+            'doc_title' => $ml->doc_title,
+            'preview_url' => $previewUrl,
+            'can_verify' => $checksum !== '' && $path !== '',
+            'checksum_status' => $path !== '' ? $checksumStatus : 'No scanned file',
+            'has_file' => $path !== '',
+            'fields' => $fields,
+            'sections' => $path === ''
+                ? [[
+                    'heading' => 'Scanned copy',
+                    'items' => ['No scanned masterlist PDF is attached to this registration.'],
+                ]]
+                : [],
+        ];
+    }
+
+    private static function formatFileSize(int $bytes): string
+    {
+        if ($bytes < 1024) {
+            return $bytes . ' B';
+        }
+        if ($bytes < 1048576) {
+            return round($bytes / 1024, 1) . ' KB';
+        }
+
+        return round($bytes / 1048576, 2) . ' MB';
     }
 
     private static function previewApproval(int $requestId): array
@@ -7377,6 +7779,13 @@ class RegisterQueryHelper
 
         if ($result['found']) {
             $matches = $result['matches'];
+            $draftMatches = collect();
+            if (self::supportsDrafts()) {
+                $draftMatches = $matches->filter(fn ($row) => ! empty($row->is_draft))->values();
+                if ($excludeRequestId > 0) {
+                    $draftMatches = $draftMatches->filter(fn ($row) => (int) $row->id !== $excludeRequestId)->values();
+                }
+            }
             // Draft rows must not make a Doc No look "already registered" while still being edited.
             if (self::supportsDrafts() && ! $request->boolean('include_drafts')) {
                 $matches = $matches->filter(fn ($row) => empty($row->is_draft))->values();
@@ -7385,6 +7794,30 @@ class RegisterQueryHelper
                 $matches = $matches->filter(fn ($row) => (int) $row->id !== $excludeRequestId)->values();
             }
             if ($matches->isEmpty()) {
+                // Only other drafts use this number — warn so New registration does not silently collide.
+                if ($draftMatches->isNotEmpty()) {
+                    $draft = $draftMatches->first();
+                    $draftMl = DB::table('dcs_masterlist_registration')
+                        ->where('request_id', (int) $draft->id)
+                        ->orderByDesc('revise_no')
+                        ->orderByDesc('id')
+                        ->first();
+
+                    return [
+                        'exists' => false,
+                        'draft_exists' => true,
+                        'draft_only' => true,
+                        'draft_request_id' => (int) $draft->id,
+                        'draft_title' => $draftMl->doc_title ?? null,
+                        'existing_request_id' => (int) $draft->id,
+                        'latest_title' => $draftMl->doc_title ?? null,
+                        'message' => 'This document number is already used in a draft'
+                            .(! empty($draftMl->doc_title) ? ' ("'.$draftMl->doc_title.'")' : '')
+                            .'. Choose another number, open that draft, or register another copy.',
+                        'next_rev' => null,
+                    ];
+                }
+
                 return [
                     'exists' => false,
                     'is_self' => true,
@@ -7407,6 +7840,7 @@ class RegisterQueryHelper
                     'message' => 'Document number already exists.',
                     'existing_request_id' => (int) ($latest->request_id ?? 0),
                     'latest_title' => $latest->doc_title ?? null,
+                    'draft_exists' => $draftMatches->isNotEmpty(),
                 ];
             }
             if ($latest) {
@@ -7693,7 +8127,7 @@ class RegisterQueryHelper
             $subTypeId ? (int) $subTypeId : null
         );
 
-        if (!$result['found']) {
+        if (! ($result['found'] ?? false)) {
             return [
                 'taken' => false,
                 'revise_no' => $reviseNo,
@@ -7703,43 +8137,50 @@ class RegisterQueryHelper
             ];
         }
 
-        $visibleIds = self::visibleRequestIds();
-        $takenRevs = self::familyReviseNumbers(
-            $docNo,
-            $docTypeId,
-            $subTypeId ? (int) $subTypeId : null,
-            $visibleIds,
-            $excludeRequestId
-        );
-
-        // Fallback: exact doc no only if family walk found nothing.
-        if ($takenRevs === []) {
-            $matchIds = $result['matches']->pluck('id');
-            $revQuery = DB::table('dcs_masterlist_registration as ml')
-                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-                ->whereIn('ml.request_id', $matchIds)
-                ->where('ml.doc_no', $docNo);
-
-            if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
-                $revQuery->whereIn('ml.revision_status', ['latest', 'obsolete', 'superseded']);
-            }
-            if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
-                $revQuery->where(function ($q) {
-                    $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
-                });
-            }
-            if ($excludeRequestId > 0) {
-                $revQuery->where('ml.request_id', '!=', $excludeRequestId);
-            }
-
-            $takenRevs = $revQuery
-                ->orderBy('ml.revise_no')
-                ->pluck('ml.revise_no')
-                ->map(fn ($n) => (int) $n)
-                ->unique()
-                ->values()
-                ->all();
+        // Same rules as checkDocNo: drafts and the row being edited do not occupy a Rev.
+        $matches = $result['matches'] ?? collect();
+        if (self::supportsDrafts()) {
+            $matches = $matches->filter(fn ($row) => empty($row->is_draft))->values();
         }
+        if ($excludeRequestId > 0) {
+            $matches = $matches->filter(fn ($row) => (int) $row->id !== $excludeRequestId)->values();
+        }
+        if ($matches->isEmpty()) {
+            return [
+                'taken' => false,
+                'revise_no' => $reviseNo,
+                'taken_revs' => [],
+                'next_rev' => $reviseNo,
+                'message' => 'Revision ' . $reviseNo . ' is available for this document number.',
+            ];
+        }
+
+        // Only published rows for THIS exact document number occupy revise numbers.
+        // Do not pull renumber-family siblings into the live New-registration check —
+        // that was marking Rev 0 taken for numbers that were not registered yet.
+        $takenQuery = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->whereIn('ml.request_id', $matches->pluck('id')->all())
+            ->where('ml.doc_no', $docNo);
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
+            $takenQuery->whereIn('ml.revision_status', ['latest', 'obsolete', 'superseded']);
+        }
+        if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $takenQuery->where(function ($q) {
+                $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+            $takenQuery->whereNull('dr.deleted_at');
+        }
+
+        $takenRevs = $takenQuery
+            ->orderBy('ml.revise_no')
+            ->pluck('ml.revise_no')
+            ->map(fn ($n) => (int) $n)
+            ->unique()
+            ->values()
+            ->all();
 
         $taken = in_array($reviseNo, $takenRevs, true);
         $familyLatest = $takenRevs !== [] ? max($takenRevs) : null;

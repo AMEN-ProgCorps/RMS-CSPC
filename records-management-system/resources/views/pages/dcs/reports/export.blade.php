@@ -142,7 +142,7 @@ DCS file: Print shell for a generated report. Masterlist rows are rendered by ex
             font-size: 10pt;
         }
         .data-table th {
-            background: #8DB4E2;
+            background: #8db3e2;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
             font-family: Arial, sans-serif;

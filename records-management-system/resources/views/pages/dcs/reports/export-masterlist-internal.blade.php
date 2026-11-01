@@ -328,7 +328,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         }
         .ml-thead th {
             height: 0.49in;
-            background: #8DB4E2;
+            background: #8db3e2;
             border: 0 !important;
             border-right: 0.5pt solid #000 !important;
             border-bottom: 0.5pt solid #000 !important;
@@ -356,13 +356,33 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         }
         .ml-table td:last-child { border-right: 0 !important; }
         .ml-table tr:last-child td { border-bottom: 0 !important; }
+        .ml-table tr.series-sep td {
+            background: #8db3e2 !important;
+            border-right: 0 !important;
+            border-bottom: 0.5pt solid #000 !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 10pt !important;
+            line-height: 1 !important;
+            height: 1em;
+            padding: 0.05em 0 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
         .ml-table td.is-title,
         .ml-table td.is-doc-no,
         .ml-table td.is-center { text-align: center; }
         .ml-table td.is-originator {
             text-align: left;
             vertical-align: top;
-            line-height: 1.2;
+            line-height: 1;
+        }
+        .ml-table td.is-originator.is-span {
+            text-align: center;
+            vertical-align: middle;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10pt;
+            line-height: 1;
+            font-weight: 400;
         }
         .ml-table td.is-doc-no,
         .ml-table td.is-doc-no b {
@@ -555,7 +575,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             line-height: 1.05;
         }
         body.is-pdf .pdf-table th {
-            background: #8DB4E2;
+            background: #8db3e2;
             border: 0.5pt solid #000;
             font-size: 10pt;
             font-weight: 700;
@@ -570,11 +590,31 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             vertical-align: middle;
             padding: 3px 3px;
             font-size: 10pt;
+            line-height: 1;
         }
         body.is-pdf .pdf-table td.is-title,
         body.is-pdf .pdf-table td.is-center { text-align: center; }
-        body.is-pdf .pdf-table td.is-originator { text-align: left; vertical-align: top; line-height: 1.2; }
+        body.is-pdf .pdf-table td.is-originator { text-align: left; vertical-align: top; line-height: 1; }
+        body.is-pdf .pdf-table td.is-originator.is-span {
+            text-align: center;
+            vertical-align: middle;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10pt;
+            line-height: 1;
+            font-weight: 400;
+        }
         body.is-pdf .pdf-table td.is-doc-no { font-weight: 700; }
+        body.is-pdf .pdf-table tr.series-sep td {
+            background: #8db3e2 !important;
+            border-right: 0 !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 10pt !important;
+            line-height: 1 !important;
+            height: 1em;
+            padding: 0.05em 0 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
         body.is-pdf .pdf-ft {
             position: absolute;
             left: 0.55in;
@@ -645,6 +685,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
     @foreach($pageChunks as $pageIndex => $pageRows)
         @php
             $pageNo = $pageIndex + 1;
+            $pageRows = \App\Helpers\ReportHelper::withOriginatorRowspans($pageRows)->all();
         @endphp
         <div class="ml-sheet {{ $loop->last ? 'is-last' : '' }} {{ $activeSub === 'internal_forms' ? 'is-internal-forms' : '' }}">
             @if(!empty($isPdf))
@@ -705,14 +746,31 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                         @forelse($pageRows as $row)
                             @php
                                 $item = is_array($row) ? ($row['item_no'] ?? '') : ($row->item_no ?? '');
+                                $showSeriesSep = is_array($row)
+                                    ? ! empty($row['show_series_separator'])
+                                    : ! empty($row->show_series_separator);
+                                $origSkip = is_array($row)
+                                    ? ! empty($row['originator_skip'])
+                                    : ! empty($row->originator_skip);
+                                $origSpan = (int) (is_array($row)
+                                    ? ($row['originator_rowspan'] ?? 1)
+                                    : ($row->originator_rowspan ?? 1));
+                                $origName = is_array($row) ? ($row['originator'] ?? '') : ($row->originator ?? '');
                             @endphp
+                            @if($showSeriesSep)
+                                <tr class="series-sep"><td colspan="7"></td></tr>
+                            @endif
                             <tr>
                                 <td>{{ $item !== '' && $item !== null ? $item : '' }}</td>
                                 <td class="is-doc-no is-center">{{ is_array($row) ? ($row['doc_no'] ?? '—') : ($row->doc_no ?? '—') }}</td>
                                 <td class="is-center">{{ is_array($row) ? ($row['rev_no'] ?? '—') : ($row->rev_no ?? '—') }}</td>
                                 <td class="is-title is-center">{{ is_array($row) ? ($row['doc_title'] ?? '—') : ($row->doc_title ?? '—') }}</td>
                                 <td class="is-center">{{ is_array($row) ? ($row['effectivity_date'] ?? '—') : ($row->effectivity_date ?? '—') }}</td>
-                                <td class="is-originator"><x-dcs.originator-lines :name="is_array($row) ? ($row['originator'] ?? '') : ($row->originator ?? '')" /></td>
+                                @unless($origSkip)
+                                    <td class="is-originator {{ $origSpan > 1 ? 'is-span' : '' }}" @if($origSpan > 1) rowspan="{{ $origSpan }}" @endif>
+                                        <x-dcs.originator-lines :name="$origName" />
+                                    </td>
+                                @endunless
                                 <td>{{ is_array($row) ? ($row['no_pages'] ?? '—') : ($row->no_pages ?? '—') }}</td>
                             </tr>
                         @empty
@@ -783,14 +841,31 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                         @forelse($pageRows as $i => $row)
                             @php
                                 $item = is_array($row) ? ($row['item_no'] ?? '') : ($row->item_no ?? '');
+                                $showSeriesSep = is_array($row)
+                                    ? ! empty($row['show_series_separator'])
+                                    : ! empty($row->show_series_separator);
+                                $origSkip = is_array($row)
+                                    ? ! empty($row['originator_skip'])
+                                    : ! empty($row->originator_skip);
+                                $origSpan = (int) (is_array($row)
+                                    ? ($row['originator_rowspan'] ?? 1)
+                                    : ($row->originator_rowspan ?? 1));
+                                $origName = is_array($row) ? ($row['originator'] ?? '') : ($row->originator ?? '');
                             @endphp
+                            @if($showSeriesSep)
+                                <tr class="series-sep"><td colspan="7"></td></tr>
+                            @endif
                             <tr>
                                 <td>{{ $item !== '' && $item !== null ? $item : '' }}</td>
                                 <td class="is-doc-no is-center"><b>{{ is_array($row) ? ($row['doc_no'] ?? '—') : ($row->doc_no ?? '—') }}</b></td>
                                 <td class="is-center">{{ is_array($row) ? ($row['rev_no'] ?? '—') : ($row->rev_no ?? '—') }}</td>
                                 <td class="is-title is-center">{{ is_array($row) ? ($row['doc_title'] ?? '—') : ($row->doc_title ?? '—') }}</td>
                                 <td class="is-center">{{ is_array($row) ? ($row['effectivity_date'] ?? '—') : ($row->effectivity_date ?? '—') }}</td>
-                                <td class="is-originator"><x-dcs.originator-lines :name="is_array($row) ? ($row['originator'] ?? '') : ($row->originator ?? '')" /></td>
+                                @unless($origSkip)
+                                    <td class="is-originator {{ $origSpan > 1 ? 'is-span' : '' }}" @if($origSpan > 1) rowspan="{{ $origSpan }}" @endif>
+                                        <x-dcs.originator-lines :name="$origName" />
+                                    </td>
+                                @endunless
                                 <td>{{ is_array($row) ? ($row['no_pages'] ?? '—') : ($row->no_pages ?? '—') }}</td>
                             </tr>
                         @empty

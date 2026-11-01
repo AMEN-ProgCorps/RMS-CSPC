@@ -24,21 +24,22 @@ class DocumentNumberSeriesHelper
             return null;
         }
 
-        // 17B10 → series 17B, item 10. 11A → series …-, item 11, suffix A.
-        if (preg_match('/^(.*?)(\d+)$/', $docNo, $m)) {
-            return [
-                'series' => $m[1],
-                'number' => (int) $m[2],
-                'width' => strlen($m[2]),
-                'suffix' => '',
-            ];
-        }
+        // Letter suffix first: CSPC-LB-ACCTG-05a → series …-, number 5, suffix a.
+        // Then trailing digits: 17B10 → series 17B, item 10; CSPC-LB-CCS-07 → …-, 7.
         if (preg_match('/^(.*?)(\d+)([A-Za-z]+)$/', $docNo, $m)) {
             return [
                 'series' => $m[1],
                 'number' => (int) $m[2],
                 'width' => strlen($m[2]),
                 'suffix' => $m[3],
+            ];
+        }
+        if (preg_match('/^(.*?)(\d+)$/', $docNo, $m)) {
+            return [
+                'series' => $m[1],
+                'number' => (int) $m[2],
+                'width' => strlen($m[2]),
+                'suffix' => '',
             ];
         }
 
@@ -53,6 +54,51 @@ class DocumentNumberSeriesHelper
     public static function seriesKey(string $series): string
     {
         return mb_strtolower(rtrim($series, '-'));
+    }
+
+    /**
+     * Group key for related sequential document numbers.
+     * Uses the stem before the last hyphen segment so CSPC-F-ACCTG-17B2 / 17C1 / 18A
+     * stay together, while CSPC-LB-CCS-* stays separate from CSPC-LB-CTHBM-*.
+     */
+    public static function prefixGroupKey(string $docNo): string
+    {
+        $docNo = trim($docNo);
+        if ($docNo === '' || strcasecmp($docNo, 'N/A') === 0) {
+            return '';
+        }
+        if (preg_match('/^(.+)-([^-]+)$/', $docNo, $m) && preg_match('/\d/', $m[2])) {
+            return mb_strtolower($m[1]);
+        }
+        $parsed = self::parseDocNo($docNo);
+        if (! $parsed) {
+            return mb_strtolower($docNo);
+        }
+        $series = (string) ($parsed['series'] ?? '');
+        if ($series === '' || $parsed['number'] === null) {
+            return mb_strtolower($docNo);
+        }
+
+        return self::seriesKey($series);
+    }
+
+    /** Human-readable series label for band rows (keeps trailing dash when present). */
+    public static function prefixGroupLabel(string $docNo): string
+    {
+        $docNo = trim($docNo);
+        if ($docNo === '' || strcasecmp($docNo, 'N/A') === 0) {
+            return '';
+        }
+        if (preg_match('/^(.+)-([^-]+)$/', $docNo, $m) && preg_match('/\d/', $m[2])) {
+            return rtrim($m[1], '-').'-';
+        }
+        $parsed = self::parseDocNo($docNo);
+        if (! $parsed || $parsed['number'] === null) {
+            return $docNo;
+        }
+        $series = (string) ($parsed['series'] ?? '');
+
+        return $series !== '' ? $series : $docNo;
     }
 
     public static function formatDocNo(string $series, int $number, int $width, string $suffix = ''): string

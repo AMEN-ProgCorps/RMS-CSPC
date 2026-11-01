@@ -1028,7 +1028,15 @@ Route::middleware(['auth'])
             Route::middleware(['dcs.full'])->group(function () {
                 Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {
                     return response()->json(RegisterQueryHelper::documentChecklistPreview($id, $type));
-                })->whereIn('type', ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval']);
+                })->whereIn('type', ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval', 'file']);
+
+                Route::post('/api/documents/{id}/verify-checksum', function (int $id) {
+                    return response()->json(RegisterQueryHelper::verifyMasterlistChecksum($id));
+                });
+
+                Route::get('/api/documents/{id}/edit-history', function (int $id) {
+                    return response()->json(RegisterQueryHelper::documentEditHistory($id));
+                });
 
                 // Dashboard calendar reads for all full DCS users; mutations need Settings.
                 Route::get('/api/calendar/categories', fn () => CalendarHelper::categories());
@@ -1080,6 +1088,9 @@ Route::middleware(['auth'])
                         ->name('register.revised');
                     Volt::route('/register/update', 'pages.dcs.register.update')->name('register.update');
                     Volt::route('/register/drafts', 'pages.dcs.register.drafts')->name('register.drafts');
+                    Volt::route('/register/history/id/{requestId}', 'pages.dcs.register.history-by-request')
+                        ->whereNumber('requestId')
+                        ->name('register.historyByRequest');
                     Volt::route('/register/history/{docNo}', 'pages.dcs.register.history')->name('register.history');
                     Volt::route('/register/{id}/edit', 'pages.dcs.register.edit')->name('register.edit');
                     Route::put('/register/{id}', fn (Request $request, $id) => RegisterUpdateHelper::update($request, (int) $id))

@@ -324,6 +324,67 @@ body {
     padding: 10px 12px 12px;
 }
 
+.hst-edit-history-page {
+    margin-top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.hst-edit-history-entry {
+    padding: 14px 16px;
+    border: 1px solid var(--hst-border, #e2e8f0);
+    border-radius: 8px;
+    background: var(--dcs-surface-hover, #f8fafc);
+}
+
+.hst-edit-history-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-bottom: 8px;
+    font-size: 0.86rem;
+    color: var(--hst-muted, #64748b);
+}
+
+.hst-edit-history-by strong {
+    color: var(--hst-text, #0f172a);
+    font-weight: 700;
+}
+
+.hst-edit-history-action {
+    text-transform: capitalize;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: #e2e8f0;
+    color: #334155;
+}
+
+.hst-edit-history-changes {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.86rem;
+    color: var(--hst-text, #0f172a);
+}
+
+.hst-edit-history-changes li + li {
+    margin-top: 4px;
+}
+
+.hst-edit-history-old {
+    color: #94a3b8;
+    text-decoration: line-through;
+}
+
+.hst-edit-history-new {
+    color: var(--hst-text, #0f172a);
+    font-weight: 600;
+}
+
 .hst-section-title {
     margin: 0 0 8px;
     font-size: 0.68rem;

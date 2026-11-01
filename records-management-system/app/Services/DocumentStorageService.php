@@ -17,6 +17,13 @@ class DocumentStorageService
     /** @var array<string, string> */
     private static array $driveFolderIds = [];
 
+    /**
+     * SHA-256 / size / mime captured during the current request's storeDcsScan calls.
+     *
+     * @var array<string, array{file_checksum: string, file_checksum_algo: string, file_size: int, file_mime: string}>
+     */
+    private static array $lastScanMetaByPath = [];
+
     /** Local disk ({@see config/filesystems.php}) is rooted at storage/app/private — cache lives under uploads/. */
     public static function localUploadsPath(string $relativePath): string
     {
@@ -1500,7 +1507,99 @@ class DocumentStorageService
         Storage::disk('local')->put(self::localUploadsPath($relativePath), $fileContent);
         self::queueDriveMirror($officeFolderName, (int) $fileSize, $relativeDir, $relativePath, (string) $fileContent);
 
+        $bytes = (string) $fileContent;
+        $mime = 'application/pdf';
+        if ($file instanceof UploadedFile) {
+            $detected = trim((string) ($file->getMimeType() ?: ''));
+            if ($detected !== '') {
+                $mime = $detected;
+            }
+        }
+        self::$lastScanMetaByPath[$relativePath] = [
+            'file_checksum' => hash('sha256', $bytes),
+            'file_checksum_algo' => 'sha256',
+            'file_size' => (int) strlen($bytes),
+            'file_mime' => $mime,
+        ];
+
         return $relativePath;
+    }
+
+    /**
+     * @return array{file_checksum?: string, file_checksum_algo?: string, file_size?: int, file_mime?: string}
+     */
+    public static function consumeScanMeta(?string $path): array
+    {
+        $path = ltrim(str_replace(['\\'], '/', (string) $path), '/');
+        if ($path === '' || ! isset(self::$lastScanMetaByPath[$path])) {
+            return [];
+        }
+        $meta = self::$lastScanMetaByPath[$path];
+        unset(self::$lastScanMetaByPath[$path]);
+
+        return $meta;
+    }
+
+    /**
+     * Re-hash a stored DCS scan and compare to the expected checksum.
+     *
+     * @return array{ok: bool, match: bool|null, checksum: string|null, stored: string|null, message: string}
+     */
+    public static function verifyScanChecksum(?string $relativePath, ?string $expectedChecksum, string $algo = 'sha256'): array
+    {
+        $relativePath = ltrim(str_replace(['\\'], '/', (string) $relativePath), '/');
+        $expected = strtolower(trim((string) $expectedChecksum));
+        $algo = strtolower(trim($algo)) ?: 'sha256';
+
+        if ($relativePath === '') {
+            return [
+                'ok' => false,
+                'match' => null,
+                'checksum' => null,
+                'stored' => $expected !== '' ? $expected : null,
+                'message' => 'No scanned file path is stored for this document.',
+            ];
+        }
+        if ($expected === '') {
+            return [
+                'ok' => false,
+                'match' => null,
+                'checksum' => null,
+                'stored' => null,
+                'message' => 'No checksum was saved when this scan was uploaded.',
+            ];
+        }
+        if ($algo !== 'sha256') {
+            return [
+                'ok' => false,
+                'match' => null,
+                'checksum' => null,
+                'stored' => $expected,
+                'message' => 'Unsupported checksum algorithm.',
+            ];
+        }
+
+        $contents = self::getFileContent($relativePath, true);
+        if ($contents === null || $contents === '') {
+            return [
+                'ok' => false,
+                'match' => null,
+                'checksum' => null,
+                'stored' => $expected,
+                'message' => 'Could not read the stored scan to verify.',
+            ];
+        }
+
+        $actual = hash('sha256', $contents);
+        $match = hash_equals($expected, $actual);
+
+        return [
+            'ok' => true,
+            'match' => $match,
+            'checksum' => $actual,
+            'stored' => $expected,
+            'message' => $match ? 'Checksum matches the stored scan.' : 'Checksum does not match the stored scan.',
+        ];
     }
 
     /**
@@ -1793,12 +1892,29 @@ class DocumentStorageService
 
     /**
      * Scan path fields for DCS registration inserts/updates.
+     * Masterlist rows also pick up checksum/size/mime from the just-stored upload.
      *
      * @return array<string, mixed>
      */
     public static function dcsScanFields(string $table, string $pathColumn, ?string $path): array
     {
-        return [$pathColumn => $path];
+        $fields = [$pathColumn => $path];
+        if (
+            $path
+            && $table === 'dcs_masterlist_registration'
+            && $pathColumn === 'scanned_masterlist'
+            && Schema::hasTable($table)
+        ) {
+            $meta = self::consumeScanMeta($path);
+            foreach (['file_checksum', 'file_checksum_algo', 'file_size', 'file_mime'] as $column) {
+                if (! array_key_exists($column, $meta) || ! Schema::hasColumn($table, $column)) {
+                    continue;
+                }
+                $fields[$column] = $meta[$column];
+            }
+        }
+
+        return $fields;
     }
 
     protected static function extractDcsDocumentId(string $relativePath): string

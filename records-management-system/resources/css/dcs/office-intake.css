@@ -14,8 +14,7 @@
     overflow-x: hidden;
     box-sizing: border-box;
     z-index: 1;
-    transition: left var(--dcs-ease, 0.2s ease), top var(--dcs-ease, 0.2s ease);
-    animation: ofiFadeIn 0.25s ease both;
+    transition: left var(--dcs-ease), top var(--dcs-ease);
 }
 
 /* Clear top tabs (also in top-tabs.css; duplicated here so public asset works without Vite rebuild) */
@@ -26,11 +25,6 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .ofi-page {
 body:has(#dcs-sidebar-collapsed:checked) .ofi-page,
 html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     left: var(--dcs-sidebar-collapsed, 68px);
-}
-
-@keyframes ofiFadeIn {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
 }
 
 .ofi-page::-webkit-scrollbar { width: 6px; }
@@ -2182,7 +2176,7 @@ body.ofi-modal-open {
     border-radius: 16px;
     background: #fff;
     box-shadow: 0 24px 64px rgba(9, 29, 90, 0.28);
-    animation: ofiFadeIn 0.2s ease both;
+    animation: modalSlideUp var(--dcs-modal-in) both;
 }
 
 .ofi-intake-modal-header {

@@ -2007,20 +2007,28 @@ class RegisterPersistHelper
             // Notify the office that created this My DRF / My DCN form when this
             // save is that form (Proceed to Registration). A document the admin
             // creates with only a DRF or DCN source unit has no pending intake,
-            // so those offices are not notified. A draft does not mark the forms.
+            // so those offices are not notified. Drafts still link the intake
+            // (without notifying) so Drafts cannot delete office-sourced drafts.
             $submitterOfficeCodes = [];
-            $holdForAppraisal = (string) $request->input('open_appraisal') === '1';            if (! $saveAsDraft && $pending && in_array($pending['type'], ['drf', 'dcn'], true) && $pending['id'] > 0) {
-                // Always notify the creating office when the form is registered.
-                // Appraisal can continue separately; do not defer the registered notice.
-                $submitterOfficeCodes = OfficeIntakeHelper::closePendingIntakeForRegistration(
-                    $pending['type'],
-                    (int) $pending['id'],
-                    (int) $requestId,
-                    $docNo,
-                    $docTitle !== '' ? $docTitle : null,
-                    $revisedFrom !== '' ? $revisedFrom : null,
-                    false
-                );
+            $holdForAppraisal = (string) $request->input('open_appraisal') === '1';            if ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && $pending['id'] > 0) {
+                if ($saveAsDraft) {
+                    OfficeIntakeHelper::linkIntakeToRegistrationRequest(
+                        $pending['type'],
+                        (int) $pending['id'],
+                        (int) $requestId
+                    );
+                } else {
+                    // Always notify the creating office when the form is registered.
+                    $submitterOfficeCodes = OfficeIntakeHelper::closePendingIntakeForRegistration(
+                        $pending['type'],
+                        (int) $pending['id'],
+                        (int) $requestId,
+                        $docNo,
+                        $docTitle !== '' ? $docTitle : null,
+                        $revisedFrom !== '' ? $revisedFrom : null,
+                        false
+                    );
+                }
             }
 
             if (! $saveAsDraft) {

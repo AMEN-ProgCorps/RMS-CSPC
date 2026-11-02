@@ -480,6 +480,15 @@ body {
     font-size: 0.62rem;
     font-weight: 700;
     text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+.dash-detail-rev-status.is-latest {
+    color: #15803d;
+}
+.dash-detail-rev-status.is-superseded {
+    color: #b45309;
+}
+.dash-detail-rev-status.is-obsolete {
     color: #b91c1c;
 }
 

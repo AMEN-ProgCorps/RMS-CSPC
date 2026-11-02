@@ -39,7 +39,10 @@ body {
     overflow-x: hidden;
     display: flex;
     flex-direction: column;
+    /* Match other DCS pages; load FOUC is handled by html.dcs-sidebar-booting. */
     transition: left var(--dcs-ease);
+    /* Livewire type/search morphs remount content — skip tokens fadeInUp jump. */
+    animation: none !important;
 }
 
 .db-related-tag {
@@ -221,6 +224,13 @@ body {
     display: flex; flex-direction: column;
 }
 
+/* Keep table fully visible during Livewire type/search/filter — chrome.css dims
+   .is-loading scroll areas and disables pointer-events, which looked like a blank void. */
+.db-table-wrap.is-loading > .db-table-scroll {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
 .db-filter-foot .db-btn-primary {
     display: inline-flex;
     align-items: center;
@@ -230,6 +240,15 @@ body {
 
 .db-table-scroll {
     flex: 1; overflow: auto; min-height: 0;
+    /* Stable sticky defaults — avoid 0→measured jump on first paint / type switch. */
+    --header-row1-h: 36px;
+    --header-row2-top: 68px;
+    --header-total-h: 96px;
+    --header-total-w: 100%;
+}
+
+tr.db-row-collapsed {
+    display: none !important;
 }
 
 .db-table-scroll table {
@@ -694,7 +713,8 @@ td.sticky-col-4 {
 
 /* ── Status badge ── */
 .db-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
-.db-status-active { background: var(--db-green-light); color: var(--db-green); }
+.db-status-active,
+.db-status-latest { background: var(--dcs-status-latest-bg); color: var(--dcs-status-latest); }
 .db-status-obsolete { background: var(--dcs-status-obsolete-bg); color: var(--dcs-status-obsolete); }
 .db-status-superseded { background: var(--dcs-status-superseded-bg); color: var(--dcs-status-superseded); }
 .db-status-deleted,
@@ -739,13 +759,16 @@ td.sticky-col-4 {
 .db-scan-link:hover { text-decoration: underline; }
 .db-na { color: var(--db-text-muted); font-style: italic; }
 
-.db-category-row td {
+.db-table tbody tr.db-category-row > td {
     background: var(--db-primary);
     padding: 10px 16px;
-    border: 1px solid rgb(252, 252, 252);
-} 
+    border: 1px solid color-mix(in srgb, var(--db-primary) 70%, #fff);
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
 
-.db-category-row td:hover{
+.db-table tbody tr.db-category-row:hover > td {
     background: var(--db-primary-hover) !important;
 }
 
@@ -1169,9 +1192,9 @@ td.sticky-col-4 {
 
 .db-col-context-menu {
     position: fixed;
-    z-index: 9999;
-    min-width: 160px;
-    max-width: 240px;
+    z-index: 10050;
+    min-width: 200px;
+    max-width: 280px;
     background: #fff;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
@@ -1285,7 +1308,7 @@ mark.db-office-hit {
 
 [data-theme="dark"] .db-hidden-groups-list li button:hover {
     background: #1e293b;
-    border-color: #475569;
+    border-color: #3b82f6;
 }
 
 [data-theme="dark"] .db-col-context-menu {
@@ -1343,9 +1366,24 @@ mark.db-office-hit {
 [data-theme="dark"] .db-table tbody tr.db-child-row:hover > td,
 [data-theme="dark"] .db-table tbody tr.db-parent-row:hover > td[class*="col-group-"],
 [data-theme="dark"] .db-table tbody tr.db-child-row:hover > td[class*="col-group-"] {
-    background: #2a3f55 !important;
-    background-color: #2a3f55 !important;
+    background: #243447 !important;
+    background-color: #243447 !important;
     color: #f8fafc !important;
+}
+
+[data-theme="dark"] .db-table tbody tr.db-category-row > td,
+[data-theme="dark"] .db-table tbody tr.db-category-row:nth-child(even) > td {
+    background: #1e3a5f !important;
+    background-color: #1e3a5f !important;
+    color: #f8fafc !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .db-table tbody tr.db-category-row:hover > td,
+[data-theme="dark"] .db-table tbody tr.db-category-row:nth-child(even):hover > td {
+    background: #2563eb !important;
+    background-color: #2563eb !important;
+    color: #fff !important;
 }
 
 [data-theme="dark"] .db-child-courses-row td,
@@ -1364,8 +1402,8 @@ mark.db-office-hit {
 [data-theme="dark"] .db-page .db-filter-btn,
 [data-theme="dark"] .db-page .db-export-btn,
 [data-theme="dark"] .db-page .db-collapse-btn {
-    background: #0b0f19 !important;
-    background-color: #0b0f19 !important;
+    background: #131c2e !important;
+    background-color: #131c2e !important;
     color: #e2e8f0 !important;
     border-color: #334155 !important;
 }

@@ -2476,7 +2476,8 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Active campus signatory assignment for a form + catalog type/subtype (or kind fallback).
+     * Active campus signatory assignment for a form + catalog type/subtype
+     * (sub-type → parent whole type). Kind-only rows are legacy and not used for lookup.
      *
      * @return array<string, mixed>|null
      */
@@ -2485,7 +2486,8 @@ class OfficeIntakeHelper
         string $docTypeKind = 'internal',
         ?int $docTypeId = null,
         ?string $onDate = null,
-        bool $allowKindFallback = true
+        bool $allowKindFallback = false,
+        bool $allowParentFallback = true
     ): ?array {
         $formKind = strtolower(trim($formKind));
         $docTypeKind = strtolower(trim($docTypeKind));
@@ -2496,19 +2498,18 @@ class OfficeIntakeHelper
             return null;
         }
 
-        $day = $onDate ? \Carbon\Carbon::parse($onDate)->toDateString() : now()->toDateString();
-        $query = DB::table('dcs_signatory_templates')->where('form_kind', $formKind);
-
-        if ($docTypeId && $docTypeId > 0 && Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
-            $query->where('doc_type_id', $docTypeId);
-        } elseif (in_array($docTypeKind, ['internal', 'external'], true)) {
-            $query->where('doc_type_kind', $docTypeKind);
-            if (Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
-                $query->whereNull('doc_type_id');
-            }
-        } else {
+        // Catalog type is required — kind-only (null doc_type_id) is no longer used.
+        if (! $docTypeId || $docTypeId < 1) {
             return null;
         }
+        if (! Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
+            return null;
+        }
+
+        $day = $onDate ? \Carbon\Carbon::parse($onDate)->toDateString() : now()->toDateString();
+        $query = DB::table('dcs_signatory_templates')
+            ->where('form_kind', $formKind)
+            ->where('doc_type_id', $docTypeId);
 
         if (Schema::hasColumn('dcs_signatory_templates', 'effective_from')) {
             $query->where(function ($q) use ($day) {
@@ -2523,18 +2524,22 @@ class OfficeIntakeHelper
 
         $row = $query->orderByDesc('id')->first();
         if (! $row) {
-            if ($docTypeId && $docTypeId > 0 && Schema::hasTable('dcs_doc_types')) {
+            if ($allowParentFallback && Schema::hasTable('dcs_doc_types')) {
                 $parentId = (int) DB::table('dcs_doc_types')->where('id', $docTypeId)->value('parent_id');
                 if ($parentId > 0) {
-                    $parentHit = self::signatoryTemplate($formKind, $docTypeKind, $parentId, $onDate, false);
+                    $parentHit = self::signatoryTemplate($formKind, $docTypeKind, $parentId, $onDate, false, false);
                     if ($parentHit) {
+                        $parentHit['_meta'] = is_array($parentHit['_meta'] ?? null) ? $parentHit['_meta'] : [];
+                        $parentHit['_meta']['inherited_from'] = 'parent';
+                        $parentHit['_meta']['inherited_doc_type_id'] = $parentId;
+
                         return $parentHit;
                     }
                 }
             }
-            if ($allowKindFallback && $docTypeId && $docTypeId > 0 && in_array($docTypeKind, ['internal', 'external'], true)) {
-                return self::signatoryTemplate($formKind, $docTypeKind, null, $onDate, false);
-            }
+
+            // $allowKindFallback kept for call-site compatibility; intentionally unused.
+            unset($allowKindFallback);
 
             return null;
         }
@@ -2578,8 +2583,14 @@ class OfficeIntakeHelper
         if (! in_array($formKind, ['drf', 'dcn'], true) || ! in_array($docTypeKind, ['internal', 'external'], true)) {
             throw new \InvalidArgumentException('Invalid signatory template key.');
         }
+        if (! $docTypeId || $docTypeId < 1) {
+            throw new \InvalidArgumentException('Select a Document type from the catalog.');
+        }
         if (! Schema::hasTable('dcs_signatory_templates')) {
             throw new \RuntimeException('Signatory templates table is not ready. Run migrations.');
+        }
+        if (! Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
+            throw new \RuntimeException('Signatory templates need a doc_type_id column. Run migrations.');
         }
 
         $now = now();
@@ -2592,13 +2603,11 @@ class OfficeIntakeHelper
         $data = [
             'form_kind' => $formKind,
             'doc_type_kind' => $docTypeKind,
+            'doc_type_id' => $docTypeId,
             'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE),
             'updated_by' => $updatedBy,
             'updated_at' => $now,
         ];
-        if (Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
-            $data['doc_type_id'] = $docTypeId && $docTypeId > 0 ? $docTypeId : null;
-        }
         if (Schema::hasColumn('dcs_signatory_templates', 'effective_from')) {
             $data['effective_from'] = $from;
         }
@@ -2607,24 +2616,17 @@ class OfficeIntakeHelper
         }
 
         if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
-            $closeQuery = DB::table('dcs_signatory_templates')
+            DB::table('dcs_signatory_templates')
                 ->where('form_kind', $formKind)
+                ->where('doc_type_id', $docTypeId)
                 ->where(function ($q) use ($from) {
                     $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $from);
-                });
-            if ($docTypeId && $docTypeId > 0 && Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
-                $closeQuery->where('doc_type_id', $docTypeId);
-            } else {
-                $closeQuery->where('doc_type_kind', $docTypeKind);
-                if (Schema::hasColumn('dcs_signatory_templates', 'doc_type_id')) {
-                    $closeQuery->whereNull('doc_type_id');
-                }
-            }
-            $closeQuery->update([
-                'effective_until' => \Carbon\Carbon::parse($from)->subDay()->toDateString(),
-                'updated_at' => $now,
-                'updated_by' => $updatedBy,
-            ]);
+                })
+                ->update([
+                    'effective_until' => \Carbon\Carbon::parse($from)->subDay()->toDateString(),
+                    'updated_at' => $now,
+                    'updated_by' => $updatedBy,
+                ]);
         }
 
         $data['created_at'] = $now;
@@ -2680,6 +2682,34 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Readable assignment window, e.g. "Oct 27, 2026 – present" or "Jan 5, 2025 – Feb 23, 2025".
+     */
+    public static function formatSignatoryDateRange(mixed $fromRaw, mixed $untilRaw): string
+    {
+        $from = self::formatSignatoryDate($fromRaw);
+        if ($untilRaw === null || $untilRaw === '') {
+            return ($from !== '' ? $from : '—').' – present';
+        }
+
+        $until = self::formatSignatoryDate($untilRaw);
+
+        return ($from !== '' ? $from : '—').' – '.($until !== '' ? $until : '—');
+    }
+
+    /** Single date as "Jan 5, 2025". */
+    public static function formatSignatoryDate(mixed $raw): string
+    {
+        if ($raw === null || $raw === '') {
+            return '';
+        }
+        try {
+            return \Carbon\Carbon::parse($raw)->format('M j, Y');
+        } catch (\Throwable) {
+            return trim((string) $raw);
+        }
+    }
+
+    /**
      * @return array{active: int, scheduled: int, ended: int, total: int}
      */
     public static function signatoryAssignmentStatusCounts(string $formKind = 'drf'): array
@@ -2732,10 +2762,11 @@ class OfficeIntakeHelper
             $kind = strtolower(trim((string) data_get($row, 'doc_type_kind', '')));
 
             if ($docTypeId < 1) {
+                // Old rows saved without a catalog type — read-only history.
                 $parentKey = 'kind';
-                $parentLabel = 'Kind fallback';
+                $parentLabel = 'Legacy (no catalog type)';
                 $childKey = 'kind:'.($kind !== '' ? $kind : 'unknown');
-                $childLabel = $kind !== '' ? ucfirst($kind).' docs' : 'Unspecified kind';
+                $childLabel = $kind !== '' ? ucfirst($kind).' (legacy)' : 'Unspecified (legacy)';
             } elseif ($parentId > 0) {
                 $parent = $parentNameById->get($parentId);
                 $parentKey = 'parent:'.$parentId;
@@ -2842,10 +2873,10 @@ class OfficeIntakeHelper
             unset($countByKey[$key]);
         }
 
-        if (isset($countByKey['kind'])) {
+        if (isset($countByKey['kind']) && (int) $countByKey['kind'] > 0) {
             $tabs[] = [
                 'key' => 'kind',
-                'label' => 'Kind fallback',
+                'label' => 'Legacy',
                 'count' => (int) $countByKey['kind'],
             ];
         }
@@ -2854,16 +2885,65 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Whether an open (active) assignment already exists for this form + catalog/kind scope.
+     * Whether an open (active) assignment already exists for this exact form + catalog/kind scope
+     * (no parent / kind inheritance — used by Settings editor banners).
      */
     public static function hasActiveSignatoryAssignment(
         string $formKind,
         string $docTypeKind = 'internal',
         ?int $docTypeId = null
     ): bool {
-        $hit = self::signatoryTemplate($formKind, $docTypeKind, $docTypeId, null, false);
+        $hit = self::signatoryTemplate($formKind, $docTypeKind, $docTypeId, null, false, false);
 
         return is_array($hit);
+    }
+
+    /**
+     * Human label for what office intake will use when this exact scope has no assignment.
+     */
+    public static function signatoryInheritanceHint(
+        string $formKind,
+        string $docTypeKind = 'internal',
+        ?int $docTypeId = null
+    ): ?string {
+        if (! $docTypeId || $docTypeId < 1) {
+            return null;
+        }
+        if (self::hasActiveSignatoryAssignment($formKind, $docTypeKind, $docTypeId)) {
+            return null;
+        }
+
+        $hit = self::signatoryTemplate($formKind, $docTypeKind, $docTypeId, null, false, true);
+        if (! is_array($hit)) {
+            return 'No assignment for this type/sub-type or its parent — office intake will leave signatories blank.';
+        }
+
+        $from = (string) data_get($hit, '_meta.inherited_from', '');
+        if ($from === 'parent') {
+            $parentId = (int) data_get($hit, '_meta.inherited_doc_type_id', 0);
+            $parentName = $parentId > 0 && Schema::hasTable('dcs_doc_types')
+                ? trim((string) DB::table('dcs_doc_types')->where('id', $parentId)->value('doc_type_name'))
+                : '';
+            $label = $parentName !== '' ? $parentName : 'the parent document type';
+
+            return 'No assignment for this sub-type. Office intake will use the whole '.$label.' assignment.';
+        }
+
+        return null;
+    }
+
+    /** Catalog parent id whose name matches Internal / External (for office intake lookup). */
+    public static function catalogParentIdForKind(string $kind): ?int
+    {
+        $kind = strtolower(trim($kind));
+        if (! in_array($kind, ['internal', 'external'], true) || ! Schema::hasTable('dcs_doc_types')) {
+            return null;
+        }
+        $q = DB::table('dcs_doc_types')->whereNull('parent_id');
+        SettingsRecycleHelper::applyNotDeleted($q, 'dcs_doc_types');
+        $id = (int) ($q->whereRaw('LOWER(TRIM(doc_type_name)) = ?', [$kind])->value('id') ?? 0);
+
+        return $id > 0 ? $id : null;
     }
 
     /**
@@ -3167,9 +3247,13 @@ class OfficeIntakeHelper
     {
         $kind = in_array($docTypeKind, ['internal', 'external'], true) ? $docTypeKind : 'internal';
 
-        // External has no catalog pickers — use kind-level Settings assignment only.
+        // External has no catalog pickers — use the External catalog parent assignment.
         if ($kind === 'external' && (! $docTypeId || $docTypeId < 1) && (! $subTypeId || $subTypeId < 1)) {
-            $template = self::signatoryTemplate('drf', 'external', null, null, false);
+            $externalId = self::catalogParentIdForKind('external');
+            if (! $externalId) {
+                return null;
+            }
+            $template = self::signatoryTemplate('drf', 'external', $externalId, null, false, false);
 
             return is_array($template) ? self::normalizeDrfSignatoryPayload($template) : null;
         }
@@ -3184,8 +3268,8 @@ class OfficeIntakeHelper
             ? $docTypeKind
             : $resolved['doc_type_kind'];
 
-        // Catalog match only — do not fall back to kind-wide or previous personal DRF.
-        $template = self::signatoryTemplate('drf', $kind, $lookupId, null, false);
+        // Sub-type → parent whole type only.
+        $template = self::signatoryTemplate('drf', $kind, $lookupId, null, false, true);
         if (! is_array($template)) {
             return null;
         }
@@ -3198,15 +3282,15 @@ class OfficeIntakeHelper
      *
      * @return array{
      *     byDocTypeId: array<string, array<string, string>>,
-     *     byKind: array<string, array<string, string>>,
-     *     parentKind: array<string, string>
+     *     parentKind: array<string, string>,
+     *     externalParentId: ?int
      * }
      */
     public static function drfSignatoryTemplateMap(): array
     {
         $byDocTypeId = [];
-        $byKind = [];
         $parentKind = [];
+        $externalParentId = self::catalogParentIdForKind('external');
 
         $catalog = self::intakeDocTypeCatalog();
         foreach ($catalog['parents'] as $parent) {
@@ -3229,11 +3313,14 @@ class OfficeIntakeHelper
         }
 
         if (! Schema::hasTable('dcs_signatory_templates')) {
-            return compact('byDocTypeId', 'byKind', 'parentKind');
+            return compact('byDocTypeId', 'parentKind', 'externalParentId');
         }
 
         $day = now()->toDateString();
-        $query = DB::table('dcs_signatory_templates')->where('form_kind', 'drf')->orderByDesc('id');
+        $query = DB::table('dcs_signatory_templates')
+            ->where('form_kind', 'drf')
+            ->whereNotNull('doc_type_id')
+            ->orderByDesc('id');
         if (Schema::hasColumn('dcs_signatory_templates', 'effective_from')) {
             $query->where(function ($q) use ($day) {
                 $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', $day);
@@ -3260,15 +3347,10 @@ class OfficeIntakeHelper
                 if (! isset($byDocTypeId[$key])) {
                     $byDocTypeId[$key] = $normalized;
                 }
-            } else {
-                $kind = strtolower(trim((string) data_get($row, 'doc_type_kind', '')));
-                if (in_array($kind, ['internal', 'external'], true) && ! isset($byKind[$kind])) {
-                    $byKind[$kind] = $normalized;
-                }
             }
         }
 
-        return compact('byDocTypeId', 'byKind', 'parentKind');
+        return compact('byDocTypeId', 'parentKind', 'externalParentId');
     }
 
     /**
@@ -4392,6 +4474,44 @@ class OfficeIntakeHelper
             'rfio_claimed_at' => null,
             'updated_at' => now(),
         ]);
+    }
+
+    /**
+     * Link office intake → draft/registration request without notifying the office.
+     * Used when RFIO saves a draft from Proceed to Registration.
+     */
+    public static function linkIntakeToRegistrationRequest(string $type, int $intakeId, int $requestId): void
+    {
+        $type = strtolower($type);
+        if (! in_array($type, ['drf', 'dcn'], true) || $intakeId < 1 || $requestId < 1) {
+            return;
+        }
+
+        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'registered_request_id')) {
+            return;
+        }
+
+        $update = ['updated_at' => now(), 'registered_request_id' => $requestId];
+        if (Schema::hasColumn($table, 'rfio_claimed_at')) {
+            $update['rfio_claimed_at'] = now();
+        }
+        DB::table($table)->where('id', $intakeId)->update($update);
+
+        $pairId = $type === 'dcn'
+            ? self::findLinkedDrfIdForOfficeDcn($intakeId)
+            : self::findSourceDcnIdForOfficeDrf($intakeId);
+        if ($pairId) {
+            $pairType = $type === 'dcn' ? 'drf' : 'dcn';
+            $pairTable = $pairType === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+            if (Schema::hasTable($pairTable) && Schema::hasColumn($pairTable, 'registered_request_id')) {
+                $pairUpdate = ['updated_at' => now(), 'registered_request_id' => $requestId];
+                if (Schema::hasColumn($pairTable, 'rfio_claimed_at')) {
+                    $pairUpdate['rfio_claimed_at'] = now();
+                }
+                DB::table($pairTable)->where('id', (int) $pairId)->update($pairUpdate);
+            }
+        }
     }
 
     /**
@@ -5800,10 +5920,121 @@ class OfficeIntakeHelper
             return $pending;
         }
 
-        $held = self::officeDocumentTotal($officeId, 'received_for_appraisal');
-        $onMasterlist = self::officeDocumentTotal($officeId, 'received');
+        // Match Incoming page: only count held docs that have an RDP appraisal link.
+        $heldRows = self::listOfficeDocuments('all', $officeId, 'received_for_appraisal');
+        if ($heldRows === []) {
+            return $pending;
+        }
+        $urls = \App\Services\RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
+            RegisterQueryHelper::currentOfficeCode(),
+            $heldRows
+        );
+        $appraisable = 0;
+        foreach ($heldRows as $row) {
+            $requestId = (int) ($row['request_id'] ?? 0);
+            $docNo = trim((string) ($row['doc_no'] ?? ''));
+            $url = ($docNo !== '' ? ($urls[$docNo] ?? null) : null)
+                ?? ($urls['request:'.$requestId] ?? null)
+                ?? ($urls[\App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo)] ?? null);
+            if ($url) {
+                $appraisable++;
+            }
+        }
 
-        return $pending + max(0, $held - $onMasterlist);
+        return $pending + $appraisable;
+    }
+
+    /** True when this registration was created from an office DRF/DCN request. */
+    public static function requestIsLinkedToOfficeIntake(int $requestId): bool
+    {
+        if ($requestId < 1) {
+            return false;
+        }
+
+        return isset(self::requestIdsLinkedToOfficeIntake([$requestId])[$requestId]);
+    }
+
+    /**
+     * Link claimed (not yet finalized) intakes to draft requests by title / doc no.
+     *
+     * @param  list<array{request_id:int,title:string,doc_no:string}>  $drafts
+     */
+    public static function backfillDraftIntakeLinks(array $drafts): void
+    {
+        if ($drafts === []) {
+            return;
+        }
+
+        $byTitle = [];
+        $byDocNo = [];
+        foreach ($drafts as $draft) {
+            $rid = (int) ($draft['request_id'] ?? 0);
+            if ($rid < 1 || self::requestIsLinkedToOfficeIntake($rid)) {
+                continue;
+            }
+            $title = mb_strtolower(trim((string) ($draft['title'] ?? '')));
+            $docNo = mb_strtolower(trim((string) ($draft['doc_no'] ?? '')));
+            if ($title !== '' && $title !== 'untitled draft') {
+                $byTitle[$title] = $rid;
+            }
+            if ($docNo !== '' && $docNo !== '—') {
+                $byDocNo[$docNo] = $rid;
+            }
+        }
+        if ($byTitle === [] && $byDocNo === []) {
+            return;
+        }
+
+        foreach (['drf' => 'dcs_office_intake_drf', 'dcn' => 'dcs_office_intake_dcn'] as $type => $table) {
+            if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'registered_request_id')) {
+                continue;
+            }
+            if (! Schema::hasColumn($table, 'rfio_claimed_at')) {
+                continue;
+            }
+            $query = DB::table($table)
+                ->whereNotNull('rfio_claimed_at')
+                ->where(function ($q) {
+                    $q->whereNull('registered_request_id')->orWhere('registered_request_id', 0);
+                });
+            if (Schema::hasColumn($table, 'rfio_registered_at')) {
+                $query->whereNull('rfio_registered_at');
+            }
+            foreach ($query->orderByDesc('id')->limit(100)->get() as $row) {
+                $title = mb_strtolower(trim((string) ($type === 'dcn'
+                    ? ($row->document_title ?? '')
+                    : ($row->doc_title ?? ''))));
+                $docNo = mb_strtolower(trim((string) ($row->document_no ?? $row->previous_document_no ?? '')));
+                $requestId = $byTitle[$title] ?? ($byDocNo[$docNo] ?? 0);
+                if ($requestId > 0) {
+                    self::linkIntakeToRegistrationRequest($type, (int) $row->id, $requestId);
+                }
+            }
+        }
+    }
+
+    /**
+     * @param  list<int>  $requestIds
+     * @return array<int, true>
+     */
+    public static function requestIdsLinkedToOfficeIntake(array $requestIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $requestIds))));
+        if ($ids === []) {
+            return [];
+        }
+
+        $linked = [];
+        foreach (['dcs_office_intake_drf', 'dcs_office_intake_dcn'] as $table) {
+            if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'registered_request_id')) {
+                continue;
+            }
+            foreach (DB::table($table)->whereIn('registered_request_id', $ids)->pluck('registered_request_id') as $id) {
+                $linked[(int) $id] = true;
+            }
+        }
+
+        return $linked;
     }
 
     public static function isIncomingNoticeUrl(?string $url): bool
@@ -6057,22 +6288,27 @@ class OfficeIntakeHelper
 
     /**
      * One present copy per document this office holds.
-     * Same number with a different title stays separate. Obsolete and superseded copies do not replace the current one.
+     * Same number with a different title stays separate.
+     * Only latest (current) copies are kept — obsolete and superseded are dropped.
      */
     protected static function keepLatestDistributedDocuments($records)
     {
         $best = [];
         foreach ($records as $ml) {
-            $docNo = strtolower(trim((string) ($ml->doc_no ?? '')));
-            $title = strtolower(trim((string) ($ml->doc_title ?? '')));
-            $key = $docNo !== '' ? $docNo.'||'.$title : 'id:'.(int) ($ml->id ?? 0);
             $status = strtolower(trim((string) ($ml->revision_status ?? 'latest')));
             if ($status === '') {
                 $status = 'latest';
             }
+            // Random Check / office lists must only show current (latest) distributed docs.
+            if ($status !== 'latest') {
+                continue;
+            }
+            $docNo = strtolower(trim((string) ($ml->doc_no ?? '')));
+            $title = strtolower(trim((string) ($ml->doc_title ?? '')));
+            $key = $docNo !== '' ? $docNo.'||'.$title : 'id:'.(int) ($ml->id ?? 0);
             $candidate = [
                 'row' => $ml,
-                'current' => $status === 'latest' ? 1 : 0,
+                'current' => 1,
                 'rev' => (int) ($ml->revise_no ?? 0),
                 'id' => (int) ($ml->id ?? 0),
             ];
@@ -6407,28 +6643,81 @@ class OfficeIntakeHelper
         }
 
         $groupKey = trim($groupKey);
-        if ($groupKey === '' || $groupKey === 'all') {
-            $rows = [];
-            $seen = [];
-            foreach (array_keys(self::documentGroupDefs()) as $key) {
-                foreach (self::listDocumentsForCheckGroup((int) $officeId, $key, $distributionOnly) as $row) {
-                    $id = (int) $row['masterlist_id'];
-                    if (isset($seen[$id])) {
-                        continue;
-                    }
-                    $seen[$id] = true;
-                    $rows[] = $row;
+        $cacheKey = 'check.'.($distributionOnly ? 'dist' : 'all').'.'.($groupKey === '' ? 'all' : $groupKey).'.'.(int) $officeId;
+
+        return self::rememberOfficeInventory($cacheKey, function () use ($officeId, $groupKey, $distributionOnly) {
+            if ($groupKey === '' || $groupKey === 'all') {
+                // One distribution query for the whole office, then classify + keep latest.
+                $scope = $distributionOnly ? 'distribution' : null;
+                $query = self::officeMasterlistQuery((int) $officeId, $scope);
+                $select = [
+                    'ml.id',
+                    'ml.doc_no',
+                    'ml.revise_no',
+                    'ml.doc_title',
+                    'ml.effectivity_date',
+                    'ml.doc_type_id',
+                    'ml.request_id',
+                ];
+                if (RegisterQueryHelper::supportsRevisionStatus()) {
+                    $select[] = 'ml.revision_status';
                 }
+                $records = $query
+                    ->orderByRaw("CASE WHEN COALESCE(TRIM(ml.doc_no), '') = '' THEN 1 ELSE 0 END")
+                    ->orderBy('ml.doc_no')
+                    ->orderByDesc('ml.revise_no')
+                    ->orderBy('ml.id')
+                    ->get($select);
+                $records = self::keepLatestDistributedDocuments($records);
+                $parentMap = RegisterQueryHelper::parentTypeIdMap();
+                $idToKey = [];
+                foreach ($parentMap as $key => $pid) {
+                    $idToKey[(int) $pid] = $key;
+                }
+                $requestIds = $records->pluck('request_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+                $requestParents = [];
+                if ($requestIds !== [] && Schema::hasTable('dcs_document_requests')) {
+                    $reqRows = DB::table('dcs_document_requests as dr')
+                        ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
+                        ->whereIn('dr.id', $requestIds)
+                        ->get(['dr.id', 'dr.doc_type_id', 'st.parent_id as sub_parent_id']);
+                    foreach ($reqRows as $rr) {
+                        $parentId = (int) ($rr->sub_parent_id ?: $rr->doc_type_id ?: 0);
+                        $requestParents[(int) $rr->id] = $idToKey[$parentId] ?? ($idToKey[(int) ($rr->doc_type_id ?? 0)] ?? 'internal_docs');
+                    }
+                }
+                $rows = [];
+                foreach ($records as $ml) {
+                    $raw = $ml->effectivity_date ?? null;
+                    $typeId = (int) ($ml->doc_type_id ?? 0);
+                    $key = $idToKey[$typeId]
+                        ?? $requestParents[(int) ($ml->request_id ?? 0)]
+                        ?? 'internal_docs';
+                    $rows[] = [
+                        'masterlist_id' => (int) $ml->id,
+                        'doc_no' => (string) ($ml->doc_no ?? ''),
+                        'rev_no' => (int) ($ml->revise_no ?? 0),
+                        'doc_title' => (string) ($ml->doc_title ?? ''),
+                        'effectivity_date' => $raw
+                            ? RegisterQueryHelper::formatSmartDate($raw)
+                            : null,
+                        'effectivity_date_raw' => $raw
+                            ? \Carbon\Carbon::parse($raw)->format('Y-m-d')
+                            : null,
+                        'doc_type_key' => $key,
+                        'doc_type_label' => self::documentGroupLabel($key),
+                    ];
+                }
+
+                return $rows;
             }
 
-            return $rows;
-        }
+            if (! isset(self::documentGroupDefs()[$groupKey])) {
+                return [];
+            }
 
-        if (! isset(self::documentGroupDefs()[$groupKey])) {
-            return [];
-        }
-
-        return self::listDocumentsForCheckGroup((int) $officeId, $groupKey, $distributionOnly);
+            return self::listDocumentsForCheckGroup((int) $officeId, $groupKey, $distributionOnly);
+        });
     }
 
     /**
@@ -6478,17 +6767,26 @@ class OfficeIntakeHelper
             $groupKey
         );
 
+        $select = [
+            'ml.id',
+            'ml.doc_no',
+            'ml.revise_no',
+            'ml.doc_title',
+            'ml.effectivity_date',
+        ];
+        if (RegisterQueryHelper::supportsRevisionStatus()) {
+            $select[] = 'ml.revision_status';
+        }
+
         $records = $query
             ->orderByRaw("CASE WHEN COALESCE(TRIM(ml.doc_no), '') = '' THEN 1 ELSE 0 END")
             ->orderBy('ml.doc_no')
+            ->orderByDesc('ml.revise_no')
             ->orderBy('ml.id')
-            ->get([
-                'ml.id',
-                'ml.doc_no',
-                'ml.revise_no',
-                'ml.doc_title',
-                'ml.effectivity_date',
-            ]);
+            ->get($select);
+
+        // Same latest-copy rule as office Masterlist — one current doc per number/title.
+        $records = self::keepLatestDistributedDocuments($records);
 
         $rows = [];
         foreach ($records as $ml) {

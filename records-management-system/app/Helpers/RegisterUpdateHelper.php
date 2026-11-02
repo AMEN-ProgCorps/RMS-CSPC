@@ -886,6 +886,30 @@ class RegisterUpdateHelper
                 ['doc_no' => $ml->doc_no ?? $docNo ?? null, 'is_draft' => $saveAsDraft]
             );
 
+            if ($saveAsDraft) {
+                $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
+                if ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && (int) $pending['id'] > 0) {
+                    OfficeIntakeHelper::linkIntakeToRegistrationRequest(
+                        $pending['type'],
+                        (int) $pending['id'],
+                        (int) $id
+                    );
+                }
+            } elseif ($publishedFromDraft) {
+                $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
+                if ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && (int) $pending['id'] > 0) {
+                    OfficeIntakeHelper::closePendingIntakeForRegistration(
+                        $pending['type'],
+                        (int) $pending['id'],
+                        (int) $id,
+                        trim((string) ($ml->doc_no ?? $docNo ?? '')),
+                        trim((string) ($savedTitle ?? $ml->doc_title ?? '')) ?: null,
+                        null,
+                        false
+                    );
+                }
+            }
+
             $successMessage = $saveAsDraft
                 ? 'Draft saved. Continue anytime from Document Registration → Drafts.'
                 : ($publishedFromDraft
@@ -1147,6 +1171,18 @@ class RegisterUpdateHelper
                 'dcs.register.drafts',
                 'error',
                 'Only drafts can be permanently deleted here. Registered documents stay in Update and use the Recycle Bin.'
+            );
+        }
+
+        if (OfficeIntakeHelper::requestIsLinkedToOfficeIntake($id)) {
+            if (! $redirect) {
+                return null;
+            }
+
+            return self::flashRedirect(
+                'dcs.register.drafts',
+                'error',
+                'This draft came from an office request and cannot be deleted. Finalize or continue registration instead.'
             );
         }
 

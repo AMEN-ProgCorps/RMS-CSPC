@@ -675,10 +675,8 @@ body {
     align-items: center;
     justify-content: center;
     z-index: 20000;
-    animation: stFadeIn 0.2s ease;
+    animation: fadeInUp var(--dcs-ease-fast) both;
 }
-
-@keyframes stFadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 .st-modal {
     background: var(--st-surface);
@@ -688,13 +686,8 @@ body {
     display: flex;
     flex-direction: column;
     box-shadow: 0 24px 48px rgba(15,23,42,0.18), 0 0 0 1px rgba(15,23,42,0.05);
-    animation: stSlideUp 0.28s cubic-bezier(0.16,1,0.3,1);
+    animation: modalSlideUp var(--dcs-modal-in) both;
     overflow: hidden;
-}
-
-@keyframes stSlideUp {
-    from { opacity: 0; transform: translateY(16px) scale(0.97); }
-    to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* ── Header ── */
@@ -1155,8 +1148,8 @@ body {
 }
 
 .st-stamp-box-image {
-    width: 132px;
-    max-width: 28%;
+    width: 72px;
+    max-width: 14%;
 }
 
 .st-stamp-art {
@@ -1174,7 +1167,7 @@ body {
 }
 
 .st-stamp-title {
-    font-size: 13px;
+    font-size: 8px;
     font-weight: 800;
     letter-spacing: 0.04em;
     line-height: 1.1;
@@ -1294,12 +1287,19 @@ body {
     box-shadow: none;
 }
 
-.st-btn-restore {
+.st-preview-note-inline {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--st-text-subtle);
+}
+
+.st-btn-restore,
+.st-btn-remove {
     padding: 10px 18px;
-    border: 1.5px solid #b45309;
+    border: 1.5px solid #b91c1c;
     border-radius: var(--st-radius-sm);
     background: var(--st-surface);
-    color: #b45309;
+    color: #b91c1c;
     font-size: 0.82rem;
     font-weight: 600;
     cursor: pointer;
@@ -1310,12 +1310,14 @@ body {
     white-space: nowrap;
 }
 
-.st-btn-restore:hover {
-    background: #fff7ed;
+.st-btn-restore:hover,
+.st-btn-remove:hover {
+    background: #fef2f2;
     transform: translateY(-1px);
 }
 
-.st-btn-restore:disabled {
+.st-btn-restore:disabled,
+.st-btn-remove:disabled {
     opacity: 0.5;
     cursor: not-allowed;
     transform: none;
@@ -1364,7 +1366,7 @@ body {
     align-items: center;
     justify-content: center;
     z-index: 25000;
-    animation: stFadeIn 0.2s ease;
+    animation: fadeInUp var(--dcs-ease-fast) both;
 }
 
 .st-confirm {
@@ -1374,7 +1376,7 @@ body {
     width: min(440px, 90vw);
     text-align: center;
     box-shadow: 0 24px 48px rgba(15,23,42,0.2);
-    animation: stSlideUp 0.25s cubic-bezier(0.16,1,0.3,1);
+    animation: modalSlideUp var(--dcs-modal-in) both;
 }
 
 .st-confirm-icon {
@@ -1468,13 +1470,8 @@ body {
     font-size: 0.85rem;
     font-weight: 500;
     z-index: 30000;
-    animation: stToastIn 0.35s ease;
+    animation: toastSlideIn var(--dcs-toast-in) both;
     transition: opacity 0.3s;
-}
-
-@keyframes stToastIn {
-    from { opacity: 0; transform: translateY(16px); }
-    to   { opacity: 1; transform: translateY(0); }
 }
 
 .st-toast-success { border-left: 4px solid var(--st-success); }

@@ -23,7 +23,7 @@ body {
     background: var(--rpt-bg);
     overflow-y: auto;
     overflow-x: hidden;
-    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: left var(--dcs-ease);
     z-index: 1;
 }
 .rpt-page::-webkit-scrollbar { width: 6px; }
@@ -482,6 +482,8 @@ body {
 .rpt-export-item[data-format="pdf"] i { color: var(--rpt-red); }
 .rpt-export-menu a[data-format="xlsx"] i,
 .rpt-export-item[data-format="xlsx"] i { color: var(--rpt-green); }
+.rpt-export-menu a[data-format="csv"] i,
+.rpt-export-item[data-format="csv"] i { color: var(--rpt-green); }
 .rpt-export-menu a[data-format="print"] i,
 .rpt-export-item[data-format="print"] i { color: var(--rpt-accent); }
 .rpt-export-sep {

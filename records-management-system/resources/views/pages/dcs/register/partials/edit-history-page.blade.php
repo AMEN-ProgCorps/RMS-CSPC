@@ -57,11 +57,54 @@
                     @if(!empty($entry['changes']))
                         <ul class="hst-edit-history-changes">
                             @foreach($entry['changes'] as $change)
+                                @php
+                                    $isOfficeField = in_array(($change['field'] ?? ''), ['distribution_offices', 'source_offices'], true);
+                                    $isSummary = ! empty($change['summary'])
+                                        || $isOfficeField
+                                        || str_starts_with((string) ($change['new'] ?? ''), 'Office added')
+                                        || str_starts_with((string) ($change['new'] ?? ''), 'Office removed')
+                                        || str_contains((string) ($change['new'] ?? ''), 'offices added')
+                                        || str_contains((string) ($change['new'] ?? ''), 'offices removed');
+                                    // Legacy full-list diffs → compact added/removed summary.
+                                    if ($isOfficeField && empty($change['summary'])) {
+                                        $oldCsv = trim((string) ($change['old'] ?? ''));
+                                        $newCsv = trim((string) ($change['new'] ?? ''));
+                                        if ($oldCsv !== '' && $newCsv !== '' && ! str_starts_with($newCsv, 'Office ')) {
+                                            $oldNames = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/u', $oldCsv === '—' ? '' : $oldCsv) ?: [])));
+                                            $newNames = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/u', $newCsv === '—' ? '' : $newCsv) ?: [])));
+                                            $oldSet = array_fill_keys(array_map('mb_strtolower', $oldNames), true);
+                                            $newSet = array_fill_keys(array_map('mb_strtolower', $newNames), true);
+                                            $added = array_values(array_filter($newNames, fn ($n) => ! isset($oldSet[mb_strtolower($n)])));
+                                            $removed = array_values(array_filter($oldNames, fn ($n) => ! isset($newSet[mb_strtolower($n)])));
+                                            $summaries = [];
+                                            if ($added !== []) {
+                                                $summaries[] = count($added) === 1
+                                                    ? 'Office added: '.$added[0]
+                                                    : count($added).' offices added: '.implode(', ', $added);
+                                            }
+                                            if ($removed !== []) {
+                                                $summaries[] = count($removed) === 1
+                                                    ? 'Office removed: '.$removed[0]
+                                                    : count($removed).' offices removed: '.implode(', ', $removed);
+                                            }
+                                            if ($summaries !== []) {
+                                                foreach ($summaries as $summaryText) {
+                                                    echo '<li><span>'.e($change['label'] ?? 'Offices').'</span>: <span class="hst-edit-history-new">'.e($summaryText).'</span></li>';
+                                                }
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                @endphp
                                 <li>
                                     <span>{{ $change['label'] ?? '' }}</span>:
-                                    <span class="hst-edit-history-old">{{ $change['old'] ?? '—' }}</span>
-                                    <span aria-hidden="true">→</span>
-                                    <span class="hst-edit-history-new">{{ $change['new'] ?? '—' }}</span>
+                                    @if($isSummary)
+                                        <span class="hst-edit-history-new">{{ $change['new'] ?? '—' }}</span>
+                                    @else
+                                        <span class="hst-edit-history-old">{{ $change['old'] ?? '—' }}</span>
+                                        <span aria-hidden="true">→</span>
+                                        <span class="hst-edit-history-new">{{ $change['new'] ?? '—' }}</span>
+                                    @endif
                                 </li>
                             @endforeach
                         </ul>

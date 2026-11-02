@@ -15,7 +15,7 @@
     max-width: 420px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
     z-index: 9999;
-    animation: dcsToastIn 0.4s ease;
+    animation: toastSlideIn var(--dcs-toast-in, 0.35s ease) both;
     overflow: hidden;
 }
 
@@ -31,14 +31,9 @@
     border-left: 4px solid var(--dcs-red);
 }
 
-@keyframes dcsToastIn {
-    from { opacity: 0; transform: translateX(40px); }
-    to { opacity: 1; transform: translateX(0); }
-}
-
 @keyframes dcsToastOut {
-    from { opacity: 1; transform: translateX(0); }
-    to { opacity: 0; transform: translateX(40px); }
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(12px); }
 }
 
 .dcs-toast-icon,

@@ -764,7 +764,15 @@ document.addEventListener('alpine:init', () => {
                                                     @click="selectRevision(rev)"
                                                 >
                                                     <span class="dash-detail-rev-no" x-text="'Rev ' + rev.revise_no"></span>
-                                                    <span class="dash-detail-rev-status" x-show="rev.revision_status === 'obsolete'">Obsolete</span>
+                                                    <span
+                                                        class="dash-detail-rev-status"
+                                                        :class="{
+                                                            'is-latest': !rev.revision_status || rev.revision_status === 'latest',
+                                                            'is-superseded': rev.revision_status === 'superseded',
+                                                            'is-obsolete': rev.revision_status === 'obsolete'
+                                                        }"
+                                                        x-text="rev.revision_status === 'obsolete' ? 'Obsolete' : (rev.revision_status === 'superseded' ? 'Superseded' : 'Latest')"
+                                                    ></span>
                                                     <span class="dash-detail-rev-date" x-text="rev.effectivity_date_label || rev.effectivity_date || '—'"></span>
                                                 </button>
                                             </template>

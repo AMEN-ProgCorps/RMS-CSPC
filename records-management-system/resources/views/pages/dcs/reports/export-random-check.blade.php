@@ -37,10 +37,12 @@ DCS file: Print layout for a Random Check report.
     </style>
 </head>
 <body>
+    @if(empty($forPdf))
     <div class="toolbar">
         <button type="button" onclick="window.print()">Print letter</button>
         <a class="ghost" href="{{ url()->previous() }}">Back</a>
     </div>
+    @endif
     <div class="sheet">
         <div class="hdr">
             @if(!empty($logoSrc))
@@ -67,10 +69,13 @@ DCS file: Print layout for a Random Check report.
             </tr>
         </table>
 
-        @if(!empty($check['excerpt']))
+        @if(($check['filter'] ?? '') === 'actions')
             <div class="note">
                 This letter contains an <strong>excerpt</strong> of the random checking result — only documents with recommended actions.
-                Your office may view the entire result in DCS (Office → Random Check). Printing the full list is optional so copies with no findings are not reproduced.
+            </div>
+        @elseif(($check['filter'] ?? '') === 'not_complied')
+            <div class="note">
+                This letter contains an <strong>excerpt</strong> of the random checking result — only documents marked not complied.
             </div>
         @else
             <div class="note">

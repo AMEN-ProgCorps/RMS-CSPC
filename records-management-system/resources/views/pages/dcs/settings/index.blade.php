@@ -135,13 +135,16 @@ new #[Layout('layouts.dcs')] class extends Component {
             $this->sigEffectiveFrom = now()->toDateString();
         }
 
+        // Editor shows only this exact scope — not parent/kind inheritance
+        // (inheritance still applies in office intake when this scope is empty).
         $docTypeId = $this->resolvedSigDocTypeId();
         $payload = OfficeIntakeHelper::signatoryTemplate(
             $this->sigFormKind,
             $this->sigDocTypeKind,
             $docTypeId,
             null,
-            $docTypeId ? false : true
+            false,
+            false
         ) ?? [];
 
         $meta = is_array($payload['_meta'] ?? null) ? $payload['_meta'] : [];
@@ -216,6 +219,18 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->flashToast('Fields cleared for a new assignment. Save when ready — the current active set ends automatically.', 'info');
     }
 
+    public function confirmReplaceSignatoryAssignment(): void
+    {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
+        $this->resetValidation();
+        $this->editingId = null;
+        $this->parentId = null;
+        $this->deleteTitle = 'Replace active assignment';
+        $this->deleteMessage = 'Save this as the new active set? The current open assignment for this type will end.';
+        $this->modalKind = 'signatory:replace';
+        $this->dispatch('settings-open-modal');
+    }
+
     public function saveSignatoryTemplate(): void
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
@@ -248,6 +263,13 @@ new #[Layout('layouts.dcs')] class extends Component {
         }
 
         try {
+            $docTypeId = $this->resolvedSigDocTypeId();
+            if (! $docTypeId) {
+                $this->fail('Select a Document type from the catalog.');
+
+                return;
+            }
+            $this->syncSigDocTypeKindFromCatalog();
             $from = trim($this->sigEffectiveFrom) !== '' ? trim($this->sigEffectiveFrom) : now()->toDateString();
             $until = trim($this->sigEffectiveUntil) !== '' ? trim($this->sigEffectiveUntil) : null;
             OfficeIntakeHelper::saveSignatoryTemplate(
@@ -255,12 +277,15 @@ new #[Layout('layouts.dcs')] class extends Component {
                 $this->sigDocTypeKind,
                 $payload,
                 auth()->id(),
-                $this->resolvedSigDocTypeId(),
+                $docTypeId,
                 $from,
                 $until
             );
             $this->flashToast('Signatory assignment saved for this scope and date window.', 'success');
             $this->loadSignatoryTemplateFields();
+            if ($this->modalKind === 'signatory:replace') {
+                $this->closeModal();
+            }
         } catch (\Throwable $e) {
             $this->fail($e->getMessage() ?: 'Could not save signatory assignment.');
         }
@@ -1814,7 +1839,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                 $this->sigFormKind,
                 $this->sigHistoryTab !== '' ? $this->sigHistoryTab : 'all'
             ),
-            // Catalog dropdown: normal types + Forms/Logbooks only after Admin Console enables them.
+            // Catalog parents only (Forms/Logbooks stay out of this dropdown until Admin enables them).
             'sigParentOptions' => $docTypeParents->filter(function ($type) {
                 $name = (string) ($type->doc_type_name ?? '');
                 if (! OfficeIntakeHelper::isDefaultExcludedDrfParent($name)) {
@@ -1823,17 +1848,15 @@ new #[Layout('layouts.dcs')] class extends Component {
 
                 return OfficeIntakeHelper::isOfficeDrfParentEnabled($name);
             })->values(),
-            // Forms / Logbooks not yet enabled — listed so admin can assign / unlock for office DRF.
-            'sigFutureParentOptions' => $docTypeParents->filter(function ($type) {
-                $name = (string) ($type->doc_type_name ?? '');
-
-                return OfficeIntakeHelper::isDefaultExcludedDrfParent($name)
-                    && ! OfficeIntakeHelper::isOfficeDrfParentEnabled($name);
-            })->values(),
             'sigSubOptions' => ($this->sigParentTypeId !== '' && isset($docTypeSubs[(string) $this->sigParentTypeId]))
                 ? $docTypeSubs[(string) $this->sigParentTypeId]
                 : collect(),
             'sigHasActiveAssignment' => OfficeIntakeHelper::hasActiveSignatoryAssignment(
+                $this->sigFormKind,
+                $this->sigDocTypeKind,
+                $this->resolvedSigDocTypeId()
+            ),
+            'sigInheritanceHint' => OfficeIntakeHelper::signatoryInheritanceHint(
                 $this->sigFormKind,
                 $this->sigDocTypeKind,
                 $this->resolvedSigDocTypeId()
@@ -2017,7 +2040,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <span class="sig-section-num">1</span>
                             <div>
                                 <h3 class="sig-section-title">Scope</h3>
-                                <p class="sig-section-hint"><strong>Document type</strong> is the catalog entry (Internal, External…). Forms &amp; Logbooks appear after enable under “Enable later” / Admin Console → System Settings.</p>
+                                <p class="sig-section-hint"><strong>Document type</strong> is the catalog entry (Internal, External…). Assign per type or sub-type — whole type covers sub-types that have no assignment of their own.</p>
                             </div>
                         </div>
                         <div class="sig-scope-grid">
@@ -2031,43 +2054,24 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <div class="st-field sig-field">
                                 <label class="st-label">Document type <span class="st-optional">catalog</span></label>
                                 <select class="st-input" wire:model.live="sigParentTypeId">
-                                    <option value="">Kind fallback only</option>
+                                    <option value="" disabled {{ $sigParentTypeId === '' ? 'selected' : '' }}>Select document type…</option>
                                     @foreach($sigParentOptions as $type)
                                         <option value="{{ $type->id }}">{{ $type->doc_type_name }}</option>
                                     @endforeach
-                                    @if(($sigFutureParentOptions ?? collect())->isNotEmpty())
-                                        <optgroup label="Enable later for office DRF">
-                                            @foreach($sigFutureParentOptions as $type)
-                                                <option value="{{ $type->id }}">{{ $type->doc_type_name }}</option>
-                                            @endforeach
-                                        </optgroup>
-                                    @endif
                                 </select>
                             </div>
                             <div class="st-field sig-field">
                                 <label class="st-label">Sub-type @if(($sigSubOptions ?? collect())->count())<span class="st-optional">optional</span>@else<span class="st-optional">none</span>@endif</label>
                                 <select class="st-input" wire:model.live="sigSubTypeId" @disabled($sigParentTypeId === '' || ($sigSubOptions ?? collect())->count() < 1)>
-                                    <option value="">{{ ($sigSubOptions ?? collect())->count() ? 'Whole type (fallback)' : 'Whole type (no sub-types)' }}</option>
+                                    <option value="">{{ ($sigSubOptions ?? collect())->count() ? 'Whole type' : 'Whole type (no sub-types)' }}</option>
                                     @foreach($sigSubOptions as $sub)
                                         <option value="{{ $sub->id }}">{{ $sub->doc_type_name }}</option>
                                     @endforeach
                                 </select>
                                 @if($sigParentTypeId !== '' && ($sigSubOptions ?? collect())->count() < 1)
-                                    <span class="sig-field-note">No sub-types — save against this whole type. For Forms/Logbooks, enable them under Admin Console / “Enable later” for office DRF.</span>
+                                    <span class="sig-field-note">No sub-types — save against this whole type.</span>
                                 @elseif(($sigSubOptions ?? collect())->count() && $sigSubTypeId === '')
-                                    <span class="sig-field-note">Office intake can pick a sub-type — assign here when you can, or leave Whole type as fallback.</span>
-                                @endif
-                            </div>
-                            <div class="st-field sig-field">
-                                <label class="st-label">Kind fallback</label>
-                                <select class="st-input" wire:model.live="sigDocTypeKind" @disabled($sigParentTypeId !== '')>
-                                    <option value="internal">Internal</option>
-                                    <option value="external">External</option>
-                                </select>
-                                @if($sigParentTypeId !== '')
-                                    <span class="sig-field-note">Follows the document type name</span>
-                                @else
-                                    <span class="sig-field-note">Used only when Document type is empty</span>
+                                    <span class="sig-field-note">Office intake can pick a sub-type — assign here when you can, or leave Whole type for the rest.</span>
                                 @endif
                             </div>
                             <div class="st-field sig-field">
@@ -2152,22 +2156,31 @@ new #[Layout('layouts.dcs')] class extends Component {
                     </div>
 
                     <div class="sig-actions">
-                        @if($sigHasActiveAssignment ?? false)
+                        @if($sigParentTypeId === '')
+                            <p class="sig-actions-hint">Select a Document type from the catalog to assign signatories.</p>
+                        @elseif($sigHasActiveAssignment ?? false)
                             <div class="sig-replace-banner" role="status">
-                                <strong>Active assignment exists</strong>
-                                <span>You don’t need to end it first. Click <em>Start new assignment</em> to clear the names, edit them, then save — the current active set ends automatically and the new one takes over.</span>
+                                <strong>Active assignment exists for this exact scope</strong>
+                                <span>Office intake still uses that active set (even if the fields below look empty after <em>Start new assignment</em>). Save a replacement to end it, or check Recent for this document type.</span>
                             </div>
                             <div class="sig-actions-row">
                                 <button type="button" class="btn-secondary" wire:click="beginNewSignatoryAssignment">
                                     <i class="fa-solid fa-plus"></i> Start new assignment
                                 </button>
-                                <button type="button" class="btn-primary" wire:click="saveSignatoryTemplate" wire:loading.attr="disabled" wire:confirm="Save this as the new active set? The current open assignment for this type will end.">
-                                    <span wire:loading.remove wire:target="saveSignatoryTemplate"><i class="fa-solid fa-floppy-disk"></i> Replace active &amp; save</span>
-                                    <span wire:loading wire:target="saveSignatoryTemplate">Saving…</span>
+                                <button type="button" class="btn-primary" wire:click="confirmReplaceSignatoryAssignment" wire:loading.attr="disabled" wire:target="confirmReplaceSignatoryAssignment, saveSignatoryTemplate">
+                                    <span wire:loading.remove wire:target="confirmReplaceSignatoryAssignment, saveSignatoryTemplate"><i class="fa-solid fa-floppy-disk"></i> Replace active &amp; save</span>
+                                    <span wire:loading wire:target="confirmReplaceSignatoryAssignment, saveSignatoryTemplate">Saving…</span>
                                 </button>
                             </div>
                         @else
-                            <p class="sig-actions-hint">No active assignment for this scope yet. Fill the names and save.</p>
+                            @if(! empty($sigInheritanceHint))
+                                <div class="sig-replace-banner sig-inherit-banner" role="status">
+                                    <strong>Inherited in office intake</strong>
+                                    <span>{{ $sigInheritanceHint }}</span>
+                                </div>
+                            @else
+                                <p class="sig-actions-hint">No active assignment for this scope yet. Fill the names and save.</p>
+                            @endif
                             <button type="button" class="btn-primary" wire:click="saveSignatoryTemplate" wire:loading.attr="disabled">
                                 <span wire:loading.remove wire:target="saveSignatoryTemplate"><i class="fa-solid fa-floppy-disk"></i> Save assignment</span>
                                 <span wire:loading wire:target="saveSignatoryTemplate">Saving…</span>
@@ -2198,22 +2211,38 @@ new #[Layout('layouts.dcs')] class extends Component {
                             </button>
                         @endforeach
                     </div>
-                    <p class="sig-history-sub">{{ strtoupper($sigFormKind) }} · {{ $activeHistTab['label'] ?? 'All' }} · ended rows stay compact (click to view)</p>
+                    <p class="sig-history-sub">Showing {{ strtoupper($sigFormKind) }} · {{ $activeHistTab['label'] ?? 'All' }}. Active sets are expanded; ended sets stay compact — click to expand.</p>
                     <div class="sig-history-list">
                         @forelse($signatoryAssignmentGroups as $parentGroup)
                             <div class="sig-history-parent" wire:key="sig-p-{{ $parentGroup['key'] }}">
-                                <div class="sig-history-group-parent">{{ $parentGroup['label'] }}</div>
+                                <div class="sig-history-group-parent">
+                                    {{ $parentGroup['label'] }}
+                                </div>
                                 @foreach($parentGroup['children'] as $child)
+                                    @php
+                                        $scopeLabel = $child['label'];
+                                        if (($child['key'] ?? '') === 'whole') {
+                                            $scopeLabel = 'Whole type (all sub-types without their own set)';
+                                        }
+                                        $sortedItems = collect($child['items'])->sortBy(function ($row) use ($today) {
+                                            $status = OfficeIntakeHelper::signatoryAssignmentStatus($row, $today);
+                                            return match ($status) {
+                                                'active' => 0,
+                                                'scheduled' => 1,
+                                                default => 2,
+                                            };
+                                        })->values();
+                                    @endphp
                                     <div class="sig-history-group" wire:key="sig-g-{{ $parentGroup['key'] }}-{{ $child['key'] }}">
-                                        <div class="sig-history-group-label">{{ $child['label'] }}</div>
-                                        @foreach($child['items'] as $row)
+                                        <div class="sig-history-group-label">{{ $scopeLabel }}</div>
+                                        @foreach($sortedItems as $row)
                                             @php
                                                 $fromRaw = data_get($row, 'effective_from');
                                                 $untilRaw = data_get($row, 'effective_until');
-                                                $from = $fromRaw ? \Carbon\Carbon::parse($fromRaw)->toDateString() : null;
-                                                $until = $untilRaw ? \Carbon\Carbon::parse($untilRaw)->toDateString() : null;
-                                                $active = ($from === null || $from <= $today) && ($until === null || $until >= $today);
-                                                $scheduled = $from && $from > $today;
+                                                $dateRange = OfficeIntakeHelper::formatSignatoryDateRange($fromRaw, $untilRaw);
+                                                $status = OfficeIntakeHelper::signatoryAssignmentStatus($row, $today);
+                                                $active = $status === 'active';
+                                                $scheduled = $status === 'scheduled';
                                                 $kindLabel = ucfirst((string) ($row->doc_type_kind ?? '—'));
                                                 $payloadRaw = data_get($row, 'payload');
                                                 $payload = is_array($payloadRaw)
@@ -2245,19 +2274,28 @@ new #[Layout('layouts.dcs')] class extends Component {
                                                     ];
                                                     $detailRows = array_values(array_filter($detailRows, fn ($r) => $r['name'] !== '' || $r['designation'] !== ''));
                                                 }
-                                                $peoplePreview = collect($detailRows)->pluck('name')->filter()->take(3)->implode(' · ');
+                                                $peoplePreview = collect($detailRows)->map(function ($d) {
+                                                    $name = trim((string) ($d['name'] ?? ''));
+                                                    $desig = trim((string) ($d['designation'] ?? ''));
+                                                    if ($name === '') {
+                                                        return null;
+                                                    }
+
+                                                    return $desig !== '' ? $name.' ('.$desig.')' : $name;
+                                                })->filter()->take(3)->implode(' · ');
                                                 if ($peoplePreview === '') {
                                                     $peoplePreview = 'No names saved';
                                                 } elseif (count($detailRows) > 3) {
                                                     $peoplePreview .= '…';
                                                 }
+                                                $formLabel = strtoupper((string) ($row->form_kind ?? $sigFormKind));
                                             @endphp
                                             @if($active || $scheduled)
                                                 <article class="sig-history-item {{ $active ? 'is-active' : 'is-scheduled' }}" wire:key="sig-hist-{{ $row->id }}">
                                                     <div class="sig-history-top">
                                                         <div class="sig-history-title-wrap">
-                                                            <span class="sig-history-k">Window</span>
-                                                            <strong class="sig-history-type">{{ $from ?: '—' }} → {{ $until ?: 'open' }}</strong>
+                                                            <span class="sig-history-k">Effective</span>
+                                                            <strong class="sig-history-type">{{ $dateRange }}</strong>
                                                         </div>
                                                         @if($active)
                                                             <span class="sig-pill is-active">Active</span>
@@ -2266,9 +2304,9 @@ new #[Layout('layouts.dcs')] class extends Component {
                                                         @endif
                                                     </div>
                                                     <div class="sig-history-meta">
-                                                        <span>{{ strtoupper((string) ($row->form_kind ?? $sigFormKind)) }}</span>
+                                                        <span>{{ $formLabel }}</span>
                                                         <span aria-hidden="true">·</span>
-                                                        <span>{{ $kindLabel }} kind</span>
+                                                        <span>{{ $kindLabel }} documents</span>
                                                     </div>
                                                     <ul class="sig-history-detail">
                                                         @forelse($detailRows as $d)
@@ -2289,15 +2327,15 @@ new #[Layout('layouts.dcs')] class extends Component {
                                                     <summary class="sig-history-summary">
                                                         <span class="sig-history-summary-main">
                                                             <span class="sig-pill is-ended">Ended</span>
-                                                            <span class="sig-history-summary-dates">{{ $from ?: '—' }} → {{ $until ?: '—' }}</span>
+                                                            <span class="sig-history-summary-dates">{{ $dateRange }}</span>
                                                         </span>
                                                         <span class="sig-history-summary-people">{{ $peoplePreview }}</span>
                                                     </summary>
                                                     <div class="sig-history-compact-body">
                                                         <div class="sig-history-meta">
-                                                            <span>{{ strtoupper((string) ($row->form_kind ?? $sigFormKind)) }}</span>
+                                                            <span>{{ $formLabel }}</span>
                                                             <span aria-hidden="true">·</span>
-                                                            <span>{{ $kindLabel }} kind</span>
+                                                            <span>{{ $kindLabel }} documents</span>
                                                         </div>
                                                         <ul class="sig-history-detail">
                                                             @forelse($detailRows as $d)
@@ -2669,6 +2707,22 @@ new #[Layout('layouts.dcs')] class extends Component {
                     <button type="button" class="st-btn st-btn-ghost" @click="dismiss()">Cancel</button>
                     <button type="button" class="st-btn st-btn-danger" wire:click="destroy" wire:loading.attr="disabled">
                         <i class="fa-solid fa-trash"></i> Delete
+                    </button>
+                </div>
+            </div>
+        @elseif($modalKind === 'signatory:replace')
+            <div class="st-modal confirm-modal">
+                <div class="st-modal-top">
+                    <div class="st-modal-icon"><i class="fa-solid fa-floppy-disk"></i></div>
+                    <button type="button" class="st-modal-close" @click="dismiss()"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="confirm-title">{{ $deleteTitle }}</div>
+                <div class="confirm-message">{{ $deleteMessage }}</div>
+                <div class="st-actions-row">
+                    <button type="button" class="st-btn st-btn-ghost" @click="dismiss()">Cancel</button>
+                    <button type="button" class="st-btn st-btn-primary" wire:click="saveSignatoryTemplate" wire:loading.attr="disabled" wire:target="saveSignatoryTemplate">
+                        <span wire:loading.remove wire:target="saveSignatoryTemplate"><i class="fa-solid fa-check"></i> OK</span>
+                        <span wire:loading wire:target="saveSignatoryTemplate">Saving…</span>
                     </button>
                 </div>
             </div>

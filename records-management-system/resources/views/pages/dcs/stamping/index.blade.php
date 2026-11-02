@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
@@ -17,6 +18,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $typeId = 'all';
     public int $page = 1;
     public int $perPage = 15;
+
+    #[On('stamp-applied')]
+    public function refreshAfterStamp(): void
+    {
+        // Soft refresh list badges without a full browser reload.
+    }
 
     public function updated($name): void
     {
@@ -538,13 +545,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 {{-- LEFT: PDF Preview --}}
                 <div class="st-preview-panel">
                     <div class="st-preview-toolbar">
-                        <button class="st-preview-nav" id="prevPage" type="button" title="Previous page" disabled>
-                            <i class="fa-solid fa-chevron-left"></i>
-                        </button>
-                        <span class="st-preview-page" id="pageIndicator">Page 1 / 1</span>
-                        <button class="st-preview-nav" id="nextPage" type="button" title="Next page" disabled>
-                            <i class="fa-solid fa-chevron-right"></i>
-                        </button>
+                        <span class="st-preview-note-inline">Stamp preview</span>
                         <div class="st-preview-spacer"></div>
                         <button class="st-preview-refresh" id="refreshPreview" type="button" title="Refresh preview">
                             <i class="fa-solid fa-rotate-right"></i> Refresh
@@ -632,13 +633,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="st-modal-footer">
                 <button class="st-btn-cancel" id="cancelBtn" type="button">Cancel</button>
                 <div class="st-footer-actions">
-                    <button class="st-btn-restore" id="restoreBtn" type="button" disabled>
-                        <i class="fa-solid fa-rotate-left"></i>
-                        <span>Restore Original</span>
-                    </button>
                     <button class="st-btn-download" id="downloadBtn" type="button" disabled>
                         <i class="fa-solid fa-download"></i>
                         <span>Download Copy</span>
+                    </button>
+                    <button class="st-btn-restore st-btn-remove" id="restoreBtn" type="button" disabled style="display:none;">
+                        <i class="fa-solid fa-trash-can"></i>
+                        <span>Remove Stamp</span>
                     </button>
                     <button class="st-btn-apply" id="applyBtn" type="button" disabled>
                         <i class="fa-solid fa-stamp"></i>
@@ -673,12 +674,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="st-confirm-icon">
                 <i class="fa-solid fa-rotate-left"></i>
             </div>
-            <h3>Restore Original File?</h3>
+            <h3>Remove Stamp?</h3>
             <p>This removes the stamp from the live file and restores the unstamped original from backup.</p>
             <div class="st-confirm-actions">
                 <button class="st-btn-secondary" id="restoreCancel" type="button">Cancel</button>
                 <button class="st-btn-primary" id="restoreConfirm" type="button">
-                    <i class="fa-solid fa-check"></i> Restore
+                    <i class="fa-solid fa-trash-can"></i> Remove Stamp
                 </button>
             </div>
         </div>

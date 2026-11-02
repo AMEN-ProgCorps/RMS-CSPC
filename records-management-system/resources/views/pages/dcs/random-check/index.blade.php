@@ -40,6 +40,9 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
 
     public string $rowFilter = 'all';
 
+    /** Offices list filter on year screen: all | finalized | draft */
+    public string $officeStatusFilter = 'all';
+
     public bool $showSchedule = false;
 
     public int $scheduleYear = 0;
@@ -318,23 +321,56 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
         }
     }
 
-    public function shareOffice(string $filter = 'actions'): void
+    public function shareOffice(?string $filter = null)
     {
         RandomCheckHelper::assertCanAccess();
         if (! $this->checkId) {
-            return;
+            return null;
         }
-        $result = RandomCheckHelper::shareWithOffice((int) $this->checkId, $filter !== 'all');
-        $this->noticeType = ($result['ok'] ?? false) ? 'ok' : 'err';
-        $this->notice = (string) ($result['message'] ?? '');
+        $filter = in_array($filter, ['all', 'actions', 'not_complied'], true)
+            ? $filter
+            : (in_array($this->rowFilter, ['all', 'actions', 'not_complied'], true) ? $this->rowFilter : 'all');
+
+        // Validate only — binary PDF is downloaded via GET route (avoids Livewire UTF-8 crash).
+        $check = RandomCheckHelper::loadCheck((int) $this->checkId);
+        if (! $check) {
+            $this->noticeType = 'err';
+            $this->notice = 'Random check not found.';
+
+            return null;
+        }
+        if (! empty($check['is_draft'])) {
+            $this->noticeType = 'err';
+            $this->notice = 'Finalize the visit before exporting the result.';
+
+            return null;
+        }
+
+        $this->noticeType = 'ok';
+        $this->notice = 'PDF downloaded. Attach it to your email for the office — the Random Check page is not shared.';
+
+        $this->dispatch('rc-download-pdf', url: route('dcs.random-check.export-pdf', [
+            'id' => (int) $this->checkId,
+            'filter' => $filter,
+        ]));
+
+        return null;
     }
 
     public function with(): array
     {
         $years = RandomCheckHelper::yearSummaries();
         $clusterOffices = $this->screen === 'year'
-            ? RandomCheckHelper::officesByCluster($this->selectedYear, $this->selectedCycle, true)
+            ? $this->filterClusterOffices(
+                RandomCheckHelper::officesByCluster($this->selectedYear, $this->selectedCycle, true),
+                $this->officeStatusFilter
+            )
             : [];
+        $officeStatusCounts = $this->screen === 'year'
+            ? $this->countOfficeStatuses(
+                RandomCheckHelper::officesByCluster($this->selectedYear, $this->selectedCycle, true)
+            )
+            : ['all' => 0, 'finalized' => 0, 'draft' => 0];
 
         $scheduleClusters = ($this->showSchedule && $this->showOfficePicker)
             ? $this->filterScheduleClusters(RandomCheckHelper::officesByCluster($this->scheduleYear, $this->scheduleCycle, false))
@@ -357,6 +393,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
         return [
             'yearSummaries' => $years,
             'clusterOffices' => $clusterOffices,
+            'officeStatusCounts' => $officeStatusCounts,
             'scheduleClusters' => $scheduleClusters,
             'visibleRows' => $visibleRows,
             'actionCount' => $actionCount,
@@ -487,6 +524,54 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
         }
 
         return array_values($rows);
+    }
+
+    /**
+     * @param  list<array{cluster_name?:string,offices?:list<array<string,mixed>>}>  $clusters
+     * @return list<array{cluster_name?:string,offices:list<array<string,mixed>>}>
+     */
+    private function filterClusterOffices(array $clusters, string $statusFilter): array
+    {
+        if (! in_array($statusFilter, ['finalized', 'draft'], true)) {
+            return $clusters;
+        }
+
+        $out = [];
+        foreach ($clusters as $cluster) {
+            $offices = array_values(array_filter(
+                $cluster['offices'] ?? [],
+                fn ($office) => ($office['status'] ?? '') === $statusFilter
+            ));
+            if ($offices === []) {
+                continue;
+            }
+            $cluster['offices'] = $offices;
+            $out[] = $cluster;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<array{offices?:list<array<string,mixed>>}>  $clusters
+     * @return array{all:int,finalized:int,draft:int}
+     */
+    private function countOfficeStatuses(array $clusters): array
+    {
+        $counts = ['all' => 0, 'finalized' => 0, 'draft' => 0];
+        foreach ($clusters as $cluster) {
+            foreach ($cluster['offices'] ?? [] as $office) {
+                $counts['all']++;
+                $status = (string) ($office['status'] ?? '');
+                if ($status === 'finalized') {
+                    $counts['finalized']++;
+                } elseif ($status === 'draft') {
+                    $counts['draft']++;
+                }
+            }
+        }
+
+        return $counts;
     }
 
     /**
@@ -699,13 +784,40 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
         <section class="rc-panel">
             <div class="rc-panel-head">
                 <h2><i class="fa-solid fa-building"></i> Offices that were random checked</h2>
-                <span class="rc-panel-count">By cluster · {{ $cycleLabel }}</span>
+                <div class="rc-panel-head-right">
+                    <div class="rc-status-pills" role="tablist" aria-label="Office status">
+                        <button type="button" class="{{ $officeStatusFilter === 'all' ? 'active' : '' }}" wire:click="$set('officeStatusFilter', 'all')">
+                            All <span>{{ (int) ($officeStatusCounts['all'] ?? 0) }}</span>
+                        </button>
+                        <button type="button" class="{{ $officeStatusFilter === 'finalized' ? 'active' : '' }}" wire:click="$set('officeStatusFilter', 'finalized')">
+                            Finalized <span>{{ (int) ($officeStatusCounts['finalized'] ?? 0) }}</span>
+                        </button>
+                        <button type="button" class="{{ $officeStatusFilter === 'draft' ? 'active' : '' }}" wire:click="$set('officeStatusFilter', 'draft')">
+                            Draft <span>{{ (int) ($officeStatusCounts['draft'] ?? 0) }}</span>
+                        </button>
+                    </div>
+                    <span class="rc-panel-count">By cluster · {{ $cycleLabel }}</span>
+                </div>
             </div>
             @if(count($clusterOffices) < 1)
                 <div class="rc-empty">
                     <i class="fa-solid fa-building"></i>
-                    <h3>No offices in this cycle yet</h3>
-                    <p>Schedule a visit. Offices appear here after they are scheduled or checked.</p>
+                    <h3>
+                        @if($officeStatusFilter === 'finalized')
+                            No finalized offices yet
+                        @elseif($officeStatusFilter === 'draft')
+                            No draft visits
+                        @else
+                            No offices in this cycle yet
+                        @endif
+                    </h3>
+                    <p>
+                        @if($officeStatusFilter === 'all')
+                            Schedule a visit. Offices appear here after they are scheduled or checked.
+                        @else
+                            Switch to All to see every office in this cycle.
+                        @endif
+                    </p>
                 </div>
             @else
                 <div class="rc-cluster-list">
@@ -753,8 +865,8 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
                 <input type="text" wire:model.blur="conductedBy" placeholder="Who conducted" @disabled($locked)>
             </label>
             <label>
-                Tested by
-                <input type="text" wire:model.blur="testedBy" placeholder="Office counterpart" @disabled($locked)>
+                Tested by <span class="rc-required" title="Required">*</span>
+                <input type="text" wire:model.blur="testedBy" placeholder="Office counterpart" required @disabled($locked)>
             </label>
             <div class="rc-meta-actions">
                 <button type="button" class="rc-btn-ghost" wire:click="toggleCompare">
@@ -762,18 +874,11 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
                     {{ $showCompare ? 'Hide previous result' : 'View previous year' }}
                 </button>
                 @if($checkId && $locked)
-                    <a class="rc-btn-ghost" href="{{ $reportUrlActions }}" target="_blank" rel="noopener">
-                        <i class="fa-solid fa-envelope-open-text"></i>
-                        Letter excerpt
-                    </a>
-                    <a class="rc-btn-ghost" href="{{ $reportUrlAll }}" target="_blank" rel="noopener">
-                        <i class="fa-solid fa-print"></i>
-                        Entire report
-                    </a>
-                    <button type="button" class="rc-btn-secondary" wire:click="shareOffice('actions')">
-                        <i class="fa-solid fa-share"></i>
-                        Share with office
+                    <button type="button" class="rc-btn-secondary" wire:click="shareOffice">
+                        <i class="fa-solid fa-file-pdf"></i>
+                        Export PDF
                     </button>
+                    <span class="rc-meta-hint">Downloads a formal PDF for email — uses the filter above. Does not open the Random Check page for the office.</span>
                 @endif
             </div>
         </section>
@@ -1067,3 +1172,19 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
 </div>
 @endif
 </div>
+
+@script
+<script>
+    $wire.on('rc-download-pdf', (payload) => {
+        const url = payload?.url || payload?.[0]?.url;
+        if (!url) return;
+        const a = document.createElement('a');
+        a.href = url;
+        a.rel = 'noopener';
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    });
+</script>
+@endscript

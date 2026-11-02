@@ -686,11 +686,32 @@ DCS file: On-screen Generate Report and Monitoring table. Masterlist originators
                         </template>
                     </div>
                 @endif
-                @if(empty($error) && ($preview['last'] ?? 1) > 1)
-                    <div class="rpt-preview-pager" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-top:1px solid #e2e8f0;">
-                        <button type="button" class="rpt-btn rpt-btn-outline" wire:click="goPreviewPage({{ max(1, $preview['page'] - 1) }})" @disabled($preview['page'] <= 1)>Previous</button>
-                        <span style="font-size:13px;color:#475569;">Showing {{ $preview['from'] }}–{{ $preview['from'] + count($preview['rows']) - 1 }} of {{ $preview['total'] }}. Download and print still include every row.</span>
-                        <button type="button" class="rpt-btn rpt-btn-outline" wire:click="goPreviewPage({{ $preview['page'] + 1 }})" @disabled($preview['page'] >= $preview['last'])>Next</button>
+                @if(empty($error) && ($preview['total'] ?? 0) > 0)
+                    @php
+                        $pg = (int) ($preview['page'] ?? 1);
+                        $pgLast = max(1, (int) ($preview['last'] ?? 1));
+                        $pgFrom = (int) ($preview['from'] ?? 0);
+                        $pgTo = $pgFrom + max(0, count($preview['rows'] ?? []) - 1);
+                        $pgTotal = (int) ($preview['total'] ?? 0);
+                        $pgWindow = [];
+                        $start = max(1, $pg - 2);
+                        $end = min($pgLast, $start + 4);
+                        $start = max(1, $end - 4);
+                        for ($p = $start; $p <= $end; $p++) {
+                            $pgWindow[] = $p;
+                        }
+                    @endphp
+                    <div class="rpt-preview-pager" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid #e2e8f0;">
+                        <span style="font-size:13px;color:#475569;margin-right:auto;">Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}. Download and print still include every row.</span>
+                        @if($pgLast > 1)
+                            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                <button type="button" class="rpt-btn rpt-btn-outline" wire:click="goPreviewPage({{ max(1, $pg - 1) }})" @disabled($pg <= 1)>Previous</button>
+                                @foreach($pgWindow as $p)
+                                    <button type="button" class="rpt-btn {{ $p === $pg ? '' : 'rpt-btn-outline' }}" wire:click="goPreviewPage({{ $p }})" @disabled($p === $pg)>{{ $p }}</button>
+                                @endforeach
+                                <button type="button" class="rpt-btn rpt-btn-outline" wire:click="goPreviewPage({{ min($pgLast, $pg + 1) }})" @disabled($pg >= $pgLast)>Next</button>
+                            </div>
+                        @endif
                     </div>
                 @endif
             </div>

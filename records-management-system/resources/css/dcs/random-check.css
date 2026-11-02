@@ -744,6 +744,59 @@ a.rc-year-card { text-decoration: none; display: block; }
 
 .rc-office-card.is-finalized { border-color: #86efac; }
 .rc-office-card.is-draft { border-color: #fcd34d; }
+
+.rc-panel-head-right {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
+.rc-status-pills {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.rc-status-pills button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1.5px solid #cbd5e1;
+    background: #fff;
+    color: #475569;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color var(--dcs-ease-fast), background var(--dcs-ease-fast), color var(--dcs-ease-fast);
+}
+
+.rc-status-pills button span {
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.68rem;
+}
+
+.rc-status-pills button.active {
+    border-color: #0d2a7a;
+    background: #0d2a7a;
+    color: #fff;
+}
+
+.rc-status-pills button.active span {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
 .rc-office-card.is-scheduled { border-color: #93c5fd; }
 
 .rc-cycle-row {
@@ -795,6 +848,11 @@ a.rc-year-card { text-decoration: none; display: block; }
     color: #64748b;
 }
 
+.rc-required {
+    color: #b91c1c;
+    font-weight: 800;
+}
+
 .rc-meta-bar input {
     height: 36px;
     min-width: 180px;
@@ -810,6 +868,14 @@ a.rc-year-card { text-decoration: none; display: block; }
     flex-wrap: wrap;
     gap: 8px;
     margin-left: auto;
+    align-items: center;
+}
+
+.rc-meta-hint {
+    font-size: 0.72rem;
+    color: #64748b;
+    max-width: 28ch;
+    line-height: 1.35;
 }
 
 .rc-filter-pills {

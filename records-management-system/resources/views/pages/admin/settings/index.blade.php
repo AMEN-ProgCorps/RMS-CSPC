@@ -1296,6 +1296,34 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         [data-theme="dark"] .page-header p {
             color: #94a3b8 !important;
         }
+        /* Category tab bar (General / DTS / RDP / DCS / Security) */
+        [data-theme="dark"] .settings-tabs {
+            background: #0f172a !important;
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] .settings-tab {
+            color: #94a3b8 !important;
+            background: transparent !important;
+            border-color: transparent !important;
+        }
+        [data-theme="dark"] .settings-tab:hover {
+            background: #131c2e !important;
+            color: #e2e8f0 !important;
+        }
+        [data-theme="dark"] .settings-tab.active {
+            background: #131c2e !important;
+            color: #60a5fa !important;
+            border-color: #1e3a8a !important;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+        }
+        [data-theme="dark"] .settings-tab .tab-count {
+            background: #1e293b !important;
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .settings-tab.active .tab-count {
+            background: rgba(37, 99, 235, 0.28) !important;
+            color: #93c5fd !important;
+        }
         [data-theme="dark"] .settings-card {
             background: #131c2e !important;
             border-color: #1e293b !important;

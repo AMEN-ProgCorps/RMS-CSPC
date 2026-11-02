@@ -396,6 +396,68 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         @media (max-width: 700px) {
             .ticket-grid { grid-template-columns: 1fr; }
         }
+
+        /* Dark mode — match admin console surfaces */
+        [data-theme="dark"] .ticket-modal-overlay {
+            background: rgba(2, 6, 23, 0.78);
+        }
+        [data-theme="dark"] .ticket-modal {
+            background: #131c2e;
+            border-color: #1e293b;
+            color: #e2e8f0;
+            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+        }
+        [data-theme="dark"] .ticket-modal h2 {
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .ticket-modal .sub {
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .ticket-meta {
+            background: #0f172a;
+            border-color: #1e293b;
+            color: #cbd5e1;
+        }
+        [data-theme="dark"] .ticket-meta strong {
+            color: #e2e8f0;
+        }
+        [data-theme="dark"] .ticket-grid label {
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .ticket-grid select,
+        [data-theme="dark"] .ticket-grid textarea {
+            background: #0f172a;
+            border-color: #334155;
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .ticket-grid select option {
+            background: #0f172a;
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .ticket-grid textarea::placeholder {
+            color: #64748b;
+        }
+        [data-theme="dark"] .ticket-btn {
+            background: #0f172a;
+            border-color: #334155;
+            color: #e2e8f0;
+        }
+        [data-theme="dark"] .ticket-btn:hover {
+            background: #1e293b;
+            border-color: #475569;
+        }
+        [data-theme="dark"] .ticket-btn.primary {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+            color: #fff;
+        }
+        [data-theme="dark"] .ticket-btn.primary:hover {
+            background: #2563eb;
+            border-color: #2563eb;
+        }
+        [data-theme="dark"] .clickable-row:hover {
+            background: rgba(37, 99, 235, 0.12);
+        }
     </style>
 @endpush
 

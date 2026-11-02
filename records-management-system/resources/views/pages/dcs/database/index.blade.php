@@ -1324,6 +1324,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     data-show-category-rows="{{ ! empty($showCategoryRows) ? '1' : '0' }}"
     data-force-categories-open="{{ ! empty($forceCategoriesOpen) ? '1' : '0' }}"
     data-category-state="{{ e(json_encode($categoryState)) }}"
+    :data-open-approval="open.approval ? '1' : '0'"
+    :data-open-deadline="open.deadline ? '1' : '0'"
+    :data-open-masterlist="open.masterlist ? '1' : '0'"
+    :data-open-dcn="open.dcn ? '1' : '0'"
+    :data-open-drf="open.drf ? '1' : '0'"
+    :data-open-distribution="open.distribution ? '1' : '0'"
+    :data-open-retrieval="open.retrieval ? '1' : '0'"
+    :data-vis-approval="visible.approval ? '1' : '0'"
+    :data-vis-deadline="visible.deadline ? '1' : '0'"
+    :data-vis-masterlist="visible.masterlist ? '1' : '0'"
+    :data-vis-dcn="visible.dcn ? '1' : '0'"
+    :data-vis-drf="visible.drf ? '1' : '0'"
+    :data-vis-distribution="visible.distribution ? '1' : '0'"
+    :data-vis-retrieval="visible.retrieval ? '1' : '0'"
     x-data="{
     filterOpen: false,
     notice: @js($notice),
@@ -2083,65 +2097,65 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th rowspan="3" class="db-offices-col db-source-unit-col">SOURCE UNIT</th>
                         <th rowspan="3" class="db-related-col">RELATED DOCS</th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="approval" x-show="visible.approval && !open.approval" x-on:click="toggle('approval')">APPROVAL <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['approval'] ?? 2 }}" class="col-group-approval col-group-expanded db-group-header" x-show="visible.approval && open.approval" x-on:click="toggle('approval')">APPROVAL <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="approval" x-on:click="toggle('approval')">APPROVAL <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['approval'] ?? 2 }}" class="col-group-approval col-group-expanded db-group-header" x-on:click="toggle('approval')">APPROVAL <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="deadline" x-show="visible.deadline && !open.deadline" x-on:click="toggle('deadline')">DEADLINE <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['deadline'] ?? 2 }}" class="col-group-deadline col-group-expanded db-group-header" x-show="visible.deadline && open.deadline" x-on:click="toggle('deadline')">DEADLINE <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="deadline" x-on:click="toggle('deadline')">DEADLINE <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['deadline'] ?? 2 }}" class="col-group-deadline col-group-expanded db-group-header" x-on:click="toggle('deadline')">DEADLINE <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="masterlist" x-show="visible.masterlist && !open.masterlist" x-on:click="toggle('masterlist')">MASTERLIST <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['masterlist'] ?? 5 }}" class="col-group-masterlist col-group-expanded db-group-header" x-show="visible.masterlist && open.masterlist" x-on:click="toggle('masterlist')">MASTERLIST REGISTRATION <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="masterlist" x-on:click="toggle('masterlist')">MASTERLIST <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['masterlist'] ?? 5 }}" class="col-group-masterlist col-group-expanded db-group-header" x-on:click="toggle('masterlist')">MASTERLIST REGISTRATION <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="dcn" x-show="visible.dcn && !open.dcn" x-on:click="toggle('dcn')">DCN <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['dcn'] ?? 6 }}" class="col-group-dcn col-group-expanded db-group-header" x-show="visible.dcn && open.dcn" x-on:click="toggle('dcn')">DOCUMENT CHANGE NOTICE <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="dcn" x-on:click="toggle('dcn')">DCN <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['dcn'] ?? 6 }}" class="col-group-dcn col-group-expanded db-group-header" x-on:click="toggle('dcn')">DOCUMENT CHANGE NOTICE <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="drf" x-show="visible.drf && !open.drf" x-on:click="toggle('drf')">DRF <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['drf'] ?? 5 }}" class="col-group-drf col-group-expanded db-group-header" x-show="visible.drf && open.drf" x-on:click="toggle('drf')">DOCUMENT REQUEST FORM <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="drf" x-on:click="toggle('drf')">DRF <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['drf'] ?? 5 }}" class="col-group-drf col-group-expanded db-group-header" x-on:click="toggle('drf')">DOCUMENT REQUEST FORM <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="distribution" x-show="visible.distribution && !open.distribution" x-on:click="toggle('distribution')">DISTRIBUTION <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['distribution'] ?? 6 }}" class="col-group-distribution col-group-expanded db-group-header" x-show="visible.distribution && open.distribution" x-on:click="toggle('distribution')">DISTRIBUTION <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="distribution" x-on:click="toggle('distribution')">DISTRIBUTION <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['distribution'] ?? 6 }}" class="col-group-distribution col-group-expanded db-group-header" x-on:click="toggle('distribution')">DISTRIBUTION <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="retrieval" x-show="visible.retrieval && !open.retrieval" x-on:click="toggle('retrieval')">RETRIEVAL <span class="collapse-arrow">&#9654;</span></th>
-                        <th rowspan="3" class="col-group-retrieval col-group-expanded db-group-header db-offices-col" x-show="visible.retrieval && open.retrieval" x-on:click="toggle('retrieval')">RETRIEVED OFFICE(S) <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="retrieval" x-on:click="toggle('retrieval')">RETRIEVAL <span class="collapse-arrow">&#9654;</span></th>
+                        <th rowspan="3" class="col-group-retrieval col-group-expanded db-group-header db-offices-col" x-on:click="toggle('retrieval')">RETRIEVED OFFICE(S) <span class="collapse-arrow">&#9664;</span></th>
                     </tr>
 
                     <tr class="db-head-secondary">
-                        <th colspan="2" class="col-group-approval col-group-expanded" x-show="visible.approval && open.approval">BOT/ADCO APPROVAL</th>
-                        <th rowspan="2" class="col-group-deadline col-group-expanded" x-show="visible.deadline && open.deadline">DATE</th>
-                        <th rowspan="2" class="col-group-deadline col-group-expanded" x-show="visible.deadline && open.deadline">DAY DIFF</th>
-                        <th colspan="2" class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">DOCUMENT RECEIPT</th>
-                        <th colspan="2" class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">DOCUMENT REGISTERED</th>
-                        <th rowspan="2" class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">TIME SPENT (MINS)</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN NO.</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN DATE</th>
-                        <th colspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN RECEIPT (ACTUAL)</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded db-offices-col" x-show="visible.dcn && open.dcn">PURPOSE OF REVISION</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">SCANNED DCN</th>
-                        <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF NO.</th>
-                        <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF DATE</th>
-                        <th colspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF RECEIPT</th>
-                        <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">SCANNED DRF</th>
-                        <th colspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DISTRIBUTION (ON FILE)</th>
-                        <th colspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DISTRIBUTION (ACTUAL)</th>
-                        <th rowspan="2" class="col-group-distribution col-group-expanded db-offices-col" x-show="visible.distribution && open.distribution">RECEIVING OFFICE(S)</th>
-                        <th rowspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">SCANNED DIST.</th>
+                        <th colspan="2" class="col-group-approval col-group-expanded">BOT/ADCO APPROVAL</th>
+                        <th rowspan="2" class="col-group-deadline col-group-expanded">DATE</th>
+                        <th rowspan="2" class="col-group-deadline col-group-expanded">DAY DIFF</th>
+                        <th colspan="2" class="col-group-masterlist col-group-expanded">DOCUMENT RECEIPT</th>
+                        <th colspan="2" class="col-group-masterlist col-group-expanded">DOCUMENT REGISTERED</th>
+                        <th rowspan="2" class="col-group-masterlist col-group-expanded">TIME SPENT (MINS)</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded">DCN NO.</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded">DCN DATE</th>
+                        <th colspan="2" class="col-group-dcn col-group-expanded">DCN RECEIPT (ACTUAL)</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded db-offices-col">PURPOSE OF REVISION</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded">SCANNED DCN</th>
+                        <th rowspan="2" class="col-group-drf col-group-expanded">DRF NO.</th>
+                        <th rowspan="2" class="col-group-drf col-group-expanded">DRF DATE</th>
+                        <th colspan="2" class="col-group-drf col-group-expanded">DRF RECEIPT</th>
+                        <th rowspan="2" class="col-group-drf col-group-expanded">SCANNED DRF</th>
+                        <th colspan="2" class="col-group-distribution col-group-expanded">DISTRIBUTION (ON FILE)</th>
+                        <th colspan="2" class="col-group-distribution col-group-expanded">DISTRIBUTION (ACTUAL)</th>
+                        <th rowspan="2" class="col-group-distribution col-group-expanded db-offices-col">RECEIVING OFFICE(S)</th>
+                        <th rowspan="2" class="col-group-distribution col-group-expanded">SCANNED DIST.</th>
                     </tr>
 
                     <tr class="db-head-tertiary">
-                        <th class="col-group-approval col-group-expanded" x-show="visible.approval && open.approval">NO.</th>
-                        <th class="col-group-approval col-group-expanded" x-show="visible.approval && open.approval">APPV. DATE</th>
-                        <th class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">DATE</th>
-                        <th class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">TIME</th>
-                        <th class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">DATE</th>
-                        <th class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">TIME</th>
-                        <th class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DATE</th>
-                        <th class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">TIME</th>
-                        <th class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DATE</th>
-                        <th class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">TIME</th>
-                        <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DATE</th>
-                        <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">TIME</th>
-                        <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DATE</th>
-                        <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">TIME</th>
+                        <th class="col-group-approval col-group-expanded">NO.</th>
+                        <th class="col-group-approval col-group-expanded">APPV. DATE</th>
+                        <th class="col-group-masterlist col-group-expanded">DATE</th>
+                        <th class="col-group-masterlist col-group-expanded">TIME</th>
+                        <th class="col-group-masterlist col-group-expanded">DATE</th>
+                        <th class="col-group-masterlist col-group-expanded">TIME</th>
+                        <th class="col-group-dcn col-group-expanded">DATE</th>
+                        <th class="col-group-dcn col-group-expanded">TIME</th>
+                        <th class="col-group-drf col-group-expanded">DATE</th>
+                        <th class="col-group-drf col-group-expanded">TIME</th>
+                        <th class="col-group-distribution col-group-expanded">DATE</th>
+                        <th class="col-group-distribution col-group-expanded">TIME</th>
+                        <th class="col-group-distribution col-group-expanded">DATE</th>
+                        <th class="col-group-distribution col-group-expanded">TIME</th>
                     </tr>
                 </thead>
 

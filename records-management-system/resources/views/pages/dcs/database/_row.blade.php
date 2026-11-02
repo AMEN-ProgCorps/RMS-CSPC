@@ -1,5 +1,6 @@
 {{--
 DCS file: One database table row. Originator names that were saved comma-separated render through x-dcs.originator-lines.
+Column expand/collapse is driven by [data-dcs-db-root][data-open-*] CSS (not per-cell x-show) so Livewire morphs keep working.
 --}}
 <td>{{ $r['doc_no'] }}</td>
 <td>{{ $r['rev_no'] }}</td>
@@ -37,71 +38,71 @@ DCS file: One database table row. Originator names that were saved comma-separat
     ])
 </td>
 
-<td class="col-group-summary-body col-group-summary-approval" x-show="visible.approval && !open.approval">
+<td class="col-group-summary-body col-group-summary-approval">
     @if($r['approval_no'] || $r['approval_date'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
-<td class="col-group-approval" x-show="visible.approval && open.approval">{{ $r['approval_no'] ?: '—' }}</td>
-<td class="col-group-approval" x-show="visible.approval && open.approval">{{ $r['approval_date'] ?: '—' }}</td>
+<td class="col-group-approval">{{ $r['approval_no'] ?: '—' }}</td>
+<td class="col-group-approval">{{ $r['approval_date'] ?: '—' }}</td>
 
-<td class="col-group-summary-body col-group-summary-deadline" x-show="visible.deadline && !open.deadline">
+<td class="col-group-summary-body col-group-summary-deadline">
     @if($r['deadline_date'] || $r['deadline_diff'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
-<td class="col-group-deadline" x-show="visible.deadline && open.deadline">{{ $r['deadline_date'] ?: '—' }}</td>
-<td class="col-group-deadline" x-show="visible.deadline && open.deadline">{{ $r['deadline_diff'] ?: '—' }}</td>
+<td class="col-group-deadline">{{ $r['deadline_date'] ?: '—' }}</td>
+<td class="col-group-deadline">{{ $r['deadline_diff'] ?: '—' }}</td>
 
-<td class="col-group-summary-body col-group-summary-masterlist" x-show="visible.masterlist && !open.masterlist">
+<td class="col-group-summary-body col-group-summary-masterlist">
     @if($r['ml_receipt_date'] || $r['ml_receipt_time'] || $r['ml_register_date'] || $r['ml_register_time'] || $r['ml_time_spent'] !== null)<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
-<td class="col-group-masterlist" x-show="visible.masterlist && open.masterlist">{{ $r['ml_receipt_date'] ?: '—' }}</td>
-<td class="col-group-masterlist" x-show="visible.masterlist && open.masterlist">{{ $r['ml_receipt_time'] ?: '—' }}</td>
-<td class="col-group-masterlist" x-show="visible.masterlist && open.masterlist">{{ $r['ml_register_date'] ?: '—' }}</td>
-<td class="col-group-masterlist" x-show="visible.masterlist && open.masterlist">{{ $r['ml_register_time'] ?: '—' }}</td>
-<td class="col-group-masterlist" x-show="visible.masterlist && open.masterlist">{{ $r['ml_time_spent'] !== null ? $r['ml_time_spent'] : '—' }}</td>
+<td class="col-group-masterlist">{{ $r['ml_receipt_date'] ?: '—' }}</td>
+<td class="col-group-masterlist">{{ $r['ml_receipt_time'] ?: '—' }}</td>
+<td class="col-group-masterlist">{{ $r['ml_register_date'] ?: '—' }}</td>
+<td class="col-group-masterlist">{{ $r['ml_register_time'] ?: '—' }}</td>
+<td class="col-group-masterlist">{{ $r['ml_time_spent'] !== null ? $r['ml_time_spent'] : '—' }}</td>
 
-<td class="col-group-summary-body col-group-summary-dcn" x-show="visible.dcn && !open.dcn">
+<td class="col-group-summary-body col-group-summary-dcn">
     @if($r['dcn_no'] || $r['dcn_date'] || $r['dcn_receipt_date'] || $r['dcn_receipt_time'] || $r['dcn_purpose'] || $r['dcn_scan'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
-<td class="col-group-dcn" x-show="visible.dcn && open.dcn">{{ $r['dcn_no'] ?: '—' }}</td>
-<td class="col-group-dcn" x-show="visible.dcn && open.dcn">{{ $r['dcn_date'] ?: '—' }}</td>
-<td class="col-group-dcn" x-show="visible.dcn && open.dcn">{{ $r['dcn_receipt_date'] ?: '—' }}</td>
-<td class="col-group-dcn" x-show="visible.dcn && open.dcn">{{ $r['dcn_receipt_time'] ?: '—' }}</td>
-<td class="col-group-dcn db-offices-cell" x-show="visible.dcn && open.dcn" wire:key="dcn-purpose-{{ $r['request_id'] ?? 0 }}">
+<td class="col-group-dcn">{{ $r['dcn_no'] ?: '—' }}</td>
+<td class="col-group-dcn">{{ $r['dcn_date'] ?: '—' }}</td>
+<td class="col-group-dcn">{{ $r['dcn_receipt_date'] ?: '—' }}</td>
+<td class="col-group-dcn">{{ $r['dcn_receipt_time'] ?: '—' }}</td>
+<td class="col-group-dcn db-offices-cell" wire:key="dcn-purpose-{{ $r['request_id'] ?? 0 }}">
     @include('pages.dcs.database._text-clamp', [
         'text' => $r['dcn_purpose'] ?? '',
         'clampKey' => 'purpose-' . ($r['request_id'] ?? 0),
     ])
 </td>
-<td class="col-group-dcn" x-show="visible.dcn && open.dcn">@include('pages.dcs.database._scan', ['url' => $r['dcn_scan'] ?? null])</td>
+<td class="col-group-dcn">@include('pages.dcs.database._scan', ['url' => $r['dcn_scan'] ?? null])</td>
 
-<td class="col-group-summary-body col-group-summary-drf" x-show="visible.drf && !open.drf">
+<td class="col-group-summary-body col-group-summary-drf">
     @if($r['drf_no'] || $r['drf_date'] || $r['drf_receipt_date'] || $r['drf_receipt_time'] || $r['drf_scan'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
-<td class="col-group-drf" x-show="visible.drf && open.drf">{{ $r['drf_no'] ?: '—' }}</td>
-<td class="col-group-drf" x-show="visible.drf && open.drf">{{ $r['drf_date'] ?: '—' }}</td>
-<td class="col-group-drf" x-show="visible.drf && open.drf">{{ $r['drf_receipt_date'] ?: '—' }}</td>
-<td class="col-group-drf" x-show="visible.drf && open.drf">{{ $r['drf_receipt_time'] ?: '—' }}</td>
-<td class="col-group-drf" x-show="visible.drf && open.drf">@include('pages.dcs.database._scan', ['url' => $r['drf_scan'] ?? null])</td>
+<td class="col-group-drf">{{ $r['drf_no'] ?: '—' }}</td>
+<td class="col-group-drf">{{ $r['drf_date'] ?: '—' }}</td>
+<td class="col-group-drf">{{ $r['drf_receipt_date'] ?: '—' }}</td>
+<td class="col-group-drf">{{ $r['drf_receipt_time'] ?: '—' }}</td>
+<td class="col-group-drf">@include('pages.dcs.database._scan', ['url' => $r['drf_scan'] ?? null])</td>
 
-<td class="col-group-summary-body col-group-summary-distribution" x-show="visible.distribution && !open.distribution">
+<td class="col-group-summary-body col-group-summary-distribution">
     @if($r['dist_onfile_date'] || $r['dist_onfile_time'] || $r['dist_actual_date'] || $r['dist_actual_time'] || $r['dist_offices'] || $r['dist_scan'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
-<td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_onfile_date'] ?: '—' }}</td>
-<td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_onfile_time'] ?: '—' }}</td>
-<td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_actual_date'] ?: '—' }}</td>
-<td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_actual_time'] ?: '—' }}</td>
-<td class="col-group-distribution db-offices-cell" x-show="visible.distribution && open.distribution" wire:key="dist-offices-{{ $r['request_id'] ?? 0 }}">
+<td class="col-group-distribution">{{ $r['dist_onfile_date'] ?: '—' }}</td>
+<td class="col-group-distribution">{{ $r['dist_onfile_time'] ?: '—' }}</td>
+<td class="col-group-distribution">{{ $r['dist_actual_date'] ?: '—' }}</td>
+<td class="col-group-distribution">{{ $r['dist_actual_time'] ?: '—' }}</td>
+<td class="col-group-distribution db-offices-cell" wire:key="dist-offices-{{ $r['request_id'] ?? 0 }}">
     @include('pages.dcs.database._offices-clamp', [
         'officesText' => $r['dist_offices'] ?? '',
         'clampKey' => 'd' . ($r['request_id'] ?? 0),
         'highlightOffice' => $receivedByOfficeName ?? '',
     ])
 </td>
-<td class="col-group-distribution" x-show="visible.distribution && open.distribution">@include('pages.dcs.database._scan', ['url' => $r['dist_scan'] ?? null])</td>
+<td class="col-group-distribution">@include('pages.dcs.database._scan', ['url' => $r['dist_scan'] ?? null])</td>
 
-<td class="col-group-summary-body col-group-summary-retrieval" x-show="visible.retrieval && !open.retrieval">
+<td class="col-group-summary-body col-group-summary-retrieval">
     @if($r['ret_offices'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
-<td class="col-group-retrieval db-offices-cell" x-show="visible.retrieval && open.retrieval" wire:key="ret-offices-{{ $r['request_id'] ?? 0 }}">
+<td class="col-group-retrieval db-offices-cell" wire:key="ret-offices-{{ $r['request_id'] ?? 0 }}">
     @include('pages.dcs.database._offices-clamp', [
         'officesText' => $r['ret_offices'] ?? '',
         'clampKey' => 'r' . ($r['request_id'] ?? 0),

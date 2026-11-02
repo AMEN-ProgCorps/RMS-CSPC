@@ -572,6 +572,81 @@ td.col-bg-retrieval {
 
 .db-table td:last-child { border-right: none; }
 
+/*
+ * Column group expand/collapse via root data attrs (Alpine updates these).
+ * Survives Livewire tbody morphs where per-cell x-show often stops working.
+ */
+[data-dcs-db-root][data-vis-approval="0"] .col-group-summary[data-group="approval"],
+[data-dcs-db-root][data-vis-approval="0"] .col-group-approval,
+[data-dcs-db-root][data-vis-approval="0"] td.col-group-summary-approval,
+[data-dcs-db-root][data-vis-deadline="0"] .col-group-summary[data-group="deadline"],
+[data-dcs-db-root][data-vis-deadline="0"] .col-group-deadline,
+[data-dcs-db-root][data-vis-deadline="0"] td.col-group-summary-deadline,
+[data-dcs-db-root][data-vis-masterlist="0"] .col-group-summary[data-group="masterlist"],
+[data-dcs-db-root][data-vis-masterlist="0"] .col-group-masterlist,
+[data-dcs-db-root][data-vis-masterlist="0"] td.col-group-summary-masterlist,
+[data-dcs-db-root][data-vis-dcn="0"] .col-group-summary[data-group="dcn"],
+[data-dcs-db-root][data-vis-dcn="0"] .col-group-dcn,
+[data-dcs-db-root][data-vis-dcn="0"] td.col-group-summary-dcn,
+[data-dcs-db-root][data-vis-drf="0"] .col-group-summary[data-group="drf"],
+[data-dcs-db-root][data-vis-drf="0"] .col-group-drf,
+[data-dcs-db-root][data-vis-drf="0"] td.col-group-summary-drf,
+[data-dcs-db-root][data-vis-distribution="0"] .col-group-summary[data-group="distribution"],
+[data-dcs-db-root][data-vis-distribution="0"] .col-group-distribution,
+[data-dcs-db-root][data-vis-distribution="0"] td.col-group-summary-distribution,
+[data-dcs-db-root][data-vis-retrieval="0"] .col-group-summary[data-group="retrieval"],
+[data-dcs-db-root][data-vis-retrieval="0"] .col-group-retrieval,
+[data-dcs-db-root][data-vis-retrieval="0"] td.col-group-summary-retrieval {
+    display: none !important;
+}
+
+/* Collapsed: hide expanded header/body cells, keep summary cells */
+[data-dcs-db-root][data-open-approval="0"][data-vis-approval="1"] .col-group-approval,
+[data-dcs-db-root][data-open-deadline="0"][data-vis-deadline="1"] .col-group-deadline,
+[data-dcs-db-root][data-open-masterlist="0"][data-vis-masterlist="1"] .col-group-masterlist,
+[data-dcs-db-root][data-open-dcn="0"][data-vis-dcn="1"] .col-group-dcn,
+[data-dcs-db-root][data-open-drf="0"][data-vis-drf="1"] .col-group-drf,
+[data-dcs-db-root][data-open-distribution="0"][data-vis-distribution="1"] .col-group-distribution,
+[data-dcs-db-root][data-open-retrieval="0"][data-vis-retrieval="1"] .col-group-retrieval {
+    display: none !important;
+}
+
+/* Expanded: hide summary header/body cells */
+[data-dcs-db-root][data-open-approval="1"][data-vis-approval="1"] .col-group-summary[data-group="approval"],
+[data-dcs-db-root][data-open-approval="1"][data-vis-approval="1"] td.col-group-summary-approval,
+[data-dcs-db-root][data-open-deadline="1"][data-vis-deadline="1"] .col-group-summary[data-group="deadline"],
+[data-dcs-db-root][data-open-deadline="1"][data-vis-deadline="1"] td.col-group-summary-deadline,
+[data-dcs-db-root][data-open-masterlist="1"][data-vis-masterlist="1"] .col-group-summary[data-group="masterlist"],
+[data-dcs-db-root][data-open-masterlist="1"][data-vis-masterlist="1"] td.col-group-summary-masterlist,
+[data-dcs-db-root][data-open-dcn="1"][data-vis-dcn="1"] .col-group-summary[data-group="dcn"],
+[data-dcs-db-root][data-open-dcn="1"][data-vis-dcn="1"] td.col-group-summary-dcn,
+[data-dcs-db-root][data-open-drf="1"][data-vis-drf="1"] .col-group-summary[data-group="drf"],
+[data-dcs-db-root][data-open-drf="1"][data-vis-drf="1"] td.col-group-summary-drf,
+[data-dcs-db-root][data-open-distribution="1"][data-vis-distribution="1"] .col-group-summary[data-group="distribution"],
+[data-dcs-db-root][data-open-distribution="1"][data-vis-distribution="1"] td.col-group-summary-distribution,
+[data-dcs-db-root][data-open-retrieval="1"][data-vis-retrieval="1"] .col-group-summary[data-group="retrieval"],
+[data-dcs-db-root][data-open-retrieval="1"][data-vis-retrieval="1"] td.col-group-summary-retrieval {
+    display: none !important;
+}
+
+/* Before Alpine paints data-open/data-vis attrs, default to expanded (hide summaries). */
+[data-dcs-db-root]:not([data-open-approval]) .col-group-summary[data-group="approval"],
+[data-dcs-db-root]:not([data-open-approval]) td.col-group-summary-approval,
+[data-dcs-db-root]:not([data-open-deadline]) .col-group-summary[data-group="deadline"],
+[data-dcs-db-root]:not([data-open-deadline]) td.col-group-summary-deadline,
+[data-dcs-db-root]:not([data-open-masterlist]) .col-group-summary[data-group="masterlist"],
+[data-dcs-db-root]:not([data-open-masterlist]) td.col-group-summary-masterlist,
+[data-dcs-db-root]:not([data-open-dcn]) .col-group-summary[data-group="dcn"],
+[data-dcs-db-root]:not([data-open-dcn]) td.col-group-summary-dcn,
+[data-dcs-db-root]:not([data-open-drf]) .col-group-summary[data-group="drf"],
+[data-dcs-db-root]:not([data-open-drf]) td.col-group-summary-drf,
+[data-dcs-db-root]:not([data-open-distribution]) .col-group-summary[data-group="distribution"],
+[data-dcs-db-root]:not([data-open-distribution]) td.col-group-summary-distribution,
+[data-dcs-db-root]:not([data-open-retrieval]) .col-group-summary[data-group="retrieval"],
+[data-dcs-db-root]:not([data-open-retrieval]) td.col-group-summary-retrieval {
+    display: none !important;
+}
+
 /* ── Summary body cells (collapsed column indicator) ── */
 td.col-group-summary-body {
     text-align: center;

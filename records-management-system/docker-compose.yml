@@ -35,7 +35,7 @@ services:
 
   # ── Node / Vite ─────────────────────────────────────────────────────────────
   node:
-    image: node:20-alpine
+    image: node:24-alpine
     container_name: rms_node
     working_dir: /app
     environment:
@@ -46,7 +46,7 @@ services:
     ports:
       - "5173:5173"
     command: >
-      sh -c "npm install && npm run dev"
+      sh -c "npm install -g npm@12.2.1 && npm install && npm run dev"
     networks:
       - rms_net
 
@@ -83,7 +83,7 @@ services:
 
   # ── WebSocket Server (Node) ──────────────────────────────────────────────────
   websocket:
-    image: node:20-alpine
+    image: node:24-alpine
     container_name: rms_websocket
     working_dir: /app/public/chatify/ws-server
     restart: unless-stopped
@@ -94,7 +94,7 @@ services:
       - .:/app
     env_file:
       - .env.docker
-    command: sh -c "npm install && node server.js"
+    command: sh -c "npm install -g npm@12.2.1 && npm install && node server.js"
     networks:
       - rms_net
 

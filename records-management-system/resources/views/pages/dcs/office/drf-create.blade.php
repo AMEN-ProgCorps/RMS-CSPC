@@ -142,6 +142,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             'oldSubTypeId' => $oldSubTypeId,
             'sigPrefill' => $sigPrefill,
             'sigTemplateMap' => $sigTemplateMap,
+            'syllabiCatalog' => OfficeIntakeHelper::officeDrfSyllabiCatalog(),
             'userOfficeId' => $office['id'],
             'userOfficeCode' => $office['code'],
             'userOfficeName' => $office['name'],
@@ -295,6 +296,27 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                             </div>
                             <p id="drfRecurDocTypeHint" class="ofi-hint" hidden>This follows the registered document and cannot be changed after Find document.</p>
                         @endif
+                        @php
+                            $syllabiContextVisible = false;
+                            if ($selectedSub !== '') {
+                                $subName = '';
+                                foreach (($docTypeChildrenByParent[$selectedParent] ?? []) as $subRow) {
+                                    if ((string) ($subRow->id ?? '') === $selectedSub) {
+                                        $subName = (string) ($subRow->doc_type_name ?? '');
+                                        break;
+                                    }
+                                }
+                                $syllabiContextVisible = \App\Helpers\RegisterQueryHelper::isSyllabiLikeName($subName);
+                            }
+                        @endphp
+                        @include('pages.dcs.office.partials.drf-syllabi-context', [
+                            'syllabiContextVisible' => $syllabiContextVisible,
+                            'oldCollegeId' => old('collegeId', ''),
+                            'oldProgramId' => old('programId', ''),
+                            'oldSemesterId' => old('semesterId', ''),
+                            'oldCourseId' => old('courseId', ''),
+                            'oldSchoolYearId' => old('schoolYearId', ''),
+                        ])
                     </div>
                     <div class="reg-field">
                         <label>Description/reason for request (define in detail) <span class="ofi-req">*</span></label>
@@ -430,6 +452,7 @@ window.__ofiOldDistribute = @json($oldDistributeOfficeIds);
 window.__ofiDocTypeChildren = @json($docTypeChildrenByParent ?? []);
 window.__ofiDocTypeParents = @json($docTypeParentsForJs ?? []);
 window.__ofiSigTemplateMap = @json($sigTemplateMap ?? ['byDocTypeId' => [], 'parentKind' => [], 'externalParentId' => null]);
+window.__ofiSyllabiCatalog = @json($syllabiCatalog ?? []);
 window.__ofiSourceConfigs = [
     {
         key: 'distribute',
@@ -641,6 +664,7 @@ window.__ofiSourceConfigs = [
             rebuildParentOptions(false);
             rebuildSubOptions(false);
             refreshSignatoriesForSelection();
+            if (typeof window.__ofiSyncSyllabiContext === 'function') window.__ofiSyncSyllabiContext();
         });
     });
     syncOptInDocTypeId();
@@ -648,15 +672,18 @@ window.__ofiSourceConfigs = [
         parentSelect.addEventListener('change', function () {
             rebuildSubOptions(false);
             refreshSignatoriesForSelection();
+            if (typeof window.__ofiSyncSyllabiContext === 'function') window.__ofiSyncSyllabiContext();
         });
     }
     if (subSelect && subSelect.tagName === 'SELECT') {
         subSelect.addEventListener('change', function () {
             refreshSignatoriesForSelection();
+            if (typeof window.__ofiSyncSyllabiContext === 'function') window.__ofiSyncSyllabiContext();
         });
     }
 
     syncCatalogVisibility();
+    if (typeof window.__ofiSyncSyllabiContext === 'function') window.__ofiSyncSyllabiContext();
 
     form.addEventListener('submit', function (e) {
         if (e.submitter && e.submitter.id === 'ofiDrfPreviewBtn') return;
@@ -719,6 +746,7 @@ window.__ofiSourceConfigs = [
     }
 })();
 </script>
+@include('pages.dcs.office.partials.drf-syllabi-context-script')
 @if($isRecurring ?? false)
     @include('pages.dcs.office.partials.drf-recur-script')
 @endif

@@ -1707,6 +1707,11 @@ class OfficeIntakeHelper
             'docTypeKind' => 'required|in:internal,external,forms,logbooks',
             'docTypeId' => 'nullable|integer',
             'subTypeId' => 'nullable|integer',
+            'collegeId' => 'nullable|integer',
+            'programId' => 'nullable|integer',
+            'courseId' => 'nullable|integer',
+            'semesterId' => 'nullable|integer',
+            'schoolYearId' => 'nullable|integer',
             'descriptionReason' => 'required|string|max:5000',
             'distributeToOffice' => 'required|array|min:1',
             'distributeToOffice.*' => 'required|integer',
@@ -1748,6 +1753,10 @@ class OfficeIntakeHelper
         $catalog = self::resolveIntakeCatalogSelection(
             isset($data['docTypeId']) ? (int) $data['docTypeId'] : null,
             isset($data['subTypeId']) ? (int) $data['subTypeId'] : null
+        );
+        $syllabiCtx = self::resolveOfficeDrfSyllabiContext(
+            $data,
+            ! empty($catalog['sub_type_id']) ? (int) $catalog['sub_type_id'] : null
         );
         if ($postedKind === 'internal' && ! $catalog['doc_type_id'] && ! $catalog['sub_type_id']) {
             throw ValidationException::withMessages([
@@ -1835,7 +1844,8 @@ class OfficeIntakeHelper
             $previousTitle,
             $previousOriginator,
             $previousMasterlistId,
-            $previousRequestId
+            $previousRequestId,
+            $syllabiCtx
         ) {
                 $row = [
                     'drf_no' => null,
@@ -1855,6 +1865,7 @@ class OfficeIntakeHelper
                 if (Schema::hasColumn('dcs_office_intake_drf', 'sub_type_id')) {
                     $row['sub_type_id'] = ! empty($data['resolvedSubTypeId']) ? (int) $data['resolvedSubTypeId'] : null;
                 }
+                self::applyOfficeDrfSyllabiColumns($row, $syllabiCtx);
 
                 if ($sourceDcnId > 0) {
                     $row['source_office_dcn_id'] = $sourceDcnId;
@@ -2212,6 +2223,11 @@ class OfficeIntakeHelper
             'docTypeKind' => 'nullable|in:internal,external,forms,logbooks',
             'docTypeId' => 'nullable|integer',
             'subTypeId' => 'nullable|integer',
+            'collegeId' => 'nullable|integer',
+            'programId' => 'nullable|integer',
+            'courseId' => 'nullable|integer',
+            'semesterId' => 'nullable|integer',
+            'schoolYearId' => 'nullable|integer',
             'descriptionReason' => 'required|string|max:5000',
             'distributeToOffice' => 'required|array|min:1',
             'distributeToOffice.*' => 'required|integer',
@@ -2240,6 +2256,10 @@ class OfficeIntakeHelper
                 ? $postedKind
                 : 'internal';
         }
+        $syllabiCtx = self::resolveOfficeDrfSyllabiContext(
+            $data,
+            ! empty($catalog['sub_type_id']) ? (int) $catalog['sub_type_id'] : null
+        );
 
         self::assertNoOpenDuplicateDrf(
             (string) ($data['drfTitle'] ?? ''),
@@ -2248,7 +2268,7 @@ class OfficeIntakeHelper
         );
 
         $now = now();
-        DB::transaction(function () use ($data, $catalog, $id, $now) {
+        DB::transaction(function () use ($data, $catalog, $id, $now, $syllabiCtx) {
             $row = [
                 'drf_date' => $data['drfDate'] ?? null,
                 'doc_title' => $data['drfTitle'],
@@ -2266,6 +2286,7 @@ class OfficeIntakeHelper
             if (Schema::hasColumn('dcs_office_intake_drf', 'sub_type_id')) {
                 $row['sub_type_id'] = $catalog['sub_type_id'];
             }
+            self::applyOfficeDrfSyllabiColumns($row, $syllabiCtx);
             if (Schema::hasColumn('dcs_office_intake_drf', 'description_reason')) {
                 $row['description_reason'] = trim((string) ($data['descriptionReason'] ?? '')) ?: null;
             }
@@ -3235,6 +3256,220 @@ class OfficeIntakeHelper
             'doc_type_id' => $parentId,
             'sub_type_id' => $childId,
             'doc_type_kind' => $kind,
+        ];
+    }
+
+    public static function isOfficeDrfSyllabiLike(?int $subTypeId): bool
+    {
+        if (! $subTypeId || $subTypeId < 1 || ! Schema::hasTable('dcs_doc_types')) {
+            return false;
+        }
+        $name = DB::table('dcs_doc_types')->where('id', $subTypeId)->value('doc_type_name');
+
+        return RegisterQueryHelper::isSyllabiLikeName($name !== null ? (string) $name : null);
+    }
+
+    /**
+     * Compact catalog for office DRF syllabi context pickers.
+     *
+     * @return array{
+     *     colleges: list<array{college_id:int,college_name:string,college_code:string}>,
+     *     programsByCollege: array<string, list<array{program_id:int,program_name:string,program_code:string}>>,
+     *     coursesByProgramSemester: array<string, list<array{id:int,course_name:string,course_code:string,year_level:string,course_type:string}>>,
+     *     semesters: list<array{semester_id:int,semester_name:string}>,
+     *     schoolYears: list<array{school_year_id:int,school_year:string}>
+     * }
+     */
+    public static function officeDrfSyllabiCatalog(): array
+    {
+        $full = RegisterQueryHelper::jsCatalog();
+
+        return [
+            'colleges' => $full['colleges'] ?? [],
+            'programsByCollege' => $full['programsByCollege'] ?? [],
+            'coursesByProgramSemester' => $full['coursesByProgramSemester'] ?? [],
+            'semesters' => $full['semesters'] ?? [],
+            'schoolYears' => $full['schoolYears'] ?? [],
+        ];
+    }
+
+    public static function officeDrfSyllabiConnector(?int $subTypeId): string
+    {
+        if (! $subTypeId || $subTypeId < 1 || ! Schema::hasTable('dcs_doc_types')) {
+            return 'Syllabus for';
+        }
+        $name = mb_strtolower(trim((string) DB::table('dcs_doc_types')->where('id', $subTypeId)->value('doc_type_name')));
+        if (str_contains($name, 'tos') || str_contains($name, 'rubric')) {
+            return 'TOS/Rubrics for';
+        }
+
+        return 'Syllabus for';
+    }
+
+    public static function buildOfficeDrfSyllabiTitle(
+        string $college,
+        string $program,
+        string $course,
+        string $semester,
+        string $schoolYear,
+        string $connector = 'Syllabus for'
+    ): string {
+        $college = trim($college);
+        $program = trim($program);
+        $course = trim($course);
+        $semester = trim($semester);
+        $schoolYear = trim($schoolYear);
+        $connector = trim($connector) !== '' ? trim($connector) : 'Syllabus for';
+        if ($college === '' || $program === '' || $course === '' || $semester === '' || $schoolYear === '') {
+            return '';
+        }
+        $sy = preg_replace('/^\s*s\/?y\s*/i', '', $schoolYear) ?: $schoolYear;
+
+        return $college.' '.$connector.' '.$program.' in '.$course.', '.$semester.' S/Y '.$sy;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{
+     *     college_id:?int,program_id:?int,course_id:?int,semester_id:?int,school_year_id:?int,is_syllabi:bool
+     * }
+     */
+    public static function resolveOfficeDrfSyllabiContext(array $data, ?int $subTypeId): array
+    {
+        $empty = [
+            'college_id' => null,
+            'program_id' => null,
+            'course_id' => null,
+            'semester_id' => null,
+            'school_year_id' => null,
+            'is_syllabi' => false,
+        ];
+        if (! self::isOfficeDrfSyllabiLike($subTypeId)) {
+            return $empty;
+        }
+
+        $collegeId = (int) ($data['collegeId'] ?? $data['college_id'] ?? 0);
+        $programId = (int) ($data['programId'] ?? $data['program_id'] ?? 0);
+        $courseId = (int) ($data['courseId'] ?? $data['course_id'] ?? 0);
+        $semesterId = (int) ($data['semesterId'] ?? $data['semester_id'] ?? 0);
+        $schoolYearId = (int) ($data['schoolYearId'] ?? $data['school_year_id'] ?? 0);
+
+        $errors = [];
+        if ($collegeId < 1) {
+            $errors['collegeId'] = 'Select a college.';
+        }
+        if ($programId < 1) {
+            $errors['programId'] = 'Select a program.';
+        }
+        if ($semesterId < 1) {
+            $errors['semesterId'] = 'Select a semester.';
+        }
+        if ($courseId < 1) {
+            $errors['courseId'] = 'Select a course.';
+        }
+        if ($schoolYearId < 1) {
+            $errors['schoolYearId'] = 'Select a school year.';
+        }
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        $program = DB::table('dcs_programs')->where('id', $programId)->first(['id', 'college_id']);
+        if (! $program || (int) ($program->college_id ?? 0) !== $collegeId) {
+            throw ValidationException::withMessages(['programId' => 'Selected program does not belong to that college.']);
+        }
+
+        $course = DB::table('dcs_program_courses')->where('id', $courseId)->first(['id', 'program_id', 'semester_id']);
+        if (! $course
+            || (int) ($course->program_id ?? 0) !== $programId
+            || (int) ($course->semester_id ?? 0) !== $semesterId
+        ) {
+            throw ValidationException::withMessages(['courseId' => 'Selected course does not match the program and semester.']);
+        }
+
+        if (! DB::table('dcs_school_years')->where('id', $schoolYearId)->exists()) {
+            throw ValidationException::withMessages(['schoolYearId' => 'Select a valid school year.']);
+        }
+
+        return [
+            'college_id' => $collegeId,
+            'program_id' => $programId,
+            'course_id' => $courseId,
+            'semester_id' => $semesterId,
+            'school_year_id' => $schoolYearId,
+            'is_syllabi' => true,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @param  array{college_id:?int,program_id:?int,course_id:?int,semester_id:?int,school_year_id:?int}  $ctx
+     */
+    public static function applyOfficeDrfSyllabiColumns(array &$row, array $ctx): void
+    {
+        foreach (['college_id', 'program_id', 'course_id', 'semester_id', 'school_year_id'] as $col) {
+            if (Schema::hasColumn('dcs_office_intake_drf', $col)) {
+                $row[$col] = ! empty($ctx[$col]) ? (int) $ctx[$col] : null;
+            }
+        }
+    }
+
+    /**
+     * @return array{
+     *     is_syllabi:bool,
+     *     college:?string,program:?string,course:?string,semester:?string,school_year:?string,
+     *     college_id:?int,program_id:?int,course_id:?int,semester_id:?int,school_year_id:?int,
+     *     course_type:?string,year_level:?string,connector:string
+     * }
+     */
+    public static function officeDrfSyllabiContextFromRow(?object $drf): array
+    {
+        $subTypeId = (int) ($drf->sub_type_id ?? 0);
+        $isSyllabi = self::isOfficeDrfSyllabiLike($subTypeId > 0 ? $subTypeId : null);
+        $collegeId = (int) ($drf->college_id ?? 0);
+        $programId = (int) ($drf->program_id ?? 0);
+        $courseId = (int) ($drf->course_id ?? 0);
+        $semesterId = (int) ($drf->semester_id ?? 0);
+        $schoolYearId = (int) ($drf->school_year_id ?? 0);
+
+        $college = $collegeId > 0 ? (string) (DB::table('dcs_colleges')->where('id', $collegeId)->value('college_name') ?? '') : '';
+        $program = $programId > 0 ? (string) (DB::table('dcs_programs')->where('id', $programId)->value('program_name') ?? '') : '';
+        $semester = $semesterId > 0 ? (string) (DB::table('dcs_semesters')->where('id', $semesterId)->value('semester_name') ?? '') : '';
+        $schoolYear = $schoolYearId > 0 ? (string) (DB::table('dcs_school_years')->where('id', $schoolYearId)->value('school_year') ?? '') : '';
+        $courseName = '';
+        $courseType = '';
+        $yearLevel = '';
+        if ($courseId > 0 && Schema::hasTable('dcs_program_courses')) {
+            $cols = ['course_name'];
+            if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
+                $cols[] = 'course_type';
+            }
+            if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
+                $cols[] = 'year_level';
+            }
+            $course = DB::table('dcs_program_courses')->where('id', $courseId)->first($cols);
+            if ($course) {
+                $courseName = trim((string) ($course->course_name ?? ''));
+                $courseType = trim((string) ($course->course_type ?? ''));
+                $yearLevel = trim((string) ($course->year_level ?? ''));
+            }
+        }
+
+        return [
+            'is_syllabi' => $isSyllabi,
+            'college' => $college !== '' ? $college : null,
+            'program' => $program !== '' ? $program : null,
+            'course' => $courseName !== '' ? $courseName : null,
+            'semester' => $semester !== '' ? $semester : null,
+            'school_year' => $schoolYear !== '' ? $schoolYear : null,
+            'college_id' => $collegeId > 0 ? $collegeId : null,
+            'program_id' => $programId > 0 ? $programId : null,
+            'course_id' => $courseId > 0 ? $courseId : null,
+            'semester_id' => $semesterId > 0 ? $semesterId : null,
+            'school_year_id' => $schoolYearId > 0 ? $schoolYearId : null,
+            'course_type' => $courseType !== '' ? $courseType : null,
+            'year_level' => $yearLevel !== '' ? $yearLevel : null,
+            'connector' => self::officeDrfSyllabiConnector($subTypeId > 0 ? $subTypeId : null),
         ];
     }
 
@@ -5466,6 +5701,10 @@ class OfficeIntakeHelper
         $isRecurring = $previousNo !== '' && self::findSourceDcnIdForOfficeDrf($id) === null;
         $versionType = $isRecurring ? 'recurring' : 'new';
 
+        $syllabi = self::officeDrfSyllabiContextFromRow($drf);
+        // Checklist 1 stays on so registration still includes a DRF; syllabi mode
+        // hides #section-1 and uses the syllabi wizard DRF (#section-syllabi) instead.
+
         $prefill = [
             'intake' => 'drf',
             'intakeId' => $id,
@@ -5487,6 +5726,18 @@ class OfficeIntakeHelper
             // When the submitting office already chose distribution offices on the DRF,
             // DCS register must not add further offices beyond that list.
             'lockDistributeOffices' => ($distributeIds !== [] || $distribute !== []),
+            'isSyllabiLike' => ! empty($syllabi['is_syllabi']),
+            'syllabi' => ! empty($syllabi['is_syllabi']) ? [
+                'college_id' => $syllabi['college_id'],
+                'program_id' => $syllabi['program_id'],
+                'course_id' => $syllabi['course_id'],
+                'semester_id' => $syllabi['semester_id'],
+                'school_year_id' => $syllabi['school_year_id'],
+                'course_type' => $syllabi['course_type'],
+                'year_level' => $syllabi['year_level'],
+                'doc_title' => trim((string) ($drf->doc_title ?? '')),
+                'drf_date' => $drfDate,
+            ] : null,
         ];
 
         if ($isRecurring) {

@@ -66,6 +66,27 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     border-top: 1px solid #e2e8f0;
 }
 
+.ofi-syllabi-context {
+    margin-top: 12px;
+    padding: 14px 14px 12px;
+    border: 1px solid #dbeafe;
+    border-radius: 10px;
+    background: #f8fbff;
+}
+
+.ofi-syllabi-context.is-ofi-hidden {
+    display: none !important;
+}
+
+.ofi-syllabi-grid {
+    gap: 12px;
+}
+
+[data-theme="dark"] .ofi-syllabi-context {
+    background: #0f172a;
+    border-color: #1e3a5f;
+}
+
 .ofi-reg-actions .reg-btn {
     flex: 0 0 auto;
     white-space: nowrap;

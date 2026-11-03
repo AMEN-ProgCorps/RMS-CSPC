@@ -55,6 +55,11 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             ];
         }
 
+        $subTypeId = (int) ($drf->sub_type_id ?? 0);
+        $subTypeName = $subTypeId > 0
+            ? (string) (\Illuminate\Support\Facades\DB::table('dcs_doc_types')->where('id', $subTypeId)->value('doc_type_name') ?? '')
+            : '';
+
         return [
             'drf' => $drf,
             'offices' => RegisterQueryHelper::jsCatalog()['offices'] ?? [],
@@ -67,6 +72,9 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             'lockDocType' => $lockDocType,
             'lockedTypeLabel' => $lockedTypeLabel,
             'optInTypeRadios' => OfficeIntakeHelper::enabledOfficeDrfTypeRadios(),
+            'syllabiCatalog' => OfficeIntakeHelper::officeDrfSyllabiCatalog(),
+            'isSyllabiLikeEdit' => RegisterQueryHelper::isSyllabiLikeName($subTypeName),
+            'subTypeName' => $subTypeName,
             'userOfficeId' => $office['id'],
             'userOfficeCode' => $office['code'],
             'userOfficeName' => $office['name'],
@@ -137,7 +145,18 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                                     break;
                                 }
                             }
+                            $savedDocTypeId = (string) old('docTypeId', (string) ($drf->doc_type_id ?? ''));
+                            $savedSubTypeId = (string) old('subTypeId', (string) ($drf->sub_type_id ?? ''));
                         @endphp
+                        {{-- Preserve catalog parent/sub on edit (edit UI does not re-pick them). --}}
+                        @if($docTypeKind === 'internal' || ($lockDocType ?? false))
+                            @if($savedDocTypeId !== '' && $optInDocTypeId === '')
+                                <input type="hidden" name="docTypeId" value="{{ $savedDocTypeId }}">
+                            @endif
+                            @if($savedSubTypeId !== '')
+                                <input type="hidden" name="subTypeId" id="drfSubTypeId" value="{{ $savedSubTypeId }}">
+                            @endif
+                        @endif
                         @if($lockDocType ?? false)
                             <input type="hidden" name="docTypeKind" value="{{ $docTypeKind }}">
                             @if($optInDocTypeId !== '')
@@ -168,6 +187,9 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                                 @endforeach
                             </div>
                             <input type="hidden" id="drfOptInDocTypeId" name="docTypeId" value="{{ $optInDocTypeId }}" @disabled(! in_array($docTypeKind, ['forms', 'logbooks'], true))>
+                            @if(!empty($subTypeName))
+                                <p class="ofi-hint">Sub-type: {{ $subTypeName }}</p>
+                            @endif
                             <script>
                                 document.addEventListener('DOMContentLoaded', function () {
                                     const form = document.querySelector('form');
@@ -184,6 +206,15 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                                 });
                             </script>
                         @endif
+                        @include('pages.dcs.office.partials.drf-syllabi-context', [
+                            'syllabiContextVisible' => (bool) ($isSyllabiLikeEdit ?? false),
+                            'subTypeName' => $subTypeName ?? '',
+                            'oldCollegeId' => old('collegeId', (string) ($drf->college_id ?? '')),
+                            'oldProgramId' => old('programId', (string) ($drf->program_id ?? '')),
+                            'oldSemesterId' => old('semesterId', (string) ($drf->semester_id ?? '')),
+                            'oldCourseId' => old('courseId', (string) ($drf->course_id ?? '')),
+                            'oldSchoolYearId' => old('schoolYearId', (string) ($drf->school_year_id ?? '')),
+                        ])
                     </div>
                     <div class="reg-field">
                         <label>Description/reason for request (define in detail) <span class="ofi-req">*</span></label>
@@ -299,6 +330,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
 window.__ofiOffices = @json($offices);
 window.__ofiClusters = @json($clusters);
 window.__ofiOldDistribute = @json($oldDistributeOfficeIds);
+window.__ofiSyllabiCatalog = @json($syllabiCatalog ?? []);
 window.__ofiSourceConfigs = [
     {
         key: 'distribute',
@@ -358,3 +390,4 @@ window.__ofiSourceConfigs = [
     });
 })();
 </script>
+@include('pages.dcs.office.partials.drf-syllabi-context-script')

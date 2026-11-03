@@ -2402,10 +2402,18 @@ function applyOfficeIntakeChecklistAndFields(prefill) {
         }
     };
 
-    setVal('drfTitle', prefill.drfTitle);
-    setVal('drfDate', prefill.drfDate);
-    document.getElementById('drfDate')?.dispatchEvent(new Event('change', { bubbles: true }));
-    setVal('masterlistDocTitle', prefill.masterlistDocTitle || prefill.drfTitle || prefill.documentTitle);
+    // Syllabi office DRF → fill #section-syllabi (not the normal DRF title fields).
+    if (prefill.isSyllabiLike && prefill.syllabi) {
+        setVal('masterlistDocTitle', prefill.masterlistDocTitle || prefill.drfTitle || prefill.syllabi.doc_title || prefill.documentTitle);
+        if (typeof applyOfficeIntakeSyllabiPrefill === 'function') {
+            applyOfficeIntakeSyllabiPrefill(prefill);
+        }
+    } else {
+        setVal('drfTitle', prefill.drfTitle);
+        setVal('drfDate', prefill.drfDate);
+        document.getElementById('drfDate')?.dispatchEvent(new Event('change', { bubbles: true }));
+        setVal('masterlistDocTitle', prefill.masterlistDocTitle || prefill.drfTitle || prefill.documentTitle);
+    }
     setVal('masterlistDocNo', prefill.masterlistDocNo || prefill.documentNo);
     if (prefill.reviseFromDocNo) {
         const fromInput = document.getElementById('revisedFromDocNo');
@@ -2649,6 +2657,89 @@ function restoreOfficeIntakePrefillIfNeeded() {
         return;
     }
     applyOfficeIntakeChecklistAndFields(window.__officeIntakePrefill);
+}
+
+/**
+ * Prefill Register syllabi section from an office Syllabi/TOS DRF.
+ * Lands in #section-syllabi (syllabi DRF pack), not #section-1.
+ */
+async function applyOfficeIntakeSyllabiPrefill(prefill) {
+    const syl = prefill?.syllabi;
+    if (!syl || typeof syl !== 'object') return;
+
+    const collegeSel = document.getElementById('syllabiCollege');
+    const programSel = document.getElementById('syllabiProgram');
+    const semSel = document.getElementById('syllabiSemester');
+    const courseTypeSel = document.getElementById('syllabiCourseType');
+    const sySel = document.getElementById('syllabiSchoolYear');
+    const titleInput = document.getElementById('syllabiDocTitle');
+    if (!collegeSel) return;
+
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const fireChange = (el) => {
+        if (!el) return;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    // Ensure colleges/programs are loaded for syllabi mode.
+    if (typeof loadSyllabiContextDropdowns === 'function') {
+        loadSyllabiContextDropdowns();
+    }
+
+    if (syl.college_id) {
+        collegeSel.value = String(syl.college_id);
+        fireChange(collegeSel);
+        await wait(60);
+    }
+    if (syl.program_id && programSel) {
+        programSel.disabled = false;
+        programSel.value = String(syl.program_id);
+        fireChange(programSel);
+        await wait(40);
+    }
+    if (syl.semester_id && semSel) {
+        semSel.disabled = false;
+        semSel.value = String(syl.semester_id);
+        fireChange(semSel);
+        await wait(40);
+    }
+    if (syl.course_type && courseTypeSel) {
+        courseTypeSel.disabled = false;
+        courseTypeSel.value = String(syl.course_type);
+        fireChange(courseTypeSel);
+        await wait(40);
+    }
+    if (syl.year_level && typeof refreshSyllabiYearLevelDisplay === 'function') {
+        const available = typeof yearLevelsFromCourses === 'function'
+            ? yearLevelsFromCourses(typeof catalogCoursesForContext === 'function' ? catalogCoursesForContext() : [])
+            : [syl.year_level];
+        refreshSyllabiYearLevelDisplay(available.length ? available : [syl.year_level], syl.year_level);
+    }
+    if (syl.school_year_id && sySel) {
+        sySel.disabled = false;
+        sySel.value = String(syl.school_year_id);
+        fireChange(sySel);
+        await wait(80);
+    }
+
+    if (titleInput) {
+        const title = String(syl.doc_title || prefill.drfTitle || '').trim();
+        if (title) {
+            syllabiTitleManuallyEdited = true;
+            titleInput.value = title;
+            if (typeof syncSyllabiToMasterlistFields === 'function') {
+                syncSyllabiToMasterlistFields();
+            }
+        }
+    }
+
+    // Stamp office DRF date onto syllabi DRF date cells when present.
+    const drfDate = String(syl.drf_date || prefill.drfDate || '').trim();
+    if (drfDate) {
+        document.querySelectorAll('input[name="syllabiDrfDate[]"]').forEach((input) => {
+            if (!String(input.value || '').trim()) input.value = drfDate;
+        });
+    }
 }
 
 // ══════════════════════════════════════════════
@@ -8750,6 +8841,18 @@ function updateSyllabiTitle() {
     const label    = window.__syllabiModeLabel || 'Syllabi';
 
     if (!college || !program || !semester || !schoolYr || !courseType) return;
+
+    // Single course row → office-intake style title (course name, not course type).
+    const courseNames = [...document.querySelectorAll('#syllabiTableBody textarea[name="syllabiCourseName[]"], #syllabiTableBody input[name="syllabiCourseName[]"]')]
+        .map((el) => String(el.value || '').trim())
+        .filter(Boolean);
+    if (courseNames.length === 1) {
+        const connector = /tos|rubric/i.test(label) ? 'TOS/Rubrics for' : 'Syllabus for';
+        const sy = String(formatSchoolYearText(schoolYr) || schoolYr).replace(/^\s*s\/?y\s*/i, '');
+        titleInput.value = college + ' ' + connector + ' ' + program + ' in ' + courseNames[0] + ', ' + semester + ' S/Y ' + sy;
+        syncSyllabiToMasterlistFields();
+        return;
+    }
 
     // GE is owned by CAS; title leads with CAS and targets the selected college.
     if (rawType === 'GE Courses') {

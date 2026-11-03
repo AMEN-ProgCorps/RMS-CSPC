@@ -581,4 +581,177 @@ class RdpRetentionService
 
         return count($toTransferIds);
     }
+
+    /**
+     * Automatically supersede prior active records when a new record is appraised/added
+     * for a record series that has the `is_superseding` policy enabled.
+     *
+     * Rules:
+     * 1. Scoped strictly to the same record_series_id and office_own.
+     * 2. Only targets active records where action_date IS NULL (not yet revised/superseded).
+     * 3. Respects chronology: only supersedes older editions (e.g. 2025 superseded by 2026),
+     *    protecting against out-of-order backlog entries.
+     * 4. Stamps action_date (triggering remark backup retention like 5 years storage).
+     * 5. Appends [Revised] to description for clear audit trail in NAP reports.
+     *
+     * @param int $newRecordId
+     * @param string|null $supersedeDate Optional custom revision date (defaults to new record period/today)
+     * @param Carbon|null $now
+     * @return array IDs of records that were superseded
+     */
+    public static function supersedePriorRecords(int $newRecordId, ?string $supersedeDate = null, ?Carbon $now = null): array
+    {
+        $newRecord = DB::table('rdp_record')->where('id', $newRecordId)->first();
+        if (!$newRecord || (bool)($newRecord->is_draft ?? false)) {
+            return [];
+        }
+
+        $seriesId = (int)($newRecord->record_series_id ?? 0);
+        if (!$seriesId) {
+            return [];
+        }
+
+        // Check if the series (or parent) has is_superseding enabled
+        $series = DB::table('rdp_record_series')
+            ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+            ->select([
+                'rdp_record_series.id',
+                'rdp_record_series.is_superseding as sub_superseding',
+                'parent.is_superseding as parent_superseding',
+            ])
+            ->where('rdp_record_series.id', $seriesId)
+            ->first();
+
+        $isSuperseding = (bool)($series?->sub_superseding ?? false) || (bool)($series?->parent_superseding ?? false);
+        if (!$isSuperseding) {
+            return [];
+        }
+
+        $officeOwn = $newRecord->office_own;
+
+        // Fetch period covered for the new record
+        $newPeriod = DB::table('rdp_period_covered')
+            ->where('period_owner', $newRecordId)
+            ->first();
+
+        $newPeriodYear = self::parsePeriodYear($newPeriod?->date_covered, $newPeriod?->date_covered_end);
+
+        // Determine effective supersede action date:
+        // Prioritize provided date -> new period date -> today
+        $effActionDate = $supersedeDate;
+        if (empty($effActionDate) && !empty($newPeriod?->date_covered)) {
+            $parsedDate = self::parseDateCovered($newPeriod->date_covered);
+            if ($parsedDate) {
+                $effActionDate = $parsedDate->toDateString();
+            }
+        }
+        if (empty($effActionDate)) {
+            $effActionDate = ($now ?: Carbon::now())->toDateString();
+        }
+
+        // Backlog Protection: If a newer active record already exists for this series & office,
+        // the incoming older record should arrive already marked as revised.
+        if ($newPeriodYear !== null) {
+            $existingActives = DB::table('rdp_record')
+                ->join('rdp_period_covered', 'rdp_record.id', '=', 'rdp_period_covered.period_owner')
+                ->where('rdp_record.record_series_id', $seriesId)
+                ->where('rdp_record.id', '!=', $newRecordId)
+                ->where('rdp_record.is_draft', false)
+                ->where('rdp_record.is_active', true)
+                ->whereNull('rdp_record.action_date')
+                ->when(!empty($officeOwn), fn($q) => $q->where('rdp_record.office_own', $officeOwn))
+                ->select(['rdp_record.id', 'rdp_period_covered.date_covered', 'rdp_period_covered.date_covered_end'])
+                ->get();
+
+            foreach ($existingActives as $act) {
+                $actYear = self::parsePeriodYear($act->date_covered, $act->date_covered_end);
+                if ($actYear !== null && $actYear > $newPeriodYear) {
+                    $desc = trim((string)$newRecord->description);
+                    if (!preg_match('/\b(revised|superseded)\b/i', $desc)) {
+                        $desc = empty($desc) ? '[Revised]' : $desc . ' [Revised]';
+                    }
+                    $parsedActDate = self::parseDateCovered($act->date_covered);
+                    $revActionDate = $parsedActDate ? $parsedActDate->toDateString() : $effActionDate;
+
+                    DB::table('rdp_record')
+                        ->where('id', $newRecordId)
+                        ->update([
+                            'action_date' => $revActionDate,
+                            'description' => $desc,
+                            'updated_at'  => $now ?: now(),
+                        ]);
+
+                    self::syncTransferredRecords($officeOwn, $now);
+                    return [$newRecordId];
+                }
+            }
+        }
+
+        // Query candidate prior records
+        $candidateQuery = DB::table('rdp_record')
+            ->where('record_series_id', $seriesId)
+            ->where('id', '!=', $newRecordId)
+            ->where('is_draft', false)
+            ->where('is_active', true)
+            ->whereNull('action_date');
+
+        if (!empty($officeOwn)) {
+            $candidateQuery->where('office_own', $officeOwn);
+        }
+
+        $candidates = $candidateQuery->get();
+        if ($candidates->isEmpty()) {
+            return [];
+        }
+
+        $candidatePeriods = DB::table('rdp_period_covered')
+            ->whereIn('period_owner', $candidates->pluck('id'))
+            ->get()
+            ->groupBy('period_owner');
+
+        $supersededIds = [];
+
+        foreach ($candidates as $cand) {
+            $candPeriodList = $candidatePeriods[$cand->id] ?? collect();
+            $candFirstPeriod = $candPeriodList->first();
+            $candYear = self::parsePeriodYear($candFirstPeriod?->date_covered, $candFirstPeriod?->date_covered_end);
+
+            // Chronological guard:
+            // If both new record and candidate have a parsed year, candidate must be <= new record year.
+            // If candidate is newer than the new record, do not supersede!
+            if ($newPeriodYear !== null && $candYear !== null) {
+                if ($candYear > $newPeriodYear) {
+                    continue; // Skip: candidate is newer than the incoming record
+                }
+            } elseif ($cand->created_at && $newRecord->created_at) {
+                // Fallback to insertion timestamp if no year could be extracted
+                if (strtotime($cand->created_at) > strtotime($newRecord->created_at)) {
+                    continue;
+                }
+            }
+
+            // Append [Revised] to description if not already present
+            $desc = trim((string)$cand->description);
+            if (!preg_match('/\b(revised|superseded)\b/i', $desc)) {
+                $desc = empty($desc) ? '[Revised]' : $desc . ' [Revised]';
+            }
+
+            DB::table('rdp_record')
+                ->where('id', $cand->id)
+                ->update([
+                    'action_date' => $effActionDate,
+                    'description' => $desc,
+                    'updated_at'  => $now ?: now(),
+                ]);
+
+            $supersededIds[] = $cand->id;
+        }
+
+        if (!empty($supersededIds)) {
+            // Re-sync transferred records so retention expiration calculations update
+            self::syncTransferredRecords($officeOwn, $now);
+        }
+
+        return $supersededIds;
+    }
 }

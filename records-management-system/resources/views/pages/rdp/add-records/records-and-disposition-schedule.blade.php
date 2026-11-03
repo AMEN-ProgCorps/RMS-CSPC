@@ -17,6 +17,7 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
     public string $total_period = '';
     public string $remarks = '';
     public bool $is_permanent = false;
+    public bool $is_superseding = false;
 
     public string $successMessage = '';
     public string $errorMessage = '';
@@ -170,6 +171,7 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
         $this->total_period = '';
         $this->remarks = '';
         $this->is_permanent = false;
+        $this->is_superseding = false;
         $this->subsections = [];
     }
 
@@ -235,6 +237,7 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
                     'parent_id'                    => $currentParentId,
                     'retention_period'             => $isLeaf ? $retentionId : null,
                     'is_retention_period_permanent' => $isLeaf ? $this->is_permanent : false,
+                    'is_superseding'               => $isLeaf ? $this->is_superseding : false,
                     'recorded_at_office'           => $userOfficeCode,
                     'created_by'                   => $user?->id,
                     'is_verified'                  => false,
@@ -348,6 +351,7 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
                     'parent_id'                    => $currentParentId,
                     'retention_period'             => $isLeaf ? $retentionId : null,
                     'is_retention_period_permanent' => $isLeaf ? $this->is_permanent : false,
+                    'is_superseding'               => $isLeaf ? $this->is_superseding : false,
                     'recorded_at_office'           => $userOfficeCode,
                     'created_by'                   => $user?->id,
                     'is_verified'                  => $existing ? (bool)$existing->is_verified : false,
@@ -584,6 +588,17 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
             <div class="rds-form-row" style="align-items: flex-start;">
                 <span class="rds-label" style="margin-top: 10px;">Remarks</span>
                 <textarea class="rds-input" wire:model="remarks" rows="3" placeholder="Enter disposition instructions or remarks..." style="font-family: inherit; text-transform: none !important;"></textarea>
+            </div>
+
+            <!-- Auto-Supersede Toggle -->
+            <div class="rds-form-row" style="align-items: center;">
+                <span class="rds-label">Supersede Policy</span>
+                <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
+                    <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #1e3a8a; cursor: pointer;">
+                        <input type="checkbox" wire:model="is_superseding" style="width: 16px; height: 16px; accent-color: #2563eb;">
+                        Auto-Supersede Prior Edition (revises older active records when a newer edition is added)
+                    </label>
+                </div>
             </div>
         </div>
 

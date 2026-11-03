@@ -222,12 +222,15 @@
                     'url' => route('rdp.pending.list'),
                     'active' => request()->routeIs('rdp.pending.list'),
                 ],
-                [
+            ];
+            $userPerms = auth()->user()?->permissions;
+            if ($userPerms && ((bool)($userPerms->is_sadm ?? false) || (bool)($userPerms->can_rdp_access_for_approval ?? false))) {
+                $tabs[] = [
                     'label' => 'For Approval',
                     'url' => route('rdp.pending.for-approval'),
                     'active' => request()->routeIs('rdp.pending.for-approval'),
-                ],
-            ];
+                ];
+            }
         }
         // 5. References Section
         elseif (request()->routeIs('rdp.references.*')) {

@@ -140,7 +140,9 @@
     </div>
     <div class="functions-container">
         <div class="function-button {{ request()->routeIs('rdp.pending.list') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.pending.list') }}')">List</div>
+        @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_rdp_access_for_approval)
         <div class="function-button {{ request()->routeIs('rdp.pending.for-approval') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.pending.for-approval') }}')">For Approval</div>
+        @endif
     </div>
 </div>
 

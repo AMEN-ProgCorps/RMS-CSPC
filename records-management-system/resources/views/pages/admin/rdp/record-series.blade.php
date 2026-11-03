@@ -62,6 +62,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public string $subsectionItemNumber = '';
     public bool $subsectionInheritRetention = true;
     public bool $subsectionIsPermanent = true;
+    public bool $subsectionIsSuperseding = false;
     public string $subsectionActivePeriod = '';
     public string $subsectionStoragePeriod = '';
     public string $subsectionRemarks = '';
@@ -80,6 +81,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public string $newRemarkActivePeriod = '';
     public string $newRemarkStoragePeriod = '';
     public bool $newIsPermanent = false;
+    public bool $newIsSuperseding = false;
     public string $newPeriodType = '';
     public bool $showAddForm = false;
     public ?int $relativeRecordId = null;
@@ -108,6 +110,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public string $editRemarkKeyWordId = '';
     public bool $editIsActive = false;
     public bool $editIsPermanent = false;
+    public bool $editIsSuperseding = false;
 
     public string $successMessage = '';
     public string $errorMessage = '';
@@ -800,7 +803,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 trim($this->newRemarks) ?: null
             );
 
-            if (!$this->newIsPermanent && !empty(trim($this->newRemarks))) {
+            if (!empty(trim($this->newRemarks))) {
                 $remKeywordId = is_numeric($this->newRemarkKeyWordId) ? (int) $this->newRemarkKeyWordId : null;
                 $remTotalPeriod = $this->computeTotalPeriod(
                     $this->newRemarkActivePeriod,
@@ -815,6 +818,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     trim($this->newRemarkStoragePeriod) ?: null,
                     $remTotalPeriod ?: null
                 );
+            }
+
+            if ($this->newIsSuperseding) {
+                DB::table('rdp_record_series')->where('id', $createdId)->update([
+                    'is_superseding' => true,
+                ]);
             }
 
             DB::commit();
@@ -863,7 +872,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 'rdp_remarks_logic.active_period_backup as remark_active_period',
                 'rdp_remarks_logic.storage_period_backup as remark_storage_period',
                 'rdp_remarks_logic.total_period_backup as remark_total_period',
-                'rdp_remark_key_triggers.is_action_before as remarks_is_action_before'
+                'rdp_remark_key_triggers.is_action_before as remarks_is_action_before',
+                'rdp_record_series.is_superseding'
             )
             ->where('rdp_record_series.id', $seriesId)
             ->first();
@@ -888,6 +898,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ? (string) $series->remarks_key_word_id
             : '';
         $this->editIsActive = (bool) $series->is_active;
+        $this->editIsSuperseding = (bool) ($series->is_superseding ?? false);
         $this->editParentId = $series->parent_id !== null ? (int) $series->parent_id : null;
         $this->editParentInput = (string) ($series->parent_title ?? '');
         $this->showEditParentDropdown = false;
@@ -1001,6 +1012,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             'retention_period'             => $retentionId,
             'is_retention_period_permanent' => $this->editIsPermanent,
             'is_active'                    => $this->editIsActive,
+            'is_superseding'               => $this->editIsSuperseding,
             'updated_at'                   => now(),
         ]);
 
@@ -1189,6 +1201,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->subsectionRemarkKeyWordId = '';
         $this->subsectionRemarkActivePeriod = '';
         $this->subsectionRemarkStoragePeriod = '';
+        $this->subsectionIsSuperseding = (bool) ($series->is_superseding ?? false);
         $this->showSubsectionModal = true;
     }
 
@@ -1207,6 +1220,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->subsectionRemarkKeyWordId = '';
         $this->subsectionRemarkActivePeriod = '';
         $this->subsectionRemarkStoragePeriod = '';
+        $this->subsectionIsSuperseding = false;
     }
 
     public function saveSubsections(): void
@@ -1293,7 +1307,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 $leafRemarks
             );
 
-            if (!$this->subsectionInheritRetention && !$this->subsectionIsPermanent && $leafRemarks !== null) {
+            if (!$this->subsectionInheritRetention && $leafRemarks !== null) {
                 $remKeywordId = is_numeric($this->subsectionRemarkKeyWordId) ? (int) $this->subsectionRemarkKeyWordId : null;
                 $remTotalPeriod = $this->computeTotalPeriod(
                     $this->subsectionRemarkActivePeriod,
@@ -1308,6 +1322,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     trim($this->subsectionRemarkStoragePeriod) ?: null,
                     $remTotalPeriod ?: null
                 );
+            }
+
+            if ($this->subsectionIsSuperseding) {
+                DB::table('rdp_record_series')->where('id', $createdLeafId)->update([
+                    'is_superseding' => true,
+                ]);
             }
 
             DB::commit();
@@ -3304,8 +3324,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 </div>
             </div>
 
-            <!-- Side Card (Outside the modal, appears on the right when Temporary is selected) -->
-            <div x-show="periodType === 'Temporary'"
+            <!-- Side Card (Outside the modal, appears on the right when Period Type is selected) -->
+            <div x-show="periodType !== ''"
                  x-transition:enter="transition ease-out duration-200"
                  x-transition:enter-start="opacity-0 transform translate-x-4 scale-95"
                  x-transition:enter-end="opacity-100 transform translate-x-0 scale-100"
@@ -3321,20 +3341,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     <!-- Active Period -->
                     <div style="margin-bottom: 14px;">
                         <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--ars-slate-700); margin-bottom: 4px;">Active Period:</label>
-                        <input type="text" class="ars-input" x-model="active" wire:model="newActivePeriod" placeholder="e.g. 6 Months, 1 Year" style="width: 100%; font-size: 12.5px;">
+                        <input type="text" class="ars-input" x-model="active" wire:model="newActivePeriod" :placeholder="perm ? 'Permanent' : 'e.g. 6 Months, 1 Year'" :disabled="perm" :style="perm ? 'opacity: 0.5; cursor: not-allowed;' : ''" style="width: 100%; font-size: 12.5px;">
                     </div>
 
                     <!-- Storage Period -->
                     <div style="margin-bottom: 14px;">
                         <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--ars-slate-700); margin-bottom: 4px;">Storage Period:</label>
-                        <input type="text" class="ars-input" x-model="storage" wire:model="newStoragePeriod" placeholder="e.g. 1 Year, 4 Years" style="width: 100%; font-size: 12.5px;">
+                        <input type="text" class="ars-input" x-model="storage" wire:model="newStoragePeriod" :placeholder="perm ? 'Permanent' : 'e.g. 1 Year, 4 Years'" :disabled="perm" :style="perm ? 'opacity: 0.5; cursor: not-allowed;' : ''" style="width: 100%; font-size: 12.5px;">
                     </div>
 
                     <!-- Total Period -->
                     <div style="margin-bottom: 14px;">
                         <label style="display: block; font-size: 11.5px; font-weight: 700; color: var(--ars-slate-700); margin-bottom: 4px;">Total Period:</label>
                         <div style="padding: 9px 13px; background: #ffffff; border: 1.5px solid var(--ars-slate-300); border-radius: 8px; font-weight: 800; font-size: 13px; color: var(--ars-blue-800);"
-                             x-text="computeTotalPeriod(active, storage, false) || '— (Auto-calculated)'">
+                             x-text="perm ? 'Permanent' : (computeTotalPeriod(active, storage, false) || '— (Auto-calculated)')">
                             — (Auto-calculated)
                         </div>
                     </div>
@@ -3376,6 +3396,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                 </div>
                             </div>
                         @endif
+                    </div>
+
+                    <!-- Auto-Supersede Toggle -->
+                    <div style="margin-top: 14px; padding: 10px 12px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;">
+                        <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 11.5px; font-weight: 700; color: var(--ars-blue-800); cursor: pointer;">
+                            <input type="checkbox" wire:model="newIsSuperseding" style="width: 15px; height: 15px; accent-color: var(--ars-blue-600); margin-top: 1px;">
+                            <span>
+                                Auto-Supersede Prior Edition
+                                <span style="display: block; font-size: 10.5px; font-weight: 400; color: var(--ars-slate-600); margin-top: 2px;">
+                                    When a newer record arrives under this series, automatically mark older active records as revised and apply backup storage retention.
+                                </span>
+                            </span>
+                        </label>
                     </div>
                 </div>
             </div>
@@ -3515,6 +3548,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                     </div>
                                 @endif
                             </div>
+                        </div>
+
+                        <!-- Auto-Supersede Toggle -->
+                        <div style="margin-top: 14px; padding: 10px 12px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;">
+                            <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 11.5px; font-weight: 700; color: var(--ars-blue-800); cursor: pointer;">
+                                <input type="checkbox" wire:model="subsectionIsSuperseding" style="width: 15px; height: 15px; accent-color: var(--ars-blue-600); margin-top: 1px;">
+                                <span>
+                                    Auto-Supersede Prior Edition
+                                    <span style="display: block; font-size: 10.5px; font-weight: 400; color: var(--ars-slate-600); margin-top: 2px;">
+                                        When a newer record arrives under this subsection, automatically mark older active records as revised and apply backup storage retention.
+                                    </span>
+                                </span>
+                            </label>
                         </div>
                     </div>
 
@@ -3798,9 +3844,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                     </div>
                                 </td>
                                 <td style="text-align: center; white-space: nowrap; width: 200px; border: 1px solid #cbd5e1;">
-                                    <div style="margin-bottom: 6px;">
+                                    <div style="margin-bottom: 6px; display: flex; flex-direction: column; align-items: center; gap: 3px;">
                                         <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; cursor: pointer;">
                                             <input type="checkbox" wire:model="editIsActive" style="width: 14px; height: 14px;"> Active
+                                        </label>
+                                        <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; color: var(--ars-blue-800); cursor: pointer;" title="When a newer record arrives, automatically mark older active records as revised and apply backup storage retention">
+                                            <input type="checkbox" wire:model="editIsSuperseding" style="width: 13px; height: 13px; accent-color: var(--ars-blue-600);"> Auto-Supersede
                                         </label>
                                     </div>
                                     <button type="button" wire:click="updateSeries" class="ars-btn ars-btn-primary" style="padding: 5px 10px; font-size: 12px; margin-right: 2px;">Save</button>

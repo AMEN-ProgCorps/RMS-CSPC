@@ -125,9 +125,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
             DB::table($mainPendingTbl)->where('id', $clusterId)->delete();
 
-            DB::commit();
-
             $clusterName = $this->selectedCluster->cluster_name ?? 'Form';
+            $formTitle = $this->selectedCluster->form_label ?? 'NAP Form';
+            $office = $this->selectedCluster->office ?? 'Office';
+
+            $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+            DB::table($adminLogsTbl)->insert([
+                'admin_id'     => Auth::id() ?? 1,
+                'changes'      => "Canceled {$formTitle} cluster #{$clusterId} ('{$clusterName}') for office {$office} via RDP Pending List",
+                'what_system'  => 2,
+                'when_changes' => now(),
+            ]);
+
+            DB::commit();
             $this->closeDetailModal();
             $this->successMessage = "Form '{$clusterName}' was successfully cancelled. Its items have been released.";
         } catch (\Exception $e) {
@@ -142,9 +152,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         if ($clusterId <= 0) return;
 
         $formCode = strtolower($this->printCluster?->form_code ?? '');
-        $formLabel = strtolower($this->printCluster?->form_label ?? '');
+        $formLabel = $this->printCluster?->form_label ?? 'NAP Form';
+        $clusterName = $this->printCluster?->cluster_name ?? ('Cluster #' . $clusterId);
+        $office = $this->printCluster?->office ?? 'Office';
 
-        if ($formCode === 'nap2' || str_contains($formLabel, 'form 2')) {
+        if ($formCode === 'nap2' || str_contains(strtolower($formLabel), 'form 2')) {
             DB::table('rdp_pending_record_series')
                 ->where('cluster_id', $clusterId)
                 ->update([
@@ -159,19 +171,31 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     'updated_at' => now(),
                 ]);
         }
+
+        $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+        DB::table($adminLogsTbl)->insert([
+            'admin_id'     => Auth::id() ?? 1,
+            'changes'      => "Printed {$formLabel} cluster #{$clusterId} ('{$clusterName}') for office {$office}",
+            'what_system'  => 2,
+            'when_changes' => now(),
+        ]);
     }
 
-    public function markClusterDownloaded(int $clusterId, string $formCode): void
+    public function markClusterDownloaded(int $clusterId, string $formCode, string $fileType = 'file'): void
     {
         if ($clusterId <= 0) return;
 
-        if ($formCode === 'nap2' || str_contains(strtolower($formCode), 'form 2')) {
+        $isNap2 = ($formCode === 'nap2' || str_contains(strtolower($formCode), 'form 2'));
+
+        if ($isNap2) {
             DB::table('rdp_pending_record_series')
                 ->where('cluster_id', $clusterId)
                 ->update([
                     'is_downloaded' => true,
                     'updated_at' => now(),
                 ]);
+            $clusterRow = DB::table('rdp_pending_record_series')->where('cluster_id', $clusterId)->first();
+            $formLabel = 'NAP Form 2';
         } else {
             DB::table('rdp_pending_record')
                 ->where('cluster_id', $clusterId)
@@ -179,7 +203,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     'is_downloaded' => true,
                     'updated_at' => now(),
                 ]);
+            $clusterRow = DB::table('rdp_pending_record')->where('cluster_id', $clusterId)->first();
+            $formLabel = ($clusterRow?->is_for_nap_three ?? false) ? 'NAP Form 3' : 'NAP Form 1';
         }
+
+        $clusterName = $clusterRow?->cluster_name ?? ('Cluster #' . $clusterId);
+        $office = $clusterRow?->office ?? 'Office';
+
+        $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+        DB::table($adminLogsTbl)->insert([
+            'admin_id'     => Auth::id() ?? 1,
+            'changes'      => "Downloaded {$formLabel} cluster #{$clusterId} ('{$clusterName}') as local {$fileType} for office {$office}",
+            'what_system'  => 2,
+            'when_changes' => now(),
+        ]);
     }
 
     public function mount(): void
@@ -461,7 +498,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
         $fileName = \Illuminate\Support\Str::slug($cluster->cluster_name . '-' . $formCode) . '-' . now()->format('Ymd-His') . '.xlsx';
         $targetClusterId = (int)($cluster->cluster_id ?? $this->downloadClusterId);
-        $this->markClusterDownloaded($targetClusterId, $formCode);
+        $this->markClusterDownloaded($targetClusterId, $formCode, 'Excel');
 
         if ($isNap1) {
             $treeData = $this->buildNapRecordTree($targetClusterId, false);
@@ -629,7 +666,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
         $fileName = \Illuminate\Support\Str::slug($cluster->cluster_name . '-' . $formCode) . '-' . now()->format('Ymd-His') . '.pdf';
         $targetClusterId = (int)($cluster->cluster_id ?? $this->downloadClusterId);
-        $this->markClusterDownloaded($targetClusterId, $formCode);
+        $this->markClusterDownloaded($targetClusterId, $formCode, 'PDF');
 
         $this->closeDownloadModal();
 

@@ -251,6 +251,18 @@ tr.db-row-collapsed {
     display: none !important;
 }
 
+.db-page-info {
+    margin-right: auto;
+    color: var(--db-text-sec, #475569);
+    font-size: 13px;
+}
+
+.db-empty-cell {
+    text-align: center;
+    padding: 40px;
+    color: var(--db-text-muted, #475569);
+}
+
 .db-table-scroll table {
     min-width: max-content;
 }

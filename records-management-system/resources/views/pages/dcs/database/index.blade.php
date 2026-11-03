@@ -1457,6 +1457,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         window.__dcsDbMenuOutsideHandler = this._onDbMenuOutside;
         document.addEventListener('mousedown', this._onDbMenuOutside, true);
+        // Menu buttons cannot rely on Alpine @click after Livewire morph — bind once via DOM.
+        this.bindMenuActionClicks();
         this._onResizeSticky = () => this.queueStickySync();
         window.addEventListener('resize', this._onResizeSticky);
 
@@ -1499,6 +1501,60 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 window.__dcsDbMenuOutsideHandler = null;
             }
         }
+        if (this._onDbMenuClick) {
+            document.removeEventListener('click', this._onDbMenuClick, true);
+            if (window.__dcsDbMenuClickHandler === this._onDbMenuClick) {
+                window.__dcsDbMenuClickHandler = null;
+            }
+        }
+    },
+    bindMenuActionClicks() {
+        this._onDbMenuClick = (e) => {
+            const api = window.__dcsDbApi;
+            if (!api) return;
+            const rowMenu = document.getElementById('dcs-db-row-menu');
+            const groupMenu = document.getElementById('dcs-db-group-menu');
+            if (rowMenu && rowMenu.style.display !== 'none' && rowMenu.contains(e.target)) {
+                const btn = e.target.closest?.('button[data-menu-edit], button[data-menu-revise], button[data-menu-recur], button[data-menu-print]');
+                if (!btn || btn.style.display === 'none') return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (btn.hasAttribute('data-menu-edit')) {
+                    api.goRowAction(api.rowMenu?.editUrl || '');
+                    return;
+                }
+                if (btn.hasAttribute('data-menu-revise')) {
+                    api.goRowAction(api.rowMenu?.reviseUrl || '');
+                    return;
+                }
+                if (btn.hasAttribute('data-menu-recur')) {
+                    api.goRowAction(api.rowMenu?.recurUrl || '');
+                    return;
+                }
+                if (btn.hasAttribute('data-menu-print') && typeof api.printDistributionFromRow === 'function') {
+                    api.printDistributionFromRow();
+                }
+                return;
+            }
+            if (groupMenu && groupMenu.style.display !== 'none' && groupMenu.contains(e.target)) {
+                const btn = e.target.closest?.('button[data-menu-dist], button[data-menu-hide-group]');
+                if (!btn) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (btn.hasAttribute('data-menu-dist') && typeof api.generateDistributionFromGroup === 'function') {
+                    api.generateDistributionFromGroup();
+                    return;
+                }
+                if (btn.hasAttribute('data-menu-hide-group') && typeof api.hideGroupFromMenu === 'function') {
+                    api.hideGroupFromMenu();
+                }
+            }
+        };
+        if (window.__dcsDbMenuClickHandler) {
+            document.removeEventListener('click', window.__dcsDbMenuClickHandler, true);
+        }
+        window.__dcsDbMenuClickHandler = this._onDbMenuClick;
+        document.addEventListener('click', this._onDbMenuClick, true);
     },
     dbRoot() {
         return document.querySelector('[data-dcs-db-root]') || this.$el;
@@ -1546,10 +1602,32 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if (!root) return;
         const showCats = root.getAttribute('data-show-category-rows') === '1';
         const forced = root.getAttribute('data-force-categories-open') === '1';
+        // Typed tabs: Livewire morph can reuse ALL-tab <tr> nodes that still have
+        // display:none / db-row-collapsed from collapsed categories — clear them.
+        if (!showCats) {
+            root.querySelectorAll('tbody tr').forEach((tr) => {
+                tr.classList.remove('db-row-collapsed');
+                tr.hidden = false;
+                tr.style.removeProperty('display');
+            });
+            // Still honor revision expand/collapse on child rows.
+            root.querySelectorAll('tr[data-rev-key]').forEach((tr) => {
+                const revKey = tr.getAttribute('data-rev-key') || '';
+                const open = !revKey || !!this.expandedRevs[revKey];
+                tr.classList.toggle('db-row-collapsed', !open);
+                tr.hidden = !open;
+                if (open) {
+                    tr.style.removeProperty('display');
+                } else {
+                    tr.style.display = 'none';
+                }
+            });
+            return;
+        }
         root.querySelectorAll('tr[data-cat]').forEach((tr) => {
             const slug = tr.getAttribute('data-cat') || '';
             const revKey = tr.getAttribute('data-rev-key') || '';
-            const catOpen = !showCats || forced || !!this.categories[slug];
+            const catOpen = forced || !!this.categories[slug];
             const revOpen = !revKey || !!this.expandedRevs[revKey];
             const open = catOpen && revOpen;
             tr.classList.toggle('db-row-collapsed', !open);
@@ -2159,7 +2237,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </tr>
                 </thead>
 
-                <tbody>
+                <tbody wire:key="db-tbody-{{ $docTypeId }}-{{ ! empty($forceCategoriesOpen) ? 'forced' : 'plain' }}-{{ $list['page'] ?? 1 }}">
                     @php $lastCategory = null; @endphp
                     @forelse(($list['data'] ?? []) as $i => $group)
                         @php
@@ -2274,7 +2352,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @endif
                         @endforeach
                     @empty
-                        <tr><td colspan="47" style="text-align:center;padding:40px;color:#475569;">No documents found</td></tr>
+                        <tr><td colspan="47" class="db-empty-cell">No documents found</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -2291,7 +2369,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $pgEnd = min($pgLast, $pg + 2);
         @endphp
         <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 16px;flex-wrap:wrap;">
-            <span style="margin-right:auto;color:#475569;font-size:13px;">Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}</span>
+            <span class="db-page-info">Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}</span>
             @if($pg > 1)
                 <button type="button" class="db-btn" wire:click="goToPage({{ $pg - 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Previous</button>
             @endif
@@ -2306,17 +2384,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </section>
 </main>
 
-{{-- Fixed menus outside .db-page overflow; wire:ignore so Livewire morph cannot re-apply x-cloak --}}
+{{-- Fixed menus outside .db-page overflow; actions bound via document click (survives Livewire morph) --}}
 <div id="dcs-db-group-menu"
      class="db-col-context-menu"
      wire:ignore
-     style="display:none"
-     @mousedown.outside="closeGroupMenuSafe()"
-     @click.stop>
-    <button type="button" @click="generateDistributionFromGroup()">
+     style="display:none">
+    <button type="button" data-menu-dist>
         <i class="fa-solid fa-print"></i> Generate distribution sheet
     </button>
-    <button type="button" @click="hideGroupFromMenu()">
+    <button type="button" data-menu-hide-group>
         Hide <span data-menu-group-name></span> group
     </button>
 </div>
@@ -2324,20 +2400,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 <div id="dcs-db-row-menu"
      class="db-col-context-menu db-row-context-menu"
      wire:ignore
-     style="display:none"
-     @mousedown.outside="closeRowMenu()"
-     @click.stop>
+     style="display:none">
     <div class="db-row-context-label" data-menu-label style="display:none"></div>
-    <button type="button" data-menu-edit style="display:none" @click="goRowAction(rowMenu.editUrl)">
+    <button type="button" data-menu-edit style="display:none">
         <i class="fa-solid fa-pen"></i> Edit
     </button>
-    <button type="button" data-menu-revise style="display:none" @click="goRowAction(rowMenu.reviseUrl)">
+    <button type="button" data-menu-revise style="display:none">
         <i class="fa-solid fa-file-pen"></i> Register revised
     </button>
-    <button type="button" data-menu-recur style="display:none" @click="goRowAction(rowMenu.recurUrl)">
+    <button type="button" data-menu-recur style="display:none">
         <i class="fa-solid fa-rotate"></i> Register recur
     </button>
-    <button type="button" data-menu-print style="display:none" @click="printDistributionFromRow()">
+    <button type="button" data-menu-print style="display:none">
         <i class="fa-solid fa-print"></i> Print for distribution
     </button>
 </div>

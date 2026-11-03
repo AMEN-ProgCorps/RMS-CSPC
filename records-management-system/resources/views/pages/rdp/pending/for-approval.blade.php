@@ -33,12 +33,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
     {
         $perms = Auth::user()?->permissions;
         $isSadm = (bool)($perms->is_sadm ?? false);
-        $canViewAllPending = (bool)($perms->is_rdp_view_all_pending_list ?? false);
-        $canRdpAdmin = (bool)($perms->can_access_rdp_admin ?? false);
-        $canModifySeries = (bool)($perms->can_rdp_modify_series ?? true);
+        $canAccessForApproval = (bool)($perms->can_rdp_access_for_approval ?? false);
 
-        if (!$perms || (!$isSadm && !$canViewAllPending && !$canRdpAdmin && !$canModifySeries)) {
-            redirect()->route('rdp')->send();
+        if (!$perms || (!$isSadm && !$canAccessForApproval)) {
+            $this->redirect(route('rdp.pending.list'));
             return;
         }
 
@@ -204,11 +202,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
 
             $formCode = $this->targetCluster->form_code ?? '';
             $formLabel = $this->targetCluster->form_label ?? '';
+            $clusterId = (int)($this->targetCluster->cluster_id ?? 0);
+            $clusterName = $this->targetCluster->cluster_name ?? ('Cluster #' . $clusterId);
+            $office = $this->targetCluster->office ?? 'Office';
 
             if ($formLabel === 'NAP Form 2' || $formCode === 'nap2') {
                 // NAP Form 2: Verify cluster AND all contained Record Series so they become official and leave NAP Form 2 draft list
                 DB::table('rdp_pending_record_series')
-                    ->where('cluster_id', $this->targetCluster->cluster_id)
+                    ->where('cluster_id', $clusterId)
                     ->update([
                         'is_verified' => true,
                         'status_id'  => 2, // Verified
@@ -228,7 +229,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
             } elseif ($formLabel === 'NAP Form 3' || $formCode === 'nap3') {
                 // NAP Form 3: Verify cluster AND all contained Records so they are marked disposed/verified
                 DB::table('rdp_pending_record')
-                    ->where('cluster_id', $this->targetCluster->cluster_id)
+                    ->where('cluster_id', $clusterId)
                     ->update([
                         'is_verified' => true,
                         'status_id'  => 2, // Verified
@@ -247,7 +248,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
             } else {
                 // NAP Form 1: Verify cluster ONLY. Record series/records inside remain unchanged
                 DB::table('rdp_pending_record')
-                    ->where('cluster_id', $this->targetCluster->cluster_id)
+                    ->where('cluster_id', $clusterId)
                     ->update([
                         'is_verified' => true,
                         'status_id'  => 2, // Verified
@@ -255,9 +256,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                     ]);
             }
 
+            $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+            DB::table($adminLogsTbl)->insert([
+                'admin_id'     => Auth::id() ?? 1,
+                'changes'      => "Evaluated & Verified submission cluster #{$clusterId} ('{$clusterName}') [{$formLabel}] from office {$office}",
+                'what_system'  => 2,
+                'when_changes' => now(),
+            ]);
+
             DB::commit();
 
-            $this->successMessage = "Submission cluster '{$this->targetCluster->cluster_name}' successfully VERIFIED!";
+            $this->successMessage = "Submission cluster '{$clusterName}' successfully VERIFIED!";
             $this->closeApprovalModal();
         } catch (\Exception $e) {
             DB::rollBack();
@@ -270,25 +279,68 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         if (!$this->targetCluster) return;
 
         try {
-            if ($this->targetCluster->form_label === 'NAP Form 2') {
+            DB::beginTransaction();
+
+            $formCode = $this->targetCluster->form_code ?? '';
+            $formLabel = $this->targetCluster->form_label ?? '';
+            $clusterId = (int)($this->targetCluster->cluster_id ?? 0);
+            $clusterName = $this->targetCluster->cluster_name ?? ('Cluster #' . $clusterId);
+            $office = $this->targetCluster->office ?? 'Office';
+
+            if ($formLabel === 'NAP Form 2' || $formCode === 'nap2') {
                 DB::table('rdp_pending_record_series')
-                    ->where('cluster_id', $this->targetCluster->cluster_id)
+                    ->where('cluster_id', $clusterId)
                     ->update([
-                        'status_id'  => 4, // Returned for Correction
-                        'updated_at' => now(),
+                        'status_id'   => 4, // Returned for Correction
+                        'is_verified' => false,
+                        'updated_at'  => now(),
                     ]);
+
+                $seriesIds = array_column($this->clusterItems, 'id');
+                if (!empty($seriesIds)) {
+                    DB::table('rdp_record_series')
+                        ->whereIn('id', $seriesIds)
+                        ->update([
+                            'is_verified' => false,
+                            'updated_at'  => now(),
+                        ]);
+                }
             } else {
                 DB::table('rdp_pending_record')
-                    ->where('cluster_id', $this->targetCluster->cluster_id)
+                    ->where('cluster_id', $clusterId)
                     ->update([
-                        'status_id'  => 4,
-                        'updated_at' => now(),
+                        'status_id'   => 4,
+                        'is_verified' => false,
+                        'updated_at'  => now(),
                     ]);
+
+                if ($formLabel === 'NAP Form 3' || $formCode === 'nap3') {
+                    $recordIds = array_column($this->clusterItems, 'id');
+                    if (!empty($recordIds)) {
+                        DB::table('rdp_record')
+                            ->whereIn('id', $recordIds)
+                            ->update([
+                                'is_verified' => false,
+                                'updated_at'  => now(),
+                            ]);
+                    }
+                }
             }
 
-            $this->successMessage = "Cluster '{$this->targetCluster->cluster_name}' returned for correction.";
+            $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+            DB::table($adminLogsTbl)->insert([
+                'admin_id'     => Auth::id() ?? 1,
+                'changes'      => "Returned submission cluster #{$clusterId} ('{$clusterName}') [{$formLabel}] to office {$office} for correction",
+                'what_system'  => 2,
+                'when_changes' => now(),
+            ]);
+
+            DB::commit();
+
+            $this->successMessage = "Cluster '{$clusterName}' returned for correction.";
             $this->closeApprovalModal();
         } catch (\Exception $e) {
+            DB::rollBack();
             $this->errorMessage = 'Action failed: ' . $e->getMessage();
         }
     }
@@ -298,27 +350,88 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         if (!$this->targetCluster) return;
 
         try {
-            if ($this->targetCluster->form_label === 'NAP Form 2') {
+            DB::beginTransaction();
+
+            $formCode = $this->targetCluster->form_code ?? '';
+            $formLabel = $this->targetCluster->form_label ?? '';
+            $clusterId = (int)($this->targetCluster->cluster_id ?? 0);
+            $clusterName = $this->targetCluster->cluster_name ?? ('Cluster #' . $clusterId);
+            $office = $this->targetCluster->office ?? 'Office';
+
+            if ($formLabel === 'NAP Form 2' || $formCode === 'nap2') {
                 DB::table('rdp_pending_record_series')
-                    ->where('cluster_id', $this->targetCluster->cluster_id)
+                    ->where('cluster_id', $clusterId)
                     ->update([
-                        'status_id'  => 3, // Rejected
-                        'updated_at' => now(),
+                        'status_id'   => 3, // Rejected
+                        'is_verified' => false,
+                        'updated_at'  => now(),
                     ]);
+
+                $seriesIds = array_column($this->clusterItems, 'id');
+                if (!empty($seriesIds)) {
+                    DB::table('rdp_record_series')
+                        ->whereIn('id', $seriesIds)
+                        ->update([
+                            'is_verified' => false,
+                            'updated_at'  => now(),
+                        ]);
+                }
             } else {
                 DB::table('rdp_pending_record')
-                    ->where('cluster_id', $this->targetCluster->cluster_id)
+                    ->where('cluster_id', $clusterId)
                     ->update([
-                        'status_id'  => 3,
-                        'updated_at' => now(),
+                        'status_id'   => 3,
+                        'is_verified' => false,
+                        'updated_at'  => now(),
                     ]);
+
+                if ($formLabel === 'NAP Form 3' || $formCode === 'nap3') {
+                    $recordIds = array_column($this->clusterItems, 'id');
+                    if (!empty($recordIds)) {
+                        DB::table('rdp_record')
+                            ->whereIn('id', $recordIds)
+                            ->update([
+                                'is_verified' => false,
+                                'updated_at'  => now(),
+                            ]);
+                    }
+                }
             }
 
-            $this->successMessage = "Cluster '{$this->targetCluster->cluster_name}' rejected.";
+            $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+            DB::table($adminLogsTbl)->insert([
+                'admin_id'     => Auth::id() ?? 1,
+                'changes'      => "Rejected submission cluster #{$clusterId} ('{$clusterName}') [{$formLabel}] from office {$office}",
+                'what_system'  => 2,
+                'when_changes' => now(),
+            ]);
+
+            DB::commit();
+
+            $this->successMessage = "Cluster '{$clusterName}' rejected.";
             $this->closeApprovalModal();
         } catch (\Exception $e) {
+            DB::rollBack();
             $this->errorMessage = 'Action failed: ' . $e->getMessage();
         }
+    }
+
+    public function markEvaluationPrinted(): void
+    {
+        $clusterId = (int)($this->printCluster?->cluster_id ?? 0);
+        if ($clusterId <= 0) return;
+
+        $clusterName = $this->printCluster?->cluster_name ?? ('Cluster #' . $clusterId);
+        $office = $this->printCluster?->office ?? 'Office';
+        $formLabel = $this->printCluster?->form_label ?? 'NAP Form';
+
+        $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+        DB::table($adminLogsTbl)->insert([
+            'admin_id'     => Auth::id() ?? 1,
+            'changes'      => "Printed Evaluation Report for submission cluster #{$clusterId} ('{$clusterName}') [{$formLabel}] from office {$office}",
+            'what_system'  => 2,
+            'when_changes' => now(),
+        ]);
     }
 
     public function with(): array
@@ -996,8 +1109,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
             <div class="modal-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 14px;">
                     <div>
-                        <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0;">Evaluation: {{ $targetCluster->cluster_name }}</h3>
-                        <span style="font-size: 13px; color: #64748b;">Submitting Office: {{ $targetCluster->office_name ?? $targetCluster->office }}</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <h3 style="font-size: 20px; font-weight: 700; color: #0f172a; margin: 0;">Evaluation: {{ $targetCluster->cluster_name }}</h3>
+                            <span class="status-badge status-{{ $targetCluster->status_id }}">{{ $targetCluster->status_name }}</span>
+                        </div>
+                        <span style="font-size: 13px; color: #64748b;">Submitting Office: {{ $targetCluster->office_name ?? $targetCluster->office }} &bull; Submitted By: {{ $targetCluster->submitter_name ?: 'System User' }}</span>
                     </div>
                     <button wire:click="closeApprovalModal" style="background: none; border: none; font-size: 20px; cursor: pointer;">&times;</button>
                 </div>
@@ -1043,7 +1159,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 <div class="modal-actions">
                     <button wire:click="rejectCluster" class="btn-reject">Unverify / Reject</button>
                     <button wire:click="returnCluster" class="btn-return">Return for Correction</button>
-                    <button wire:click="approveCluster" class="btn-approve">Verify Cluster</button>
+                    <button wire:click="approveCluster" class="btn-approve">{{ (int)($targetCluster->status_id ?? 0) === 2 ? 'Re-verify Cluster' : 'Verify Cluster' }}</button>
                 </div>
             </div>
         </div>
@@ -1056,7 +1172,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 <div style="position: sticky; top: -26px; z-index: 50; background: #ffffff; padding: 14px 26px; margin: -26px -26px 20px -26px; border-bottom: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; border-top-left-radius: 12px; border-top-right-radius: 12px;" class="no-print">
                     <h3 style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 0;">Evaluation Report Preview — {{ $printCluster->cluster_name }}</h3>
                     <div>
-                        <button onclick="window.print()" class="btn-print" style="padding: 8px 16px; margin-right: 8px;">Print Now</button>
+                        <button type="button" @click="$wire.markEvaluationPrinted().then(() => window.print()).catch(() => window.print())" class="btn-print" style="padding: 8px 16px; margin-right: 8px;">Print Now</button>
                         <button wire:click="closePrintModal" class="btn-action-review" style="padding: 8px 16px; background: #64748b;">Close</button>
                     </div>
                 </div>

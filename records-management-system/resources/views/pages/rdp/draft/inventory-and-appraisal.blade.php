@@ -119,6 +119,10 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
                         'updated_at'     => now(),
                     ]);
                 }
+
+                if ($andSubmit) {
+                    \App\Services\RdpRetentionService::supersedePriorRecords($this->editingDraftId);
+                }
             }
 
             DB::commit();

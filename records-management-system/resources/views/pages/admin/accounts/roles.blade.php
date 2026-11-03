@@ -106,6 +106,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $rdpViewAllFiles = false;
     public bool $isRdpViewAllPendingList = false;
     public bool $isRdpViewAllReceivedDocs = false;
+    public bool $canRdpAccessForApproval = false;
     public bool $canRdpModifySeries = true;
     public bool $canRdpGenerateReports = true;
 
@@ -181,6 +182,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->rdpViewAllFiles = false;
         $this->isRdpViewAllPendingList = false;
         $this->isRdpViewAllReceivedDocs = false;
+        $this->canRdpAccessForApproval = false;
         $this->canRdpModifySeries = true;
         $this->canRdpGenerateReports = true;
         
@@ -261,6 +263,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->rdpViewAllFiles = (bool) ($perms->rdp_view_all_files ?? false);
                 $this->isRdpViewAllPendingList = (bool) ($perms->is_rdp_view_all_pending_list ?? false);
                 $this->isRdpViewAllReceivedDocs = (bool) ($perms->is_rdp_view_all_received_docs ?? false);
+                $this->canRdpAccessForApproval = (bool) ($perms->can_rdp_access_for_approval ?? false);
                 $this->canRdpModifySeries = (bool) ($perms->can_rdp_modify_series ?? true);
                 $this->canRdpGenerateReports = (bool) ($perms->can_rdp_generate_reports ?? true);
             }
@@ -489,6 +492,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->rdp_view_all_files        = ($this->isSadm || $this->isAdmin) ? $this->rdpViewAllFiles : false;
         $perms->is_rdp_view_all_pending_list = $this->isRdpViewAllPendingList;
         $perms->is_rdp_view_all_received_docs = $this->isRdpViewAllReceivedDocs;
+        $perms->can_rdp_access_for_approval = $this->canRdpAccessForApproval;
         $perms->can_rdp_modify_series     = $this->canRdpModifySeries;
         $perms->can_rdp_generate_reports  = $this->canRdpGenerateReports;
     }
@@ -1258,6 +1262,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="isRdpViewAllPendingList">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access For Approval Page -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access For Approval Page (RDP)</span>
+                                            <span class="permission-toggle-desc">Clearance to view and access the RDP Pending For Approval page to evaluate and approve submissions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpAccessForApproval">
                                             <span class="slider"></span>
                                         </label>
                                     </div>

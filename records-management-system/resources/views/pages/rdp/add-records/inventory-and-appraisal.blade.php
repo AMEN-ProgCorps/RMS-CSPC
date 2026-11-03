@@ -2194,6 +2194,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             \App\Services\RdpIntakeService::rememberAdminRecord((int) $this->dcsRequestId, $officeOwn, $recordId);
 
+            // Automatically supersede older active editions if the series has auto-supersede policy enabled
+            \App\Services\RdpRetentionService::supersedePriorRecords($recordId);
+
             return $recordId;
         } catch (\Throwable $e) {
             $this->errorMessage = 'Could not save your office appraisal record: ' . $e->getMessage();
@@ -3243,6 +3246,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     }
                     DB::table('rdp_period_covered')->insert($pRow);
                 }
+
+                \App\Services\RdpRetentionService::supersedePriorRecords($recordId);
             }
 
             if ($this->prefill_intake_id && $firstRecordId) {
@@ -3704,6 +3709,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         }
                     }
                 }
+
+                \App\Services\RdpRetentionService::supersedePriorRecords($recordId);
             }
 
             if ($this->prefill_intake_id && $firstRecordId) {

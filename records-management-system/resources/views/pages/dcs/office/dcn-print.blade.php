@@ -99,9 +99,9 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
         .hdr-text-cell {
             position: absolute;
             top: 0.35in;
-            left: calc(0.51in + 0.64in + 0.09in);
+            left: calc(0.49in + 0.64in + 0.07in);
             right: 1.6in;
-            height: calc(1.00in - 0.35in - 0.14in); /* ends 0.14in above line */
+            height: calc(1.00in - 0.35in - 0.16in);
             display: flex;
             flex-direction: column;
             justify-content: space-between;
@@ -129,7 +129,7 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
         }
         .hdr-rule {
             position: absolute;
-            top: 1.00in;
+            top: 0.95in;
             left: 0.37in;
             right: 0.51in;
             display: flex;
@@ -158,7 +158,7 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
 
         /* Title: 0.61in below header line */
         .form-title {
-            margin: 0.61in 0.69in 0;
+            margin: 0.35in 0.69in 0;
             text-align: center;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 12pt;
@@ -171,7 +171,7 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
         .dcn-no-row {
             display: flex;
             align-items: flex-end;
-            margin: 0.22in 0.69in 0.18in 1.43in;
+            margin: 0.14in 0.69in 0.18in 1.42in;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11pt;
             font-weight: 400;
@@ -219,9 +219,9 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
         }
 
         /* Row 1: top + Document No + 0.24in gap + indented Title */
-        .r1 { height: auto; min-height: 0.99in; }
+        .r1 { height: auto; min-height: 0.90in; }
         .r1-inner {
-            min-height: 0.99in;
+            min-height: 0.90in;
             height: auto;
             display: flex;
             flex-direction: column;
@@ -238,9 +238,9 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
             line-height: 1.0;
         }
         .r1-gap {
-            height: 0.24in;
-            min-height: 0.24in;
-            max-height: 0.24in;
+            height: 0.18in;
+            min-height: 0.18in;
+            max-height: 0.18in;
         }
         /*
          * Title is indented 1.38in (official form).
@@ -487,7 +487,7 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
         }
 
         /* Row 5 body: leave ~0.18in above the footer rule (official blank) */
-        .r5-body { height: 1.44in; padding: 0; vertical-align: top; }
+        .r5-body { height: 1.66in; padding: 0; vertical-align: top; }
         .approvals-body {
             width: 100%;
             height: 1.44in;
@@ -517,7 +517,7 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
             align-items: center;
             justify-content: center;
             width: 100%;
-            height: 1.44in;
+            height: 1.66in;
             min-height: 1.44in;
         }
         .appr-col-stack.is-multi {

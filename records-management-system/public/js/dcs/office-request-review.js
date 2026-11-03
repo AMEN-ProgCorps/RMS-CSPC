@@ -291,10 +291,58 @@
         }
     }
 
+    function confirmResendNotify() {
+        return new Promise(function (resolve) {
+            const overlay = document.getElementById('ofiConfirmDialog');
+            if (!overlay) {
+                resolve(window.confirm('Resend the print & sign notification to the submitting office?'));
+                return;
+            }
+
+            const message = overlay.querySelector('#ofiConfirmDialogMessage');
+            const okBtn = overlay.querySelector('[data-ofi-confirm-ok]');
+            const cancelBtn = overlay.querySelector('[data-ofi-confirm-cancel]');
+            if (message) {
+                message.textContent = 'Resend the print & sign notification to the submitting office?';
+            }
+
+            function close(result) {
+                overlay.classList.remove('is-open');
+                overlay.setAttribute('aria-hidden', 'true');
+                document.body.classList.remove('ofi-modal-open');
+                document.removeEventListener('keydown', onKey);
+                overlay.removeEventListener('click', onBackdrop);
+                if (okBtn) okBtn.removeEventListener('click', onOk);
+                if (cancelBtn) cancelBtn.removeEventListener('click', onCancel);
+                resolve(result);
+            }
+
+            function onOk() { close(true); }
+            function onCancel() { close(false); }
+            function onBackdrop(e) {
+                if (e.target === overlay) close(false);
+            }
+            function onKey(e) {
+                if (e.key === 'Escape') close(false);
+                if (e.key === 'Enter') close(true);
+            }
+
+            overlay.addEventListener('click', onBackdrop);
+            document.addEventListener('keydown', onKey);
+            if (okBtn) okBtn.addEventListener('click', onOk);
+            if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+
+            overlay.classList.add('is-open');
+            overlay.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('ofi-modal-open');
+            if (okBtn) okBtn.focus();
+        });
+    }
+
     async function notifyPrintReady() {
         if (busy) return;
         if (printNotified) {
-            const ok = window.confirm('Resend the print & sign notification to the submitting office?');
+            const ok = await confirmResendNotify();
             if (!ok) return;
         }
         busy = true;

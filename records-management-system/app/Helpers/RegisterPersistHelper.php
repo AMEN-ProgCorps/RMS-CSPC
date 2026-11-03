@@ -1951,6 +1951,16 @@ class RegisterPersistHelper
                         (int) $requestId,
                         trim((string) ($savedMl->doc_no ?? ''))
                     );
+                    // Source obsolescence can clear the tip when gap-filling a lower
+                    // revise_no (e.g. register Rev 0 while Rev 2 already exists).
+                    // Re-assert tip = max revise_no in the family.
+                    if ($rowAllowsRevision) {
+                        self::promoteLatestForDoc(
+                            trim((string) $savedMl->doc_no),
+                            (int) $docTypeId,
+                            $request->sub_type_id ? (int) $request->sub_type_id : null
+                        );
+                    }
                 }
             }
 

@@ -2485,6 +2485,15 @@ window.dcsOfficesClamp = function (offices, highlightOffice) {
             const maxH = (this.lineHeightPx() * 2) + 2;
             return measure.scrollHeight <= maxH;
         },
+        trimAtWord(value, maxLen) {
+            if (maxLen >= value.length) return value;
+            let cut = value.slice(0, Math.max(1, maxLen));
+            const space = cut.lastIndexOf(' ');
+            if (space >= Math.floor(maxLen * 0.5)) {
+                cut = cut.slice(0, space);
+            }
+            return cut.replace(/[,\s.;:!-]+$/g, '');
+        },
         sync() {
             const total = this.offices.length;
             if (total === 0) {
@@ -2494,18 +2503,48 @@ window.dcsOfficesClamp = function (offices, highlightOffice) {
                 return;
             }
 
+            const full = this.offices.join(', ');
+
             if (this.expanded) {
                 this.visibleCount = total;
                 this.visibleHtml = this.renderHtml(this.offices);
-                this.showToggle = total > 1 && !this.fitsTwoLines(this.offices.join(', '));
+                // Only keep See less when something was actually truncated.
+                this.showToggle = !this.fitsTwoLines(full);
                 return;
             }
 
-            const full = this.offices.join(', ');
             if (this.fitsTwoLines(full)) {
                 this.visibleCount = total;
                 this.visibleHtml = this.renderHtml(this.offices);
                 this.showToggle = false;
+                return;
+            }
+
+            // One long office name: truncate at a word boundary (not a fake "See more").
+            if (total === 1) {
+                let best = 1;
+                let lo = 1;
+                let hi = full.length;
+                while (lo <= hi) {
+                    const mid = (lo + hi) >> 1;
+                    const candidate = this.trimAtWord(full, mid) + ' See more';
+                    if (this.fitsTwoLines(candidate)) {
+                        best = mid;
+                        lo = mid + 1;
+                    } else {
+                        hi = mid - 1;
+                    }
+                }
+                const clipped = this.trimAtWord(full, Math.max(1, best)) || full.slice(0, Math.max(1, best));
+                if (clipped === full) {
+                    this.visibleCount = 1;
+                    this.visibleHtml = this.renderHtml(this.offices);
+                    this.showToggle = false;
+                    return;
+                }
+                this.visibleCount = 1;
+                this.visibleHtml = this.escapeHtml(clipped);
+                this.showToggle = true;
                 return;
             }
 
@@ -2524,7 +2563,13 @@ window.dcsOfficesClamp = function (offices, highlightOffice) {
                 }
             }
             if (best < 1) best = 1;
-            if (best >= total) best = Math.max(1, total - 1);
+            if (best >= total) {
+                // Prefix would show every office — nothing left to reveal.
+                this.visibleCount = total;
+                this.visibleHtml = this.renderHtml(this.offices);
+                this.showToggle = false;
+                return;
+            }
 
             this.visibleCount = best;
             this.visibleHtml = this.renderHtml(this.offices.slice(0, best));

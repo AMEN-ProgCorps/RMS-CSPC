@@ -813,6 +813,12 @@ class RegisterUpdateHelper
                         (int) $requestId,
                         trim((string) ($savedMl->doc_no ?? ''))
                     );
+                    // Gap-fill / late older rev: keep tip = max revise_no after sources are marked obsolete.
+                    RegisterPersistHelper::promoteLatestForDoc(
+                        (string) $savedMl->doc_no,
+                        (int) $docRequest->doc_type_id,
+                        $docRequest->sub_type_id ? (int) $docRequest->sub_type_id : null
+                    );
                 }
             }
 

@@ -11,13 +11,13 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
         /*
          * CSPC-F-DCC-06 Document Request Form — forced print geometry
          * Philippine long bond 8.5 × 13in. The form itself uses the top half (6.5in).
-         * Logo: left 0.46in, top 0.16in, size 0.57×0.59, gap to line 0.03in
+         * Logo: left 0.46in, top 0.08in, size 0.57×0.59, gap to line 0.03in
          * Header/footer rules: 3px
          *
          * Print dialog MUST use Margins → None AND Headers/footers off.
          * Browser "Default" margins stack on top of the CSS header inset and look
-         * like a huge top gap. Keep @page margin 0; header top stays ≥ ~0.16in so
-         * printers do not clip the seal / "Republic…" line (non-printable area).
+         * like a huge top gap. Keep @page margin 0. Header top is ~0.08in to
+         * match the official PDF; leave a little clearance for printer clip.
          */
         @page {
             /* Philippine long bond. The form occupies the top half of this sheet. */
@@ -150,10 +150,10 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
         }
         .hdr-text-cell {
             position: absolute !important;
-            top: 0.16in !important;
-            left: calc(0.46in + 0.57in + 0.1in) !important;
+            top: 0.20in !important;
+            left: calc(0.4in + 0.57in + 0.1in) !important;
             right: 1.5in !important;
-            height: 0.59in !important; /* same band as logo; 0.03in clear below to line */
+            height: 0.52in !important;
             margin: 0 !important;
             padding: 0 !important;
             display: flex !important;
@@ -300,7 +300,7 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
             align-items: flex-start !important;
             width: 100% !important;
             height: auto !important;
-            min-height: 13pt !important;
+            min-height: 13.5pt !important;
             max-height: none !important;
             margin: 0 !important;
             padding: 0 !important;
@@ -335,9 +335,9 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
             align-items: flex-end !important;
             margin: 0 !important;
             padding: 0 !important;
-            height: 13pt !important;
-            min-height: 13pt !important;
-            max-height: 13pt !important;
+            height: 13.5pt !important;
+            min-height: 13.5pt !important;
+            max-height: 13.5pt !important;
             background: transparent !important;
             font-size: 11pt !important;
             line-height: 1 !important;
@@ -378,13 +378,13 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
             display: inline-flex !important;
             align-items: center !important;
             gap: 4px !important;
-            margin-left: 0.22in !important;
+            margin-left: 0.35in !important;
             font-size: 11pt !important;
             line-height: 1 !important;
             background: transparent !important;
             color: #000 !important;
         }
-        .check-item.is-first { margin-left: 0.24in !important; }
+        .check-item.is-first { margin-left: 0.20in !important; }
         .cb {
             display: inline-block !important;
             width: 0.17in !important;
@@ -400,7 +400,7 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
         }
 
         .desc-block {
-            margin: 0 0 13pt !important;
+            margin: 0 0 14pt !important;
             padding: 0 !important;
             background: transparent !important;
         }
@@ -471,7 +471,7 @@ DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line
 
         /* Signature table */
         .sig-table {
-            width: 7.57in !important;
+            width: 7.60in !important;
             max-width: 100% !important;
             border-collapse: collapse !important;
             table-layout: fixed !important;

@@ -40,11 +40,15 @@
                     sidebar = legacyDcs === '1' ? 'imdown' : 'imup';
                 }
             }
-            if (sidebar && !document.cookie.includes('sidebarState=')) {
+            // Prefer localStorage over a stale cookie so SSR and paint match.
+            if (sidebar) {
                 document.cookie = 'sidebarState=' + encodeURIComponent(sidebar) + '; path=/; max-age=31536000; SameSite=Lax';
             }
+            document.documentElement.classList.add('dcs-sidebar-booting');
             if (sidebar === 'imdown') {
                 document.documentElement.setAttribute('data-dcs-sidebar-collapsed', '1');
+            } else if (sidebar === 'imup') {
+                document.documentElement.removeAttribute('data-dcs-sidebar-collapsed');
             }
         })();
         window.assetPaths = {
@@ -56,7 +60,24 @@
         };
     </script>
     <style>
-        /* Avoid FOUC before the collapse checkbox is synced from localStorage. */
+        /* Avoid FOUC / expand-then-collapse flash while syncing sidebar state. */
+        html.dcs-sidebar-booting .side-nav,
+        html.dcs-sidebar-booting .dashboard-main,
+        html.dcs-sidebar-booting .rpt-page,
+        html.dcs-sidebar-booting .db-page,
+        html.dcs-sidebar-booting .mf-page,
+        html.dcs-sidebar-booting .rc-page,
+        html.dcs-sidebar-booting .st-container,
+        html.dcs-sidebar-booting .reg-container,
+        html.dcs-sidebar-booting .upd-container,
+        html.dcs-sidebar-booting .hst-container,
+        html.dcs-sidebar-booting .drr-container,
+        html.dcs-sidebar-booting .rb-container,
+        html.dcs-sidebar-booting .ofi-page,
+        html.dcs-sidebar-booting .settings-main,
+        html.dcs-sidebar-booting .dcs-top-tabs-host {
+            transition: none !important;
+        }
         html[data-dcs-sidebar-collapsed="1"] .side-nav {
             width: var(--dcs-sidebar-collapsed, 68px) !important;
         }
@@ -127,6 +148,8 @@
     @elseif(request()->routeIs('dcs.stamping.index'))
         @vite(['resources/css/dcs/stamping.css'])
     @elseif(request()->routeIs('dcs.database.index'))
+        {{-- Inline so inventory rows stay collapsed before Vite CSS / Alpine boot --}}
+        <style>[x-cloak]{display:none!important}</style>
         @vite(['resources/css/dcs/database.css'])
     @elseif(request()->routeIs('dcs.random-check*'))
         @vite(['resources/css/dcs/random-check.css'])
@@ -142,9 +165,17 @@
         $isCollapsed = $sidebarState === 'imdown';
     @endphp
     <input type="checkbox" id="dcs-nav-open" class="dcs-chrome-toggle">
-    <input type="checkbox" id="dcs-sidebar-collapsed" class="dcs-chrome-toggle" {{ $isCollapsed ? 'checked' : '' }}>
+    <input type="checkbox" id="dcs-sidebar-collapsed" class="dcs-chrome-toggle" {{ $isCollapsed ? 'checked' : '' }} data-persist="dcs-sidebar">
     <script>
         (function () {
+            // Keep collapsed state locked across Livewire navigate morphs.
+            document.addEventListener('livewire:navigate', function () {
+                document.documentElement.classList.add('dcs-sidebar-booting');
+                if (localStorage.getItem('sidebarState') === 'imdown'
+                    || localStorage.getItem('dcs-sidebar-collapsed') === '1') {
+                    document.documentElement.setAttribute('data-dcs-sidebar-collapsed', '1');
+                }
+            });
             function persistState(isCollapsed) {
                 var state = isCollapsed ? 'imdown' : 'imup';
                 try {
@@ -175,6 +206,9 @@
                 }
             }
             syncSidebarCollapse();
+            requestAnimationFrame(function () {
+                document.documentElement.classList.remove('dcs-sidebar-booting');
+            });
             document.getElementById('dcs-sidebar-collapsed')?.addEventListener('change', function () {
                 persistState(this.checked);
                 if (this.checked) {
@@ -183,7 +217,13 @@
                     document.documentElement.removeAttribute('data-dcs-sidebar-collapsed');
                 }
             });
-            document.addEventListener('livewire:navigated', syncSidebarCollapse);
+            document.addEventListener('livewire:navigated', function () {
+                document.documentElement.classList.add('dcs-sidebar-booting');
+                syncSidebarCollapse();
+                requestAnimationFrame(function () {
+                    document.documentElement.classList.remove('dcs-sidebar-booting');
+                });
+            });
         })();
     </script>
 

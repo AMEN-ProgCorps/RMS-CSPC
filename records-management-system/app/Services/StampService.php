@@ -35,10 +35,10 @@ class StampService
             'title'     => 'REFERENCE',
             'subtitle'  => '',
             'color'     => [176, 48, 48],
-            'width'     => 52,
-            'height'    => 24,
-            'titleSize' => 14,
-            'subSize'   => 6,
+            'width'     => 28,
+            'height'    => 12,
+            'titleSize' => 9,
+            'subSize'   => 5,
             'image'     => 'images/stamps/reference.png',
         ],
     ];
@@ -97,7 +97,6 @@ class StampService
             $img->readImage($pdfPath . '[' . ($pageNum - 1) . ']');
             $img->setImageColorspace(\Imagick::COLORSPACE_GRAY);
 
-            // Do not downscale — thumbnail blurs scans and hides empty margins.
             $imgW = $img->getImageWidth();
             $imgH = $img->getImageHeight();
             $pxPerMm = $imgW / max(1, $pageWmm);

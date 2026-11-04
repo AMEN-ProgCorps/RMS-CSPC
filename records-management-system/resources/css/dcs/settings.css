@@ -127,7 +127,8 @@ body {
 
 /* ─── Tab Panels ─── */
 .tab-panel {
-    animation: fadeInUp var(--dcs-page-in) both;
+    /* Shell (.settings-main) already uses fadeInUp — avoid double page-enter. */
+    animation: none;
 }
 
 /* ─── Panel Toolbar ─── */
@@ -543,6 +544,23 @@ body {
 .delete-modal .st-btn-danger:disabled {
     opacity: 0.7;
     cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════
+   REPLACE / CONFIRM MODAL
+   ═══════════════════════════════════ */
+.confirm-modal .confirm-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--set-text);
+    margin-bottom: 6px;
+}
+
+.confirm-modal .confirm-message {
+    font-size: 0.82rem;
+    color: var(--set-text-sec);
+    line-height: 1.5;
+    margin-bottom: 20px;
 }
 
 /* ═══════════════════════════════════
@@ -1622,6 +1640,11 @@ body {
 .sig-replace-banner strong {
     font-size: 0.8rem;
 }
+.sig-inherit-banner {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1e3a8a;
+}
 .sig-actions-row {
     display: flex;
     flex-wrap: wrap;
@@ -1870,17 +1893,20 @@ body {
 }
 
 .sig-history-summary-dates {
-    font-size: 0.72rem;
+    font-size: 0.74rem;
     font-weight: 650;
-    color: var(--set-text-muted, #64748b);
+    color: var(--set-text, #0f172a);
+    line-height: 1.3;
 }
 
 .sig-history-summary-people {
     font-size: 0.7rem;
     color: var(--set-text-subtle, #94a3b8);
-    white-space: nowrap;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .sig-history-compact-body {
@@ -1936,10 +1962,11 @@ body {
 }
 
 .sig-history-type {
-    font-size: 0.82rem;
+    font-size: 0.84rem;
     font-weight: 700;
     color: var(--set-text);
-    line-height: 1.3;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
 }
 
 .sig-history-meta {

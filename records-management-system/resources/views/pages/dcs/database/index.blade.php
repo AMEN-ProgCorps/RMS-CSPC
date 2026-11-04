@@ -890,15 +890,29 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         $distOffices = null;
         $distOfficeIds = [];
+        $distOfficeList = [];
         if ($dist && $dist->offices) {
             $distOfficeIds = $dist->offices
                 ->map(fn ($o) => (int) ($o->office_id ?? 0))
                 ->filter(fn ($id) => $id > 0)
                 ->values()
                 ->all();
-            $distOffices = $dist->offices
-                ->map(fn ($o) => $o->office?->office_name)
-                ->filter()->implode(', ') ?: null;
+            $distOfficeList = $dist->offices
+                ->map(function ($o) {
+                    $name = trim((string) ($o->office?->office_name ?? ''));
+                    if ($name === '') {
+                        return null;
+                    }
+
+                    return [
+                        'name' => $name,
+                        'copies' => $o->copies !== null && $o->copies !== '' ? (string) (int) $o->copies : '',
+                    ];
+                })
+                ->filter()
+                ->values()
+                ->all();
+            $distOffices = collect($distOfficeList)->pluck('name')->implode(', ') ?: null;
         }
 
         $sourceUnitName = null;
@@ -993,6 +1007,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'dist_actual_time' => $dist && $dist->doc_distribution_time_actual ? $this->formatTime($dist->doc_distribution_time_actual) : null,
             'dist_offices' => $distOffices,
             'dist_office_ids' => $distOfficeIds,
+            'dist_office_list' => $distOfficeList,
+            'dist_print_date' => ($dist && $dist->doc_distribution_date_actual)
+                ? \Carbon\Carbon::parse($dist->doc_distribution_date_actual)->toDateString()
+                : (($dist && $dist->doc_distribution_date_file)
+                    ? \Carbon\Carbon::parse($dist->doc_distribution_date_file)->toDateString()
+                    : null),
+            'effectivity_raw' => ($ml && $ml->effectivity_date)
+                ? \Carbon\Carbon::parse($ml->effectivity_date)->toDateString()
+                : null,
             'dist_scan' => ($dist && $dist->scanned_distribution) ? RegisterQueryHelper::scanUrl($dist->scanned_distribution, false) : null,
             'ret_offices' => $retOffices,
         ];
@@ -1263,11 +1286,26 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 }; ?>
 
 @php
+    $showCategoryRows = ($docTypeId === 'all' || $docTypeId === '');
+    // Search/filter results should be visible immediately (don't leave matches collapsed).
+    $forceCategoriesOpen = $showCategoryRows && (
+        trim((string) ($search ?? '')) !== ''
+        || trim((string) ($originator ?? '')) !== ''
+        || trim((string) ($sourceUnit ?? '')) !== ''
+        || trim((string) ($receivedBy ?? '')) !== ''
+        || trim((string) ($status ?? '')) !== ''
+        || (isset($revisionStatus) && $revisionStatus !== 'all' && $revisionStatus !== '')
+        || trim((string) ($dateFrom ?? '')) !== ''
+        || trim((string) ($dateTo ?? '')) !== ''
+        || trim((string) ($revNo ?? '')) !== ''
+        || (isset($subTypeId) && $subTypeId !== 'all' && $subTypeId !== '')
+    );
     $categoryState = [];
     foreach (($list['data'] ?? []) as $group) {
         $name = $group['parent']['doc_type_name'] ?? 'Uncategorized';
         $slug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $name));
-        $categoryState[$slug] = false;
+        // Typed tabs / active search-filter: show rows immediately.
+        $categoryState[$slug] = ($showCategoryRows && ! $forceCategoriesOpen) ? false : true;
     }
     $visibleGroups = $visibleGroups ?? \App\Helpers\DcsDatabaseColumns::defaultVisibleGroups();
     $groupColspans = $groupColspans ?? \App\Helpers\DcsDatabaseColumns::BUILTIN_COUNTS;
@@ -1281,12 +1319,32 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     }
 @endphp
 
-<div x-data="{
+<div
+    data-dcs-db-root
+    data-show-category-rows="{{ ! empty($showCategoryRows) ? '1' : '0' }}"
+    data-force-categories-open="{{ ! empty($forceCategoriesOpen) ? '1' : '0' }}"
+    data-category-state="{{ e(json_encode($categoryState)) }}"
+    :data-open-approval="open.approval ? '1' : '0'"
+    :data-open-deadline="open.deadline ? '1' : '0'"
+    :data-open-masterlist="open.masterlist ? '1' : '0'"
+    :data-open-dcn="open.dcn ? '1' : '0'"
+    :data-open-drf="open.drf ? '1' : '0'"
+    :data-open-distribution="open.distribution ? '1' : '0'"
+    :data-open-retrieval="open.retrieval ? '1' : '0'"
+    :data-vis-approval="visible.approval ? '1' : '0'"
+    :data-vis-deadline="visible.deadline ? '1' : '0'"
+    :data-vis-masterlist="visible.masterlist ? '1' : '0'"
+    :data-vis-dcn="visible.dcn ? '1' : '0'"
+    :data-vis-drf="visible.drf ? '1' : '0'"
+    :data-vis-distribution="visible.distribution ? '1' : '0'"
+    :data-vis-retrieval="visible.retrieval ? '1' : '0'"
+    x-data="{
     filterOpen: false,
     notice: @js($notice),
     groupLabels: @js($groupLabels ?? []),
     groupMenu: { open: false, x: 0, y: 0, group: null },
-    rowMenu: { open: false, x: 0, y: 0, editUrl: '', reviseUrl: '', recurUrl: '', canEdit: false, canRevise: false, canRecur: false, label: '' },
+    distTemplateUrl: @js(route('dcs.reports.distributionTemplate')),
+    rowMenu: { open: false, x: 0, y: 0, editUrl: '', reviseUrl: '', recurUrl: '', canEdit: false, canRevise: false, canRecur: false, canPrintDist: false, label: '', title: '', effectivity: '', revisionNo: '', distDate: '', offices: [] },
     open: { approval: true, deadline: true, masterlist: true, dcn: true, drf: true, distribution: true, retrieval: true },
     visible: @js($visibleGroups),
     forceDistributionOpen: @js($forceDistributionOpen),
@@ -1299,10 +1357,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     busyHint: 'Fetching records and preparing the preview.',
     _stickySyncTimer: null,
     _busyTimer: null,
+    _catServerSig: null,
+    _needsLayoutSettle: true,
     init() {
+        window.__dcsDbApi = this;
         try {
             const saved = JSON.parse(sessionStorage.getItem('dcs-db-expand') || '{}');
-            // Each visit starts with category rows collapsed. Expansion is only for this page view.
+            // Do not restore category expand state — ALL always starts collapsed unless search/filter forces open.
             if (saved.expandedRevs && typeof saved.expandedRevs === 'object') {
                 this.expandedRevs = saved.expandedRevs;
             }
@@ -1323,12 +1384,83 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         this.$watch('notice', (v) => { if (v) setTimeout(() => { this.notice = ''; }, 4000); });
         this.$watch('open', () => this.queueStickySync(), { deep: true });
         this.$watch('visible', () => this.queueStickySync(), { deep: true });
+        // After Livewire type/search/filter morphs — only reset categories when server attrs change.
+        this._onDbResync = () => {
+            this.syncCategoriesFromDom();
+            if (this._needsLayoutSettle) {
+                this._needsLayoutSettle = false;
+                this.settleTableLayout();
+            } else {
+                this.applyCategoryVisibility();
+                this.queueStickySync();
+            }
+        };
+        document.addEventListener('livewire:navigated', this._onDbResync);
+        window.addEventListener('dcs-db-resync-sticky', this._onDbResync);
+        this.syncCategoriesFromDom();
+        // Capture-phase: always resolve the live Alpine component from the DOM root.
+        // Works for ALL / typed tabs / search / filter because rows carry data-row-actions-b64.
+        this._onDbContextMenu = (e) => {
+            const root = document.querySelector('[data-dcs-db-root]');
+            if (!root || !root.contains(e.target)) return;
+            // Ignore clicks inside the menus themselves.
+            if (e.target?.closest?.('#dcs-db-row-menu, #dcs-db-group-menu')) return;
+            let api = null;
+            try {
+                api = (window.Alpine && typeof Alpine.$data === 'function') ? Alpine.$data(root) : null;
+            } catch (err) {}
+            if (!api || typeof api.openRowMenuFromEl !== 'function') {
+                api = window.__dcsDbApi;
+            }
+            if (!api || typeof api.openRowMenuFromEl !== 'function') return;
+            window.__dcsDbApi = api;
+            const row = e.target?.closest?.('tr[data-row-actions-b64], tr[data-row-actions]');
+            if (row && root.contains(row)) {
+                e.preventDefault();
+                e.stopPropagation();
+                api.openRowMenuFromEl(row, e.clientX, e.clientY);
+                return;
+            }
+            const th = e.target?.closest?.('.db-group-header[data-group]');
+            if (th && root.contains(th) && typeof api.openGroupMenu === 'function') {
+                e.preventDefault();
+                e.stopPropagation();
+                api.openGroupMenu({
+                    clientX: e.clientX,
+                    clientY: e.clientY,
+                    currentTarget: th,
+                    target: e.target,
+                }, th.getAttribute('data-group'));
+            }
+        };
+        if (window.__dcsDbContextMenuHandler) {
+            document.removeEventListener('contextmenu', window.__dcsDbContextMenuHandler, true);
+        }
+        window.__dcsDbContextMenuHandler = this._onDbContextMenu;
+        document.addEventListener('contextmenu', this._onDbContextMenu, true);
+        // Close menus on outside click even if Alpine @mousedown.outside is stale after morph.
+        this._onDbMenuOutside = (e) => {
+            if (this._suppressOutsideClick) return;
+            const api = window.__dcsDbApi || this;
+            const rowMenu = document.getElementById('dcs-db-row-menu');
+            const groupMenu = document.getElementById('dcs-db-group-menu');
+            if (rowMenu && rowMenu.style.display === 'block' && !rowMenu.contains(e.target)) {
+                api.rowMenu && (api.rowMenu.open = false);
+                if (typeof api.paintRowMenuDom === 'function') api.paintRowMenuDom();
+            }
+            if (groupMenu && groupMenu.style.display === 'block' && !groupMenu.contains(e.target)) {
+                if (typeof api.closeGroupMenu === 'function') api.closeGroupMenu();
+            }
+        };
+        if (window.__dcsDbMenuOutsideHandler) {
+            document.removeEventListener('mousedown', window.__dcsDbMenuOutsideHandler, true);
+        }
+        window.__dcsDbMenuOutsideHandler = this._onDbMenuOutside;
+        document.addEventListener('mousedown', this._onDbMenuOutside, true);
+        // Menu buttons cannot rely on Alpine @click after Livewire morph — bind once via DOM.
+        this.bindMenuActionClicks();
         this._onResizeSticky = () => this.queueStickySync();
-        this._onNavigatedSticky = () => this.queueStickySync();
-        this._onLivewireSticky = () => this.queueStickySync();
         window.addEventListener('resize', this._onResizeSticky);
-        document.addEventListener('livewire:navigated', this._onNavigatedSticky);
-        window.addEventListener('dcs-db-resync-sticky', this._onLivewireSticky);
 
         if (!window.__dcsDbStickyHooksBound) {
             window.__dcsDbStickyHooksBound = true;
@@ -1341,7 +1473,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             }
         }
 
-        this.queueStickySync();
+        this.settleTableLayout();
     },
     destroy() {
         if (this._stickySyncTimer) {
@@ -1353,8 +1485,170 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             this._busyTimer = null;
         }
         if (this._onResizeSticky) window.removeEventListener('resize', this._onResizeSticky);
-        if (this._onNavigatedSticky) document.removeEventListener('livewire:navigated', this._onNavigatedSticky);
-        if (this._onLivewireSticky) window.removeEventListener('dcs-db-resync-sticky', this._onLivewireSticky);
+        if (this._onDbResync) {
+            document.removeEventListener('livewire:navigated', this._onDbResync);
+            window.removeEventListener('dcs-db-resync-sticky', this._onDbResync);
+        }
+        if (this._onDbContextMenu) {
+            document.removeEventListener('contextmenu', this._onDbContextMenu, true);
+            if (window.__dcsDbContextMenuHandler === this._onDbContextMenu) {
+                window.__dcsDbContextMenuHandler = null;
+            }
+        }
+        if (this._onDbMenuOutside) {
+            document.removeEventListener('mousedown', this._onDbMenuOutside, true);
+            if (window.__dcsDbMenuOutsideHandler === this._onDbMenuOutside) {
+                window.__dcsDbMenuOutsideHandler = null;
+            }
+        }
+        if (this._onDbMenuClick) {
+            document.removeEventListener('click', this._onDbMenuClick, true);
+            if (window.__dcsDbMenuClickHandler === this._onDbMenuClick) {
+                window.__dcsDbMenuClickHandler = null;
+            }
+        }
+    },
+    bindMenuActionClicks() {
+        this._onDbMenuClick = (e) => {
+            const api = window.__dcsDbApi;
+            if (!api) return;
+            const rowMenu = document.getElementById('dcs-db-row-menu');
+            const groupMenu = document.getElementById('dcs-db-group-menu');
+            if (rowMenu && rowMenu.style.display !== 'none' && rowMenu.contains(e.target)) {
+                const btn = e.target.closest?.('button[data-menu-edit], button[data-menu-revise], button[data-menu-recur], button[data-menu-print]');
+                if (!btn || btn.style.display === 'none') return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (btn.hasAttribute('data-menu-edit')) {
+                    api.goRowAction(api.rowMenu?.editUrl || '');
+                    return;
+                }
+                if (btn.hasAttribute('data-menu-revise')) {
+                    api.goRowAction(api.rowMenu?.reviseUrl || '');
+                    return;
+                }
+                if (btn.hasAttribute('data-menu-recur')) {
+                    api.goRowAction(api.rowMenu?.recurUrl || '');
+                    return;
+                }
+                if (btn.hasAttribute('data-menu-print') && typeof api.printDistributionFromRow === 'function') {
+                    api.printDistributionFromRow();
+                }
+                return;
+            }
+            if (groupMenu && groupMenu.style.display !== 'none' && groupMenu.contains(e.target)) {
+                const btn = e.target.closest?.('button[data-menu-dist], button[data-menu-hide-group]');
+                if (!btn) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (btn.hasAttribute('data-menu-dist') && typeof api.generateDistributionFromGroup === 'function') {
+                    api.generateDistributionFromGroup();
+                    return;
+                }
+                if (btn.hasAttribute('data-menu-hide-group') && typeof api.hideGroupFromMenu === 'function') {
+                    api.hideGroupFromMenu();
+                }
+            }
+        };
+        if (window.__dcsDbMenuClickHandler) {
+            document.removeEventListener('click', window.__dcsDbMenuClickHandler, true);
+        }
+        window.__dcsDbMenuClickHandler = this._onDbMenuClick;
+        document.addEventListener('click', this._onDbMenuClick, true);
+    },
+    dbRoot() {
+        return document.querySelector('[data-dcs-db-root]') || this.$el;
+    },
+    categoryServerSignature() {
+        const root = this.dbRoot();
+        if (!root) return '';
+        return [
+            root.getAttribute('data-show-category-rows') || '0',
+            root.getAttribute('data-force-categories-open') || '0',
+            root.getAttribute('data-category-state') || '{}',
+        ].join('||');
+    },
+    syncCategoriesFromDom() {
+        const root = this.dbRoot();
+        if (!root) return;
+        const signature = this.categoryServerSignature();
+        const serverChanged = signature !== this._catServerSig;
+        if (serverChanged) {
+            this._catServerSig = signature;
+            this._needsLayoutSettle = true;
+            let next = {};
+            try {
+                next = JSON.parse(root.getAttribute('data-category-state') || '{}') || {};
+            } catch (e) {
+                next = {};
+            }
+            const forced = root.getAttribute('data-force-categories-open') === '1';
+            const showCats = root.getAttribute('data-show-category-rows') === '1';
+            if (forced) {
+                Object.keys(next).forEach((k) => { next[k] = true; });
+            } else if (showCats) {
+                // ALL tab without search/filter: start collapsed after type/filter switch.
+                Object.keys(next).forEach((k) => { next[k] = false; });
+            } else {
+                Object.keys(next).forEach((k) => { next[k] = true; });
+            }
+            this.categories = next;
+        }
+        // Always re-apply — Livewire morph replaces <tr> nodes and drops inline display state.
+        this.applyCategoryVisibility();
+    },
+    applyCategoryVisibility() {
+        const root = this.dbRoot();
+        if (!root) return;
+        const showCats = root.getAttribute('data-show-category-rows') === '1';
+        const forced = root.getAttribute('data-force-categories-open') === '1';
+        // Typed tabs: Livewire morph can reuse ALL-tab <tr> nodes that still have
+        // display:none / db-row-collapsed from collapsed categories — clear them.
+        if (!showCats) {
+            root.querySelectorAll('tbody tr').forEach((tr) => {
+                tr.classList.remove('db-row-collapsed');
+                tr.hidden = false;
+                tr.style.removeProperty('display');
+            });
+            // Still honor revision expand/collapse on child rows.
+            root.querySelectorAll('tr[data-rev-key]').forEach((tr) => {
+                const revKey = tr.getAttribute('data-rev-key') || '';
+                const open = !revKey || !!this.expandedRevs[revKey];
+                tr.classList.toggle('db-row-collapsed', !open);
+                tr.hidden = !open;
+                if (open) {
+                    tr.style.removeProperty('display');
+                } else {
+                    tr.style.display = 'none';
+                }
+            });
+            return;
+        }
+        root.querySelectorAll('tr[data-cat]').forEach((tr) => {
+            const slug = tr.getAttribute('data-cat') || '';
+            const revKey = tr.getAttribute('data-rev-key') || '';
+            const catOpen = forced || !!this.categories[slug];
+            const revOpen = !revKey || !!this.expandedRevs[revKey];
+            const open = catOpen && revOpen;
+            tr.classList.toggle('db-row-collapsed', !open);
+            tr.hidden = !open;
+            if (open) {
+                tr.style.removeProperty('display');
+            } else {
+                tr.style.display = 'none';
+            }
+        });
+    },
+    settleTableLayout() {
+        // Measure sticky headers without hiding the table (hiding caused a blank gap on type switch).
+        this.syncStickyHeaders();
+        this.applyCategoryVisibility();
+        this.$nextTick(() => {
+            requestAnimationFrame(() => {
+                this.syncStickyHeaders();
+                this.applyCategoryVisibility();
+            });
+        });
     },
     queueStickySync() {
         if (this._stickySyncTimer) {
@@ -1371,7 +1665,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         });
     },
     syncStickyHeaders() {
-        const scroll = this.$el.querySelector('.db-table-scroll');
+        const scroll = this.dbRoot()?.querySelector?.('.db-table-scroll');
         if (!scroll) return;
         const table = scroll.querySelector('.db-table');
         const thead = scroll.querySelector('thead');
@@ -1449,59 +1743,208 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         const rect = th && th.getBoundingClientRect ? th.getBoundingClientRect() : null;
         let x = rect ? rect.left + 8 : e.clientX;
         let y = rect ? rect.bottom + 4 : e.clientY;
-        const menuW = 220;
-        const menuH = 44;
+        const menuW = 280;
+        const menuH = 96;
         x = Math.max(8, Math.min(x, window.innerWidth - menuW - 8));
         y = Math.max(8, Math.min(y, window.innerHeight - menuH - 8));
-        this.groupMenu = { open: true, x, y, group };
-        this.closeRowMenu();
+        this._suppressOutsideClick = true;
+        clearTimeout(this._suppressOutsideTimer);
+        this._suppressOutsideTimer = setTimeout(() => { this._suppressOutsideClick = false; }, 400);
+        this.groupMenu.open = true;
+        this.groupMenu.x = x;
+        this.groupMenu.y = y;
+        this.groupMenu.group = group;
+        this.rowMenu.open = false;
+        this.paintRowMenuDom();
+        this.paintGroupMenuDom();
     },
     closeGroupMenu() {
         this.groupMenu.open = false;
         this.groupMenu.group = null;
+        this.paintGroupMenuDom();
     },
-    openRowMenu(e, row) {
-        if (!row || (!row.canEdit && !row.canRevise)) {
+    parseRowActions(el) {
+        if (!el) return null;
+        const b64 = el.getAttribute('data-row-actions-b64') || '';
+        if (b64) {
+            try {
+                // UTF-8 safe decode (titles / office names can be non-ASCII).
+                const bin = atob(b64);
+                const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+                return JSON.parse(new TextDecoder().decode(bytes));
+            } catch (err) {
+                try {
+                    return JSON.parse(decodeURIComponent(escape(atob(b64))));
+                } catch (err2) {}
+            }
+        }
+        const raw = el.getAttribute('data-row-actions') || '';
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw);
+        } catch (err) {
+            return null;
+        }
+    },
+    paintRowMenuDom() {
+        const menu = document.getElementById('dcs-db-row-menu');
+        if (!menu) return;
+        menu.removeAttribute('x-cloak');
+        menu.style.display = this.rowMenu.open ? 'block' : 'none';
+        menu.style.left = (this.rowMenu.x || 0) + 'px';
+        menu.style.top = (this.rowMenu.y || 0) + 'px';
+        const label = menu.querySelector('[data-menu-label]');
+        if (label) {
+            label.style.display = this.rowMenu.label ? 'block' : 'none';
+            label.textContent = this.rowMenu.label || '';
+        }
+        const setBtn = (sel, show) => {
+            const btn = menu.querySelector(sel);
+            if (btn) btn.style.display = show ? 'block' : 'none';
+        };
+        setBtn('[data-menu-edit]', !!this.rowMenu.canEdit);
+        setBtn('[data-menu-revise]', !!this.rowMenu.canRevise);
+        setBtn('[data-menu-recur]', !!this.rowMenu.canRecur);
+        setBtn('[data-menu-print]', !!this.rowMenu.canPrintDist);
+    },
+    paintGroupMenuDom() {
+        const menu = document.getElementById('dcs-db-group-menu');
+        if (!menu) return;
+        menu.removeAttribute('x-cloak');
+        menu.style.display = this.groupMenu.open ? 'block' : 'none';
+        menu.style.left = (this.groupMenu.x || 0) + 'px';
+        menu.style.top = (this.groupMenu.y || 0) + 'px';
+        const name = menu.querySelector('[data-menu-group-name]');
+        if (name) {
+            const g = this.groupMenu.group;
+            name.textContent = (this.groupLabels && this.groupLabels[g]) ? this.groupLabels[g] : (g || '');
+        }
+    },
+    openRowMenuFromEl(el, clientX, clientY) {
+        const row = this.parseRowActions(el);
+        if (!row || typeof row !== 'object') {
+            return;
+        }
+        // Show menu whenever row payload exists (typed tabs / search / filter).
+        const canEdit = !!row.canEdit;
+        const canRevise = !!row.canRevise;
+        const canRecur = !!row.canRecur;
+        const canPrintDist = row.canPrintDist !== false;
+        this.groupMenu.open = false;
+        this.groupMenu.group = null;
+        this.paintGroupMenuDom();
+        const menuW = 260;
+        const menuH = 180;
+        let x = Number(clientX) || 0;
+        let y = Number(clientY) || 0;
+        x = Math.max(8, Math.min(x, window.innerWidth - menuW - 8));
+        y = Math.max(8, Math.min(y, window.innerHeight - menuH - 8));
+        this._suppressOutsideClick = true;
+        clearTimeout(this._suppressOutsideTimer);
+        this._suppressOutsideTimer = setTimeout(() => { this._suppressOutsideClick = false; }, 400);
+        this.rowMenu.open = true;
+        this.rowMenu.x = x;
+        this.rowMenu.y = y;
+        this.rowMenu.editUrl = row.editUrl || '';
+        this.rowMenu.reviseUrl = row.reviseUrl || '';
+        this.rowMenu.recurUrl = row.recurUrl || '';
+        this.rowMenu.canEdit = canEdit;
+        this.rowMenu.canRevise = canRevise;
+        this.rowMenu.canRecur = canRecur;
+        this.rowMenu.canPrintDist = canPrintDist;
+        this.rowMenu.label = row.label || '';
+        this.rowMenu.title = row.title || '';
+        this.rowMenu.effectivity = row.effectivity || '';
+        this.rowMenu.revisionNo = row.revisionNo ?? '';
+        this.rowMenu.distDate = row.distDate || '';
+        this.rowMenu.offices = Array.isArray(row.offices) ? row.offices : [];
+        // Imperative paint — survives Livewire morph leaving x-cloak / broken Alpine x-show.
+        this.paintRowMenuDom();
+    },
+    openRowMenu(e) {
+        const host = e?.currentTarget || e?.target?.closest?.('tr[data-row-actions-b64], tr[data-row-actions]');
+        this.openRowMenuFromEl(host, e?.clientX, e?.clientY);
+    },
+    closeRowMenu() {
+        if (this._suppressOutsideClick) {
+            return;
+        }
+        this.rowMenu.open = false;
+        this.paintRowMenuDom();
+    },
+    closeGroupMenuSafe() {
+        if (this._suppressOutsideClick) {
             return;
         }
         this.closeGroupMenu();
-        const menuW = 220;
-        const menuH = 132;
-        let x = e.clientX;
-        let y = e.clientY;
-        x = Math.max(8, Math.min(x, window.innerWidth - menuW - 8));
-        y = Math.max(8, Math.min(y, window.innerHeight - menuH - 8));
-        this.rowMenu = {
-            open: true,
-            x,
-            y,
-            editUrl: row.editUrl || '',
-            reviseUrl: row.reviseUrl || '',
-            recurUrl: row.recurUrl || '',
-            canEdit: !!row.canEdit,
-            canRevise: !!row.canRevise,
-            canRecur: !!row.canRecur,
-            label: row.label || '',
-        };
-    },
-    closeRowMenu() {
-        this.rowMenu.open = false;
     },
     goRowAction(url) {
         if (!url) {
             return;
         }
-        this.closeRowMenu();
+        this._suppressOutsideClick = false;
+        this.rowMenu.open = false;
+        this.paintRowMenuDom();
         window.location.href = url;
+    },
+    buildDistributionUrl(payload = {}) {
+        const params = new URLSearchParams();
+        const offices = Array.isArray(payload.offices) ? payload.offices : [];
+        offices.forEach((office) => {
+            const name = typeof office === 'string' ? office : (office?.name || '');
+            if (!name) return;
+            params.append('offices[]', name);
+            const copies = typeof office === 'object' && office?.copies != null ? String(office.copies) : '';
+            params.append('copies[]', copies);
+        });
+        if (payload.date) params.set('date', payload.date);
+        if (payload.title) params.set('document_title', payload.title);
+        if (payload.effectivity) params.set('effectivity_date', payload.effectivity);
+        if (payload.revisionNo !== undefined && payload.revisionNo !== null && payload.revisionNo !== '') {
+            params.set('revision_no', String(payload.revisionNo));
+        }
+        return this.distTemplateUrl + (params.toString() ? ('?' + params.toString()) : '');
+    },
+    printDistributionFromRow() {
+        if (!this.rowMenu.canPrintDist) {
+            return;
+        }
+        if (!this.rowMenu.offices.length) {
+            alert('This document has no receiving offices yet. Add distribution offices in Document Registration first.');
+            this._suppressOutsideClick = false;
+            this.rowMenu.open = false;
+            this.paintRowMenuDom();
+            return;
+        }
+        const url = this.buildDistributionUrl({
+            offices: this.rowMenu.offices,
+            date: this.rowMenu.distDate || '',
+            title: this.rowMenu.title || '',
+            effectivity: this.rowMenu.effectivity || '',
+            revisionNo: this.rowMenu.revisionNo,
+        });
+        this._suppressOutsideClick = false;
+        this.rowMenu.open = false;
+        this.paintRowMenuDom();
+        window.open(url, '_blank', 'noopener');
+    },
+    generateDistributionFromGroup() {
+        // Blank / catalog sheet from the DISTRIBUTION column header.
+        const url = this.buildDistributionUrl({});
+        this._suppressOutsideClick = false;
+        this.closeGroupMenu();
+        window.open(url, '_blank', 'noopener');
     },
     hideGroupFromMenu() {
         const g = this.groupMenu.group;
         if (!g || !this.visible[g]) {
+            this._suppressOutsideClick = false;
             this.closeGroupMenu();
             return;
         }
         this.visible[g] = false;
         this.persistVisible();
+        this._suppressOutsideClick = false;
         this.closeGroupMenu();
     },
     collapseAll() {
@@ -1539,29 +1982,34 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         const willExpand = !this.categories[slug];
         if (willExpand) {
             this.withTableBusy('Expanding category…', 'Showing documents in this group.', () => {
-                this.categories[slug] = true;
+                // New object so Alpine always notices the change.
+                this.categories = Object.assign({}, this.categories, { [slug]: true });
+                this.applyCategoryVisibility();
                 this.persistExpand();
             });
             return;
         }
-        this.categories[slug] = false;
+        this.categories = Object.assign({}, this.categories, { [slug]: false });
+        this.applyCategoryVisibility();
         this.persistExpand();
     },
     toggleRev(id) {
         const willExpand = !this.expandedRevs[id];
         if (willExpand) {
             this.withTableBusy('Expanding revisions…', 'Showing older revisions for this document.', () => {
-                this.expandedRevs[id] = true;
+                this.expandedRevs = Object.assign({}, this.expandedRevs, { [id]: true });
+                this.applyCategoryVisibility();
                 this.persistExpand();
             });
             return;
         }
-        this.expandedRevs[id] = false;
+        this.expandedRevs = Object.assign({}, this.expandedRevs, { [id]: false });
+        this.applyCategoryVisibility();
         this.persistExpand();
     },
     toggleCourses(id) { this.openCourses[id] = !this.openCourses[id]; this.persistExpand(); },
     slug(name) { return String(name || 'uncategorized').toLowerCase().replace(/[^a-z0-9]+/g, '-') }
-}" @keydown.escape.window="closeGroupMenu()">
+}" @keydown.escape.window="rowMenu.open = false; paintRowMenuDom(); closeGroupMenu()">
 
 <div class="db-filter-overlay" :class="{ 'db-open': filterOpen }" @click="filterOpen = false"></div>
 <aside class="db-filter-panel" :class="{ 'db-open': filterOpen }" id="filterPanel">
@@ -1727,69 +2175,69 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th rowspan="3" class="db-offices-col db-source-unit-col">SOURCE UNIT</th>
                         <th rowspan="3" class="db-related-col">RELATED DOCS</th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="approval" x-show="visible.approval && !open.approval" x-on:click="toggle('approval')" @contextmenu.prevent="openGroupMenu($event, 'approval')">APPROVAL <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['approval'] ?? 2 }}" class="col-group-approval col-group-expanded db-group-header" x-show="visible.approval && open.approval" x-on:click="toggle('approval')" @contextmenu.prevent="openGroupMenu($event, 'approval')">APPROVAL <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="approval" x-on:click="toggle('approval')">APPROVAL <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['approval'] ?? 2 }}" class="col-group-approval col-group-expanded db-group-header" x-on:click="toggle('approval')">APPROVAL <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="deadline" x-show="visible.deadline && !open.deadline" x-on:click="toggle('deadline')" @contextmenu.prevent="openGroupMenu($event, 'deadline')">DEADLINE <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['deadline'] ?? 2 }}" class="col-group-deadline col-group-expanded db-group-header" x-show="visible.deadline && open.deadline" x-on:click="toggle('deadline')" @contextmenu.prevent="openGroupMenu($event, 'deadline')">DEADLINE <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="deadline" x-on:click="toggle('deadline')">DEADLINE <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['deadline'] ?? 2 }}" class="col-group-deadline col-group-expanded db-group-header" x-on:click="toggle('deadline')">DEADLINE <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="masterlist" x-show="visible.masterlist && !open.masterlist" x-on:click="toggle('masterlist')" @contextmenu.prevent="openGroupMenu($event, 'masterlist')">MASTERLIST <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['masterlist'] ?? 5 }}" class="col-group-masterlist col-group-expanded db-group-header" x-show="visible.masterlist && open.masterlist" x-on:click="toggle('masterlist')" @contextmenu.prevent="openGroupMenu($event, 'masterlist')">MASTERLIST REGISTRATION <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="masterlist" x-on:click="toggle('masterlist')">MASTERLIST <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['masterlist'] ?? 5 }}" class="col-group-masterlist col-group-expanded db-group-header" x-on:click="toggle('masterlist')">MASTERLIST REGISTRATION <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="dcn" x-show="visible.dcn && !open.dcn" x-on:click="toggle('dcn')" @contextmenu.prevent="openGroupMenu($event, 'dcn')">DCN <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['dcn'] ?? 6 }}" class="col-group-dcn col-group-expanded db-group-header" x-show="visible.dcn && open.dcn" x-on:click="toggle('dcn')" @contextmenu.prevent="openGroupMenu($event, 'dcn')">DOCUMENT CHANGE NOTICE <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="dcn" x-on:click="toggle('dcn')">DCN <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['dcn'] ?? 6 }}" class="col-group-dcn col-group-expanded db-group-header" x-on:click="toggle('dcn')">DOCUMENT CHANGE NOTICE <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="drf" x-show="visible.drf && !open.drf" x-on:click="toggle('drf')" @contextmenu.prevent="openGroupMenu($event, 'drf')">DRF <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['drf'] ?? 5 }}" class="col-group-drf col-group-expanded db-group-header" x-show="visible.drf && open.drf" x-on:click="toggle('drf')" @contextmenu.prevent="openGroupMenu($event, 'drf')">DOCUMENT REQUEST FORM <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="drf" x-on:click="toggle('drf')">DRF <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['drf'] ?? 5 }}" class="col-group-drf col-group-expanded db-group-header" x-on:click="toggle('drf')">DOCUMENT REQUEST FORM <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="distribution" x-show="visible.distribution && !open.distribution" x-on:click="toggle('distribution')" @contextmenu.prevent="openGroupMenu($event, 'distribution')">DISTRIBUTION <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['distribution'] ?? 6 }}" class="col-group-distribution col-group-expanded db-group-header" x-show="visible.distribution && open.distribution" x-on:click="toggle('distribution')" @contextmenu.prevent="openGroupMenu($event, 'distribution')">DISTRIBUTION <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="distribution" x-on:click="toggle('distribution')">DISTRIBUTION <span class="collapse-arrow">&#9654;</span></th>
+                        <th colspan="{{ $groupColspans['distribution'] ?? 6 }}" class="col-group-distribution col-group-expanded db-group-header" x-on:click="toggle('distribution')">DISTRIBUTION <span class="collapse-arrow">&#9664;</span></th>
 
-                        <th rowspan="3" class="col-group-summary db-group-header" data-group="retrieval" x-show="visible.retrieval && !open.retrieval" x-on:click="toggle('retrieval')" @contextmenu.prevent="openGroupMenu($event, 'retrieval')">RETRIEVAL <span class="collapse-arrow">&#9654;</span></th>
-                        <th rowspan="3" class="col-group-retrieval col-group-expanded db-group-header db-offices-col" x-show="visible.retrieval && open.retrieval" x-on:click="toggle('retrieval')" @contextmenu.prevent="openGroupMenu($event, 'retrieval')">RETRIEVED OFFICE(S) <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-summary db-group-header" data-group="retrieval" x-on:click="toggle('retrieval')">RETRIEVAL <span class="collapse-arrow">&#9654;</span></th>
+                        <th rowspan="3" class="col-group-retrieval col-group-expanded db-group-header db-offices-col" x-on:click="toggle('retrieval')">RETRIEVED OFFICE(S) <span class="collapse-arrow">&#9664;</span></th>
                     </tr>
 
                     <tr class="db-head-secondary">
-                        <th colspan="2" class="col-group-approval col-group-expanded" x-show="visible.approval && open.approval">BOT/ADCO APPROVAL</th>
-                        <th rowspan="2" class="col-group-deadline col-group-expanded" x-show="visible.deadline && open.deadline">DATE</th>
-                        <th rowspan="2" class="col-group-deadline col-group-expanded" x-show="visible.deadline && open.deadline">DAY DIFF</th>
-                        <th colspan="2" class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">DOCUMENT RECEIPT</th>
-                        <th colspan="2" class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">DOCUMENT REGISTERED</th>
-                        <th rowspan="2" class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">TIME SPENT (MINS)</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN NO.</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN DATE</th>
-                        <th colspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN RECEIPT (ACTUAL)</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded db-offices-col" x-show="visible.dcn && open.dcn">PURPOSE OF REVISION</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">SCANNED DCN</th>
-                        <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF NO.</th>
-                        <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF DATE</th>
-                        <th colspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF RECEIPT</th>
-                        <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">SCANNED DRF</th>
-                        <th colspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DISTRIBUTION (ON FILE)</th>
-                        <th colspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DISTRIBUTION (ACTUAL)</th>
-                        <th rowspan="2" class="col-group-distribution col-group-expanded db-offices-col" x-show="visible.distribution && open.distribution">RECEIVING OFFICE(S)</th>
-                        <th rowspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">SCANNED DIST.</th>
+                        <th colspan="2" class="col-group-approval col-group-expanded">BOT/ADCO APPROVAL</th>
+                        <th rowspan="2" class="col-group-deadline col-group-expanded">DATE</th>
+                        <th rowspan="2" class="col-group-deadline col-group-expanded">DAY DIFF</th>
+                        <th colspan="2" class="col-group-masterlist col-group-expanded">DOCUMENT RECEIPT</th>
+                        <th colspan="2" class="col-group-masterlist col-group-expanded">DOCUMENT REGISTERED</th>
+                        <th rowspan="2" class="col-group-masterlist col-group-expanded">TIME SPENT (MINS)</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded">DCN NO.</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded">DCN DATE</th>
+                        <th colspan="2" class="col-group-dcn col-group-expanded">DCN RECEIPT (ACTUAL)</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded db-offices-col">PURPOSE OF REVISION</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded">SCANNED DCN</th>
+                        <th rowspan="2" class="col-group-drf col-group-expanded">DRF NO.</th>
+                        <th rowspan="2" class="col-group-drf col-group-expanded">DRF DATE</th>
+                        <th colspan="2" class="col-group-drf col-group-expanded">DRF RECEIPT</th>
+                        <th rowspan="2" class="col-group-drf col-group-expanded">SCANNED DRF</th>
+                        <th colspan="2" class="col-group-distribution col-group-expanded">DISTRIBUTION (ON FILE)</th>
+                        <th colspan="2" class="col-group-distribution col-group-expanded">DISTRIBUTION (ACTUAL)</th>
+                        <th rowspan="2" class="col-group-distribution col-group-expanded db-offices-col">RECEIVING OFFICE(S)</th>
+                        <th rowspan="2" class="col-group-distribution col-group-expanded">SCANNED DIST.</th>
                     </tr>
 
                     <tr class="db-head-tertiary">
-                        <th class="col-group-approval col-group-expanded" x-show="visible.approval && open.approval">NO.</th>
-                        <th class="col-group-approval col-group-expanded" x-show="visible.approval && open.approval">APPV. DATE</th>
-                        <th class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">DATE</th>
-                        <th class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">TIME</th>
-                        <th class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">DATE</th>
-                        <th class="col-group-masterlist col-group-expanded" x-show="visible.masterlist && open.masterlist">TIME</th>
-                        <th class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DATE</th>
-                        <th class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">TIME</th>
-                        <th class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DATE</th>
-                        <th class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">TIME</th>
-                        <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DATE</th>
-                        <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">TIME</th>
-                        <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DATE</th>
-                        <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">TIME</th>
+                        <th class="col-group-approval col-group-expanded">NO.</th>
+                        <th class="col-group-approval col-group-expanded">APPV. DATE</th>
+                        <th class="col-group-masterlist col-group-expanded">DATE</th>
+                        <th class="col-group-masterlist col-group-expanded">TIME</th>
+                        <th class="col-group-masterlist col-group-expanded">DATE</th>
+                        <th class="col-group-masterlist col-group-expanded">TIME</th>
+                        <th class="col-group-dcn col-group-expanded">DATE</th>
+                        <th class="col-group-dcn col-group-expanded">TIME</th>
+                        <th class="col-group-drf col-group-expanded">DATE</th>
+                        <th class="col-group-drf col-group-expanded">TIME</th>
+                        <th class="col-group-distribution col-group-expanded">DATE</th>
+                        <th class="col-group-distribution col-group-expanded">TIME</th>
+                        <th class="col-group-distribution col-group-expanded">DATE</th>
+                        <th class="col-group-distribution col-group-expanded">TIME</th>
                     </tr>
                 </thead>
 
-                <tbody>
+                <tbody wire:key="db-tbody-{{ $docTypeId }}-{{ ! empty($forceCategoriesOpen) ? 'forced' : 'plain' }}-{{ $list['page'] ?? 1 }}">
                     @php $lastCategory = null; @endphp
                     @forelse(($list['data'] ?? []) as $i => $group)
                         @php
@@ -1805,11 +2253,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 'canEdit' => ! empty($r['can_edit']),
                                 'canRevise' => ! empty($r['can_revise']),
                                 'canRecur' => ! empty($r['can_recur']),
+                                'canPrintDist' => empty($r['is_deleted']),
                                 'label' => ($r['doc_no'] ?? 'Document') . ' · Rev ' . ($r['rev_no'] ?? 0),
+                                'title' => $r['title'] ?? '',
+                                'effectivity' => $r['effectivity_raw'] ?? '',
+                                'revisionNo' => $r['rev_no'] ?? 0,
+                                'distDate' => $r['dist_print_date'] ?? '',
+                                'offices' => $r['dist_office_list'] ?? [],
                             ];
                         @endphp
 
-                        @if($catName !== $lastCategory)
+                        @if($showCategoryRows && $catName !== $lastCategory)
                             @php
                                 $catTotal = (int) (($list['category_totals'][$catName] ?? 0));
                                 if ($catTotal < 1) {
@@ -1829,9 +2283,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 </td>
                             </tr>
                             @php $lastCategory = $catName; @endphp
+                        @elseif(! $showCategoryRows)
+                            @php $lastCategory = $catName; @endphp
                         @endif
 
-                        <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}']" @contextmenu.prevent='openRowMenu($event, @json($rowActions))' @if(!empty($r['is_deleted'])) title="Moved to Recycle Bin{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
+                        <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif" @if($showCategoryRows) data-cat="{{ $catSlug }}" :class="{ 'db-row-collapsed': !categories['{{ $catSlug }}'] }" @endif data-row-actions-b64="{{ base64_encode(json_encode($rowActions, JSON_UNESCAPED_UNICODE)) }}" @contextmenu.prevent="openRowMenu($event)" @if(!empty($r['is_deleted'])) title="Moved to Recycle Bin{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
                             <td>
                                 @if(!empty($group['children']))
                                     <span class="db-expand-btn" :class="{ expanded: expandedRevs['{{ $revKey }}'] }" x-on:click.stop="toggleRev('{{ $revKey }}')" title="Show {{ $group['stack_label'] ?? 'older revisions' }}" x-text="expandedRevs['{{ $revKey }}'] ? '▼' : '▶'"></span>
@@ -1842,7 +2298,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </tr>
 
                         @if(!empty($r['syllabi_courses']) && count($r['syllabi_courses']))
-                            <tr class="db-courses-row" x-show="categories['{{ $catSlug }}']">
+                            <tr class="db-courses-row" @if($showCategoryRows) data-cat="{{ $catSlug }}" :class="{ 'db-row-collapsed': !categories['{{ $catSlug }}'] }" @endif>
                                 <td colspan="47">
                                     <div class="db-courses-toggle" :class="{ expanded: openCourses['{{ $r['request_id'] }}'] }" x-on:click="toggleCourses('{{ $r['request_id'] }}')">
                                         <span class="db-courses-chevron" x-text="openCourses['{{ $r['request_id'] }}'] ? '▼' : '▶'"></span>
@@ -1866,15 +2322,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     'canEdit' => ! empty($child['can_edit']),
                                     'canRevise' => ! empty($child['can_revise']),
                                     'canRecur' => ! empty($child['can_recur']),
+                                    'canPrintDist' => empty($child['is_deleted']),
                                     'label' => ($child['doc_no'] ?? 'Document') . ' · Rev ' . ($child['rev_no'] ?? 0),
+                                    'title' => $child['title'] ?? '',
+                                    'effectivity' => $child['effectivity_raw'] ?? '',
+                                    'revisionNo' => $child['rev_no'] ?? 0,
+                                    'distDate' => $child['dist_print_date'] ?? '',
+                                    'offices' => $child['dist_office_list'] ?? [],
                                 ];
                             @endphp
-                            <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}'] && expandedRevs['{{ $revKey }}']" @contextmenu.prevent='openRowMenu($event, @json($childActions))' @if(!empty($child['is_deleted'])) title="Moved to Recycle Bin{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
+                            <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif" @if($showCategoryRows) data-cat="{{ $catSlug }}" @endif data-rev-key="{{ $revKey }}" :class="{ 'db-row-collapsed': {{ $showCategoryRows ? "!categories['{$catSlug}'] || " : '' }}!expandedRevs['{{ $revKey }}'] }" data-row-actions-b64="{{ base64_encode(json_encode($childActions, JSON_UNESCAPED_UNICODE)) }}" @contextmenu.prevent="openRowMenu($event)" @if(!empty($child['is_deleted'])) title="Moved to Recycle Bin{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
                                 <td class="db-child-ind"></td>
                                 @include('pages.dcs.database._row', ['r' => $child])
                             </tr>
                             @if(!empty($child['syllabi_courses']) && count($child['syllabi_courses']))
-                                <tr class="db-courses-row db-child-courses-row" x-show="categories['{{ $catSlug }}'] && expandedRevs['{{ $revKey }}']">
+                                <tr class="db-courses-row db-child-courses-row" @if($showCategoryRows) data-cat="{{ $catSlug }}" @endif data-rev-key="{{ $revKey }}" :class="{ 'db-row-collapsed': {{ $showCategoryRows ? "!categories['{$catSlug}'] || " : '' }}!expandedRevs['{{ $revKey }}'] }">
                                     <td colspan="47">
                                         <div class="db-courses-toggle" :class="{ expanded: openCourses['{{ $child['request_id'] }}'] }" x-on:click="toggleCourses('{{ $child['request_id'] }}')">
                                             <span class="db-courses-chevron" x-text="openCourses['{{ $child['request_id'] }}'] ? '▼' : '▶'"></span>
@@ -1890,7 +2352,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @endif
                         @endforeach
                     @empty
-                        <tr><td colspan="47" style="text-align:center;padding:40px;color:#475569;">No documents found</td></tr>
+                        <tr><td colspan="47" class="db-empty-cell">No documents found</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1907,7 +2369,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $pgEnd = min($pgLast, $pg + 2);
         @endphp
         <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 16px;flex-wrap:wrap;">
-            <span style="margin-right:auto;color:#475569;font-size:13px;">Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}</span>
+            <span class="db-page-info">Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}</span>
             @if($pg > 1)
                 <button type="button" class="db-btn" wire:click="goToPage({{ $pg - 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Previous</button>
             @endif
@@ -1920,38 +2382,39 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
 
     </section>
-
-    {{-- Group header context menu (hide group) — teleported so fixed coords are viewport-relative --}}
-    <template x-teleport="body">
-        <div class="db-col-context-menu" x-show="groupMenu.open" x-cloak
-             :style="'left:' + groupMenu.x + 'px;top:' + groupMenu.y + 'px'"
-             @click.outside="closeGroupMenu()"
-             @click.stop>
-            <button type="button" @click="hideGroupFromMenu()">
-                Hide <span x-text="groupLabels[groupMenu.group] || groupMenu.group"></span> group
-            </button>
-        </div>
-    </template>
-
-    <template x-teleport="body">
-        <div class="db-col-context-menu db-row-context-menu" x-show="rowMenu.open" x-cloak
-             :style="'left:' + rowMenu.x + 'px;top:' + rowMenu.y + 'px'"
-             @click.outside="closeRowMenu()"
-             @click.stop>
-            <div class="db-row-context-label" x-show="rowMenu.label" x-text="rowMenu.label"></div>
-            <button type="button" x-show="rowMenu.canEdit" @click="goRowAction(rowMenu.editUrl)">
-                <i class="fa-solid fa-pen"></i> Edit
-            </button>
-            <button type="button" x-show="rowMenu.canRevise" @click="goRowAction(rowMenu.reviseUrl)">
-                <i class="fa-solid fa-file-pen"></i> Register revised
-            </button>
-            <button type="button" x-show="rowMenu.canRecur" @click="goRowAction(rowMenu.recurUrl)">
-                <i class="fa-solid fa-rotate"></i> Register recur
-            </button>
-        </div>
-    </template>
-
 </main>
+
+{{-- Fixed menus outside .db-page overflow; actions bound via document click (survives Livewire morph) --}}
+<div id="dcs-db-group-menu"
+     class="db-col-context-menu"
+     wire:ignore
+     style="display:none">
+    <button type="button" data-menu-dist>
+        <i class="fa-solid fa-print"></i> Generate distribution sheet
+    </button>
+    <button type="button" data-menu-hide-group>
+        Hide <span data-menu-group-name></span> group
+    </button>
+</div>
+
+<div id="dcs-db-row-menu"
+     class="db-col-context-menu db-row-context-menu"
+     wire:ignore
+     style="display:none">
+    <div class="db-row-context-label" data-menu-label style="display:none"></div>
+    <button type="button" data-menu-edit style="display:none">
+        <i class="fa-solid fa-pen"></i> Edit
+    </button>
+    <button type="button" data-menu-revise style="display:none">
+        <i class="fa-solid fa-file-pen"></i> Register revised
+    </button>
+    <button type="button" data-menu-recur style="display:none">
+        <i class="fa-solid fa-rotate"></i> Register recur
+    </button>
+    <button type="button" data-menu-print style="display:none">
+        <i class="fa-solid fa-print"></i> Print for distribution
+    </button>
+</div>
 </div>
 
 <script>
@@ -2022,6 +2485,15 @@ window.dcsOfficesClamp = function (offices, highlightOffice) {
             const maxH = (this.lineHeightPx() * 2) + 2;
             return measure.scrollHeight <= maxH;
         },
+        trimAtWord(value, maxLen) {
+            if (maxLen >= value.length) return value;
+            let cut = value.slice(0, Math.max(1, maxLen));
+            const space = cut.lastIndexOf(' ');
+            if (space >= Math.floor(maxLen * 0.5)) {
+                cut = cut.slice(0, space);
+            }
+            return cut.replace(/[,\s.;:!-]+$/g, '');
+        },
         sync() {
             const total = this.offices.length;
             if (total === 0) {
@@ -2031,18 +2503,48 @@ window.dcsOfficesClamp = function (offices, highlightOffice) {
                 return;
             }
 
+            const full = this.offices.join(', ');
+
             if (this.expanded) {
                 this.visibleCount = total;
                 this.visibleHtml = this.renderHtml(this.offices);
-                this.showToggle = total > 1 && !this.fitsTwoLines(this.offices.join(', '));
+                // Only keep See less when something was actually truncated.
+                this.showToggle = !this.fitsTwoLines(full);
                 return;
             }
 
-            const full = this.offices.join(', ');
             if (this.fitsTwoLines(full)) {
                 this.visibleCount = total;
                 this.visibleHtml = this.renderHtml(this.offices);
                 this.showToggle = false;
+                return;
+            }
+
+            // One long office name: truncate at a word boundary (not a fake "See more").
+            if (total === 1) {
+                let best = 1;
+                let lo = 1;
+                let hi = full.length;
+                while (lo <= hi) {
+                    const mid = (lo + hi) >> 1;
+                    const candidate = this.trimAtWord(full, mid) + ' See more';
+                    if (this.fitsTwoLines(candidate)) {
+                        best = mid;
+                        lo = mid + 1;
+                    } else {
+                        hi = mid - 1;
+                    }
+                }
+                const clipped = this.trimAtWord(full, Math.max(1, best)) || full.slice(0, Math.max(1, best));
+                if (clipped === full) {
+                    this.visibleCount = 1;
+                    this.visibleHtml = this.renderHtml(this.offices);
+                    this.showToggle = false;
+                    return;
+                }
+                this.visibleCount = 1;
+                this.visibleHtml = this.escapeHtml(clipped);
+                this.showToggle = true;
                 return;
             }
 
@@ -2061,7 +2563,13 @@ window.dcsOfficesClamp = function (offices, highlightOffice) {
                 }
             }
             if (best < 1) best = 1;
-            if (best >= total) best = Math.max(1, total - 1);
+            if (best >= total) {
+                // Prefix would show every office — nothing left to reveal.
+                this.visibleCount = total;
+                this.visibleHtml = this.renderHtml(this.offices);
+                this.showToggle = false;
+                return;
+            }
 
             this.visibleCount = best;
             this.visibleHtml = this.renderHtml(this.offices.slice(0, best));

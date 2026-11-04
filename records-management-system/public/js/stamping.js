@@ -141,10 +141,6 @@ document.addEventListener('DOMContentLoaded', function () {
         updateOverlay();
         checkReady();
 
-        // Update modal title
-        const headerH3 = document.querySelector('.st-modal-header h3');
-        headerH3.textContent = defaultFile.stamped ? 'Change Stamp' : 'Apply Stamp';
-
         // Load first preview
         loadPreview();
 
@@ -480,14 +476,26 @@ document.addEventListener('DOMContentLoaded', function () {
     // CHECK IF READY
     // ═══════════════════════════════════════════
 
+    function syncStampActions() {
+        var stamped = !!(state.selectedFile && state.selectedFile.stamped);
+        if (applyBtn) {
+            applyBtn.style.display = stamped ? 'none' : '';
+            applyBtn.disabled = stamped || !state.stampType;
+        }
+        if (restoreBtn) {
+            restoreBtn.style.display = stamped ? '' : 'none';
+            restoreBtn.disabled = !stamped;
+        }
+        var headerH3 = document.querySelector('.st-modal-header h3');
+        if (headerH3) {
+            headerH3.textContent = stamped ? 'Remove Stamp' : 'Apply Stamp';
+        }
+    }
+
     function checkReady() {
         var ready = !!state.stampType;
-
         downloadBtn.disabled = !ready;
-        applyBtn.disabled    = !ready;
-        if (restoreBtn) {
-            restoreBtn.disabled = !(state.selectedFile && state.selectedFile.stamped);
-        }
+        syncStampActions();
     }
 
     // ═══════════════════════════════════════════
@@ -633,8 +641,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 state.selectedFile.stamped    = true;
                 state.selectedFile.stamp_type   = state.stampType;
             }
+            // Refresh preview only — skip full page reload (much faster).
             loadPreview(Date.now());
-            setTimeout(function () { location.reload(); }, 1200);
+            checkReady();
+            document.querySelectorAll('.st-btn-stamp[data-request-id="' + state.requestId + '"]').forEach(function (btn) {
+                btn.classList.add('st-btn-stamp-change');
+                var tag = btn.closest('tr') && btn.closest('tr').querySelector('.st-file-tag');
+                if (tag) {
+                    tag.classList.add('st-file-stamped');
+                    var icon = tag.querySelector('i');
+                    if (icon) {
+                        icon.className = 'fa-solid fa-stamp';
+                    }
+                }
+            });
+            if (window.Livewire && typeof Livewire.dispatch === 'function') {
+                Livewire.dispatch('stamp-applied');
+            }
         })
         .catch(function (err) {
             showToast(err.message || 'Failed to apply stamp.', 'error');
@@ -691,9 +714,20 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
             })
             .then(function () {
-                showToast('Original file restored.', 'success');
+                showToast('Stamp removed.', 'success');
                 restoreModal.style.display = 'none';
-                setTimeout(function () { location.reload(); }, 800);
+                if (state.selectedFile) {
+                    state.selectedFile.stamped = false;
+                    state.selectedFile.stamp_type = null;
+                }
+                loadPreview(Date.now());
+                checkReady();
+                document.querySelectorAll('.st-btn-stamp[data-request-id="' + state.requestId + '"]').forEach(function (btn) {
+                    btn.classList.remove('st-btn-stamp-change');
+                });
+                if (window.Livewire && typeof Livewire.dispatch === 'function') {
+                    Livewire.dispatch('stamp-applied');
+                }
             })
             .catch(function (err) {
                 showToast(err.message || 'Could not restore the original file.', 'error');

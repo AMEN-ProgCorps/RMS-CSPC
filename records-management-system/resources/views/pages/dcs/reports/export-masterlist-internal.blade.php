@@ -403,33 +403,33 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             border-top: 1.5pt solid #0070C0;
             margin: 0 0.58in 0.04in 0.52in;
         }
+        /* Table footer — works in browser preview and Dompdf (flex wraps "Page 1 of 1"). */
         .ml-ft {
-            display: flex;
-            align-items: baseline;
-            flex-wrap: nowrap;
-            margin-left: 0.51in;
-            margin-right: 1in;
+            width: 7.4in;
+            margin: 0 0.58in 0 0.52in;
+            border-collapse: collapse;
+            table-layout: fixed;
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 9pt !important;
             line-height: 1;
             color: #000;
-            white-space: nowrap;
         }
-        .ml-ft-date,
-        .ml-ft-rev,
-        .ml-ft-page {
-            flex: 0 0 auto;
+        .ml-ft td {
+            padding: 0;
+            vertical-align: baseline;
             white-space: nowrap;
+            font-size: 9pt !important;
+            line-height: 1;
         }
-        .ml-ft-date { font-weight: 400; }
+        .ml-ft-date { width: 38%; text-align: left; font-weight: 400; }
+        .ml-ft-rev { width: 24%; text-align: center; }
+        .ml-ft-page { width: 38%; text-align: right; }
         .ml-ft-date strong,
         .ml-ft-rev strong,
         .ml-ft-page b {
             font-family: Arial, Helvetica, sans-serif !important;
             font-weight: 700 !important;
         }
-        .ml-ft-rev { margin-left: 1.89in; }
-        .ml-ft-page { margin-left: 2.37in; }
         .ml-hdr-code b { font-weight: 700 !important; }
 
         .ml-sheet.is-internal-forms .ml-hdr {
@@ -451,9 +451,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             width: 7.49in;
             margin: 0 0.49in 0.05in 0.52in;
         }
-        .ml-sheet.is-internal-forms .ml-ft { margin-right: 0.5in; }
-        .ml-sheet.is-internal-forms .ml-ft-rev { margin-left: 1.95in; }
-        .ml-sheet.is-internal-forms .ml-ft-page { margin-left: 2.87in; }
+        .ml-sheet.is-internal-forms .ml-ft { width: 7.49in; margin: 0 0.49in 0 0.52in; }
 
         body.is-pdf { background: #fff !important; }
         body.is-pdf .print-toolbar { display: none !important; }
@@ -637,11 +635,17 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                 background: #fff !important;
                 margin: 0 !important;
                 padding: 0 !important;
+                min-height: 0 !important;
+                height: auto !important;
             }
             .print-toolbar { display: none !important; }
             .ml-sheet {
                 margin: 0 !important;
                 box-shadow: none !important;
+                /* Slightly under letter height so Chromium does not spill a blank page */
+                height: 10.95in !important;
+                min-height: 10.95in !important;
+                max-height: 10.95in !important;
                 page-break-after: auto !important;
                 break-after: auto !important;
             }
@@ -649,13 +653,44 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                 page-break-after: always !important;
                 break-after: page !important;
             }
+            .ml-sheet.is-last {
+                page-break-after: avoid !important;
+                break-after: avoid !important;
+            }
+        }
+
+        /* Forced when exporting PDF so Chromium headless matches print preview (no gray canvas). */
+        body.is-print-export {
+            background: #fff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            min-height: 0 !important;
+            height: auto !important;
+        }
+        body.is-print-export .print-toolbar { display: none !important; }
+        body.is-print-export .ml-sheet {
+            margin: 0 !important;
+            box-shadow: none !important;
+            height: 10.95in !important;
+            min-height: 10.95in !important;
+            max-height: 10.95in !important;
+            page-break-after: auto !important;
+            break-after: auto !important;
+        }
+        body.is-print-export .ml-sheet:not(.is-last) {
+            page-break-after: always !important;
+            break-after: page !important;
+        }
+        body.is-print-export .ml-sheet.is-last {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
         }
     </style>
 </head>
-<body class="{{ !empty($isPdf) ? 'is-pdf' : '' }}">
+<body class="{{ !empty($isPdf) ? 'is-pdf' : '' }}{{ !empty($forcePrintLayout) ? ' is-print-export' : '' }}">
     @if(empty($embed))
     <div class="print-toolbar" id="toolbar">
-        <button class="btn-pdf" type="button" id="btnPdf">Save as PDF</button>
+        <button class="btn-pdf" type="button" id="btnPdf" title="Opens the print dialog — choose Save as PDF for a file identical to this preview">Save as PDF</button>
         <button class="btn-print" type="button" id="btnPrint">Print</button>
         <button class="btn-close" type="button" id="btnClose">Close</button>
     </div>
@@ -784,7 +819,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                     <tr>
                         <td>Effectivity Date: <b>{{ $footerEffectivity }}</b></td>
                         <td class="c">Rev. <b>{{ $footerRev }}</b></td>
-                        <td class="r">Page <b>{{ $pageNo }}</b> of <b>{{ $totalPages }}</b></td>
+                        <td class="r">Page&nbsp;<b>{{ $pageNo }}</b>&nbsp;of&nbsp;<b>{{ $totalPages }}</b></td>
                     </tr>
                 </table>
             @else
@@ -879,11 +914,13 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
 
             <div class="ml-footer">
                 <div class="ml-footer-line"></div>
-                <div class="ml-ft">
-                    <span class="ml-ft-date">Effectivity Date: <strong>{{ $footerEffectivity }}</strong></span>
-                    <span class="ml-ft-rev">Rev. <strong>{{ $footerRev }}</strong></span>
-                    <span class="ml-ft-page">Page <b>{{ $pageNo }}</b> of <b>{{ $totalPages }}</b></span>
-                </div>
+                <table class="ml-ft">
+                    <tr>
+                        <td class="ml-ft-date">Effectivity Date: <strong>{{ $footerEffectivity }}</strong></td>
+                        <td class="ml-ft-rev">Rev. <strong>{{ $footerRev }}</strong></td>
+                        <td class="ml-ft-page">Page&nbsp;<b>{{ $pageNo }}</b>&nbsp;of&nbsp;<b>{{ $totalPages }}</b></td>
+                    </tr>
+                </table>
             </div>
             @endif
         </div>
@@ -894,17 +931,24 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         document.addEventListener('DOMContentLoaded', function() {
             var t = document.getElementById('toolbar');
             if (t) t.classList.add('visible');
+
             var btnPdf = document.getElementById('btnPdf');
             if (btnPdf) btnPdf.addEventListener('click', function(e) {
                 e.preventDefault();
+                // Real PDF download (Chromium), not the browser print dialog.
                 var p = new URLSearchParams(window.location.search);
                 p.set('format', 'pdf');
+                p.delete('autoPrint');
+                p.delete('saveAsPdf');
+                p.delete('embed');
                 var url = window.location.pathname + '?' + p.toString();
-                var ifr = document.createElement('iframe');
-                ifr.style.display = 'none';
-                ifr.src = url;
-                document.body.appendChild(ifr);
-                setTimeout(function() { if (ifr.parentNode) ifr.parentNode.removeChild(ifr); }, 5000);
+                var a = document.createElement('a');
+                a.href = url;
+                a.rel = 'noopener';
+                a.download = '';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
             });
             var btnPrint = document.getElementById('btnPrint');
             if (btnPrint) btnPrint.addEventListener('click', function(e) {
@@ -913,8 +957,11 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             });
             var btnClose = document.getElementById('btnClose');
             if (btnClose) btnClose.addEventListener('click', function() { window.close(); });
-            if (new URLSearchParams(window.location.search).get('autoPrint') === '1') {
-                setTimeout(function() { window.print(); }, 250);
+
+            // autoPrint only for Print Report — never for PDF download.
+            var params = new URLSearchParams(window.location.search);
+            if (params.get('autoPrint') === '1' && params.get('format') !== 'pdf' && !params.get('saveAsPdf')) {
+                setTimeout(function() { window.print(); }, 300);
             }
         });
     </script>

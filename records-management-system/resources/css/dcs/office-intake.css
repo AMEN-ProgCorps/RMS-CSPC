@@ -14,8 +14,7 @@
     overflow-x: hidden;
     box-sizing: border-box;
     z-index: 1;
-    transition: left var(--dcs-ease, 0.2s ease), top var(--dcs-ease, 0.2s ease);
-    animation: ofiFadeIn 0.25s ease both;
+    transition: left var(--dcs-ease), top var(--dcs-ease);
 }
 
 /* Clear top tabs (also in top-tabs.css; duplicated here so public asset works without Vite rebuild) */
@@ -26,11 +25,6 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .ofi-page {
 body:has(#dcs-sidebar-collapsed:checked) .ofi-page,
 html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     left: var(--dcs-sidebar-collapsed, 68px);
-}
-
-@keyframes ofiFadeIn {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
 }
 
 .ofi-page::-webkit-scrollbar { width: 6px; }
@@ -64,8 +58,17 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-reg-actions {
     display: flex;
     justify-content: flex-end;
-    margin: 8px 0 28px;
-    padding-top: 4px;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 12px 0 28px;
+    padding: 16px 0 4px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.ofi-reg-actions .reg-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
 }
 
 .ofi-req {
@@ -2182,7 +2185,7 @@ body.ofi-modal-open {
     border-radius: 16px;
     background: #fff;
     box-shadow: 0 24px 64px rgba(9, 29, 90, 0.28);
-    animation: ofiFadeIn 0.2s ease both;
+    animation: modalSlideUp var(--dcs-modal-in) both;
 }
 
 .ofi-intake-modal-header {
@@ -2283,6 +2286,153 @@ body.ofi-modal-open {
 
 .ofi-intake-modal-footer[hidden] {
     display: none !important;
+}
+
+/* Compact confirm dialog (replaces native window.confirm) */
+.ofi-confirm-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1600;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(9, 29, 90, 0.48);
+    backdrop-filter: blur(3px);
+}
+
+.ofi-confirm-dialog-overlay.is-open {
+    display: flex;
+}
+
+.ofi-confirm-dialog {
+    width: min(420px, 100%);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 24px 64px rgba(9, 29, 90, 0.28);
+    overflow: hidden;
+    animation: modalSlideUp var(--dcs-modal-in, 0.28s ease) both;
+}
+
+.ofi-confirm-dialog-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 18px;
+    background: linear-gradient(135deg, #091d5a 0%, #0d2a7a 100%);
+    color: #fff;
+}
+
+.ofi-confirm-dialog-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: rgba(255, 184, 0, 0.18);
+    color: #ffb800;
+    flex-shrink: 0;
+}
+
+.ofi-confirm-dialog-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.3;
+}
+
+.ofi-confirm-dialog-body {
+    padding: 18px 20px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #334155;
+}
+
+.ofi-confirm-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px 16px;
+    border-top: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
+
+.ofi-confirm-dialog-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 8px 16px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    border: 1.5px solid transparent;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.ofi-confirm-dialog-btn-cancel {
+    background: #fff;
+    border-color: #cbd5e1;
+    color: #475569;
+}
+
+.ofi-confirm-dialog-btn-cancel:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+
+.ofi-confirm-dialog-btn-ok {
+    background: #0d2a7a;
+    border-color: #0d2a7a;
+    color: #fff;
+}
+
+.ofi-confirm-dialog-btn-ok:hover {
+    background: #091d5a;
+    border-color: #091d5a;
+}
+
+[data-theme="dark"] .ofi-confirm-dialog {
+    background: #131c2e;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+[data-theme="dark"] .ofi-confirm-dialog-body {
+    color: #cbd5e1;
+}
+
+[data-theme="dark"] .ofi-confirm-dialog-footer {
+    background: #0f172a;
+    border-top-color: #1e293b;
+}
+
+[data-theme="dark"] .ofi-confirm-dialog-btn-cancel {
+    background: #1e293b;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .ofi-confirm-dialog-btn-cancel:hover {
+    background: #273449;
+    border-color: #475569;
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .ofi-confirm-dialog-btn-ok {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
+}
+
+[data-theme="dark"] .ofi-confirm-dialog-btn-ok:hover {
+    background: #1e40af;
+    border-color: #1e40af;
 }
 
 .ofi-receive-check {
@@ -3262,6 +3412,9 @@ body.ofi-modal-open {
 [data-theme="dark"] .ofi-list,
 [data-theme="dark"] .ofi-show-form .ofi-show-value {
     color: #f8fafc;
+}
+[data-theme="dark"] .ofi-reg-actions {
+    border-top-color: #1e293b;
 }
 [data-theme="dark"] .ofi-card,
 [data-theme="dark"] .ofi-confirm-block,

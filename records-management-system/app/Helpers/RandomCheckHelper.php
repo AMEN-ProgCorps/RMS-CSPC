@@ -472,9 +472,16 @@ class RandomCheckHelper
             }
         }
 
-        $unit = DocumentStorageService::sourceClusterOfficeForOfficeId($officeId);
-        DocumentStorageService::ensureRandomCheckInventoryFolders($unit['cluster'], $unit['office_name']);
-        DocumentStorageService::ensureRandomCheckResultYear($year);
+        // Folder ensure is slow (Drive) — defer so schedule + snapshot return first.
+        try {
+            $unit = DocumentStorageService::sourceClusterOfficeForOfficeId($officeId);
+            dispatch(function () use ($unit, $year) {
+                DocumentStorageService::ensureRandomCheckInventoryFolders($unit['cluster'], $unit['office_name']);
+                DocumentStorageService::ensureRandomCheckResultYear($year);
+            })->afterResponse();
+        } catch (\Throwable) {
+            // Non-fatal — inventory folders can be created on first upload.
+        }
 
         RegisterPersistHelper::logAdminChange(
             'Random check scheduled for office #' . $officeId
@@ -608,6 +615,9 @@ class RandomCheckHelper
         }
         if ($rows === []) {
             return ['ok' => false, 'message' => 'No documents to save for this office.'];
+        }
+        if (! $asDraft && trim((string) $testedBy) === '') {
+            return ['ok' => false, 'message' => 'Tested by is required before finalizing.'];
         }
 
         $userId = (int) (Auth::id() ?? 0);
@@ -926,9 +936,12 @@ class RandomCheckHelper
     }
 
     /**
-     * @return array{ok:bool,message:string}
+     * Download a formal PDF for emailing. Does not open or share the Random Check page with office intake.
+     *
+     * @param  'all'|'actions'|'not_complied'  $filter
+     * @return array{ok:bool,message:string,download?:\Symfony\Component\HttpFoundation\Response}
      */
-    public static function shareWithOffice(int $checkId, bool $excerptOnly = true): array
+    public static function shareWithOffice(int $checkId, string $filter = 'all'): array
     {
         self::assertCanAccess();
         $check = self::loadCheck($checkId);
@@ -936,36 +949,153 @@ class RandomCheckHelper
             return ['ok' => false, 'message' => 'Random check not found.'];
         }
         if ($check['is_draft']) {
-            return ['ok' => false, 'message' => 'Finalize the visit before sharing the result with the office.'];
+            return ['ok' => false, 'message' => 'Finalize the visit before exporting the result.'];
         }
 
-        $code = $check['office_code'] ?? '';
-        $url = '/dcs/office/random-checks/' . $checkId;
-        $cycle = $check['cycle_label'] ?? 'Random Check';
-        $year = $check['year'] ?? '';
-        $excerptNote = $excerptOnly
-            ? ' A letter excerpt of documents with recommended actions is attached for printing. You can open the entire result in DCS.'
-            : ' The entire random checking result is available in DCS.';
-        $ok = DcsNotificationService::createNotification(
-            (string) $code,
-            "Random checking result ({$cycle} {$year}) is ready for your office.{$excerptNote}",
-            $url
-        );
+        $filter = in_array($filter, ['all', 'actions', 'not_complied'], true) ? $filter : 'all';
+        $download = self::pdfDownload($checkId, $filter);
+        if ($download === null) {
+            return ['ok' => false, 'message' => 'Could not build the PDF for this filter.'];
+        }
 
-        if ($ok && Schema::hasColumn('dcs_random_checks', 'shared_at')) {
+        if (Schema::hasColumn('dcs_random_checks', 'shared_at')) {
             DB::table('dcs_random_checks')->where('id', $checkId)->update(['shared_at' => now(), 'updated_at' => now()]);
         }
 
         return [
-            'ok' => $ok,
-            'message' => $ok
-                ? 'The office was notified. They can open the entire result in DCS.'
-                : 'Could not notify the office (missing office code).',
+            'ok' => true,
+            'message' => 'PDF downloaded. Attach it to your email for the office — the Random Check page is not shared.',
+            'download' => $download,
         ];
     }
 
     /**
-     * @param  'all'|'actions'  $filter
+     * Formal PDF export of random-check rows for the active filter (for Gmail / print).
+     *
+     * @param  'all'|'actions'|'not_complied'  $filter
+     */
+    public static function pdfDownload(int $checkId, string $filter = 'all'): ?\Symfony\Component\HttpFoundation\Response
+    {
+        self::assertCanAccess();
+        $payload = self::reportPayload($checkId, $filter);
+        if ($payload === []) {
+            return null;
+        }
+
+        $office = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) ($payload['office_name'] ?? $payload['office_code'] ?? 'office'));
+        $year = (string) ($payload['year'] ?? '');
+        $cycle = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) ($payload['cycle_label'] ?? $payload['cycle'] ?? 'check'));
+        $filterSlug = $filter === 'all' ? 'all' : str_replace('_', '-', $filter);
+        $filename = 'random-check-'.$year.'-'.$cycle.'-'.$office.'-'.$filterSlug.'.pdf';
+
+        $logoPath = public_path('images/logo.png');
+        $logoSrc = is_file($logoPath)
+            ? ('data:image/png;base64,'.base64_encode((string) file_get_contents($logoPath)))
+            : '';
+
+        $html = view('pages.dcs.reports.export-random-check', [
+            'check' => $payload,
+            'logoSrc' => $logoSrc,
+            'forPdf' => true,
+        ])->render();
+
+        try {
+            $options = new \Dompdf\Options();
+            $options->set('isRemoteEnabled', true);
+            $options->set('isHtml5ParserEnabled', true);
+            $options->set('defaultFont', 'DejaVu Sans');
+            $dompdf = new \Dompdf\Dompdf($options);
+            $dompdf->loadHtml($html);
+            $dompdf->setPaper('A4', 'landscape');
+            $dompdf->render();
+            $output = $dompdf->output();
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        if (Schema::hasColumn('dcs_random_checks', 'shared_at')) {
+            DB::table('dcs_random_checks')->where('id', $checkId)->update([
+                'shared_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        return response($output, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+        ]);
+    }
+
+    /**
+     * Excel (.xls) export of random-check rows for the active filter.
+     *
+     * @param  'all'|'actions'|'not_complied'  $filter
+     */
+    public static function excelDownload(int $checkId, string $filter = 'all'): ?\Symfony\Component\HttpFoundation\Response
+    {
+        self::assertCanAccess();
+        $check = self::loadCheck($checkId);
+        if (! $check) {
+            return null;
+        }
+
+        $rows = $check['rows'] ?? [];
+        if ($filter === 'actions') {
+            $rows = array_values(array_filter(
+                $rows,
+                fn ($row) => trim((string) ($row['recommended_actions'] ?? '')) !== ''
+            ));
+        } elseif ($filter === 'not_complied') {
+            $rows = array_values(array_filter(
+                $rows,
+                function ($row) {
+                    $status = strtolower(trim((string) ($row['compliance_status'] ?? '')));
+
+                    return in_array($status, ['not', 'not_complied', 'no', '0'], true);
+                }
+            ));
+        }
+
+        $office = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) ($check['office_name'] ?? $check['office_code'] ?? 'office'));
+        $year = (string) ($check['year'] ?? '');
+        $cycle = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) ($check['cycle_label'] ?? $check['cycle'] ?? 'check'));
+        $filterSlug = $filter === 'all' ? 'all' : str_replace('_', '-', $filter);
+        $filename = 'random-check-'.$year.'-'.$cycle.'-'.$office.'-'.$filterSlug.'.xls';
+
+        $escape = static fn ($value) => htmlspecialchars((string) $value, ENT_QUOTES | ENT_XML1, 'UTF-8');
+        $html = '<html><head><meta charset="UTF-8"></head><body>';
+        $html .= '<table border="1">';
+        $html .= '<tr>'
+            .'<th>Item No.</th><th>Document No.</th><th>Document Title</th><th>Rev No.</th>'
+            .'<th>Effectivity Date</th><th>Availability</th><th>Remarks</th>'
+            .'<th>Recommended Actions</th><th>Status of Compliance</th><th>Notes</th>'
+            .'</tr>';
+        foreach ($rows as $i => $row) {
+            $html .= '<tr>'
+                .'<td>'.$escape($row['item_no'] ?? ($i + 1)).'</td>'
+                .'<td>'.$escape($row['doc_no'] ?? '').'</td>'
+                .'<td>'.$escape($row['doc_title'] ?? '').'</td>'
+                .'<td>'.$escape($row['rev_no'] ?? '').'</td>'
+                .'<td>'.$escape($row['effectivity_date'] ?? '').'</td>'
+                .'<td>'.$escape($row['availability'] ?? '').'</td>'
+                .'<td>'.$escape($row['remarks'] ?? '').'</td>'
+                .'<td>'.$escape($row['recommended_actions'] ?? '').'</td>'
+                .'<td>'.$escape($row['compliance_status'] ?? '').'</td>'
+                .'<td>'.$escape($row['notes'] ?? '').'</td>'
+                .'</tr>';
+        }
+        $html .= '</table></body></html>';
+
+        return response($html, 200, [
+            'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+        ]);
+    }
+
+    /**
+     * @param  'all'|'actions'|'not_complied'  $filter
      * @return array<string,mixed>
      */
     public static function reportPayload(int $checkId, string $filter = 'all'): array
@@ -980,10 +1110,19 @@ class RandomCheckHelper
                 $rows,
                 fn ($row) => trim((string) ($row['recommended_actions'] ?? '')) !== ''
             ));
+        } elseif ($filter === 'not_complied') {
+            $rows = array_values(array_filter(
+                $rows,
+                function ($row) {
+                    $status = strtolower(trim((string) ($row['compliance_status'] ?? '')));
+
+                    return in_array($status, ['not', 'not_complied', 'no', '0'], true);
+                }
+            ));
         }
         $check['rows'] = $rows;
-        $check['filter'] = $filter === 'actions' ? 'actions' : 'all';
-        $check['excerpt'] = $filter === 'actions';
+        $check['filter'] = in_array($filter, ['actions', 'not_complied'], true) ? $filter : 'all';
+        $check['excerpt'] = $filter === 'actions' || $filter === 'not_complied';
         $check['action_count'] = count(array_filter(
             $check['rows'] ?? [],
             fn ($row) => trim((string) ($row['recommended_actions'] ?? '')) !== ''

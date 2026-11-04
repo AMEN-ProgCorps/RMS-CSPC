@@ -3630,12 +3630,24 @@ class RegisterQueryHelper
             ->offset(($page - 1) * $perPage)
             ->limit($perPage)
             ->get();
-        $rows = $documents->map(function ($doc) {
+        $requestIds = $documents->pluck('id')->map(fn ($id) => (int) $id)->filter()->values()->all();
+        // Repair drafts saved from office intake before linking was added.
+        OfficeIntakeHelper::backfillDraftIntakeLinks(
+            $documents->map(fn ($doc) => [
+                'request_id' => (int) $doc->id,
+                'title' => (string) ($doc->ml_title ?: ($doc->drf_title ?: '')),
+                'doc_no' => trim((string) ($doc->doc_no ?? '')),
+            ])->all()
+        );
+        $intakeLinked = OfficeIntakeHelper::requestIdsLinkedToOfficeIntake($requestIds);
+
+        $rows = $documents->map(function ($doc) use ($intakeLinked) {
             $docNo = trim((string) ($doc->doc_no ?? ''));
             $title = $doc->ml_title ?: ($doc->drf_title ?: 'Untitled draft');
+            $requestId = (int) $doc->id;
 
             return [
-                'request_id' => (int) $doc->id,
+                'request_id' => $requestId,
                 'doc_type_id' => (int) ($doc->doc_type_id ?? 0),
                 'doc_no' => $docNo !== '' ? $docNo : '—',
                 'title' => $title,
@@ -3645,7 +3657,8 @@ class RegisterQueryHelper
                 'is_draft' => true,
                 'edit_url' => route('dcs.register.edit', $doc->id),
                 'updated_at' => $doc->updated_at ?? null,
-                'can_delete' => true,
+                // Drafts created from an office DRF/DCN request stay until finalized.
+                'can_delete' => ! isset($intakeLinked[$requestId]),
             ];
         })->values();
 

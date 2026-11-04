@@ -5,6 +5,7 @@ namespace App\Helpers;
 use App\Services\DocumentStorageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -182,8 +183,171 @@ class ReportHelper
         return (int) $year;
     }
 
-    /** Print the same HTML the preview uses, so the downloaded PDF matches print. */
+    /**
+     * Render the same HTML the preview uses to a real PDF download (not a print dialog).
+     * Order: Windows Chrome (WSL) → Puppeteer → system Chromium.
+     */
     private function renderPreviewPdf(string $html): ?string
+    {
+        $pdf = $this->renderPreviewPdfWithWindowsChrome($html);
+        if ($pdf !== null) {
+            return $pdf;
+        }
+
+        $dir = sys_get_temp_dir();
+        $id = bin2hex(random_bytes(8));
+        $htmlFile = $dir.'/ml-'.$id.'.html';
+        $pdfFile = $dir.'/ml-'.$id.'.pdf';
+        file_put_contents($htmlFile, $html);
+
+        $pdf = $this->renderPreviewPdfWithPuppeteer($htmlFile, $pdfFile);
+        if ($pdf === null) {
+            $pdf = $this->renderPreviewPdfWithSystemChrome($htmlFile, $pdfFile);
+        }
+
+        @unlink($htmlFile);
+        @unlink($pdfFile);
+
+        return $pdf;
+    }
+
+    /** Headless Google Chrome on Windows (common for WSL2 local servers). */
+    private function renderPreviewPdfWithWindowsChrome(string $html): ?string
+    {
+        $chrome = null;
+        foreach ([
+            '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe',
+            '/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+            getenv('CHROME_WIN_PATH') ?: null,
+        ] as $path) {
+            if (is_string($path) && $path !== '' && is_file($path)) {
+                $chrome = $path;
+                break;
+            }
+        }
+        if ($chrome === null) {
+            return null;
+        }
+
+        $winTmp = '/mnt/c/Windows/Temp';
+        if (! is_dir($winTmp) || ! is_writable($winTmp)) {
+            $winTmp = sys_get_temp_dir();
+        }
+
+        $id = bin2hex(random_bytes(8));
+        $htmlFile = $winTmp.'/ml-'.$id.'.html';
+        $pdfFile = $winTmp.'/ml-'.$id.'.pdf';
+        file_put_contents($htmlFile, $html);
+
+        $htmlWin = $this->toWindowsPath($htmlFile);
+        $pdfWin = $this->toWindowsPath($pdfFile);
+        if ($htmlWin === null || $pdfWin === null) {
+            @unlink($htmlFile);
+            @unlink($pdfFile);
+
+            return null;
+        }
+
+        $cmd = implode(' ', [
+            escapeshellarg($chrome),
+            '--headless=new',
+            '--disable-gpu',
+            '--no-pdf-header-footer',
+            '--print-to-pdf-no-header',
+            '--print-to-pdf='.escapeshellarg($pdfWin),
+            escapeshellarg($htmlWin),
+        ]);
+
+        exec($cmd.' 2>/dev/null', $unused, $code);
+        $pdf = (is_file($pdfFile) && filesize($pdfFile) > 100) ? file_get_contents($pdfFile) : false;
+        @unlink($htmlFile);
+        @unlink($pdfFile);
+
+        return is_string($pdf) && $pdf !== '' ? $pdf : null;
+    }
+
+    private function toWindowsPath(string $linuxPath): ?string
+    {
+        if (! str_starts_with($linuxPath, '/mnt/')) {
+            if (! function_exists('shell_exec')) {
+                return null;
+            }
+            $converted = trim((string) shell_exec('wslpath -w '.escapeshellarg($linuxPath).' 2>/dev/null'));
+
+            return $converted !== '' ? $converted : null;
+        }
+
+        // /mnt/c/Windows/Temp/x.html → C:\Windows\Temp\x.html
+        $parts = explode('/', ltrim($linuxPath, '/')); // mnt, c, ...
+        if (count($parts) < 3 || $parts[0] !== 'mnt') {
+            return null;
+        }
+        $drive = strtoupper($parts[1]);
+
+        return $drive.':\\'.implode('\\', array_slice($parts, 2));
+    }
+
+    private function renderPreviewPdfWithPuppeteer(string $htmlFile, string $pdfFile): ?string
+    {
+        $script = base_path('scripts/html-to-pdf.mjs');
+        if (! is_file($script)) {
+            return null;
+        }
+
+        $node = $this->resolveNodeBinary();
+        if ($node === null) {
+            return null;
+        }
+
+        $cacheDir = base_path('.cache/puppeteer');
+        $envPrefix = is_dir($cacheDir)
+            ? 'PUPPETEER_CACHE_DIR='.escapeshellarg($cacheDir).' '
+            : '';
+
+        $cmd = $envPrefix.implode(' ', [
+            'cd '.escapeshellarg(base_path()),
+            '&&',
+            escapeshellarg($node),
+            escapeshellarg($script),
+            escapeshellarg($htmlFile),
+            escapeshellarg($pdfFile),
+        ]);
+
+        $out = [];
+        $code = 1;
+        exec($cmd.' 2>&1', $out, $code);
+        if ($code !== 0 || ! is_file($pdfFile) || filesize($pdfFile) < 100) {
+            Log::warning('Masterlist PDF: puppeteer failed', [
+                'code' => $code,
+                'out' => implode("\n", array_slice($out, 0, 20)),
+            ]);
+
+            return null;
+        }
+
+        $pdf = file_get_contents($pdfFile);
+
+        return is_string($pdf) && $pdf !== '' ? $pdf : null;
+    }
+
+    private function resolveNodeBinary(): ?string
+    {
+        $candidates = array_filter([
+            getenv('NODE_BINARY') ?: null,
+            '/usr/bin/node',
+            '/usr/local/bin/node',
+            trim((string) (function_exists('shell_exec') ? shell_exec('command -v node 2>/dev/null') : '')),
+        ]);
+        foreach ($candidates as $path) {
+            if (is_string($path) && $path !== '' && is_executable($path)) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
+    private function renderPreviewPdfWithSystemChrome(string $htmlFile, string $pdfFile): ?string
     {
         $binary = null;
         $candidates = array_filter([
@@ -210,30 +374,47 @@ class ReportHelper
             return null;
         }
 
-        $dir = sys_get_temp_dir();
-        $id = bin2hex(random_bytes(8));
-        $htmlFile = $dir.'/ml-'.$id.'.html';
-        $pdfFile = $dir.'/ml-'.$id.'.pdf';
-        file_put_contents($htmlFile, $html);
+        // PHP-FPM runs as appuser with no real home; Chromium needs a writable profile dir.
+        $userDataDir = sys_get_temp_dir().'/chrome-pdf-'.bin2hex(random_bytes(8));
+        if (! @mkdir($userDataDir, 0700, true) && ! is_dir($userDataDir)) {
+            return null;
+        }
 
-        $cmd = 'HOME='.escapeshellarg($dir).' '.implode(' ', [
+        $cmd = 'HOME='.escapeshellarg($userDataDir).' '.implode(' ', [
             escapeshellarg($binary),
             '--headless=new',
             '--disable-gpu',
             '--no-sandbox',
             '--disable-dev-shm-usage',
+            '--disable-crash-reporter',
+            '--hide-scrollbars',
+            '--virtual-time-budget=8000',
+            '--user-data-dir='.escapeshellarg($userDataDir),
             '--no-pdf-header-footer',
             '--print-to-pdf-no-header',
             '--print-to-pdf='.escapeshellarg($pdfFile),
             escapeshellarg($htmlFile),
         ]);
 
-        exec($cmd.' 2>/dev/null', $unused, $code);
+        $out = [];
+        exec($cmd.' 2>&1', $out, $code);
         $pdf = (is_file($pdfFile) && filesize($pdfFile) > 100) ? file_get_contents($pdfFile) : false;
-        @unlink($htmlFile);
-        @unlink($pdfFile);
 
-        return is_string($pdf) && $pdf !== '' ? $pdf : null;
+        // Best-effort cleanup of the ephemeral Chromium profile.
+        if (is_dir($userDataDir)) {
+            exec('rm -rf '.escapeshellarg($userDataDir).' 2>/dev/null');
+        }
+
+        if (! is_string($pdf) || $pdf === '') {
+            Log::warning('Masterlist PDF: system Chromium failed', [
+                'code' => $code,
+                'out' => implode("\n", array_slice($out, 0, 20)),
+            ]);
+
+            return null;
+        }
+
+        return $pdf;
     }
 
     /** CSPC form code shown on the report letterhead (right of blue rule). */
@@ -618,7 +799,7 @@ class ReportHelper
      * Keep same-prefix sequential doc nos contiguous (CSPC-LB-CCS-* then CSPC-LB-CTHBM-*).
      * Revision families stay intact; letter variants (05a/05b) share one series.
      */
-    private function clusterMasterlistByDocSeries($records)
+    private function clusterMasterlistByDocSeries($records, array $filters = [])
     {
         $chunks = [];
         $current = null;
@@ -639,17 +820,18 @@ class ReportHelper
             $chunks[] = $current;
         }
 
-        $sorted = collect($chunks)->sort(function ($a, $b) {
+        $descending = ($filters['sort_dir'] ?? 'asc') === 'desc';
+        $sorted = collect($chunks)->sort(function ($a, $b) use ($descending) {
             $la = $a->first();
             $lb = $b->first();
             $ka = DocumentNumberSeriesHelper::prefixGroupKey((string) ($la->doc_no ?? ''));
             $kb = DocumentNumberSeriesHelper::prefixGroupKey((string) ($lb->doc_no ?? ''));
             $cmp = strnatcasecmp($ka !== '' ? $ka : (string) ($la->doc_no ?? ''), $kb !== '' ? $kb : (string) ($lb->doc_no ?? ''));
-            if ($cmp !== 0) {
-                return $cmp;
+            if ($cmp === 0) {
+                $cmp = strnatcasecmp((string) ($la->doc_no ?? ''), (string) ($lb->doc_no ?? ''));
             }
 
-            return strnatcasecmp((string) ($la->doc_no ?? ''), (string) ($lb->doc_no ?? ''));
+            return $descending ? -$cmp : $cmp;
         })->values();
 
         $flat = collect();
@@ -682,7 +864,6 @@ class ReportHelper
             if ($isLead) {
                 if ($lastSeries !== null && $seriesKey !== '' && $seriesKey !== $lastSeries) {
                     $showSeparator = true;
-                    $counter = 0;
                 }
                 if ($seriesKey !== '') {
                     $lastSeries = $seriesKey;
@@ -1031,7 +1212,12 @@ class ReportHelper
 
         $records = RegisterQueryHelper::hydrateMasterlists($query->get(), ['types']);
         $records = $this->sortMasterlistFamilies($records, $filters);
-        $records = $this->clusterMasterlistByDocSeries($records);
+        // Doc-series clustering only when sorting by document number — otherwise
+        // Asc/Desc by effectivity date would be overwritten by series order.
+        $sort = (string) ($filters['sort'] ?? 'effectivity_date');
+        if ($sort === 'doc_no') {
+            $records = $this->clusterMasterlistByDocSeries($records, $filters);
+        }
 
         $counter = 0;
         $lastSeries = null;
@@ -1042,7 +1228,7 @@ class ReportHelper
             if (is_object($ml) && ! empty($ml->_family_lead)) {
                 if ($lastSeries !== null && $seriesKey !== '' && $seriesKey !== $lastSeries) {
                     $showSeparator = true;
-                    $counter = 0;
+                    // Keep continuous Item No. across series (separator is visual only).
                 }
                 if ($seriesKey !== '') {
                     $lastSeries = $seriesKey;
@@ -1746,6 +1932,12 @@ class ReportHelper
         }
 
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
+        // Keep revision families together while honoring Asc/Desc.
+        $docs = $this->sortRevisionFamilies(
+            $docs,
+            $filters,
+            fn ($doc) => is_object($doc) ? ($doc->masterlistRegistration ?? null) : null
+        );
         $ratingsByRequest = DB::table('dcs_opcr_ratings')->whereIn('request_id', $docs->pluck('id'))
             ->where('sub_type', $sub)
             ->get()
@@ -2382,6 +2574,7 @@ class ReportHelper
             'activeSub'          => $sub,
             'activeCategory'     => $category,
             'autoPrint'          => $request->boolean('autoPrint'),
+            'saveAsPdf'          => $request->boolean('saveAsPdf'),
             'plainTable'         => $isPlainTable,
             'isMlInternal'       => $isMlPrint,
             'checkedType'        => $checkedType,
@@ -2427,20 +2620,26 @@ class ReportHelper
         // ── PDF ──
         if ($format === 'pdf') {
             $output = null;
+
+            // Masterlist: Chromium/Puppeteer PDF from the same HTML as the preview.
+            // Falls through to Dompdf below if Chromium is unavailable.
             if ($isMlPrint) {
                 $previewData = $viewData;
                 $previewData['isPdf'] = false;
                 $previewData['embed'] = true;
-                $output = $this->renderPreviewPdf(
-                    view('pages.dcs.reports.export-masterlist-internal', $previewData)->render()
-                );
+                $previewData['forcePrintLayout'] = true;
+                $previewHtml = view('pages.dcs.reports.export-masterlist-internal', $previewData)->render();
+                $output = $this->renderPreviewPdf($previewHtml);
+                if ($output === null) {
+                    Log::warning('Masterlist PDF: Chromium/Puppeteer unavailable; falling back to Dompdf');
+                }
             }
 
             if ($output === null) {
-            $viewData['isPdf'] = ! $isMlPrint;
-            $viewData['embed'] = $isMlPrint;
+            $viewData['isPdf'] = true;
+            $viewData['embed'] = false;
 
-            $html = view($isMlPrint ? 'pages.dcs.reports.export-masterlist-internal' : 'pages.dcs.reports.export', $viewData)->render();
+            $html = view('pages.dcs.reports.export', $viewData)->render();
 
             $options = new \Dompdf\Options();
             $options->set('isHtml5ParserEnabled', true);
@@ -2452,12 +2651,12 @@ class ReportHelper
             $dompdf = new \Dompdf\Dompdf($options);
             $dompdf->loadHtml($html);
             $dompdf->setPaper(
-                ($isMlPrint || $isPlainTable) ? 'letter' : 'a4',
+                $isPlainTable ? 'letter' : 'a4',
                 $isPlainTable ? 'landscape' : 'portrait'
             );
             $dompdf->render();
 
-            if (! $isPlainTable && ! $isMlPrint) {
+            if (! $isPlainTable) {
                 $canvas  = $dompdf->getCanvas();
                 $fm      = $dompdf->getFontMetrics();
                 $font    = $fm->getFont('Helvetica');

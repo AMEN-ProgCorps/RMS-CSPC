@@ -429,7 +429,7 @@ window.__ofiClusters = @json($clusters);
 window.__ofiOldDistribute = @json($oldDistributeOfficeIds);
 window.__ofiDocTypeChildren = @json($docTypeChildrenByParent ?? []);
 window.__ofiDocTypeParents = @json($docTypeParentsForJs ?? []);
-window.__ofiSigTemplateMap = @json($sigTemplateMap ?? ['byDocTypeId' => [], 'byKind' => [], 'parentKind' => []]);
+window.__ofiSigTemplateMap = @json($sigTemplateMap ?? ['byDocTypeId' => [], 'parentKind' => [], 'externalParentId' => null]);
 window.__ofiSourceConfigs = [
     {
         key: 'distribute',
@@ -481,7 +481,7 @@ window.__ofiSourceConfigs = [
     const optInDocTypeHidden = document.getElementById('drfOptInDocTypeId');
     const childrenByParent = window.__ofiDocTypeChildren || {};
     const allParents = window.__ofiDocTypeParents || [];
-    const sigMap = window.__ofiSigTemplateMap || { byDocTypeId: {}, byKind: {}, parentKind: {} };
+    const sigMap = window.__ofiSigTemplateMap || { byDocTypeId: {}, parentKind: {}, externalParentId: null };
 
     function selectedKind() {
         const checked = form.querySelector('input[name="docTypeKind"]:checked');
@@ -514,10 +514,11 @@ window.__ofiSourceConfigs = [
 
     function resolveTemplate() {
         const kind = selectedKind();
-        if (kind === 'external') {
-            return (sigMap.byKind || {}).external || null;
-        }
         const byId = sigMap.byDocTypeId || {};
+        if (kind === 'external') {
+            const externalId = sigMap.externalParentId ? String(sigMap.externalParentId) : '';
+            return (externalId && byId[externalId]) ? byId[externalId] : null;
+        }
         if (kind === 'forms' || kind === 'logbooks') {
             const checked = form.querySelector('input[name="docTypeKind"]:checked');
             const optInId = checked ? String(checked.getAttribute('data-optin-doc-type-id') || '') : '';

@@ -334,6 +334,22 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
             @endforeach
         </div>
     </div>
+
+    <div class="ofi-confirm-dialog-overlay" id="ofiConfirmDialog" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="ofiConfirmDialogTitle">
+        <div class="ofi-confirm-dialog">
+            <div class="ofi-confirm-dialog-header">
+                <span class="ofi-confirm-dialog-icon" aria-hidden="true"><i class="fa-solid fa-bell"></i></span>
+                <h3 id="ofiConfirmDialogTitle">Resend notification?</h3>
+            </div>
+            <div class="ofi-confirm-dialog-body" id="ofiConfirmDialogMessage">
+                Resend the print &amp; sign notification to the submitting office?
+            </div>
+            <div class="ofi-confirm-dialog-footer">
+                <button type="button" class="ofi-confirm-dialog-btn ofi-confirm-dialog-btn-cancel" data-ofi-confirm-cancel>Cancel</button>
+                <button type="button" class="ofi-confirm-dialog-btn ofi-confirm-dialog-btn-ok" data-ofi-confirm-ok>Resend</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script src="{{ asset('js/dcs/office-request-review.js') }}?v={{ @filemtime(public_path('js/dcs/office-request-review.js')) ?: time() }}"></script>

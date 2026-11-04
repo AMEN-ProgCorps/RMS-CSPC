@@ -273,33 +273,68 @@ class RegisterEditHistoryHelper
             }
         }
 
-        $scope = $field === 'distribution_offices' ? 'Distribution' : 'Source Offices';
+        $scope = $field === 'distribution_offices' ? 'Distribution Offices' : 'Source Offices';
         $out = [];
-        foreach ($added as $name) {
+        if ($added !== []) {
+            $count = count($added);
             $out[] = [
                 'field' => $field,
                 'label' => $scope,
-                'old' => '—',
-                'new' => 'Office added in '.$scope.': '.$name,
+                'summary' => true,
+                'old' => '',
+                'new' => $count === 1
+                    ? 'Office added: '.$added[0]
+                    : $count.' offices added: '.implode(', ', $added),
             ];
         }
-        foreach ($removed as $name) {
+        if ($removed !== []) {
+            $count = count($removed);
             $out[] = [
                 'field' => $field,
                 'label' => $scope,
-                'old' => '—',
-                'new' => 'Office removed from '.$scope.': '.$name,
+                'summary' => true,
+                'old' => '',
+                'new' => $count === 1
+                    ? 'Office removed: '.$removed[0]
+                    : $count.' offices removed: '.implode(', ', $removed),
             ];
         }
 
-        // Fallback if parse failed but strings differed.
+        // Fallback: still summarize instead of dumping both full lists.
         if ($out === [] && ($old !== '' || $new !== '')) {
-            $out[] = [
-                'field' => $field,
-                'label' => $label,
-                'old' => $old === '' ? '—' : $old,
-                'new' => $new === '' ? '—' : $new,
-            ];
+            if ($old === '' && $new !== '') {
+                $names = self::splitOfficeNames($new);
+                $count = count($names);
+                $out[] = [
+                    'field' => $field,
+                    'label' => $scope,
+                    'summary' => true,
+                    'old' => '',
+                    'new' => $count <= 1
+                        ? ('Office added'.(($names[0] ?? '') !== '' ? ': '.$names[0] : ''))
+                        : $count.' offices added',
+                ];
+            } elseif ($new === '' && $old !== '') {
+                $names = self::splitOfficeNames($old);
+                $count = count($names);
+                $out[] = [
+                    'field' => $field,
+                    'label' => $scope,
+                    'summary' => true,
+                    'old' => '',
+                    'new' => $count <= 1
+                        ? ('Office removed'.(($names[0] ?? '') !== '' ? ': '.$names[0] : ''))
+                        : $count.' offices removed',
+                ];
+            } else {
+                $out[] = [
+                    'field' => $field,
+                    'label' => $scope,
+                    'summary' => true,
+                    'old' => '',
+                    'new' => 'Office list updated ('.count(self::splitOfficeNames($old)).' → '.count(self::splitOfficeNames($new)).')',
+                ];
+            }
         }
 
         return $out;

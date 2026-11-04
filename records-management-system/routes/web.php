@@ -1150,7 +1150,9 @@ Route::middleware(['auth'])
                     Volt::route('/random-check', 'pages.dcs.random-check.index')->name('random-check');
                     Route::get('/random-check/{id}/report', function (\Illuminate\Http\Request $request, int $id) {
                         \App\Helpers\RandomCheckHelper::assertCanAccess();
-                        $filter = $request->input('filter') === 'all' ? 'all' : 'actions';
+                        $filter = in_array($request->input('filter'), ['all', 'actions', 'not_complied'], true)
+                            ? $request->input('filter')
+                            : 'actions';
                         $payload = \App\Helpers\RandomCheckHelper::reportPayload($id, $filter);
                         abort_unless($payload !== [], 404);
                         $logoPath = public_path('images/logo.png');
@@ -1163,6 +1165,17 @@ Route::middleware(['auth'])
                             'logoSrc' => $logoSrc,
                         ]);
                     })->name('random-check.report');
+                    // Plain GET download — Livewire cannot return binary PDF (UTF-8 / middleware crash).
+                    Route::get('/random-check/{id}/export-pdf', function (\Illuminate\Http\Request $request, int $id) {
+                        \App\Helpers\RandomCheckHelper::assertCanAccess();
+                        $filter = in_array($request->input('filter'), ['all', 'actions', 'not_complied'], true)
+                            ? $request->input('filter')
+                            : 'all';
+                        $download = \App\Helpers\RandomCheckHelper::pdfDownload($id, $filter);
+                        abort_unless($download !== null, 404);
+
+                        return $download;
+                    })->name('random-check.export-pdf');
                 });
             });
         });

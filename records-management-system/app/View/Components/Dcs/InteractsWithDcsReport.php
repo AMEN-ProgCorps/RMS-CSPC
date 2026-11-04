@@ -24,7 +24,7 @@ trait InteractsWithDcsReport
     public string $dateTo = '';
     public string $originator = '';
     public string $sourceUnit = '';
-    public string $revisionStatus = 'all';
+    public string $revisionStatus = 'latest';
     public string $revNo = '';
     public array $subTypeIds = [];
     public string $monitoringDocType = '';
@@ -300,7 +300,7 @@ trait InteractsWithDcsReport
         $this->dateTo = '';
         $this->originator = '';
         $this->sourceUnit = '';
-        $this->revisionStatus = 'all';
+        $this->revisionStatus = 'latest';
         $this->revNo = '';
         $this->monitoringSubTypeIds = [];
         $this->formYear = '';
@@ -543,8 +543,8 @@ trait InteractsWithDcsReport
         if ($format !== 'xlsx') {
             unset($query['columns']);
         }
-        // Print opens the same HTML letterhead layout as the on-screen preview
-        // (what you see is what prints). PDF download stays Dompdf.
+        // Print opens the same HTML letterhead as the on-screen preview.
+        // PDF downloads a real .pdf (Chromium/Puppeteer for masterlist).
         if ($format === 'print') {
             $query['format'] = 'html';
             $query['autoPrint'] = 1;

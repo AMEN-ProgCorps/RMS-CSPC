@@ -62,6 +62,8 @@
     --dcs-ease-fast: 0.18s ease;
     --dcs-ease-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     --dcs-page-in: 0.35s ease;
+    --dcs-modal-in: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    --dcs-toast-in: 0.35s ease;
     --dcs-title-size: 1.6rem;
     --dcs-crumb-size: 0.78rem;
     --dcs-body-size: 0.85rem;
@@ -415,23 +417,25 @@
 .upd-container,
 .hst-container,
 .drr-container,
-.rb-container {
+.rb-container,
+.ofi-page {
     animation: fadeInUp var(--dcs-page-in) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
     .dashboard-main,
     .settings-main,
-.reg-container,
-.db-page,
-.mf-page,
-.rc-page,
-.st-container,
+    .reg-container,
+    .db-page,
+    .mf-page,
+    .rc-page,
+    .st-container,
     .rpt-page,
     .upd-container,
     .hst-container,
     .drr-container,
-    .rb-container {
+    .rb-container,
+    .ofi-page {
         animation: none;
     }
 }

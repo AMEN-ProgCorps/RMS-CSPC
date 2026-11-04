@@ -189,6 +189,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 ]);
             }
 
+            // Exclude records already packaged in active NAP 3 disposal clusters
+            $lockedRecordIds = DB::table('rdp_grouped_record')
+                ->join('rdp_pending_record', 'rdp_grouped_record.group_head', '=', 'rdp_pending_record.cluster_id')
+                ->where('rdp_grouped_record.is_active', true)
+                ->where('rdp_pending_record.is_active', true)
+                ->where('rdp_pending_record.is_for_nap_three', true)
+                ->whereIn('rdp_pending_record.status_id', [1, 2, 4, 5])
+                ->pluck('rdp_grouped_record.record_id')
+                ->all();
+
+            if (!empty($lockedRecordIds)) {
+                $query->whereNotIn('rdp_record.id', $lockedRecordIds);
+            }
+
             $allRecords = $query->select('rdp_record.id', 'rdp_record.record_series_id')->get();
             $this->selectedIds = array_map('strval', $allRecords->pluck('id')->toArray());
 
@@ -360,6 +374,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
             if (empty($validRecordIds)) {
                 $this->errorMessage = 'Please select at least one valid record to create a form.';
+                DB::rollBack();
+                return;
+            }
+
+            // Safe lock: ensure none of the selected records are already part of an active NAP 3 cluster
+            $alreadyPackaged = DB::table('rdp_grouped_record')
+                ->join('rdp_pending_record', 'rdp_grouped_record.group_head', '=', 'rdp_pending_record.cluster_id')
+                ->whereIn('rdp_grouped_record.record_id', $validRecordIds)
+                ->where('rdp_grouped_record.is_active', true)
+                ->where('rdp_pending_record.is_active', true)
+                ->where('rdp_pending_record.is_for_nap_three', true)
+                ->whereIn('rdp_pending_record.status_id', [1, 2, 4, 5])
+                ->select(['rdp_grouped_record.record_id', 'rdp_pending_record.cluster_name'])
+                ->get();
+
+            if ($alreadyPackaged->isNotEmpty()) {
+                $firstLocked = $alreadyPackaged->first();
+                $this->errorMessage = "Record #{$firstLocked->record_id} is already packaged in active disposal form '{$firstLocked->cluster_name}'. Please refresh the page.";
                 DB::rollBack();
                 return;
             }
@@ -1067,7 +1099,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         &$rootTimes = null,
         &$rootUtils = null,
         &$allLocs = null,
-        &$allVols = null
+        &$allVols = null,
+        $activeClustersByRecord = null
     ): array {
         $childItems = [];
 
@@ -1176,22 +1209,33 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 if ($allLocs !== null) $allLocs[] = $r->records_location;
                 if ($allVols !== null) $allVols[] = $recVolume;
 
+                $childLockedCluster = null;
+                if (!empty($activeClustersByRecord) && isset($activeClustersByRecord[$r->id])) {
+                    $childLockedCluster = $activeClustersByRecord[$r->id]->first();
+                }
+                $isChildLocked = !empty($childLockedCluster);
+                $childLockedStatus = $isChildLocked ? (((int)$childLockedCluster->status_id === 5 || (int)$childLockedCluster->status_id === 2 || (bool)($childLockedCluster->is_verified ?? false)) ? 'Submitted' : 'Pending') : null;
+
                 $childItems[] = (object)[
-                    'id'            => $r->id,
-                    'series_id'     => $seriesId,
-                    'description'   => $r->description,
-                    'date_covered'  => $formattedDate,
-                    'volume'        => $recVolume,
-                    'medium'        => $recMedium,
-                    'restriction'   => $recRestriction,
-                    'location'      => $r->records_location ?: '',
-                    'frequence_use' => $recFreq,
-                    'duplication'   => $recDup,
-                    'time_value'    => $r->time_value ?: '',
-                    'utility'       => $this->formatItemUtility($uRows),
-                    'utility_abbr'  => $this->compileUtility($uRows),
-                    'is_batch'      => false,
-                    'sub_periods'   => [],
+                    'id'                  => $r->id,
+                    'series_id'           => $seriesId,
+                    'description'         => $r->description,
+                    'date_covered'        => $formattedDate,
+                    'volume'              => $recVolume,
+                    'medium'              => $recMedium,
+                    'restriction'         => $recRestriction,
+                    'location'            => $r->records_location ?: '',
+                    'frequence_use'       => $recFreq,
+                    'duplication'         => $recDup,
+                    'time_value'          => $r->time_value ?: '',
+                    'utility'             => $this->formatItemUtility($uRows),
+                    'utility_abbr'        => $this->compileUtility($uRows),
+                    'is_batch'            => false,
+                    'sub_periods'         => [],
+                    'is_locked'           => $isChildLocked,
+                    'locked_status_label' => $childLockedStatus,
+                    'locked_cluster_name' => $childLockedCluster?->cluster_name,
+                    'locked_cluster_id'   => $childLockedCluster?->cluster_id,
                 ];
                 $totalItemsCount++;
             } else {
@@ -1333,23 +1377,44 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 if ($allLocs !== null) $allLocs[] = $parentLocation;
                 if ($allVols !== null) $allVols[] = $recVolume;
 
+                $unlockedSubItems = array_values(array_filter($subPeriodItems, fn($s) => empty($s->is_locked)));
+                $isBatchLocked = !empty($subPeriodItems) && empty($unlockedSubItems);
+                $batchLockedCluster = null;
+                if ($isBatchLocked && !empty($subPeriodItems)) {
+                    $firstLocked = collect($subPeriodItems)->first(fn($s) => !empty($s->is_locked));
+                    if ($firstLocked) {
+                        $batchLockedCluster = (object)[
+                            'cluster_name' => $firstLocked->locked_cluster_name,
+                            'cluster_id'   => $firstLocked->locked_cluster_id,
+                            'status_id'    => 5,
+                        ];
+                    }
+                }
+                $batchLockedStatus = $isBatchLocked ? 'Submitted' : null;
+                $selectableBatchRecIds = array_values(array_unique(array_filter(array_map(fn($s) => empty($s->is_locked) ? (string)$s->parent_rec_id : null, $subPeriodItems))));
+
                 $childItems[] = (object)[
-                    'id'            => $firstRec->id,
-                    'group_rec_ids' => $group->pluck('id')->all(),
-                    'series_id'     => $seriesId,
-                    'description'   => $primarySubject,
-                    'date_covered'  => $formattedDate,
-                    'volume'        => $recVolume,
-                    'medium'        => $parentMedium,
-                    'restriction'   => $parentRestriction,
-                    'location'      => $parentLocation,
-                    'frequence_use' => $parentFreq,
-                    'duplication'   => $parentDup,
-                    'time_value'    => $firstRec->time_value ?: '',
-                    'utility'       => $this->formatItemUtility($parentUtils),
-                    'utility_abbr'  => $this->compileUtility($parentUtils),
-                    'is_batch'      => true,
-                    'sub_periods'   => $subPeriodItems,
+                    'id'                  => $firstRec->id,
+                    'group_rec_ids'       => $group->pluck('id')->all(),
+                    'selectable_rec_ids'  => $selectableBatchRecIds,
+                    'series_id'           => $seriesId,
+                    'description'         => $primarySubject,
+                    'date_covered'        => $formattedDate,
+                    'volume'              => $recVolume,
+                    'medium'              => $parentMedium,
+                    'restriction'         => $parentRestriction,
+                    'location'            => $parentLocation,
+                    'frequence_use'       => $parentFreq,
+                    'duplication'         => $parentDup,
+                    'time_value'          => $firstRec->time_value ?: '',
+                    'utility'             => $this->formatItemUtility($parentUtils),
+                    'utility_abbr'        => $this->compileUtility($parentUtils),
+                    'is_batch'            => true,
+                    'sub_periods'         => $subPeriodItems,
+                    'is_locked'           => $isBatchLocked,
+                    'locked_status_label' => $batchLockedStatus,
+                    'locked_cluster_name' => $batchLockedCluster?->cluster_name,
+                    'locked_cluster_id'   => $batchLockedCluster?->cluster_id,
                 ];
                 $totalItemsCount++;
             }
@@ -1606,6 +1671,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 'rdp_record.time_value',
                 'rdp_record.ispartof_batch',
                 'rdp_record.transferred_to_nap3',
+                'rdp_record.office_own',
             ])
             ->where('rdp_record.is_draft', false)
             ->where('rdp_record.is_active', true)
@@ -1637,6 +1703,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         // Sorting records chronologically by which one was added first (id ASC)
         $allRecords = $recordsQuery->orderBy('id', 'asc')->get();
         $recordIds = $allRecords->pluck('id')->all();
+
+        // Safe Lock: Pre-fetch records already packaged in active NAP 3 disposal clusters
+        $activeClustersByRecord = empty($recordIds) ? collect() : DB::table('rdp_grouped_record')
+            ->join('rdp_pending_record', 'rdp_grouped_record.group_head', '=', 'rdp_pending_record.cluster_id')
+            ->whereIn('rdp_grouped_record.record_id', $recordIds)
+            ->where('rdp_grouped_record.is_active', true)
+            ->where('rdp_pending_record.is_active', true)
+            ->where('rdp_pending_record.is_for_nap_three', true)
+            ->whereIn('rdp_pending_record.status_id', [1, 2, 4, 5])
+            ->select([
+                'rdp_grouped_record.record_id',
+                'rdp_pending_record.cluster_id',
+                'rdp_pending_record.cluster_name',
+                'rdp_pending_record.status_id',
+                'rdp_pending_record.is_verified',
+            ])
+            ->get()
+            ->groupBy('record_id');
 
         $sysTable = $this->getSysTable();
         $includeDescriptionOnPrint = DB::table($sysTable)
@@ -1840,10 +1924,25 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         $rootTimes,
                         $rootUtils,
                         $allLocs,
-                        $allVols
+                        $allVols,
+                        $activeClustersByRecord
                     );
 
                     if (empty($childItems)) continue;
+
+                    $unlockedChildItems = array_values(array_filter($childItems, fn($c) => empty($c->is_locked)));
+                    $selectableChildIds = [];
+                    foreach ($childItems as $c) {
+                        if (!empty($c->is_batch)) {
+                            foreach ($c->selectable_rec_ids ?? [] as $bId) {
+                                $selectableChildIds[] = (string)$bId;
+                            }
+                        } elseif (empty($c->is_locked)) {
+                            $selectableChildIds[] = (string)$c->id;
+                        }
+                    }
+                    $selectableChildIds = array_values(array_unique($selectableChildIds));
+                    $allRecordsLocked = !empty($childItems) && empty($unlockedChildItems);
 
                     $rootNode->sub_series[] = (object)[
                         'id'                  => $sub->id,
@@ -1867,8 +1966,25 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         'remarks'             => $sub->remarks ?: ($root->remarks ?: ''),
                         'records'             => $childItems,
                         'record_ids'          => array_column($childItems, 'id'),
+                        'selectable_record_ids'  => $selectableChildIds,
+                        'unlocked_records_count' => count($unlockedChildItems),
+                        'all_records_locked'     => $allRecordsLocked,
                     ];
                 }
+
+                $allSelectableInSubs = [];
+                $allSubRecordsCount = 0;
+                $unlockedSubRecordsCount = 0;
+                foreach ($rootNode->sub_series as $s) {
+                    foreach ($s->selectable_record_ids as $sId) {
+                        $allSelectableInSubs[] = $sId;
+                    }
+                    $allSubRecordsCount += count($s->records);
+                    $unlockedSubRecordsCount += ($s->unlocked_records_count ?? 0);
+                }
+                $rootNode->selectable_record_ids  = array_values(array_unique($allSelectableInSubs));
+                $rootNode->unlocked_records_count = $unlockedSubRecordsCount;
+                $rootNode->all_records_locked     = ($allSubRecordsCount > 0 && $unlockedSubRecordsCount === 0);
 
                 $isRootPerm = (bool)($root->is_retention_period_permanent ?? false) || strtolower(trim($root->total_period ?? '')) === 'permanent';
                 $rootNode->compiled_period      = $this->compilePeriodCovered($rootDates);
@@ -1948,10 +2064,25 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     $dummyTimes,
                     $dummyUtils,
                     $allLocs,
-                    $allVols
+                    $allVols,
+                    $activeClustersByRecord
                 );
 
                 if (empty($childItems)) continue;
+
+                $unlockedChildItems = array_values(array_filter($childItems, fn($c) => empty($c->is_locked)));
+                $selectableChildIds = [];
+                foreach ($childItems as $c) {
+                    if (!empty($c->is_batch)) {
+                        foreach ($c->selectable_rec_ids ?? [] as $bId) {
+                            $selectableChildIds[] = (string)$bId;
+                        }
+                    } elseif (empty($c->is_locked)) {
+                        $selectableChildIds[] = (string)$c->id;
+                    }
+                }
+                $selectableChildIds = array_values(array_unique($selectableChildIds));
+                $allRecordsLocked = !empty($childItems) && empty($unlockedChildItems);
 
                 $rootNode->compiled_period      = $this->compilePeriodCovered($compiledDates);
                 $rootNode->compiled_volume      = $this->compileVolume($compiledVols);
@@ -1968,6 +2099,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 $rootNode->is_permanent         = $isPerm;
                 $rootNode->direct_records       = $childItems;
                 $rootNode->record_ids           = array_column($childItems, 'id');
+                $rootNode->selectable_record_ids  = $selectableChildIds;
+                $rootNode->unlocked_records_count = count($unlockedChildItems);
+                $rootNode->all_records_locked     = $allRecordsLocked;
             }
 
             // Only add root to tree if it actually has visible records
@@ -1983,15 +2117,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
         $allSelectableRecordIds = [];
         foreach ($tree as $r) {
-            if (!$r->has_children) {
-                foreach ($r->record_ids as $rid) {
+            if (!empty($r->selectable_record_ids)) {
+                foreach ($r->selectable_record_ids as $rid) {
                     $allSelectableRecordIds[] = (string)$rid;
-                }
-            } else {
-                foreach ($r->sub_series as $s) {
-                    foreach ($s->record_ids as $rid) {
-                        $allSelectableRecordIds[] = (string)$rid;
-                    }
                 }
             }
         }
@@ -2035,6 +2163,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         allSubjectsCollapsed: false,
         collapsedRoots: {},
         allRootsCollapsed: false,
+        collapsedBatches: {},
 
         isSelected(id) {
             return this.selectedIds.includes(String(id));
@@ -2174,17 +2303,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             if (this.collapsedRoots[key] !== undefined) return this.collapsedRoots[key];
             return this.allRootsCollapsed;
         },
+        toggleBatch(key) {
+            this.collapsedBatches[key] = !this.isBatchCollapsed(key);
+        },
+        isBatchCollapsed(key) {
+            if (this.$wire?.search && this.$wire.search.trim().length > 0) return false;
+            if (this.collapsedBatches[key] !== undefined) return this.collapsedBatches[key];
+            return false;
+        },
         collapseAll() {
             this.allSubjectsCollapsed = true;
             this.allRootsCollapsed = false;
             this.collapsedSubjects = {};
             this.collapsedRoots = {};
+            this.collapsedBatches = {};
         },
         expandAll() {
             this.allSubjectsCollapsed = false;
             this.allRootsCollapsed = false;
             this.collapsedSubjects = {};
             this.collapsedRoots = {};
+            this.collapsedBatches = {};
         }
      }">
     <style>
@@ -2460,36 +2599,34 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         <tr class="root-series-row">
                             <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                 <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                    @if(!$root->has_children && !empty($root->record_ids))
-                                        @php
-                                            $strIds = array_values(array_map('strval', $root->record_ids));
-                                        @endphp
-                                        <input type="checkbox" 
-                                               :checked="isSeriesChecked({{ $root->id }}, @js($strIds))" 
-                                               @click.stop="toggleSeries({{ $root->id }}, @js($strIds))" 
-                                               style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" 
-                                               title="Select record series">
+                                    @if(!$root->has_children)
+                                        @if(!empty($root->selectable_record_ids))
+                                            @php
+                                                $strIds = array_values(array_map('strval', $root->selectable_record_ids));
+                                            @endphp
+                                            <input type="checkbox" 
+                                                   :checked="isSeriesChecked({{ $root->id }}, @js($strIds))" 
+                                                   @click.stop="toggleSeries({{ $root->id }}, @js($strIds))" 
+                                                   style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" 
+                                                   title="Select record series">
+                                        @else
+                                            <span style="width: 15px; display: inline-block;"></span>
+                                        @endif
                                     @elseif($root->has_children)
-                                        @php
-                                            $allRootChildIds = [];
-                                            foreach ($root->sub_series as $s) {
-                                                foreach ($s->record_ids as $rid) {
-                                                    $allRootChildIds[] = (string)$rid;
-                                                }
-                                            }
-                                            $strRootIds = array_values(array_unique($allRootChildIds));
-                                        @endphp
-                                        @if(!empty($strRootIds))
+                                        @if(!empty($root->selectable_record_ids))
+                                            @php
+                                                $strRootIds = array_values(array_map('strval', $root->selectable_record_ids));
+                                            @endphp
                                             <input type="checkbox" 
                                                    :checked="isSeriesChecked({{ $root->id }}, @js($strRootIds))" 
                                                    @click.stop="toggleSeries({{ $root->id }}, @js($strRootIds))" 
                                                    style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" 
                                                    title="Select record series group">
                                         @else
-                                            <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
+                                            <span style="width: 15px; display: inline-block;"></span>
                                         @endif
                                     @else
-                                        <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
+                                        <span style="width: 15px; display: inline-block;"></span>
                                     @endif
 
                                     @if(!$root->has_children)
@@ -2527,11 +2664,21 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                     @if(!$root->has_children)
                                         <span @click="toggleSubjects('root-{{ $root->id }}')" style="cursor: pointer;" title="Click to hide/unhide subjects">{{ $root->series_title }}</span>
                                         @if(count($root->direct_records) > 0)
-                                            <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($root->direct_records) }})</span>
+                                            @if(!empty($root->all_records_locked))
+                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;" title="All records packaged">({{ count($root->direct_records) }} packaged)</span>
+                                            @elseif(($root->unlocked_records_count ?? 0) < count($root->direct_records))
+                                                <span style="font-size: 11px; font-weight: 600; color: #dc2626;" title="{{ $root->unlocked_records_count }} of {{ count($root->direct_records) }} available">({{ $root->unlocked_records_count }}/{{ count($root->direct_records) }} available)</span>
+                                            @else
+                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($root->direct_records) }})</span>
+                                            @endif
                                         @endif
                                     @else
                                         <span @click="toggleRoot('root-{{ $root->id }}')" style="cursor: pointer;" title="Click to hide/unhide group">{{ $root->series_title }}</span>
-                                        <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($root->sub_series) }} sub)</span>
+                                        @if(!empty($root->all_records_locked))
+                                            <span style="font-size: 11px; font-weight: 600; color: #64748b;" title="All records packaged">({{ count($root->sub_series) }} sub, packaged)</span>
+                                        @else
+                                            <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($root->sub_series) }} sub)</span>
+                                        @endif
                                     @endif
                                     @if($root->shorted_type)
                                         <span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; font-weight: 700;">
@@ -2562,9 +2709,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 <tr class="sub-series-row" x-show="!isRootCollapsed('root-{{ $root->id }}')">
                                     <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                         <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                            @if(!empty($sub->record_ids))
+                                            @if(!empty($sub->selectable_record_ids))
                                                 @php
-                                                    $strIds = array_values(array_map('strval', $sub->record_ids));
+                                                    $strIds = array_values(array_map('strval', $sub->selectable_record_ids));
                                                 @endphp
                                                 <input type="checkbox" 
                                                        :checked="isSeriesChecked({{ $sub->id }}, @js($strIds))" 
@@ -2572,7 +2719,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                                        style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" 
                                                        title="Select record series">
                                             @else
-                                                <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
+                                                <span style="width: 15px; display: inline-block;"></span>
                                             @endif
 
                                             @if(count($sub->records) > 0)
@@ -2598,7 +2745,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                             <span class="corner-symbol">└</span>
                                             <span @click="toggleSubjects('sub-{{ $sub->id }}')" style="cursor: pointer;" title="Click to hide/unhide subjects">{{ $sub->series_title }}</span>
                                             @if(count($sub->records) > 0)
-                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($sub->records) }})</span>
+                                                @if(!empty($sub->all_records_locked))
+                                                    <span style="font-size: 11px; font-weight: 600; color: #64748b;" title="All records packaged">({{ count($sub->records) }} packaged)</span>
+                                                @elseif(($sub->unlocked_records_count ?? 0) < count($sub->records))
+                                                    <span style="font-size: 11px; font-weight: 600; color: #dc2626;" title="{{ $sub->unlocked_records_count }} of {{ count($sub->records) }} available">({{ $sub->unlocked_records_count }}/{{ count($sub->records) }} available)</span>
+                                                @else
+                                                    <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($sub->records) }})</span>
+                                                @endif
                                             @endif
                                         </div>
                                     </td>
@@ -2626,18 +2779,42 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                         x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
                                         <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                                <input type="checkbox" 
-                                                       :checked="isSubjectChecked('{{ $rec->id }}')" 
-                                                       @click.stop="toggleSubject({{ $rec->id }}, {{ $sub->id }}, @js($strIds))" 
-                                                       style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" 
-                                                       title="Select subject">
-                                                <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                                @if(!empty($rec->is_batch))
+                                                    <span style="width: 15px; display: inline-block;"></span>
+                                                    <button type="button" 
+                                                            @click.stop="toggleBatch('batch-{{ $rec->id }}')" 
+                                                            class="nap-chevron-btn"
+                                                            :style="isBatchCollapsed('batch-{{ $rec->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'"
+                                                            title="Toggle batch records">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <polyline points="6 9 12 15 18 9"></polyline>
+                                                        </svg>
+                                                    </button>
+                                                @elseif(!empty($rec->is_locked))
+                                                    <span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;" title="Packaged in active disposal form: {{ $rec->locked_cluster_name }}">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                                                            <polyline points="20 6 9 17 4 12"></polyline>
+                                                        </svg>
+                                                    </span>
+                                                    <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                                @else
+                                                    <input type="checkbox" 
+                                                           :checked="isSubjectChecked('{{ $rec->id }}')" 
+                                                           @click.stop="toggleSubject({{ $rec->id }}, {{ $sub->id }}, @js($strIds))" 
+                                                           style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" 
+                                                           title="Select subject">
+                                                    <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                                @endif
                                             </div>
                                         </td>
                                         <td></td>
                                         <td style="padding-left: 42px;">
                                             <span class="sub-branch-line">│</span>
-                                            <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
+                                            @if(!empty($rec->is_batch))
+                                                <span @click="toggleBatch('batch-{{ $rec->id }}')" style="font-weight: 600; color: #1e293b; cursor: pointer;" title="Click to expand/collapse batch records">{{ $rec->description }}</span>
+                                            @else
+                                                <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
+                                            @endif
                                         </td>
                                         <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->date_covered }}</td>
                                         <td style="text-align: center; color: #cbd5e1;">—</td>
@@ -2656,9 +2833,26 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                     @if(!empty($rec->is_batch) && !empty($rec->sub_periods))
                                         @foreach($rec->sub_periods as $subP)
                                             <tr class="record-sub-period-row" 
-                                                :class="{ 'is-selected': isSelected('{{ $recIdStr }}') }"
-                                                x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
-                                                <td style="text-align: center; padding: 6px 4px; white-space: nowrap;"></td>
+                                                :class="{ 'is-selected': isSelected('{{ (string)$subP->parent_rec_id }}') }"
+                                                x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}') && !isBatchCollapsed('batch-{{ $rec->id }}')">
+                                                <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
+                                                    <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                                                        @if(!empty($subP->is_locked))
+                                                            <span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;" title="Packaged in active disposal form: {{ $subP->locked_cluster_name }}">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                                                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                                                </svg>
+                                                            </span>
+                                                        @else
+                                                            <input type="checkbox" 
+                                                                   :checked="isSubjectChecked('{{ (string)$subP->parent_rec_id }}')" 
+                                                                   @click.stop="toggleSubject({{ $subP->parent_rec_id }}, {{ $sub->id }}, @js($strIds))" 
+                                                                   style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" 
+                                                                   title="Select record item">
+                                                        @endif
+                                                        <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                                    </div>
+                                                </td>
                                                 <td></td>
                                                 <td style="padding-left: 64px;">
                                                     <span style="color: #94a3b8; margin-right: 4px;">└</span>
@@ -2689,18 +2883,42 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                     x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
                                     <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                         <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                            <input type="checkbox" 
-                                                   :checked="isSubjectChecked('{{ $rec->id }}')" 
-                                                   @click.stop="toggleSubject({{ $rec->id }}, {{ $root->id }}, @js(array_values(array_map('strval', $root->record_ids))))" 
-                                                   style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" 
-                                                   title="Select subject">
-                                            <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                            @if(!empty($rec->is_batch))
+                                                <span style="width: 15px; display: inline-block;"></span>
+                                                <button type="button" 
+                                                        @click.stop="toggleBatch('batch-{{ $rec->id }}')" 
+                                                        class="nap-chevron-btn"
+                                                        :style="isBatchCollapsed('batch-{{ $rec->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'"
+                                                        title="Toggle batch records">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <polyline points="6 9 12 15 18 9"></polyline>
+                                                    </svg>
+                                                </button>
+                                            @elseif(!empty($rec->is_locked))
+                                                <span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;" title="Packaged in active disposal form: {{ $rec->locked_cluster_name }}">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                                    </svg>
+                                                </span>
+                                                <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                            @else
+                                                <input type="checkbox" 
+                                                       :checked="isSubjectChecked('{{ $rec->id }}')" 
+                                                       @click.stop="toggleSubject({{ $rec->id }}, {{ $root->id }}, @js(array_values(array_map('strval', $root->record_ids))))" 
+                                                       style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" 
+                                                       title="Select subject">
+                                                <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                            @endif
                                         </div>
                                     </td>
                                     <td></td>
                                     <td style="padding-left: 28px;">
                                         <span class="sub-branch-line">│</span>
-                                        <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
+                                        @if(!empty($rec->is_batch))
+                                            <span @click="toggleBatch('batch-{{ $rec->id }}')" style="font-weight: 600; color: #1e293b; cursor: pointer;" title="Click to expand/collapse batch records">{{ $rec->description }}</span>
+                                        @else
+                                            <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
+                                        @endif
                                     </td>
                                     <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->date_covered }}</td>
                                     <td style="text-align: center; color: #cbd5e1;">—</td>
@@ -2719,9 +2937,26 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 @if(!empty($rec->is_batch) && !empty($rec->sub_periods))
                                     @foreach($rec->sub_periods as $subP)
                                         <tr class="record-sub-period-row" 
-                                            :class="{ 'is-selected': isSelected('{{ $recIdStr }}') }"
-                                            x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
-                                            <td style="text-align: center; padding: 6px 4px; white-space: nowrap;"></td>
+                                            :class="{ 'is-selected': isSelected('{{ (string)$subP->parent_rec_id }}') }"
+                                            x-show="!isSubjectsCollapsed('root-{{ $root->id }}') && !isBatchCollapsed('batch-{{ $rec->id }}')">
+                                            <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
+                                                <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                                                    @if(!empty($subP->is_locked))
+                                                        <span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;" title="Packaged in active disposal form: {{ $subP->locked_cluster_name }}">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                                                                <polyline points="20 6 9 17 4 12"></polyline>
+                                                            </svg>
+                                                        </span>
+                                                    @else
+                                                        <input type="checkbox" 
+                                                               :checked="isSubjectChecked('{{ (string)$subP->parent_rec_id }}')" 
+                                                               @click.stop="toggleSubject({{ $subP->parent_rec_id }}, {{ $root->id }}, @js(array_values(array_map('strval', $root->record_ids))))" 
+                                                               style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" 
+                                                               title="Select record item">
+                                                    @endif
+                                                    <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                                </div>
+                                            </td>
                                             <td></td>
                                             <td style="padding-left: 50px;">
                                                 <span style="color: #94a3b8; margin-right: 4px;">└</span>

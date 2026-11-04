@@ -185,42 +185,48 @@ class RdpPendingLogsTest extends TestCase
         $component->call('openApprovalModal', $clusterId, 'nap1');
         $this->assertTrue($component->get('showApprovalModal'));
 
-        // 1. Approve / Verify
+        // 1. Approve / Verify -> Marks Submitted (status_id = 5)
         $component->call('approveCluster');
-        $this->assertEquals(2, DB::table('rdp_pending_record')->where('cluster_id', $clusterId)->value('status_id'));
+        $this->assertEquals(5, DB::table('rdp_pending_record')->where('cluster_id', $clusterId)->value('status_id'));
         $this->assertTrue((bool) DB::table('rdp_pending_record')->where('cluster_id', $clusterId)->value('is_verified'));
 
         $this->assertDatabaseHas($this->adminLogsTbl, [
             'admin_id' => $this->userId,
             'what_system' => 2,
-            'changes' => "Evaluated & Verified submission cluster #{$clusterId} ('Eval Test Cluster {$clusterId}') [NAP Form 1] from office ICTU",
+            'changes' => "Evaluated & Approved submission cluster #{$clusterId} ('Eval Test Cluster {$clusterId}') [NAP Form 1] from office ICTU — Marked as Submitted",
         ]);
 
-        // 2. Return for Correction
+        // Check Notification dispatched on Approval
+        $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $this->assertDatabaseHas($notifContentTbl, [
+            'system' => 2,
+            'content' => "Your Submitted NAP Form 1: 'Eval Test Cluster {$clusterId}' has been approved and will now be recorded in the record office.",
+        ]);
+
+        // 2. Reject Form with Remarks
         $component->call('openApprovalModal', $clusterId, 'nap1');
-        $component->call('returnCluster');
+        $component->call('openRejectModal');
+        $this->assertTrue($component->get('showRejectModal'));
+        $component->set('rejectionRemarks', 'Incorrect period covered on item');
+        $component->call('rejectCluster');
+
         $this->assertEquals(4, DB::table('rdp_pending_record')->where('cluster_id', $clusterId)->value('status_id'));
         $this->assertFalse((bool) DB::table('rdp_pending_record')->where('cluster_id', $clusterId)->value('is_verified'));
+        $this->assertEquals('Incorrect period covered on item', DB::table('rdp_pending_record')->where('cluster_id', $clusterId)->value('evaluation_remarks'));
 
         $this->assertDatabaseHas($this->adminLogsTbl, [
             'admin_id' => $this->userId,
             'what_system' => 2,
-            'changes' => "Returned submission cluster #{$clusterId} ('Eval Test Cluster {$clusterId}') [NAP Form 1] to office ICTU for correction",
+            'changes' => "Rejected submission cluster #{$clusterId} ('Eval Test Cluster {$clusterId}') [NAP Form 1] from office ICTU for correction. Remarks: Incorrect period covered on item",
         ]);
 
-        // 3. Reject
-        $component->call('openApprovalModal', $clusterId, 'nap1');
-        $component->call('rejectCluster');
-        $this->assertEquals(3, DB::table('rdp_pending_record')->where('cluster_id', $clusterId)->value('status_id'));
-        $this->assertFalse((bool) DB::table('rdp_pending_record')->where('cluster_id', $clusterId)->value('is_verified'));
-
-        $this->assertDatabaseHas($this->adminLogsTbl, [
-            'admin_id' => $this->userId,
-            'what_system' => 2,
-            'changes' => "Rejected submission cluster #{$clusterId} ('Eval Test Cluster {$clusterId}') [NAP Form 1] from office ICTU",
+        $this->assertDatabaseHas($notifContentTbl, [
+            'system' => 2,
+            'content' => "Your Submitted NAP Form 1: 'Eval Test Cluster {$clusterId}' was returned for correction. Reason: Incorrect period covered on item",
         ]);
 
-        // 4. Print Evaluation Report
+        // 3. Print Evaluation Report
         $component->call('openPrintModal', $clusterId, 'nap1');
         $component->call('markEvaluationPrinted');
 
@@ -278,32 +284,52 @@ class RdpPendingLogsTest extends TestCase
 
         $component = Livewire::test('pages.rdp.pending.for-approval');
 
-        // Verify NAP 2
+        // Approve NAP 2 -> opens series type modal
         $component->call('openApprovalModal', $clusterId, 'nap2');
         $component->call('approveCluster');
+        $this->assertTrue($component->get('showSeriesTypeModal'));
 
-        $this->assertEquals(2, DB::table('rdp_pending_record_series')->where('cluster_id', $clusterId)->value('status_id'));
+        // Pick series type and confirm approval
+        $component->set('selectedSeriesTypeId', $seriesTypeId);
+        $component->call('confirmNap2Approval');
+
+        $this->assertEquals(5, DB::table('rdp_pending_record_series')->where('cluster_id', $clusterId)->value('status_id'));
         $this->assertTrue((bool) DB::table('rdp_pending_record_series')->where('cluster_id', $clusterId)->value('is_verified'));
         $this->assertTrue((bool) DB::table('rdp_record_series')->where('id', $seriesId)->value('is_verified'));
 
         $this->assertDatabaseHas($this->adminLogsTbl, [
             'admin_id' => $this->userId,
             'what_system' => 2,
-            'changes' => "Evaluated & Verified submission cluster #{$clusterId} ('Academic Series Cluster {$clusterId}') [NAP Form 2] from office ICTU",
+            'changes' => "Evaluated & Approved submission cluster #{$clusterId} ('Academic Series Cluster {$clusterId}') [NAP Form 2] from office ICTU — Marked as Submitted",
         ]);
 
-        // Unverify / Reject NAP 2
+        $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $this->assertDatabaseHas($notifContentTbl, [
+            'system' => 2,
+            'content' => "Your Submitted NAP Form 2: 'Academic Series Cluster {$clusterId}' has been approved and will now be recorded in the record office.",
+        ]);
+
+        // Reject NAP 2 with remarks
         $component->call('openApprovalModal', $clusterId, 'nap2');
+        $component->call('openRejectModal');
+        $this->assertTrue($component->get('showRejectModal'));
+        $component->set('rejectionRemarks', 'Series description is incomplete');
         $component->call('rejectCluster');
 
-        $this->assertEquals(3, DB::table('rdp_pending_record_series')->where('cluster_id', $clusterId)->value('status_id'));
+        $this->assertEquals(4, DB::table('rdp_pending_record_series')->where('cluster_id', $clusterId)->value('status_id'));
         $this->assertFalse((bool) DB::table('rdp_pending_record_series')->where('cluster_id', $clusterId)->value('is_verified'));
         $this->assertFalse((bool) DB::table('rdp_record_series')->where('id', $seriesId)->value('is_verified'));
+        $this->assertEquals('Series description is incomplete', DB::table('rdp_pending_record_series')->where('cluster_id', $clusterId)->value('evaluation_remarks'));
 
         $this->assertDatabaseHas($this->adminLogsTbl, [
             'admin_id' => $this->userId,
             'what_system' => 2,
-            'changes' => "Rejected submission cluster #{$clusterId} ('Academic Series Cluster {$clusterId}') [NAP Form 2] from office ICTU",
+            'changes' => "Rejected submission cluster #{$clusterId} ('Academic Series Cluster {$clusterId}') [NAP Form 2] from office ICTU for correction. Remarks: Series description is incomplete",
+        ]);
+
+        $this->assertDatabaseHas($notifContentTbl, [
+            'system' => 2,
+            'content' => "Your Submitted NAP Form 2: 'Academic Series Cluster {$clusterId}' was returned for correction. Reason: Series description is incomplete",
         ]);
     }
 }

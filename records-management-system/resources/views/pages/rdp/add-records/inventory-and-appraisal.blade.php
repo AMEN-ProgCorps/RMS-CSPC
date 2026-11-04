@@ -318,6 +318,80 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    public function formatBatchDateRange(?string $startDate, ?string $endDate = null, bool $isHeader = false): string
+    {
+        $startDate = trim((string)$startDate);
+        $endDate = trim((string)$endDate);
+
+        if (empty($startDate) && empty($endDate)) return '—';
+
+        if (empty($endDate) && preg_match('/^(.*?)\s+(?:-|to)\s+(.*)$/i', $startDate, $m)) {
+            $startDate = trim($m[1]);
+            $endDate = trim($m[2]);
+        }
+
+        $formatToken = function(string $token): array {
+            $token = trim($token);
+            if (empty($token) || $token === '—') return ['text' => '—', 'year' => null, 'carbon' => null, 'has_month' => false];
+
+            if (preg_match('/^(19\d\d|20\d\d)$/', $token, $m)) {
+                $y = (int)$m[1];
+                return ['text' => (string)$y, 'year' => $y, 'carbon' => Carbon::createFromDate($y, 1, 1), 'has_month' => false];
+            }
+
+            if (preg_match('/^([a-zA-Z]+)\s+(\d{4})$/', $token, $m)) {
+                try {
+                    $c = Carbon::parse("1 {$m[1]} {$m[2]}");
+                    $text = in_array(strtolower($m[1]), ['june', 'july']) ? $c->format('F Y') : $c->format('M Y');
+                    return ['text' => $text, 'year' => (int)$m[2], 'carbon' => $c, 'has_month' => true];
+                } catch (\Throwable) {}
+            }
+
+            try {
+                $c = Carbon::parse($token);
+                $text = \App\Helpers\RegisterQueryHelper::formatRdpPeriodDate($c);
+                return ['text' => $text, 'year' => $c->year, 'carbon' => $c, 'has_month' => true];
+            } catch (\Throwable) {
+                return ['text' => $token, 'year' => null, 'carbon' => null, 'has_month' => false];
+            }
+        };
+
+        $sInfo = $formatToken($startDate);
+        $eInfo = !empty($endDate) ? $formatToken($endDate) : null;
+
+        if ($isHeader) {
+            $now = Carbon::now();
+            $isFutureOrPresent = false;
+            if ($eInfo && $eInfo['carbon']) {
+                $isFutureOrPresent = $eInfo['carbon']->year > $now->year;
+            } elseif ($sInfo && $sInfo['carbon']) {
+                $isFutureOrPresent = $sInfo['carbon']->year > $now->year;
+            }
+
+            if ($isFutureOrPresent) {
+                $headerStart = ($sInfo['has_month'] ? $sInfo['text'] : (string)$sInfo['year']);
+                return $headerStart . ' - Present';
+            }
+        }
+
+        if (!$eInfo || empty($endDate)) {
+            return $sInfo['text'];
+        }
+
+        if (!$sInfo['has_month']) {
+            if ($sInfo['year'] === $eInfo['year']) {
+                return (string)$sInfo['year'];
+            }
+            return (string)$sInfo['year'] . ' - ' . (string)$eInfo['year'];
+        }
+
+        if ($sInfo['text'] === $eInfo['text']) {
+            return $sInfo['text'];
+        }
+
+        return $sInfo['text'] . ' - ' . $eInfo['text'];
+    }
+
     public bool $isAppraising = false;
     public bool $dcsAdminForward = false;
     public bool $dcsOfficeLock = false;
@@ -5670,7 +5744,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                 </td>
                                 <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
                                     <strong>5. EMAIL ADDRESS:</strong>
-                                    <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ Auth::user()?->email ?? '—' }}</div>
+                                    <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ Auth::user()?->details?->email ?? Auth::user()?->email ?? '—' }}</div>
                                 </td>
                             </tr>
                             <tr>
@@ -5680,7 +5754,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                 </td>
                                 <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
                                     <strong>7. PERSON-IN-CHARGE OF FILES:</strong>
-                                    <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ Auth::user()?->name ?? 'Records Officer' }}</div>
+                                    <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ trim((Auth::user()?->details?->first_name ?? '') . ' ' . (Auth::user()?->details?->last_name ?? '')) ?: (Auth::user()?->username ?? 'Records Officer') }}</div>
                                 </td>
                                 <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
                                     <strong>8. DATE PREPARED:</strong>

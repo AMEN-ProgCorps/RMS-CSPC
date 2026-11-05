@@ -2,8 +2,11 @@
 /**
  * Admin Console - DTS Transaction Flows Volt Component
  * 
- * Provides a tabbed interface for managing predefined routing flows (Tab 1)
- * and auditing dynamically generated custom office transaction flows (Tab 2).
+ * VMware ESXi / macOS Finder inspired Miller Columns UI.
+ * Column 1: Scopes & Purpose Filters
+ * Column 2: Workflow Directory
+ * Column 3: Flow Configuration & RDP Continuity
+ * Column 4: Routing Pipeline, Stops & Distribution
  */
 
 use Livewire\Attributes\Layout;
@@ -31,7 +34,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     }
 
     // ---- PREDEFINED FLOW EDITOR PROPERTIES ----
-    /** @var string Selected action/subsystem option (empty, 'new', or numeric ID) */
+    /** @var string Selected action/subsystem option (empty, 'new', 'import', or numeric ID) */
     public string $selectedPredefined = '';
     public string $predefinedViewMode = 'table'; // 'table' or 'grid'
 
@@ -39,10 +42,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public string $flowCode = '';
     public bool $isActive = true;
     public string $flowUse = 'none';
-    public array $flowOffices = []; // list of office codes in sequence
+    public array $flowOffices = ['ORIGIN', 'ORIGIN']; // list of office codes in sequence
     public string $selectedOffice = ''; // selected office from dropdown to add
     public string $officeSearch = ''; // text query for searching offices to add
     public $flowFile; // file upload property
+
+    // Pipeline Sub-tab for Column 4: 'sequence', 'cf', 'hub'
+    public string $flowPipelineTab = 'sequence';
 
     // ---- BULK SELECTION ----
     public array $selectedFlowIds = [];
@@ -65,7 +71,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public bool $customIsActive = true;
     public string $customFlowUse = 'none';
     public string $customFlowFor = 'system'; // 'system', 'office', or 'user'
-    public array $customFlowOffices = [];
+    public array $customFlowOffices = ['ORIGIN', 'ORIGIN'];
     public string $customSelectedOffice = '';
     public string $customOfficeSearch = '';
     public array $customCfOffices = [];
@@ -75,6 +81,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public string $customHubSearch = '';
     public string $customSelectedHubOffice = '';
     public array $selectedCustomFlowIds = [];
+    public string $customPipelineTab = 'sequence';
 
     // ---- RDP CONTINUITY (RECORD SERIES) ----
     /** @var int|null Selected rdp_record_series id for the predefined flow (null = Server default) */
@@ -89,12 +96,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public string $customContinRdpTypeFilter = '';
     public string $customPurposeFilter = 'all';
 
-    // ---- SEARCH FOR CUSTOM FLOWS ----
+    // ---- SEARCH & FILTER FOR FLOWS ----
     public string $searchCustom = '';
-
-    // ---- SEARCH FOR PREDEFINED FLOWS ----
     public string $searchPredefined = '';
     public string $predefinedPurposeFilter = 'all';
+    public string $statusFilter = 'all'; // 'all', 'active', 'inactive'
+
+    // Dropdown helpers
+    public bool $showOfficeDropdown = false;
+    public bool $showCfDropdown = false;
+    public bool $showHubDropdown = false;
+    public bool $showRdpDropdown = false;
+
+    public bool $showCustomOfficeDropdown = false;
+    public bool $showCustomCfDropdown = false;
+    public bool $showCustomHubDropdown = false;
+    public bool $showCustomRdpDropdown = false;
 
     // ---- ALERTS ----
     public string $successMessage = '';
@@ -181,7 +198,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
     /**
      * Record series choices (search + type filtered) for the flow details pickers.
-     * These mirror the entries listed on the RDP Record Series admin page.
      */
     public function continRdpChoices(string $search, string $typeFilter): \Illuminate\Support\Collection
     {
@@ -196,7 +212,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
         $term = trim($search);
         if ($term !== '') {
-            // Match on series title or item number (typing digits filters by item no.).
             $query->where(function ($q) use ($term) {
                 $q->where('rdp_record_series.series_title', 'ilike', '%' . $term . '%')
                     ->orWhereRaw('CAST(rdp_record_series.item_number AS TEXT) ILIKE ?', ['%' . $term . '%']);
@@ -210,9 +225,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         return $query->orderBy('rdp_record_series.series_title', 'asc')->limit(15)->get();
     }
 
-    /**
-     * "#12 · Title" label for the currently selected record series (status line).
-     */
     public function continRdpSelectedLabel($id, string $search): string
     {
         if ($id === null || $id === '' || !\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series')) {
@@ -224,9 +236,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         return ($itemNo !== null ? '#' . $itemNo . ' · ' : '') . $search;
     }
 
-    /**
-     * Apply a picked record series to the predefined flow form.
-     */
     public function selectContinRdpSeries(int $id): void
     {
         $title = $this->continRdpTitle($id);
@@ -234,6 +243,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
         $this->continRdpId = $id;
         $this->continRdpSearch = $title;
+        $this->showRdpDropdown = false;
     }
 
     public function clearContinRdpSeries(): void
@@ -242,9 +252,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->continRdpSearch = '';
     }
 
-    /**
-     * Apply a picked record series to the custom flow form.
-     */
     public function selectCustomContinRdpSeries(int $id): void
     {
         $title = $this->continRdpTitle($id);
@@ -252,6 +259,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
         $this->customContinRdpId = $id;
         $this->customContinRdpSearch = $title;
+        $this->showCustomRdpDropdown = false;
     }
 
     public function clearCustomContinRdpSeries(): void
@@ -260,9 +268,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->customContinRdpSearch = '';
     }
 
-    /**
-     * Typing over (or clearing) the selected title reverts the flow to Server default.
-     */
     public function updatedContinRdpSearch(string $value): void
     {
         if ($this->continRdpId === null) return;
@@ -319,12 +324,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     {
         $this->selectedOffice = $code;
         $this->officeSearch = "$name ($code)";
+        $this->showOfficeDropdown = false;
+        $this->addOfficeToPath();
     }
 
     public function selectCfOfficeForAppend(string $code, string $name): void
     {
         $this->selectedCfOffice = $code;
         $this->cfSearch = "$name ($code)";
+        $this->showCfDropdown = false;
+        $this->addCfOfficeToPath();
     }
 
     public function addCfOfficeToPath(): void
@@ -350,6 +359,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     {
         $this->selectedHubOffice = $code;
         $this->hubSearch = "$name ($code)";
+        $this->showHubDropdown = false;
+        $this->addHubOfficeToPath();
     }
 
     public function addHubOfficeToPath(): void
@@ -486,6 +497,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     {
         $this->customSelectedOffice = $code;
         $this->customOfficeSearch = "$name ($code)";
+        $this->showCustomOfficeDropdown = false;
+        $this->addCustomOfficeToPath();
     }
 
     public function addCustomOfficeToPath(): void
@@ -535,6 +548,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     {
         $this->customSelectedCfOffice = $code;
         $this->customCfSearch = "$name ($code)";
+        $this->showCustomCfDropdown = false;
+        $this->addCustomCfOfficeToPath();
     }
 
     public function addCustomCfOfficeToPath(): void
@@ -558,6 +573,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     {
         $this->customSelectedHubOffice = $code;
         $this->customHubSearch = "$name ($code)";
+        $this->showCustomHubDropdown = false;
+        $this->addCustomHubOfficeToPath();
     }
 
     public function addCustomHubOfficeToPath(): void
@@ -793,7 +810,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     }
 
     /**
-     * Triggered when selected predefined flow option changes in dropdown.
+     * Triggered when selected predefined flow option changes.
      */
     public function updatedSelectedPredefined(string $value): void
     {
@@ -901,9 +918,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->officeSearch = '';
     }
 
-    /**
-     * Move an office up in sequence hierarchy.
-     */
     public function moveOfficeUp(int $index): void
     {
         if ($index <= 1 || !isset($this->flowOffices[$index])) return;
@@ -913,9 +927,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->flowOffices[$index] = $temp;
     }
 
-    /**
-     * Move an office down in sequence hierarchy.
-     */
     public function moveOfficeDown(int $index): void
     {
         if ($index === 0 || $index >= count($this->flowOffices) - 1 || !isset($this->flowOffices[$index])) return;
@@ -925,14 +936,98 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->flowOffices[$index] = $temp;
     }
 
-    /**
-     * Remove office from current path.
-     */
     public function removeOffice(int $index): void
     {
         if ($index === 0 || !isset($this->flowOffices[$index])) return;
 
         array_splice($this->flowOffices, $index, 1);
+    }
+
+    /**
+     * Drag-and-drop reorder for intermediate stops in predefined flow pipeline.
+     */
+    public function reorderStep(int $fromIndex, int $toIndex): void
+    {
+        $count = count($this->flowOffices);
+        if ($fromIndex === $toIndex || $count <= 2) return;
+        if (!isset($this->flowOffices[$fromIndex]) || !isset($this->flowOffices[$toIndex])) return;
+
+        // Origin at 0 is immovable
+        if ($fromIndex === 0 || $toIndex === 0) return;
+        // Last Origin is immovable
+        if ($this->flowOffices[$count - 1] === 'ORIGIN' && ($fromIndex === $count - 1 || $toIndex === $count - 1)) return;
+
+        $moved = array_splice($this->flowOffices, $fromIndex, 1)[0];
+        array_splice($this->flowOffices, $toIndex, 0, [$moved]);
+        $this->flowOffices = array_values($this->flowOffices);
+    }
+
+    /**
+     * Drag-and-drop reorder for intermediate stops in custom flow pipeline.
+     */
+    public function reorderCustomStep(int $fromIndex, int $toIndex): void
+    {
+        $count = count($this->customFlowOffices);
+        if ($fromIndex === $toIndex || $count <= 2) return;
+        if (!isset($this->customFlowOffices[$fromIndex]) || !isset($this->customFlowOffices[$toIndex])) return;
+
+        if ($fromIndex === 0 || $toIndex === 0) return;
+        if ($this->customFlowOffices[$count - 1] === 'ORIGIN' && ($fromIndex === $count - 1 || $toIndex === $count - 1)) return;
+
+        $moved = array_splice($this->customFlowOffices, $fromIndex, 1)[0];
+        array_splice($this->customFlowOffices, $toIndex, 0, [$moved]);
+        $this->customFlowOffices = array_values($this->customFlowOffices);
+    }
+
+    /**
+     * Drag-and-drop flow reassignment to a new Purpose / Scope category.
+     */
+    public function changeFlowPurpose(int $flowId, string $newPurpose): void
+    {
+        $validPurposes = ['internal', 'external', 'issuances', 'application', 'others', 'none'];
+        if (!in_array($newPurpose, $validPurposes)) return;
+
+        $flow = \DB::table('dts_transaction_flow')->where('id', $flowId)->first();
+        if (!$flow) return;
+
+        \DB::table('dts_transaction_flow')->where('id', $flowId)->update([
+            'flow_use' => $newPurpose,
+        ]);
+
+        \DB::table('sys_admin_logs')->insert([
+            'changes' => "Reassigned flow '{$flow->flow_name}' ({$flow->flow_code}) scope to: " . ucfirst($newPurpose),
+            'admin_id' => auth()->id() ?? 1,
+            'what_system' => 3,
+            'when_changes' => now(),
+        ]);
+
+        if ((int)$this->selectedPredefined === $flowId) {
+            $this->flowUse = $newPurpose;
+        }
+
+        $this->successMessage = "Workflow '{$flow->flow_name}' moved to " . ucfirst($newPurpose) . " scope!";
+    }
+
+    /**
+     * Drag-and-drop custom flow reassignment to a new Purpose / Scope category.
+     */
+    public function changeCustomFlowPurpose(int $flowId, string $newPurpose): void
+    {
+        $validPurposes = ['internal', 'external', 'issuances', 'application', 'others', 'none'];
+        if (!in_array($newPurpose, $validPurposes)) return;
+
+        $flow = \DB::table('dts_transaction_flow')->where('id', $flowId)->first();
+        if (!$flow) return;
+
+        \DB::table('dts_transaction_flow')->where('id', $flowId)->update([
+            'flow_use' => $newPurpose,
+        ]);
+
+        if ((int)$this->selectedCustom === $flowId) {
+            $this->customFlowUse = $newPurpose;
+        }
+
+        $this->successMessage = "Custom flow '{$flow->flow_name}' moved to " . ucfirst($newPurpose) . " scope!";
     }
 
     /**
@@ -954,18 +1049,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
         // 1. Validate inputs
         if ($this->selectedPredefined === 'new') {
-            // Check if a deactivated flow with the same code exists (codes stay unique)
             $deactivatedByCode = \DB::table('dts_transaction_flow')
                 ->where('flow_code', strtoupper(trim($this->flowCode)))
                 ->where('is_active', false)
                 ->first();
 
             $codeExcludeId = $deactivatedByCode ? $deactivatedByCode->id : null;
-
-            // flow_name is intentionally NOT unique: the database no longer enforces it,
-            // so several flows may share a name and stay apart through their flow_code.
             $nameRule = 'required|string|max:255';
-
             $codeRule = $codeExcludeId
                 ? 'required|string|max:255|unique:dts_transaction_flow,flow_code,' . $codeExcludeId . ',id|regex:/^[A-Z0-9_\-]+$/i'
                 : 'required|string|max:255|unique:dts_transaction_flow,flow_code|regex:/^[A-Z0-9_\-]+$/i';
@@ -990,7 +1080,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 $flowId = null;
 
                 if ($this->selectedPredefined === 'new') {
-                    // Check if a deactivated flow with the same code exists — reactivate it
                     $existingFlow = \DB::table('dts_transaction_flow')
                         ->where('flow_code', strtoupper(trim($this->flowCode)))
                         ->where('is_active', false)
@@ -999,7 +1088,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     if ($existingFlow) {
                         $flowId = $existingFlow->id;
 
-                        // Reactivate and update the deactivated flow
                         \DB::table('dts_transaction_flow')->where('id', $flowId)->update([
                             'flow_name' => trim($this->flowName),
                             'is_active' => true,
@@ -1021,7 +1109,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         $maxId = \DB::table('dts_transaction_flow')->max('id') ?? 0;
                         $flowId = $maxId + 1;
 
-                        // Insert flow
                         \DB::table('dts_transaction_flow')->insert([
                             'id' => $flowId,
                             'flow_name' => trim($this->flowName),
@@ -1034,7 +1121,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             'contin_rdp_id' => $this->continRdpId,
                         ]);
 
-                        // Insert admin log
                         \DB::table('sys_admin_logs')->insert([
                             'changes' => "Created predefined transaction flow: " . trim($this->flowName) . " (" . strtoupper(trim($this->flowCode)) . ")",
                             'admin_id' => auth()->id(),
@@ -1047,10 +1133,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 } else {
                     $flowId = (int) $this->selectedPredefined;
                     $flow = \DB::table('dts_transaction_flow')->where('id', $flowId)->first();
-
                     if (!$flow) throw new \Exception('Predefined flow not found.');
 
-                    // Update flow details
                     \DB::table('dts_transaction_flow')->where('id', $flowId)->update([
                         'flow_name' => trim($this->flowName),
                         'is_active' => $this->isActive,
@@ -1058,18 +1142,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         'contin_rdp_id' => $this->continRdpId,
                     ]);
 
-                    // Insert admin log
                     \DB::table('sys_admin_logs')->insert([
                         'changes' => "Updated predefined transaction flow: {$flow->flow_name}",
                         'admin_id' => auth()->id(),
-                        'what_system' => 3, // Admin Console
+                        'what_system' => 3,
                         'when_changes' => now(),
                     ]);
 
                     $this->successMessage = 'Predefined flow configuration updated!';
                 }
 
-                // Update Sequence List: Clear and insert sequence path
+                // Update Sequence List
                 \DB::table('dts_sequence_list')->where('control_id', $flowId)->delete();
                 foreach ($this->flowOffices as $rank => $officeCode) {
                     \DB::table('dts_sequence_list')->insert([
@@ -1079,7 +1162,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     ]);
                 }
 
-                // Update Predefined Copy Furnished list
+                // Update Copy Furnished list
                 $flowCodeUpper = strtoupper(trim($this->flowCode));
                 $existingCFs = \DB::table('dts_copy_filled_transaction')->where('control_num', $flowCodeUpper)->get();
                 foreach ($existingCFs as $existingCF) {
@@ -1104,7 +1187,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     }
                 }
 
-                // Update Predefined HUB Receiving Offices list
+                // Update Predefined HUB list
                 \DB::table('dts_hub_flow_datas')->where('flow_owner', $flowId)->delete();
                 if (in_array('[HUB]', $this->flowOffices) && count($this->hubOffices) > 0) {
                     foreach ($this->hubOffices as $hubOffice) {
@@ -1116,19 +1199,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         ]);
                     }
                 }
+
+                $this->selectedPredefined = (string) $flowId;
             });
 
             $msg = $this->successMessage;
-            $this->resetForm();
+            $this->selectFlow($this->selectedPredefined);
             $this->successMessage = $msg;
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to save flow: ' . $e->getMessage();
         }
     }
 
-    /**
-     * Soft-delete (deactivate) a predefined transaction flow for transparency.
-     */
     public function deleteFlow(): void
     {
         $this->clearMessages();
@@ -1143,21 +1225,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         try {
             \DB::transaction(function () use ($flowId) {
                 $flow = \DB::table('dts_transaction_flow')->where('id', $flowId)->first();
+                if (!$flow) throw new \Exception('Predefined flow not found.');
 
-                if (!$flow) {
-                    throw new \Exception('Predefined flow not found.');
-                }
-
-                // Soft-delete: deactivate the flow
                 \DB::table('dts_transaction_flow')->where('id', $flowId)->update([
                     'is_active' => false,
                 ]);
 
-                // Audit log
                 \DB::table('sys_admin_logs')->insert([
-                    'changes' => "Soft-deleted predefined transaction flow (Deactivated for transparency): {$flow->flow_name} ({$flow->flow_code})",
+                    'changes' => "Soft-deleted predefined transaction flow (Deactivated): {$flow->flow_name} ({$flow->flow_code})",
                     'admin_id' => auth()->id(),
-                    'what_system' => 3, // Admin Console
+                    'what_system' => 3,
                     'when_changes' => now(),
                 ]);
             });
@@ -1169,9 +1246,37 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         }
     }
 
-    /**
-     * Toggle a flow ID in the bulk selection array.
-     */
+    public function toggleFlowActive(): void
+    {
+        $this->clearMessages();
+        if ($this->selectedPredefined === '' || $this->selectedPredefined === 'new' || $this->selectedPredefined === 'import') {
+            return;
+        }
+
+        $flowId = (int) $this->selectedPredefined;
+        try {
+            $flow = \DB::table('dts_transaction_flow')->where('id', $flowId)->first();
+            if (!$flow) throw new \Exception('Predefined flow not found.');
+
+            $newStatus = !$flow->is_active;
+            \DB::table('dts_transaction_flow')->where('id', $flowId)->update([
+                'is_active' => $newStatus,
+            ]);
+
+            \DB::table('sys_admin_logs')->insert([
+                'changes' => ($newStatus ? "Reactivated" : "Deactivated") . " predefined transaction flow: {$flow->flow_name} ({$flow->flow_code})",
+                'admin_id' => auth()->id() ?? 1,
+                'what_system' => 3,
+                'when_changes' => now(),
+            ]);
+
+            $this->isActive = $newStatus;
+            $this->successMessage = "Transaction flow " . ($newStatus ? "reactivated" : "deactivated") . " successfully!";
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to update flow status: ' . $e->getMessage();
+        }
+    }
+
     public function toggleFlowSelection(int $id): void
     {
         if (in_array($id, $this->selectedFlowIds)) {
@@ -1181,9 +1286,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         }
     }
 
-    /**
-     * Toggle select/deselect all visible predefined flows.
-     */
     public function toggleAllFlows(): void
     {
         $query = \DB::table('dts_transaction_flow')
@@ -1211,9 +1313,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         }
     }
 
-    /**
-     * Bulk soft-delete (deactivate) all selected predefined flows.
-     */
     public function bulkDeleteFlows(): void
     {
         $this->clearMessages();
@@ -1229,9 +1328,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     ->whereIn('id', $this->selectedFlowIds)
                     ->get();
 
-                if ($flows->isEmpty()) {
-                    throw new \Exception('No valid flows found to delete.');
-                }
+                if ($flows->isEmpty()) throw new \Exception('No valid flows found to delete.');
 
                 $names = $flows->pluck('flow_name')->implode(', ');
 
@@ -1257,7 +1354,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     }
 
     /**
-     * Parse the uploaded .txt file and populate the flow creation form.
+     * Parse the uploaded .txt file and populate flow creations.
      */
     public function importFlow(): void
     {
@@ -1281,10 +1378,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 throw new \Exception('Could not read the uploaded text file content.');
             }
 
-            // Normalize line endings and split
             $rawLines = preg_split('/\r\n|\r|\n/', $content);
-            
-            // Filter out blank lines and comment lines starting with #
             $lines = [];
             foreach ($rawLines as $idx => $rawLine) {
                 $trimmed = trim($rawLine);
@@ -1304,7 +1398,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $tempNames = [];
             $tempCodes = [];
 
-            // Loop over non-empty lines using a dynamic index pointer
             $i = 0;
             while ($i < count($lines)) {
                 $nameLine = $lines[$i];
@@ -1313,8 +1406,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     throw new \Exception("Line {$nameLine['num']} (\"{$nameLine['text']}\") must start with '=' to indicate the start of a flow name.");
                 }
 
-                // Look ahead to find all lines belonging to the current flow block
-                // (i.e. until the next line starting with '=')
                 $blockLines = [];
                 $j = $i + 1;
                 while ($j < count($lines) && !str_starts_with($lines[$j]['text'], '=')) {
@@ -1322,7 +1413,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     $j++;
                 }
 
-                // We expect at least 2 lines (Code, Sequence) in blockLines
                 if (count($blockLines) < 2) {
                     throw new \Exception("Incomplete flow definition starting at Line {$lines[$i]['num']}. Each flow must contain at least a name, code, and sequence.");
                 }
@@ -1330,7 +1420,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 $codeLine = $blockLines[0];
                 $seqLine = $blockLines[1];
 
-                // 1. Verify semicolons
                 if (!str_ends_with($nameLine['text'], ';')) {
                     throw new \Exception("Line {$nameLine['num']} (\"{$nameLine['text']}\") must end with a semicolon ';'.");
                 }
@@ -1345,7 +1434,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 $flowCode = strtoupper(trim(substr($codeLine['text'], 0, -1)));
                 $seqText = trim(substr($seqLine['text'], 0, -1));
 
-                // 2. Validate empty values and code format
                 if (empty($flowName)) {
                     throw new \Exception("Line {$nameLine['num']} (\"{$nameLine['text']}\"): Flow name cannot be empty.");
                 }
@@ -1356,19 +1444,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     throw new \Exception("Line {$codeLine['num']} (\"{$codeLine['text']}\"): Flow code can only contain letters, numbers, dashes, and underscores.");
                 }
 
-                // 3. Check database existence and conflict matching
                 $flowByCode = \DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
                 $flowByName = \DB::table('dts_transaction_flow')->where('flow_name', $flowName)->first();
 
                 if ($flowByCode || $flowByName) {
-                    // Check if it is a perfect match (both name and code point to the same existing record)
                     if ($flowByCode && $flowByName && $flowByCode->id === $flowByName->id) {
-                        // Perfect match: skip importing this flow since it already exists exactly as is
                         $i += 1 + count($blockLines);
                         continue;
                     }
-
-                    // Otherwise, it's a conflict
                     if ($flowByCode && (!$flowByName || $flowByCode->flow_name !== $flowName)) {
                         throw new \Exception("Line {$codeLine['num']} (\"{$codeLine['text']}\"): Conflict detected. The flow code '{$flowCode}' already exists in the database with a different name ('{$flowByCode->flow_name}').");
                     }
@@ -1377,12 +1460,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     }
                 }
 
-                // 4. Check uniqueness within the uploaded file itself
                 if (isset($tempCodes[$flowCode])) {
                     if ($tempCodes[$flowCode] !== $flowName) {
                         throw new \Exception("Line {$codeLine['num']} (\"{$codeLine['text']}\"): Duplicate flow code '{$flowCode}' found within the uploaded file with a different name.");
                     }
-                    // Perfect file duplicate: skip
                     $i += 1 + count($blockLines);
                     continue;
                 }
@@ -1390,14 +1471,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     if ($tempNames[$flowName] !== $flowCode) {
                         throw new \Exception("Line {$nameLine['num']} (\"{$nameLine['text']}\"): Duplicate flow name '{$flowName}' found within the uploaded file with a different code.");
                     }
-                    // Perfect file duplicate: skip
                     $i += 1 + count($blockLines);
                     continue;
                 }
                 $tempCodes[$flowCode] = $flowName;
                 $tempNames[$flowName] = $flowCode;
 
-                // 5. Parse sequence path
                 $nodes = explode('->', $seqText);
                 $nodes = array_filter(array_map('trim', $nodes));
 
@@ -1416,7 +1495,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         continue;
                     }
 
-                    // Query by code or name
                     $office = \DB::table('sys_office')
                         ->where('is_active', true)
                         ->where(function($q) use ($node) {
@@ -1432,7 +1510,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     $officesSequence[] = $office->office_code;
                 }
 
-                // Prepend and append ORIGIN if not present
                 if (empty($officesSequence)) {
                     $officesSequence = ['ORIGIN', 'ORIGIN'];
                 } else {
@@ -1444,7 +1521,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     }
                 }
 
-                // 6. Handle optional lines (Copy Furnished and Flow Use/Purpose)
                 $cfOffices = [];
                 $flowUse = 'none';
 
@@ -1455,7 +1531,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         throw new \Exception("Line {$optLine['num']} (\"{$optLine['text']}\") must end with a semicolon ';'.");
                     }
 
-                    // Check if it's the Flow Use indicator (surrounded by brackets, case-insensitive, with abbreviation support)
                     if (preg_match('/^\s*\[\s*([a-zA-Z0-9_\-]+)\s*\]\s*;\s*$/i', $optLine['text'], $matches)) {
                         $rawUse = strtolower(trim($matches[1]));
                         if ($rawUse === 'internal' || $rawUse === 'int') {
@@ -1474,7 +1549,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             throw new \Exception("Line {$optLine['num']} (\"{$optLine['text']}\"): Invalid flow use '{$matches[1]}'. Must be one of: internal (int), external (ext), issuances (iss), application (app), others (oth), none.");
                         }
                     } else {
-                        // Otherwise, treat it as the Copy Furnished offices list
                         $cfText = trim(substr($optLine['text'], 0, -1));
                         if (!empty($cfText)) {
                             $cfNodes = explode(',', $cfText);
@@ -1502,34 +1576,54 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                 $extractedFlows[] = [
                     'name' => $flowName,
                     'code' => $flowCode,
-                    'offices' => $officesSequence,
-                    'cf_offices' => $cfOffices,
+                    'sequence' => $officesSequence,
+                    'cf' => $cfOffices,
                     'flow_use' => $flowUse,
                 ];
 
                 $i += 1 + count($blockLines);
             }
 
-            // Save all flows to the database in a single transaction
+            if (count($extractedFlows) === 0) {
+                $this->successMessage = 'All flows in the file already exist in the database with identical names and codes. No new records were imported.';
+                $this->resetForm();
+                return;
+            }
+
             \DB::transaction(function () use ($extractedFlows) {
+                $importedCount = 0;
                 foreach ($extractedFlows as $flowData) {
-                    $maxId = \DB::table('dts_transaction_flow')->max('id') ?? 0;
-                    $flowId = $maxId + 1;
+                    $existingByCode = \DB::table('dts_transaction_flow')
+                        ->where('flow_code', $flowData['code'])
+                        ->where('is_active', false)
+                        ->first();
 
-                    // Insert flow record
-                    \DB::table('dts_transaction_flow')->insert([
-                        'id' => $flowId,
-                        'flow_name' => $flowData['name'],
-                        'flow_code' => $flowData['code'],
-                        'is_active' => true,
-                        'flow_use' => $flowData['flow_use'],
-                        'flow_for' => 'system',
-                        'added_by' => auth()->id() ?? 1,
-                        'date_added' => now(),
-                    ]);
+                    if ($existingByCode) {
+                        $flowId = $existingByCode->id;
+                        \DB::table('dts_transaction_flow')->where('id', $flowId)->update([
+                            'flow_name' => $flowData['name'],
+                            'is_active' => true,
+                            'flow_use' => $flowData['flow_use'],
+                            'added_by' => auth()->id() ?? 1,
+                            'date_added' => now(),
+                        ]);
+                    } else {
+                        $maxId = \DB::table('dts_transaction_flow')->max('id') ?? 0;
+                        $flowId = $maxId + 1;
+                        \DB::table('dts_transaction_flow')->insert([
+                            'id' => $flowId,
+                            'flow_name' => $flowData['name'],
+                            'flow_code' => $flowData['code'],
+                            'is_active' => true,
+                            'flow_use' => $flowData['flow_use'],
+                            'flow_for' => 'system',
+                            'added_by' => auth()->id() ?? 1,
+                            'date_added' => now(),
+                        ]);
+                    }
 
-                    // Insert sequence list
-                    foreach ($flowData['offices'] as $rank => $officeCode) {
+                    \DB::table('dts_sequence_list')->where('control_id', $flowId)->delete();
+                    foreach ($flowData['sequence'] as $rank => $officeCode) {
                         \DB::table('dts_sequence_list')->insert([
                             'control_id' => $flowId,
                             'sequence_ranking' => $rank + 1,
@@ -1537,26 +1631,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         ]);
                     }
 
-                    // Save Predefined Copy Furnished if present
-                    if (count($flowData['cf_offices']) > 0) {
-                        // Clean up existing predefined copy furnished for this flow code to prevent duplicates
-                        $existingCFs = \DB::table('dts_copy_filled_transaction')->where('control_num', $flowData['code'])->get();
-                        foreach ($existingCFs as $existingCF) {
-                            \DB::table('dts_copy_filled_to_office')->where('control_id', $existingCF->assign_offices_id)->delete();
-                        }
-                        \DB::table('dts_copy_filled_transaction')->where('control_num', $flowData['code'])->delete();
+                    $existingCFs = \DB::table('dts_copy_filled_transaction')->where('control_num', $flowData['code'])->get();
+                    foreach ($existingCFs as $existingCF) {
+                        \DB::table('dts_copy_filled_to_office')->where('control_id', $existingCF->assign_offices_id)->delete();
+                    }
+                    \DB::table('dts_copy_filled_transaction')->where('control_num', $flowData['code'])->delete();
 
+                    if (count($flowData['cf']) > 0) {
                         $assignOfficesId = (\DB::table('dts_copy_filled_transaction')->max('assign_offices_id') ?? 1000) + 1;
-                        
                         \DB::table('dts_copy_filled_transaction')->insert([
                             'control_num' => $flowData['code'],
-                            'total_office' => count($flowData['cf_offices']),
+                            'total_office' => count($flowData['cf']),
                             'assign_offices_id' => $assignOfficesId,
                             'data_created' => now(),
                             'date_modified' => now(),
                         ]);
-
-                        foreach ($flowData['cf_offices'] as $cfOffice) {
+                        foreach ($flowData['cf'] as $cfOffice) {
                             \DB::table('dts_copy_filled_to_office')->insert([
                                 'control_id' => $assignOfficesId,
                                 'office_code' => $cfOffice,
@@ -1564,1457 +1654,1624 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         }
                     }
 
-                    // Insert admin log entry
-                    \DB::table('sys_admin_logs')->insert([
-                        'changes' => "Imported predefined transaction flow via text file: {$flowData['name']} ({$flowData['code']})",
-                        'admin_id' => auth()->id(),
-                        'what_system' => 3, // Admin Console
-                        'when_changes' => now(),
-                    ]);
+                    $importedCount++;
                 }
+
+                \DB::table('sys_admin_logs')->insert([
+                    'changes' => "Batch imported {$importedCount} predefined transaction flow(s) from .txt file",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
             });
 
+            $count = count($extractedFlows);
             $this->resetForm();
-            $this->flowFile = null;
-
-            $this->successMessage = "Successfully imported " . count($extractedFlows) . " predefined flow(s) from the file!";
-
+            $this->successMessage = "Successfully imported {$count} predefined flow(s) from the file!";
         } catch (\Exception $e) {
             $this->errorMessage = 'Extraction failed: ' . $e->getMessage();
         }
     }
 
-    /**
-     * Dynamic computed data binder.
-     */
     public function with(): array
     {
-        // Fetch active offices for sequence selection
         $activeOffices = \DB::table('sys_office')
             ->where('is_active', true)
-            ->orderBy('office_name')
+            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
+            ->orderBy('office_name', 'asc')
             ->get();
 
-        // Query predefined flows dropdown/directory
+        // 1. Predefined Flows Query
         $predefinedQuery = \DB::table('dts_transaction_flow')
-            ->where('flow_code', 'not like', 'FLOW-CUSTOM-%')
-            ->where('is_active', true);
+            ->leftJoin('rdp_record_series', 'dts_transaction_flow.contin_rdp_id', '=', 'rdp_record_series.id')
+            ->where('dts_transaction_flow.flow_code', 'not like', 'FLOW-CUSTOM-%')
+            ->select(
+                'dts_transaction_flow.*',
+                'rdp_record_series.series_title as rdp_series_title',
+                'rdp_record_series.item_number as rdp_item_number'
+            );
+
+        if ($this->statusFilter === 'active') {
+            $predefinedQuery->where('dts_transaction_flow.is_active', true);
+        } elseif ($this->statusFilter === 'inactive') {
+            $predefinedQuery->where('dts_transaction_flow.is_active', false);
+        }
 
         if ($this->predefinedPurposeFilter !== 'all') {
-            $predefinedQuery->where('flow_use', $this->predefinedPurposeFilter);
+            $predefinedQuery->where('dts_transaction_flow.flow_use', $this->predefinedPurposeFilter);
         }
 
         if ($this->searchPredefined !== '') {
             $searchVal = '%' . $this->searchPredefined . '%';
             $predefinedQuery->where(function ($q) use ($searchVal) {
-                $q->where('flow_name', 'ilike', $searchVal)
-                  ->orWhere('flow_code', 'ilike', $searchVal);
+                $q->where('dts_transaction_flow.flow_name', 'ilike', $searchVal)
+                  ->orWhere('dts_transaction_flow.flow_code', 'ilike', $searchVal);
             });
         }
 
-        $predefinedFlows = $predefinedQuery->orderBy('flow_name')
-            ->paginate(20);
+        $predefinedFlows = $predefinedQuery->orderBy('dts_transaction_flow.flow_name', 'asc')->get();
 
-        // Query custom flows (Tab 2)
+        // Attach step sequence counts to flows
+        $flowIds = $predefinedFlows->pluck('id')->toArray();
+        $sequenceCounts = \DB::table('dts_sequence_list')
+            ->whereIn('control_id', $flowIds)
+            ->groupBy('control_id')
+            ->selectRaw('control_id, count(*) as count')
+            ->pluck('count', 'control_id')
+            ->toArray();
+
+        foreach ($predefinedFlows as $pf) {
+            $pf->step_count = $sequenceCounts[$pf->id] ?? 0;
+        }
+
+        // 2. Custom Flows Query
         $customFlows = collect();
         if ($this->activeTab === 'custom') {
             $customQuery = \DB::table('dts_transaction_flow')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as account_details', 'dts_transaction_flow.added_by', '=', 'account_details.account_id')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'account_details.office_id', '=', 'office.id')
+                ->leftJoin('sys_account', 'dts_transaction_flow.added_by', '=', 'sys_account.id')
+                ->leftJoin('sys_account_details', 'sys_account.id', '=', 'sys_account_details.account_id')
+                ->leftJoin('sys_office as office', 'sys_account_details.office_id', '=', 'office.id')
+                ->leftJoin('rdp_record_series', 'dts_transaction_flow.contin_rdp_id', '=', 'rdp_record_series.id')
                 ->where('dts_transaction_flow.flow_code', 'like', 'FLOW-CUSTOM-%')
-                ->whereNull('dts_transaction_flow.referenced_flow')
-                ->where('dts_transaction_flow.flow_name', 'not like', 'Flow for %')
-                ->where('dts_transaction_flow.is_active', true)
-                ->select([
-                    'dts_transaction_flow.id',
-                    'dts_transaction_flow.flow_code',
-                    'dts_transaction_flow.flow_name',
-                    'dts_transaction_flow.flow_use',
-                    'dts_transaction_flow.flow_for',
-                    'dts_transaction_flow.is_active',
-                    'dts_transaction_flow.added_by',
-                    'dts_transaction_flow.date_added',
-                    'account_details.first_name',
-                    'account_details.last_name',
-                    'office.office_name as owner_office_name',
-                    'office.office_code as owner_office_code',
-                ]);
+                ->select(
+                    'dts_transaction_flow.*',
+                    'sys_account.username',
+                    'sys_account_details.first_name',
+                    'sys_account_details.last_name',
+                    'office.office_name',
+                    'office.office_code',
+                    'rdp_record_series.series_title as rdp_series_title',
+                    'rdp_record_series.item_number as rdp_item_number'
+                );
 
-            if ($this->searchCustom !== '') {
-                $searchVal = '%' . $this->searchCustom . '%';
-                $customQuery->where(function ($q) use ($searchVal) {
-                    $q->where('dts_transaction_flow.flow_code', 'ilike', $searchVal)
-                      ->orWhere('dts_transaction_flow.flow_name', 'ilike', $searchVal)
-                      ->orWhere('account_details.first_name', 'ilike', $searchVal)
-                      ->orWhere('account_details.last_name', 'ilike', $searchVal)
-                      ->orWhere('office.office_name', 'ilike', $searchVal)
-                      ->orWhere('office.office_code', 'ilike', $searchVal);
-                });
+            if ($this->statusFilter === 'active') {
+                $customQuery->where('dts_transaction_flow.is_active', true);
+            } elseif ($this->statusFilter === 'inactive') {
+                $customQuery->where('dts_transaction_flow.is_active', false);
             }
 
             if ($this->customPurposeFilter !== 'all') {
                 $customQuery->where('dts_transaction_flow.flow_use', $this->customPurposeFilter);
             }
 
-            $customFlows = $customQuery->orderBy('dts_transaction_flow.flow_name', 'asc')->paginate(20);
+            if ($this->searchCustom !== '') {
+                $searchVal = '%' . $this->searchCustom . '%';
+                $customQuery->where(function ($q) use ($searchVal) {
+                    $q->where('dts_transaction_flow.flow_name', 'ilike', $searchVal)
+                      ->orWhere('dts_transaction_flow.flow_code', 'ilike', $searchVal)
+                      ->orWhere('office.office_name', 'ilike', $searchVal)
+                      ->orWhere('office.office_code', 'ilike', $searchVal);
+                });
+            }
+
+            $customFlows = $customQuery->orderBy('dts_transaction_flow.flow_name', 'asc')->get();
+
+            $cFlowIds = $customFlows->pluck('id')->toArray();
+            $cSequenceCounts = \DB::table('dts_sequence_list')
+                ->whereIn('control_id', $cFlowIds)
+                ->groupBy('control_id')
+                ->selectRaw('control_id, count(*) as count')
+                ->pluck('count', 'control_id')
+                ->toArray();
+
+            foreach ($customFlows as $cf) {
+                $cf->step_count = $cSequenceCounts[$cf->id] ?? 0;
+            }
         }
 
+        // Office lookup dictionary for sequence rendering
+        $officeLookup = \DB::table('sys_office')->pluck('office_name', 'office_code')->toArray();
+
         return [
-            'activeOffices' => $activeOffices,
+            'activeOffices'   => $activeOffices,
             'predefinedFlows' => $predefinedFlows,
-            'customFlows' => $customFlows,
+            'customFlows'     => $customFlows,
+            'officeLookup'    => $officeLookup,
         ];
     }
 };
 ?>
 
 @push('styles')
-    @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/subsystems.css', 'resources/css/admin/accounts_offices.css'])
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
-        .tabs-header {
+        .miller-container {
+            max-width: 1650px;
+            margin: 0 auto;
+            padding: 16px 20px;
+            height: calc(100vh - 100px);
             display: flex;
-            gap: 12px;
-            border-bottom: 2px solid #e2e8f0;
-            margin-bottom: 24px;
+            flex-direction: column;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            color: #1e293b;
         }
-        .tab-btn {
-            background: none;
+
+        /* Scope Selector Tabs */
+        .m-scope-nav {
+            display: inline-flex;
+            background: #f1f5f9;
+            padding: 3px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            gap: 2px;
+        }
+        .m-scope-tab {
             border: none;
-            padding: 12px 20px;
-            font-size: 14.5px;
+            background: transparent;
+            padding: 6px 14px;
+            font-size: 12.5px;
             font-weight: 600;
             color: #64748b;
+            border-radius: 6px;
             cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            transition: all 0.15s ease;
+        }
+        .m-scope-tab:hover {
+            color: #1e293b;
+        }
+        .m-scope-tab.active {
+            background: #ffffff;
+            color: #0284c7;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+
+        /* 4-Column Miller Browser */
+        .miller-browser {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 270px 320px 390px 1fr;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            min-height: 0;
+        }
+
+        .miller-column {
+            border-right: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            background: #ffffff;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .miller-column:last-child {
+            border-right: none;
+        }
+
+        .m-col-header {
+            padding: 10px 14px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #475569;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .m-col-search {
+            padding: 8px 12px;
+            border-bottom: 1px solid #f1f5f9;
+            background: #ffffff;
+            flex-shrink: 0;
             position: relative;
+        }
+        .m-col-search input {
+            width: 100%;
+            padding: 6px 10px 6px 28px;
+            font-size: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background: #f8fafc;
             outline: none;
-            transition: all 0.2s ease;
+            transition: border-color 0.15s, background-color 0.15s;
+            box-sizing: border-box;
         }
-        .tab-btn.active {
-            color: #003699;
+        .m-col-search input:focus {
+            border-color: #0284c7;
+            background: #ffffff;
         }
-        .tab-btn.active::after {
-            content: '';
+        .m-col-search i.search-icon {
             position: absolute;
-            bottom: -2px;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: #003699;
-            border-radius: 99px;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 11px;
+            color: #94a3b8;
         }
-        .activity-logs-container {
-            padding: 12px 24px;
+
+        .m-col-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 6px;
+            min-height: 0;
         }
-        .sequence-editor-box {
-            border: 1.5px dashed #cbd5e1;
-            border-radius: 12px;
-            padding: 16px;
-            background-color: #f8fafc;
-            margin-top: 10px;
-        }
-        .sequence-list-item {
+
+        .m-item {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 10px 14px;
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            margin-bottom: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
-        }
-        .sequence-list-item:last-child {
-            margin-bottom: 0;
-        }
-        .seq-index {
-            font-weight: 700;
-            color: #003699;
-            margin-right: 8px;
-        }
-        .seq-name {
-            font-weight: 500;
-            color: #334155;
-        }
-        .seq-actions {
-            display: flex;
-            gap: 6px;
-        }
-        .btn-seq-nav {
-            background: #f1f5f9;
-            color: #475569;
-            border: 1px solid #e2e8f0;
-            padding: 5px 8px;
+            padding: 8px 10px;
             border-radius: 6px;
             cursor: pointer;
-            font-size: 11px;
-            transition: all 0.2s ease;
+            font-size: 12px;
+            color: #334155;
+            transition: all 0.1s ease;
+            margin-bottom: 2px;
+            border: 1px solid transparent;
+            user-select: none;
         }
-        .btn-seq-nav:hover:not(:disabled) {
+        .m-item:hover {
+            background: #f1f5f9;
+        }
+        .m-item.active {
+            background: #e0f2fe;
+            color: #0369a1;
+            font-weight: 600;
+            border-color: #bae6fd;
+        }
+        .m-item-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+            flex: 1;
+        }
+        .m-item-right {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .m-item-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 999px;
+            background: #e2e8f0;
+            color: #475569;
+            font-weight: 600;
+        }
+        .m-item.active .m-item-badge {
+            background: #bae6fd;
+            color: #0284c7;
+        }
+        .m-item-title {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: block;
+        }
+        .m-item-sub {
+            font-size: 10px;
+            color: #64748b;
+            display: block;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .m-item.active .m-item-sub {
+            color: #0284c7;
+        }
+        .m-item-arrow {
+            font-size: 9px;
+            color: #94a3b8;
+        }
+        .m-item.active .m-item-arrow {
+            color: #0284c7;
+        }
+
+        /* Drag and Drop Styling */
+        .m-item.draggable-flow {
+            cursor: pointer;
+        }
+        .m-item.draggable-flow:active {
+            cursor: grabbing;
+        }
+        .m-item.is-dragging {
+            cursor: grabbing;
+            opacity: 0.45;
+            background: #e0f2fe;
+            border: 1px dashed #0284c7;
+        }
+        .drop-target-hover {
+            background: #e0f2fe !important;
+            border: 1.5px dashed #0284c7 !important;
+            transform: scale(1.02);
+            transition: all 0.12s ease;
+        }
+        .step-item.draggable-step {
+            cursor: pointer;
+        }
+        .step-item.draggable-step:active {
+            cursor: grabbing;
+        }
+        .step-item.step-dragging {
+            cursor: grabbing;
+            opacity: 0.4;
+            background: #eff6ff;
+            border: 1.5px dashed #3b82f6;
+        }
+        .step-item.step-drop-hover {
+            border: 2px dashed #0284c7 !important;
+            background: #f0f9ff !important;
+            transform: translateY(2px);
+        }
+
+        /* Inspector Form Controls */
+        .m-inspector {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            min-height: 0;
+            background: #ffffff;
+        }
+        .m-field-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .m-field-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .m-field-input, .m-field-select {
+            padding: 7px 10px;
+            font-size: 12.5px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background: #ffffff;
+            color: #0f172a;
+            outline: none;
+            transition: border-color 0.15s, box-shadow 0.15s;
+            box-sizing: border-box;
+            width: 100%;
+        }
+        .m-field-input:focus, .m-field-select:focus {
+            border-color: #0284c7;
+            box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+        }
+
+        /* Segmented Pipeline Nav */
+        .m-pipe-tabs {
+            display: flex;
+            background: #f1f5f9;
+            padding: 3px;
+            border-radius: 7px;
+            gap: 2px;
+            margin-bottom: 12px;
+        }
+        .m-pipe-tab {
+            flex: 1;
+            border: none;
+            background: transparent;
+            padding: 5px 8px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: #64748b;
+            border-radius: 5px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+        .m-pipe-tab.active {
+            background: #ffffff;
+            color: #0284c7;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+        }
+
+        /* Step Pipeline Sequence */
+        .step-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 9px 12px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 7px;
+            margin-bottom: 6px;
+            transition: all 0.15s;
+        }
+        .step-item:hover {
+            border-color: #cbd5e1;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+        .step-badge {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #f1f5f9;
+            color: #475569;
+            font-weight: 700;
+            font-size: 10.5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .step-origin {
+            background: #ecfdf5;
+            color: #059669;
+            border-color: #a7f3d0;
+        }
+        .step-hub {
+            background: #eff6ff;
+            color: #2563eb;
+            border-color: #bfdbfe;
+        }
+        .step-btn {
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+            color: #475569;
+            border-radius: 5px;
+            padding: 4px 7px;
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+        .step-btn:hover:not(:disabled) {
             background: #e2e8f0;
             color: #0f172a;
         }
-        .btn-seq-remove {
-            background: #fff1f2;
-            color: #e11d48;
-            border: 1px solid #ffe4e6;
-            padding: 5px 8px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 11px;
-            transition: all 0.2s ease;
+        .step-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
         }
-        .btn-seq-remove:hover {
-            background: #ffe4e6;
+        .step-btn-remove {
+            color: #ef4444;
+            background: #fef2f2;
+            border-color: #fecaca;
         }
-        .office-flow-path {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 6px;
+        .step-btn-remove:hover {
+            background: #fee2e2;
         }
-        .office-flow-node {
-            background: #f1f5f9;
-            color: #334155;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            border: 1px solid #e2e8f0;
-            white-space: nowrap;
-        }
-        .flow-separator {
-            color: #94a3b8;
-            font-size: 12px;
-        }
-        .suggestions-dropdown {
+
+        /* Suggestion Dropdown */
+        .m-dropdown-results {
             position: absolute;
             top: 100%;
             left: 0;
             right: 0;
             background: #ffffff;
-            border: 1.5px solid #cbd5e1;
-            border-radius: 8px;
-            max-height: 200px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.1);
+            max-height: 180px;
             overflow-y: auto;
-            z-index: 1000;
-            margin-top: 4px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            z-index: 50;
+            margin-top: 3px;
         }
-        .suggestion-item {
-            padding: 10px 14px;
+        .m-dropdown-row {
+            padding: 7px 10px;
+            font-size: 12px;
             cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .m-dropdown-row:last-child {
+            border-bottom: none;
+        }
+        .m-dropdown-row:hover {
+            background: #f0f9ff;
+            color: #0284c7;
+        }
+
+        /* Footer Path Bar */
+        .miller-path-bar {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-top: none;
+            border-radius: 0 0 10px 10px;
+            padding: 8px 14px;
+            font-size: 11px;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+
+        /* Switches & Badges */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 36px;
+            height: 20px;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #cbd5e1; transition: .2s; border-radius: 20px;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px;
+            background-color: white; transition: .2s; border-radius: 50%;
+        }
+        input:checked + .slider { background-color: #10b981; }
+        input:checked + .slider:before { transform: translateX(16px); }
+
+        .m-empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 30px 16px;
+            color: #94a3b8;
+            gap: 8px;
+        }
+
+        .toast-banner {
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-bottom: 10px;
             display: flex;
             align-items: center;
             gap: 8px;
-            justify-content: space-between;
-            font-size: 13px;
-            font-family: 'Inter', sans-serif;
-            transition: background 0.15s ease;
-            border-bottom: 1px solid #f1f5f9;
         }
-        .suggestion-item:last-child {
-            border-bottom: none;
+        .toast-banner.success {
+            background: #ecfdf5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
         }
-        .suggestion-item:hover {
-            background-color: #f1f5f9;
-        }
-
-        /* Flows Pagination Bar Wrapper */
-        .flows-pagination-bar {
-            padding-top: 14px;
-            margin-top: 10px;
-            border-top: 1px solid #f1f5f9;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 100%;
-        }
-
-        /* Dark Mode Overrides */
-        [data-theme="dark"] .tabs-header {
-            border-bottom-color: #1e293b;
-        }
-        [data-theme="dark"] .tab-btn {
-            color: #94a3b8;
-        }
-        [data-theme="dark"] .tab-btn.active {
-            color: #60a5fa;
-        }
-        [data-theme="dark"] .tab-btn.active::after {
-            background: #3b82f6;
-        }
-        [data-theme="dark"] .sequence-editor-box {
-            border: 1.5px dashed #334155;
-            background-color: #0f172a;
-        }
-        [data-theme="dark"] .sequence-list-item {
-            background: #131c2e;
-            border-color: #1e293b;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-        }
-        [data-theme="dark"] .seq-index {
-            color: #60a5fa;
-        }
-        [data-theme="dark"] .seq-name {
-            color: #f8fafc;
-        }
-        [data-theme="dark"] .btn-seq-nav {
-            background: #0f172a;
-            color: #cbd5e1;
-            border-color: #334155;
-        }
-        [data-theme="dark"] .btn-seq-nav:hover:not(:disabled) {
-            background: #1e293b;
-            color: #f8fafc;
-        }
-        [data-theme="dark"] .btn-seq-remove {
-            background: rgba(239, 68, 68, 0.15);
-            color: #f87171;
-            border-color: rgba(239, 68, 68, 0.3);
-        }
-        [data-theme="dark"] .btn-seq-remove:hover {
-            background: rgba(239, 68, 68, 0.25);
-        }
-        [data-theme="dark"] .office-flow-node {
-            background: #0f172a;
-            color: #cbd5e1;
-            border-color: #334155;
-        }
-        [data-theme="dark"] .flow-separator {
-            color: #64748b;
-        }
-        [data-theme="dark"] .suggestions-dropdown {
-            background: #0f172a;
-            border-color: #334155;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-        }
-        [data-theme="dark"] .suggestion-item {
-            border-bottom-color: #1e293b;
-        }
-        [data-theme="dark"] .suggestion-item span[style*="color: #1e293b"],
-        [data-theme="dark"] .suggestion-item span[style*="color:#1e293b"] {
-            color: #f8fafc !important;
-        }
-        [data-theme="dark"] .suggestion-item span[style*="color: #64748b"],
-        [data-theme="dark"] .suggestion-item span[style*="color:#64748b"] {
-            color: #94a3b8 !important;
-        }
-        [data-theme="dark"] .suggestion-item:hover {
-            background-color: #1e293b;
-        }
-        [data-theme="dark"] .flows-pagination-bar {
-            border-top-color: #1e293b;
+        .toast-banner.error {
+            background: #fef2f2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
         }
     </style>
 @endpush
 
-<div class="activity-logs-container">
+<div class="miller-container">
+    {{-- TOP ACTION & SCOPE BAR --}}
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div>
+                <h1 style="font-size: 19px; font-weight: 700; margin: 0; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-arrows-split-up-and-left" style="color: #0284c7;"></i>
+                    DTS Transaction Flow Manager
+                </h1>
+                <p style="font-size: 12px; margin: 2px 0 0 0; color: #64748b;">
+                    Miller Column workflow orchestrator &bull; Sequence Routing &bull; RDP Retention Continuity
+                </p>
+            </div>
+        </div>
 
-    <!-- Tab Selection -->
-    <div class="tabs-header" style="margin-bottom: 20px;">
-        <button type="button" class="tab-btn {{ $activeTab === 'predefined' ? 'active' : '' }}" wire:click="$set('activeTab', 'predefined')">
-            <i class="fa-solid fa-gears" style="margin-right: 6px;"></i> Predefined Flow Manager
-        </button>
-        <button type="button" class="tab-btn {{ $activeTab === 'custom' ? 'active' : '' }}" wire:click="$set('activeTab', 'custom')">
-            <i class="fa-solid fa-bezier-curve" style="margin-right: 6px;"></i> Custom Flows Directory
-        </button>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="m-scope-nav">
+                <button type="button" class="m-scope-tab {{ $activeTab === 'predefined' ? 'active' : '' }}" wire:click="$set('activeTab', 'predefined')">
+                    <i class="fa-solid fa-diagram-project"></i> Predefined Standard Flows
+                </button>
+                <button type="button" class="m-scope-tab {{ $activeTab === 'custom' ? 'active' : '' }}" wire:click="$set('activeTab', 'custom')">
+                    <i class="fa-solid fa-bezier-curve"></i> Custom Office Flows
+                </button>
+            </div>
+
+            @if($activeTab === 'predefined')
+                <button type="button" wire:click="startCreate" style="background: #0284c7; color: #ffffff; border: none; padding: 7px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-plus"></i> New Flow
+                </button>
+            @else
+                <button type="button" wire:click="startCreateCustom" style="background: #0284c7; color: #ffffff; border: none; padding: 7px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-plus"></i> New Custom Flow
+                </button>
+            @endif
+        </div>
     </div>
 
-    <!-- Tab 1: Predefined Flow Manager -->
-    @if($activeTab === 'predefined')
-        @if(!$selectedPredefined && $successMessage)
-            <div class="toast-alert success" style="margin: 0 0 16px 0;">
-                <i class="fa-solid fa-circle-check"></i>
-                <span>{{ $successMessage }}</span>
-            </div>
-        @endif
-
-        @if(!$selectedPredefined && $errorMessage)
-            <div class="toast-alert error" style="margin: 0 0 16px 0;">
-                <i class="fa-solid fa-circle-exclamation"></i>
-                <span>{{ $errorMessage }}</span>
-            </div>
-        @endif
-
-        <div class="admin-offices-container {{ !$selectedPredefined ? 'no-selection' : 'has-selection' }}">
-            <!-- Left Pane: Predefined Flows Directory -->
-            <div class="directory-panel">
-                <div class="directory-header-row">
-                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Predefined Flows</span>
-                    <div style="display: flex; gap: 6px;">
-                        <button type="button" class="btn-create-new" wire:click="startCreate">
-                            <i class="fa-solid fa-plus"></i> New Flow
-                        </button>
-                        <button type="button" class="btn-create-new" style="background-color: #0284c7; border-color: #0284c7;" wire:click="startImport">
-                            <i class="fa-solid fa-file-import"></i> Import File
-                        </button>
-                    </div>
-                </div>
-
-                <div class="search-box-wrapper" style="flex: none; position: relative; width: 100%;">
-                    <i class="fa-solid fa-magnifying-glass search-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 14px; margin: 0; line-height: 1;"></i>
-                    <input type="text" class="search-box" placeholder="Search flows..." wire:model.live="searchPredefined">
-                </div>
-
-                @if(count($selectedFlowIds) > 0)
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
-                        <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedFlowIds) }} selected</span>
-                        <button type="button" x-data
-                            x-on:click="
-                                console.log('[DEBUG] Button clicked');
-                                console.log('[DEBUG] $wire available:', typeof $wire);
-                                console.log('[DEBUG] $wire object:', $wire);
-                                console.log('[DEBUG] $el:', $el);
-                                let confirmed = confirm('Are you sure you want to deactivate {{ count($selectedFlowIds) }} flow(s)? They will be soft-deleted (hidden) but retained for transparency.');
-                                console.log('[DEBUG] Confirm result:', confirmed);
-                                if(confirmed) {
-                                    console.log('[DEBUG] User confirmed, calling bulkDeleteFlows...');
-                                    $el.disabled = true;
-                                    $el.querySelector('.btn-idle').style.display = 'none';
-                                    $el.querySelector('.btn-loading').style.display = 'inline-flex';
-                                    try {
-                                        $wire.bulkDeleteFlows();
-                                        console.log('[DEBUG] $wire.bulkDeleteFlows() called successfully');
-                                    } catch(e) {
-                                        console.error('[DEBUG] Error calling bulkDeleteFlows:', e);
-                                    }
-                                } else {
-                                    console.log('[DEBUG] User cancelled');
-                                }
-                            "
-                            style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
-                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-trash-can"></i> Delete Selected</span>
-                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Deactivating {{ count($selectedFlowIds) }} flow(s)...</span>
-                        </button>
-                    </div>
-                @endif
-
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; gap: 8px;">
-                    @if($predefinedFlows->count() > 0)
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <input type="checkbox" wire:click="toggleAllFlows" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedFlowIds) > 0 && count($selectedFlowIds) === $predefinedFlows->count() ? 'checked' : '' }}>
-                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
-                        </div>
-                    @else
-                        <div></div>
-                    @endif
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <select wire:model.live="predefinedPurposeFilter" style="padding: 5px 10px; border-radius: 6px; border: 1.5px solid #e2e8f0; outline: none; font-size: 11.5px; font-family: 'Inter', sans-serif; color: #64748b; cursor: pointer; transition: all 0.2s ease; background: #fff; font-weight: 500;">
-                            <option value="all">All Purposes</option>
-                            <option value="internal">Internal</option>
-                            <option value="external">External</option>
-                            <option value="issuances">Issuances</option>
-                            <option value="application">Application</option>
-                            <option value="others">Others</option>
-                            <option value="none">None</option>
-                        </select>
-
-                        <!-- Layout View Mode Toggle -->
-                        <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1;">
-                            <button type="button" wire:click="$set('predefinedViewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $predefinedViewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $predefinedViewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $predefinedViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
-                                <i class="fa-solid fa-border-all"></i> Cards
-                            </button>
-                            <button type="button" wire:click="$set('predefinedViewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $predefinedViewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $predefinedViewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $predefinedViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
-                                <i class="fa-solid fa-table-list"></i> Table
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                @if($predefinedViewMode === 'table')
-                    <!-- Table Layout View -->
-                    <div style="overflow-x: auto; max-height: calc(100vh - 280px); overflow-y: auto;">
-                        <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12.5px;">
-                            <thead>
-                                <tr style="background: #f8fafc; color: #475569; text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px; border-bottom: 1.5px solid #cbd5e1;">
-                                    <th style="padding: 8px 10px; width: 36px;"></th>
-                                    <th style="padding: 8px 10px;">Code</th>
-                                    <th style="padding: 8px 10px;">Flow Name</th>
-                                    <th style="padding: 8px 10px; text-align: center;">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse($predefinedFlows as $flow)
-                                    @php
-                                        $isSelected = $selectedPredefined === (string) $flow->id;
-                                    @endphp
-                                    <tr class="flow-tbl-row {{ $isSelected ? 'selected-row' : '' }}" 
-                                        wire:key="flow-tbl-{{ $flow->id }}" 
-                                        wire:click="selectFlow({{ $flow->id }})"
-                                        style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $isSelected ? '#eff6ff' : '#ffffff' }}; transition: background 0.12s ease;">
-                                        <td style="padding: 8px 10px;" onclick="event.stopPropagation()">
-                                            <input type="checkbox" wire:click.stop="toggleFlowSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedFlowIds) ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #3b82f6;">
-                                        </td>
-                                        <td style="padding: 8px 10px; font-weight: 700; color: #003699; font-family: monospace; font-size: 12px;">{{ $flow->flow_code }}</td>
-                                        <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">{{ $flow->flow_name }}</td>
-                                        <td style="padding: 8px 10px; text-align: center;">
-                                            @if($flow->is_active)
-                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;">Active</span>
-                                            @else
-                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #fee2e2; color: #991b1b; border: 1px solid #fecdd3;">Inactive</span>
-                                            @endif
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="4" style="text-align: center; color: #94a3b8; padding: 20px;">No predefined flows found.</td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-                @else
-                    <!-- Cards Grid Layout View -->
-                    <div class="offices-list">
-                        @forelse($predefinedFlows as $flow)
-                            @php
-                                $isSelected = $selectedPredefined === (string) $flow->id;
-                                $flowInitials = strtoupper(substr($flow->flow_code ?: '?', 0, 3));
-                            @endphp
-                            <div class="office-item-card {{ $isSelected ? 'active' : '' }}" wire:key="flow-item-{{ $flow->id }}" wire:click="selectFlow({{ $flow->id }})">
-                                <input type="checkbox" wire:click.stop="toggleFlowSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedFlowIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
-                                <div class="office-avatar-small">
-                                    <span>{{ $flowInitials }}</span>
-                                </div>
-                                <div class="office-meta-info">
-                                    <span class="office-display-name">{{ $flow->flow_name }}</span>
-                                    <span class="office-display-code">Code: {{ $flow->flow_code }}</span>
-                                    <span class="office-status-badge {{ $flow->is_active ? 'active-badge' : 'inactive-badge' }}">
-                                        {{ $flow->is_active ? 'Active' : 'Inactive' }}
-                                    </span>
-                                </div>
-                            </div>
-                        @empty
-                            <div style="text-align: center; color: #94a3b8; font-size: 13.5px; padding: 24px 10px;">
-                                No predefined flows found.
-                            </div>
-                        @endforelse
-                    </div>
-                @endif
-
-                @if($predefinedFlows->hasPages())
-                    <div class="flows-pagination-bar">
-                        {{ $predefinedFlows->links('components.pagination') }}
-                    </div>
-                @endif
-            </div>
-
-            <!-- Right Pane: Flow Configuration details-panel -->
-            @if($selectedPredefined)
-                <div class="details-panel">
-                @if($successMessage)
-                    <div class="toast-alert success" style="margin: 20px 20px 0 20px;">
-                        <i class="fa-solid fa-circle-check"></i>
-                        <span>{{ $successMessage }}</span>
-                    </div>
-                @endif
-
-                @if($errorMessage)
-                    <div class="toast-alert error" style="margin: 20px 20px 0 20px;">
-                        <i class="fa-solid fa-circle-exclamation"></i>
-                        <span>{{ $errorMessage }}</span>
-                    </div>
-                @endif
-
-                @if($selectedPredefined === 'import')
-                        <!-- Header -->
-                        <div class="details-header" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);">
-                            <div class="details-header-avatar" style="background-color: rgba(255,255,255,0.15); color: #ffffff;">
-                                <i class="fa-solid fa-file-import"></i>
-                            </div>
-                            <div class="details-header-info">
-                                <h2 class="details-header-name">Import Predefined Flow</h2>
-                                <span class="details-header-sub">Upload a text file to configure a standard routing pathway</span>
-                            </div>
-                        </div>
-
-                        <!-- Body -->
-                        <div class="details-body">
-                            <div class="form-group">
-                                <label class="form-label" for="flowFileInput" style="font-weight: 600; color: #334155; margin-bottom: 8px; display: block;">Select Predefined Flow Text File (.txt)</label>
-                                <input type="file" 
-                                       id="flowFileInput" 
-                                       wire:model="flowFile" 
-                                       accept=".txt" 
-                                       style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; font-size: 13px; font-family: 'Inter', sans-serif;">
-                                @error('flowFile') <span style="color:#ef4444; font-size:11px; margin-top:4px; display:block;">{{ $message }}</span> @enderror
-                                <p style="font-size: 12.5px; color: #64748b; margin-top: 12px; line-height: 1.5; font-family: 'Inter', sans-serif;">
-                                    <strong>Instructions:</strong> The uploaded file must be a plain text file (<code>.txt</code>). Every line must end with a semicolon (<code>;</code>):
-                                    <br>• Line 1: <code>=&lt;flow name&gt;;</code> (must start with an equals sign <code>=</code>)
-                                    <br>• Line 2: <code>&lt;flow code&gt;;</code>
-                                    <br>• Line 3: <code>&lt;flow sequence&gt;;</code> (e.g. <code>[]-&gt;[H]-&gt;ICTU;</code> where <code>[]</code> is the Originated Office and <code>[H]</code> is the Cluster Head of that office)
-                                    <br>• Line 4 (Optional): <code>&lt;copy furnished offices (comma-separated)&gt;;</code> (e.g. <code>Unit Head, HRMDU, RFOIU;</code>)
-                                    <br>• Line 5 (Optional): <code>&lt;flow purpose/use&gt;;</code> (one of: <code>internal</code>, <code>external</code>, <code>issuances</code>, <code>application</code>, <code>others</code>, <code>none</code>), (use this like this e.g. <code>[ internal ];</code> or <code>[int];</code> for internal transactions)
-                                    <br>• Lines starting with <code>#</code> are classified as comments and will be ignored.
-                                </p>
-                            </div>
-                        </div>
-
-                        <!-- Footer -->
-                        <div class="details-footer">
-                            <button type="button" class="btn-cancel" wire:click="resetForm">Cancel</button>
-                            <button type="button" class="btn-save" style="background-color: #0284c7; border-color: #0284c7;" wire:click="importFlow">
-                                <i class="fa-solid fa-file-import"></i> Extract Flow Data
-                            </button>
-                        </div>
-                    @else
-                        <!-- Header -->
-                        <div class="details-header">
-                            <div class="details-header-avatar">
-                                <i class="fa-solid fa-route"></i>
-                            </div>
-                            <div class="details-header-info">
-                                <h2 class="details-header-name">
-                                    {{ $selectedPredefined === 'new' ? 'Configure New Flow' : $flowName }}
-                                </h2>
-                                <span class="details-header-sub">
-                                    {{ $selectedPredefined === 'new' ? 'Create a standard routing path template' : 'Review & adjust predefined routing path' }}
-                                </span>
-                            </div>
-                        </div>
-
-                        <!-- Body -->
-                        <div class="details-body">
-                            <form wire:submit.prevent="savePredefinedFlow" style="display: flex; flex-direction: column; gap: 20px;">
-                                <!-- Flow Name -->
-                                <div class="form-group">
-                                    <span class="form-label">Flow Display Name</span>
-                                    <input type="text" class="form-input" placeholder="e.g. Standard Clearance Routing" wire:model="flowName">
-                                    @error('flowName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                                </div>
-
-                                <!-- Flow Code -->
-                                <div class="form-group">
-                                    <span class="form-label">Flow Unique Code</span>
-                                    <input type="text" class="form-input" placeholder="e.g. FLOW-CLEARANCE" wire:model="flowCode" @if($selectedPredefined !== 'new') disabled @endif>
-                                    @error('flowCode') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                                </div>
-
-                                <!-- Active status switch -->
-                                <div class="form-group">
-                                    <div class="status-toggle-wrapper">
-                                        <div class="status-toggle-label">
-                                            <span class="status-toggle-title">Flow Active Status</span>
-                                            <span class="status-toggle-desc">Toggle whether this predefined flow is visible for new transactions.</span>
-                                        </div>
-                                        <label class="switch">
-                                            <input type="checkbox" wire:model="isActive">
-                                            <span class="slider"></span>
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <!-- Flow Purpose / Use -->
-                                <div class="form-group">
-                                    <span class="form-label">Flow Purpose / Module Use</span>
-                                    <select class="form-input" wire:model="flowUse" style="background-color: #fff; cursor: pointer; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%;">
-                                        <option value="none">No Specific Purpose (none)</option>
-                                        <option value="internal">Internal Transactions</option>
-                                        <option value="external">External Transactions</option>
-                                        <option value="issuances">Issuances / Memos</option>
-                                        <option value="application">Application Letters</option>
-                                        <option value="others">Others</option>
-                                    </select>
-                                    @error('flowUse') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                                </div>
-
-                                @if(\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series'))
-                                <!-- RDP Continuity: Record Series -->
-                                <div class="form-group" style="border-top: 1.5px dashed #e2e8f0; padding-top: 20px; margin-top: 10px;">
-                                    <span class="form-label" style="font-size: 13.5px; font-weight: 700; color: #1e3a8a; display: flex; align-items: center; gap: 6px;">
-                                        <i class="fa-solid fa-box-archive"></i> RDP Record Series (Continuity)
-                                    </span>
-                                    <span style="font-size: 11.5px; color: #64748b; margin-bottom: 12px; display: block; line-height: 1.4;">
-                                        Record series applied to documents from this flow when they are handed over to RDP after completion. Leave at <strong>Server default</strong> to follow the record series configured in System Settings.
-                                    </span>
-
-                                    <div style="display: flex; gap: 8px; align-items: center;">
-                                        <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
-                                            <div style="position: relative;">
-                                                <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 14px; margin: 0; line-height: 1; z-index: 1;"></i>
-                                                <input type="text"
-                                                       class="search-box"
-                                                       style="padding-left: 38px; padding-right: 30px; width: 100%; box-sizing: border-box; {{ $continRdpId ? 'font-weight: 600; color: #0f172a;' : '' }}"
-                                                       placeholder="Server default"
-                                                       wire:model.live="continRdpSearch"
-                                                       @focus="open = true">
-                                                @if($continRdpId)
-                                                    <button type="button" wire:click="clearContinRdpSeries" title="Revert to Server default" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 16px; line-height: 1; padding: 0;">&times;</button>
-                                                @endif
-                                            </div>
-
-                                            <div x-show="open" class="suggestions-dropdown" style="top: 100%; bottom: auto; margin-top: 4px;">
-                                                @php $continSeriesChoices = $this->continRdpChoices($continRdpSearch, $continRdpTypeFilter); @endphp
-                                                @forelse($continSeriesChoices as $series)
-                                                    <div class="suggestion-item" @click="open = false" wire:click="selectContinRdpSeries({{ $series->id }})">
-                                                        <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700;">{{ $series->item_number ?? '—' }}</span>
-                                                        <span style="font-weight: 500; color: #1e293b; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $series->series_title }}</span>
-                                                        <span style="color: #64748b; font-weight: 600; font-size: 11px; white-space: nowrap;">{{ $series->shorted_type ?: '—' }}</span>
-                                                    </div>
-                                                @empty
-                                                    <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No record series found</div>
-                                                @endforelse
-                                            </div>
-                                        </div>
-
-                                        <select wire:model.live="continRdpTypeFilter" title="Filter by record series type" style="flex-shrink: 0; height: 38px; padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #ffffff; font-size: 12px; font-weight: 600; color: #334155; cursor: pointer; max-width: 175px;">
-                                            <option value="">All Types</option>
-                                            @foreach($continRdpTypes as $rdpSeriesType)
-                                                <option value="{{ $rdpSeriesType['id'] }}">{{ $rdpSeriesType['type_name'] }}</option>
-                                            @endforeach
-                                        </select>
-                                    </div>
-
-                                    @if($continRdpId)
-                                        <span style="font-size: 11.5px; color: #059669; margin-top: 8px; display: block;">
-                                            <i class="fa-solid fa-circle-check"></i> Selected: {{ $this->continRdpSelectedLabel($continRdpId, $continRdpSearch) }} — applied when you click Save Configuration.
-                                        </span>
-                                    @else
-                                        <span style="font-size: 11.5px; color: #64748b; margin-top: 8px; display: block;">
-                                            <i class="fa-solid fa-server"></i> Using <strong>Server default</strong>.
-                                        </span>
-                                    @endif
-                                </div>
-                                @endif
-
-                                <!-- Sequence Builder -->
-                                <div class="form-group">
-                                    <span class="form-label">Office Sequence Path</span>
-                                    
-                                    <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px; position: relative;">
-                                        <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
-                                            <input type="text" 
-                                                   class="form-input" 
-                                                   placeholder="Search and select office to append..." 
-                                                   wire:model.live="officeSearch"
-                                                   @focus="open = true"
-                                                   style="margin: 0; width: 100%; padding: 9px 14px;">
-                                            
-                                            <div x-show="open" class="suggestions-dropdown">
-                                                @php
-                                                    $filtered = $activeOffices->filter(function($off) {
-                                                        if (empty($this->officeSearch)) return true;
-                                                        return stripos($off->office_name, $this->officeSearch) !== false 
-                                                            || stripos($off->office_code, $this->officeSearch) !== false;
-                                                    });
-                                                @endphp
-                                                
-                                                @forelse($filtered as $off)
-                                                    <div class="suggestion-item" 
-                                                         @click="open = false"
-                                                         wire:click="selectOfficeForAppend('{{ $off->office_code }}', '{{ $off->office_name }}')">
-                                                        <span style="font-weight: 500; color: #1e293b;">{{ $off->office_name }}</span>
-                                                        <span style="color: #64748b; font-weight: 600;">{{ $off->office_code }}</span>
-                                                    </div>
-                                                @empty
-                                                    <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No offices found</div>
-                                                @endforelse
-                                            </div>
-                                        </div>
-                                        <button type="button" class="btn-save" style="padding: 10px 18px; display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;" wire:click="addOfficeToPath">
-                                            <i class="fa-solid fa-plus"></i> Add
-                                        </button>
-                                    </div>
-
-                                    <div class="sequence-editor-box" style="margin-top: 14px;">
-                                        @forelse($flowOffices as $index => $officeCode)
-                                            @php
-                                                $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
-                                                $displayName = ($officeCode === 'ORIGIN') ? 'Originated Office' : ($officeObj ? $officeObj->office_name : $officeCode);
-                                            @endphp
-                                            <div class="sequence-list-item" wire:key="seq-node-{{ $index }}">
-                                                <div style="display: flex; align-items: center;">
-                                                    <span class="seq-index">#{{ $index + 1 }}</span>
-                                                    <span class="seq-name" @if($officeCode === 'ORIGIN') style="font-weight: 700; color: #0f172a;" @endif>{{ $displayName }} ({{ $officeCode }})</span>
-                                                </div>
-                                                <div class="seq-actions">
-                                                    @if($index > 0)
-                                                        <button type="button" class="btn-seq-nav" @if($index === 1) disabled @endif wire:click="moveOfficeUp({{ $index }})" title="Move Up">
-                                                            <i class="fa-solid fa-chevron-up"></i>
-                                                        </button>
-                                                        <button type="button" class="btn-seq-nav" @if($index === count($flowOffices) - 1) disabled @endif wire:click="moveOfficeDown({{ $index }})" title="Move Down">
-                                                            <i class="fa-solid fa-chevron-down"></i>
-                                                        </button>
-                                                        <button type="button" class="btn-seq-remove" wire:click="removeOffice({{ $index }})" title="Remove">
-                                                            <i class="fa-solid fa-trash-can"></i>
-                                                        </button>
-                                                    @else
-                                                        <span style="font-size: 11px; font-weight: 600; color: #64748b; background: #f1f5f9; padding: 4px 8px; border-radius: 6px;">
-                                                            <i class="fa-solid fa-lock" style="margin-right: 4px;"></i> Fixed First Step
-                                                        </span>
-                                                    @endif
-                                                </div>
-                                            </div>
-                                        @empty
-                                            <div style="text-align: center; color: #94a3b8; font-size: 13px; padding: 16px;">
-                                                Routing path is empty. Add offices above.
-                                            </div>
-                                        @endforelse
-                                    </div>
-                                </div>
-
-                                <!-- Predefined Copy Furnished Configuration -->
-                                <div class="form-group" style="border-top: 1.5px dashed #e2e8f0; padding-top: 20px; margin-top: 10px;">
-                                    <span class="form-label" style="font-size: 13.5px; font-weight: 700; color: #1e3a8a; display: flex; align-items: center; gap: 6px;">
-                                        <i class="fa-solid fa-copy"></i> Predefined Copy Furnished (CF)
-                                    </span>
-                                    <span style="font-size: 11.5px; color: #64748b; margin-bottom: 12px; display: block; line-height: 1.4;">
-                                        Specify offices that should automatically receive copy-furnished document notifications when a document is routed using this flow.
-                                    </span>
-                                    
-                                    <div style="display: flex; gap: 8px; align-items: center; position: relative;">
-                                        <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
-                                            <input type="text" 
-                                                   class="form-input" 
-                                                   placeholder="Search and select office to append..." 
-                                                   wire:model.live="cfSearch"
-                                                   @focus="open = true"
-                                                   style="margin: 0; width: 100%; padding: 9px 14px;">
-                                            
-                                            <div x-show="open" class="suggestions-dropdown" style="bottom: 100%; top: auto; margin-bottom: 4px; margin-top: 0;">
-                                                @php
-                                                    $filteredCf = $activeOffices->filter(function($off) {
-                                                        if (empty($this->cfSearch)) return true;
-                                                        return stripos($off->office_name, $this->cfSearch) !== false 
-                                                            || stripos($off->office_code, $this->cfSearch) !== false;
-                                                    });
-                                                @endphp
-                                                
-                                                @forelse($filteredCf as $off)
-                                                    <div class="suggestion-item" 
-                                                         @click="open = false"
-                                                         wire:click="selectCfOfficeForAppend('{{ $off->office_code }}', '{{ $off->office_name }}')">
-                                                        <span style="font-weight: 500; color: #1e293b;">{{ $off->office_name }}</span>
-                                                        <span style="color: #64748b; font-weight: 600;">{{ $off->office_code }}</span>
-                                                    </div>
-                                                @empty
-                                                    <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No offices found</div>
-                                                @endforelse
-                                            </div>
-                                        </div>
-                                        <button type="button" class="btn-save" style="padding: 10px 18px; display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; background-color: #10b981; border-color: #10b981;" wire:click="addCfOfficeToPath">
-                                            <i class="fa-solid fa-plus"></i> Add
-                                        </button>
-                                    </div>
-
-                                    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; min-height: 48px; box-sizing: border-box;">
-                                        @forelse($cfOffices as $index => $officeCode)
-                                            @php
-                                                $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
-                                                $displayName = $officeObj ? $officeObj->office_name : $officeCode;
-                                            @endphp
-                                            <div style="display: inline-flex; align-items: center; gap: 6px; background: #e2e8f0; color: #1e293b; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid #cbd5e1; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                                                <span>{{ $displayName }} ({{ $officeCode }})</span>
-                                                <button type="button" wire:click="removeCfOffice({{ $index }})" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 14px; font-weight: bold; line-height: 1; padding: 0; display: inline-flex; align-items: center; margin-left: 2px;">&times;</button>
-                                            </div>
-                                        @empty
-                                            <div style="display: flex; align-items: center; justify-content: center; width: 100%; color: #94a3b8; font-style: italic; font-size: 12.5px; height: 24px;">
-                                                No copy furnished offices added to this flow yet.
-                                            </div>
-                                        @endforelse
-                                    </div>
-                                </div>
-
-                                @if(in_array('[HUB]', $flowOffices))
-                                    <!-- Predefined HUB Receiving Offices Configuration -->
-                                    <div class="form-group" style="border-top: 1.5px dashed #f59e0b; padding-top: 20px; margin-top: 10px; background: rgba(245, 158, 11, 0.04); border-radius: 8px; padding: 16px; border: 1px solid rgba(245, 158, 11, 0.25);">
-                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                            <span class="form-label" style="font-size: 13.5px; font-weight: 700; color: #b45309; display: flex; align-items: center; gap: 6px; margin: 0;">
-                                                <i class="fa-solid fa-layer-group"></i> Predefined HUB Receiving Offices
-                                            </span>
-                                            <div style="display: flex; gap: 6px;">
-                                                <button type="button" class="btn-cancel" style="padding: 4px 10px; font-size: 11px; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; cursor: pointer;" wire:click="selectAllHubOffices">
-                                                    <i class="fa-solid fa-check-double"></i> Select All
-                                                </button>
-                                                @if(count($hubOffices) > 0)
-                                                    <button type="button" class="btn-cancel" style="padding: 4px 10px; font-size: 11px; color: #ef4444; border: 1px solid #fecaca; cursor: pointer;" wire:click="clearHubOffices">
-                                                        <i class="fa-solid fa-xmark"></i> Clear
-                                                    </button>
-                                                @endif
-                                            </div>
-                                        </div>
-                                        <span style="font-size: 11.5px; color: #64748b; margin-bottom: 12px; display: block; line-height: 1.4;">
-                                            Specify default receiving offices that will automatically receive copies simultaneously when this HUB flow is selected in Issuances.
-                                        </span>
-                                        
-                                        <div style="display: flex; gap: 8px; align-items: center; position: relative;">
-                                            <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
-                                                <input type="text" 
-                                                       class="form-input" 
-                                                       placeholder="Search and select hub recipient office..." 
-                                                       wire:model.live="hubSearch"
-                                                       @focus="open = true"
-                                                       style="margin: 0; width: 100%; padding: 9px 14px;">
-                                                
-                                                <div x-show="open" class="suggestions-dropdown" style="bottom: 100%; top: auto; margin-bottom: 4px; margin-top: 0;">
-                                                    @php
-                                                        $filteredHub = $activeOffices->filter(function($off) {
-                                                            if ($off->office_code === 'ORIGIN' || $off->office_code === '[H]' || $off->office_code === '[HUB]') return false;
-                                                            if (empty($this->hubSearch)) return true;
-                                                            return stripos($off->office_name, $this->hubSearch) !== false 
-                                                                || stripos($off->office_code, $this->hubSearch) !== false;
-                                                        });
-                                                    @endphp
-                                                    
-                                                    @forelse($filteredHub as $off)
-                                                        <div class="suggestion-item" 
-                                                             @click="open = false"
-                                                             wire:click="selectHubOfficeForAppend('{{ $off->office_code }}', '{{ $off->office_name }}')">
-                                                            <span style="font-weight: 500; color: #1e293b;">{{ $off->office_name }}</span>
-                                                            <span style="color: #64748b; font-weight: 600;">{{ $off->office_code }}</span>
-                                                        </div>
-                                                    @empty
-                                                        <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No offices found</div>
-                                                    @endforelse
-                                                </div>
-                                            </div>
-                                            <button type="button" class="btn-save" style="padding: 10px 18px; display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; background-color: #f59e0b; border-color: #d97706;" wire:click="addHubOfficeToPath">
-                                                <i class="fa-solid fa-plus"></i> Add
-                                            </button>
-                                        </div>
-
-                                        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 12px; background: #fff; border: 1px solid #fde68a; border-radius: 8px; min-height: 48px; box-sizing: border-box;">
-                                            @forelse($hubOffices as $index => $officeCode)
-                                                @php
-                                                    $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
-                                                    $displayName = $officeObj ? $officeObj->office_name : $officeCode;
-                                                @endphp
-                                                <div style="display: inline-flex; align-items: center; gap: 6px; background: #fef3c7; color: #92400e; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid #fcd34d; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                                                    <span>{{ $displayName }} ({{ $officeCode }})</span>
-                                                    <button type="button" wire:click="removeHubOffice({{ $index }})" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 14px; font-weight: bold; line-height: 1; padding: 0; display: inline-flex; align-items: center; margin-left: 2px;">&times;</button>
-                                                </div>
-                                            @empty
-                                                <div style="display: flex; align-items: center; justify-content: center; width: 100%; color: #94a3b8; font-style: italic; font-size: 12.5px; height: 24px;">
-                                                    No hub receiving offices predefined yet.
-                                                </div>
-                                            @endforelse
-                                        </div>
-                                    </div>
-                                @endif
-                            </form>
-                        </div>
-
-                        <!-- Footer -->
-                        <div class="details-footer">
-                            @if($selectedPredefined !== 'new')
-                                <button type="button" class="btn-delete" wire:click="deleteFlow" wire:confirm="Are you sure you want to deactivate this transaction flow? It will be soft-deleted (hidden) but retained for transparency." style="margin-right: auto;">
-                                    <i class="fa-solid fa-trash-can"></i> Delete Flow
-                                </button>
-                            @endif
-                            <button type="button" class="btn-cancel" wire:click="resetForm">Cancel</button>
-                            <button type="button" class="btn-save" wire:click="savePredefinedFlow">
-                                <i class="fa-solid fa-floppy-disk"></i> Save Configuration
-                            </button>
-                        </div>
-                    @endif
-                </div>
-            @endif
+    {{-- ALERTS --}}
+    @if($successMessage)
+        <div class="toast-banner success">
+            <i class="fa-solid fa-circle-check"></i>
+            <span>{{ $successMessage }}</span>
+            <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; cursor: pointer; color: inherit;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+    @endif
+    @if($errorMessage)
+        <div class="toast-banner error">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>{{ $errorMessage }}</span>
+            <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; cursor: pointer; color: inherit;"><i class="fa-solid fa-xmark"></i></button>
         </div>
     @endif
 
-    <!-- Tab 2: Custom Flow Manager -->
-    @if($activeTab === 'custom')
-        <div class="admin-offices-container {{ !$selectedCustom ? 'no-selection' : 'has-selection' }}">
-            <!-- Left Pane: Custom Flows Directory -->
-            <div class="directory-panel">
-                <div class="directory-header-row">
-                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Custom Flows</span>
-                    <div style="display: flex; gap: 6px;">
-                        <button type="button" class="btn-create-new" wire:click="startCreateCustom">
-                            <i class="fa-solid fa-plus"></i> New Flow
+    {{-- ======================================================== --}}
+    {{-- MODE 1: PREDEFINED STANDARD FLOWS                        --}}
+    {{-- ======================================================== --}}
+    @if($activeTab === 'predefined')
+        <div class="miller-browser">
+            {{-- COLUMN 1: SCOPES & PURPOSE FILTERS --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-filter" style="color: #64748b;"></i> 1. Scopes & Purpose</span>
+                    <span class="m-item-badge">{{ count($predefinedFlows) }}</span>
+                </div>
+
+                <div class="m-col-list">
+                    <div style="padding: 4px 6px; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Workflow Purpose</div>
+                    
+                    <div class="m-item {{ $predefinedPurposeFilter === 'all' ? 'active' : '' }}" wire:click="$set('predefinedPurposeFilter', 'all')">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-layer-group m-item-icon" style="color: #64748b;"></i>
+                            <div class="m-item-text">
+                                <span class="m-item-title">All Purpose Flows</span>
+                                <span class="m-item-sub">Complete system catalog</span>
+                            </div>
+                        </div>
+                        <div class="m-item-right"><i class="fa-solid fa-chevron-right m-item-arrow"></i></div>
+                    </div>
+
+                    <div class="m-item {{ $predefinedPurposeFilter === 'internal' ? 'active' : '' }}"
+                         wire:click="$set('predefinedPurposeFilter', 'internal')"
+                         ondragover="event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('drop-target-hover');"
+                         ondragleave="this.classList.remove('drop-target-hover');"
+                         ondrop="event.preventDefault(); this.classList.remove('drop-target-hover'); const fId = event.dataTransfer.getData('text/flow-id'); if (fId) { window.dtsChangePurpose(fId, 'internal', this); }">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-building m-item-icon" style="color: #0284c7;"></i>
+                            <div class="m-item-text">
+                                <span class="m-item-title">Internal Only</span>
+                                <span class="m-item-sub">Intra-college circulation</span>
+                            </div>
+                        </div>
+                        <div class="m-item-right"><i class="fa-solid fa-chevron-right m-item-arrow"></i></div>
+                    </div>
+
+                    <div class="m-item {{ $predefinedPurposeFilter === 'external' ? 'active' : '' }}"
+                         wire:click="$set('predefinedPurposeFilter', 'external')"
+                         ondragover="event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('drop-target-hover');"
+                         ondragleave="this.classList.remove('drop-target-hover');"
+                         ondrop="event.preventDefault(); this.classList.remove('drop-target-hover'); const fId = event.dataTransfer.getData('text/flow-id'); if (fId) { window.dtsChangePurpose(fId, 'external', this); }">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-earth-americas m-item-icon" style="color: #059669;"></i>
+                            <div class="m-item-text">
+                                <span class="m-item-title">External Only</span>
+                                <span class="m-item-sub">Outbound / Agency flows</span>
+                            </div>
+                        </div>
+                        <div class="m-item-right"><i class="fa-solid fa-chevron-right m-item-arrow"></i></div>
+                    </div>
+
+                    <div class="m-item {{ $predefinedPurposeFilter === 'issuances' ? 'active' : '' }}"
+                         wire:click="$set('predefinedPurposeFilter', 'issuances')"
+                         ondragover="event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('drop-target-hover');"
+                         ondragleave="this.classList.remove('drop-target-hover');"
+                         ondrop="event.preventDefault(); this.classList.remove('drop-target-hover'); const fId = event.dataTransfer.getData('text/flow-id'); if (fId) { window.dtsChangePurpose(fId, 'issuances', this); }">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-scroll m-item-icon" style="color: #d97706;"></i>
+                            <div class="m-item-text">
+                                <span class="m-item-title">Issuances</span>
+                                <span class="m-item-sub">Special orders & memos</span>
+                            </div>
+                        </div>
+                        <div class="m-item-right"><i class="fa-solid fa-chevron-right m-item-arrow"></i></div>
+                    </div>
+
+                    <div class="m-item {{ $predefinedPurposeFilter === 'application' ? 'active' : '' }}"
+                         wire:click="$set('predefinedPurposeFilter', 'application')"
+                         ondragover="event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('drop-target-hover');"
+                         ondragleave="this.classList.remove('drop-target-hover');"
+                         ondrop="event.preventDefault(); this.classList.remove('drop-target-hover'); const fId = event.dataTransfer.getData('text/flow-id'); if (fId) { window.dtsChangePurpose(fId, 'application', this); }">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-file-signature m-item-icon" style="color: #7c3aed;"></i>
+                            <div class="m-item-text">
+                                <span class="m-item-title">Applications</span>
+                                <span class="m-item-sub">Clearances & requests</span>
+                            </div>
+                        </div>
+                        <div class="m-item-right"><i class="fa-solid fa-chevron-right m-item-arrow"></i></div>
+                    </div>
+
+                    <div class="m-item {{ $predefinedPurposeFilter === 'none' ? 'active' : '' }}"
+                         wire:click="$set('predefinedPurposeFilter', 'none')"
+                         ondragover="event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('drop-target-hover');"
+                         ondragleave="this.classList.remove('drop-target-hover');"
+                         ondrop="event.preventDefault(); this.classList.remove('drop-target-hover'); const fId = event.dataTransfer.getData('text/flow-id'); if (fId) { window.dtsChangePurpose(fId, 'none', this); }">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-folder-tree m-item-icon" style="color: #64748b;"></i>
+                            <div class="m-item-text">
+                                <span class="m-item-title">General / None</span>
+                                <span class="m-item-sub">Uncategorized flows</span>
+                            </div>
+                        </div>
+                        <div class="m-item-right"><i class="fa-solid fa-chevron-right m-item-arrow"></i></div>
+                    </div>
+
+                    <div style="margin-top: 10px; padding: 4px 6px; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Flow Status</div>
+
+                    <div class="m-item {{ $statusFilter === 'all' ? 'active' : '' }}" wire:click="$set('statusFilter', 'all')">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-circle-dot m-item-icon" style="color: #64748b;"></i>
+                            <div class="m-item-text"><span class="m-item-title">All Statuses</span></div>
+                        </div>
+                    </div>
+                    <div class="m-item {{ $statusFilter === 'active' ? 'active' : '' }}" wire:click="$set('statusFilter', 'active')">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-circle-check m-item-icon" style="color: #10b981;"></i>
+                            <div class="m-item-text"><span class="m-item-title">Active Only</span></div>
+                        </div>
+                    </div>
+                    <div class="m-item {{ $statusFilter === 'inactive' ? 'active' : '' }}" wire:click="$set('statusFilter', 'inactive')">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-circle-xmark m-item-icon" style="color: #ef4444;"></i>
+                            <div class="m-item-text"><span class="m-item-title">Deactivated</span></div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 12px; padding: 6px;">
+                        <button type="button" wire:click="startImport" style="width: 100%; background: #f8fafc; border: 1px dashed #cbd5e1; padding: 8px 10px; border-radius: 6px; font-size: 11.5px; font-weight: 600; color: #0284c7; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                            <i class="fa-solid fa-file-arrow-up"></i> Batch TXT Import
                         </button>
                     </div>
                 </div>
+            </div>
 
-                <div class="search-box-wrapper" style="flex: none; position: relative; width: 100%;">
-                    <i class="fa-solid fa-magnifying-glass search-icon" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 14px; margin: 0; line-height: 1;"></i>
-                    <input type="text" class="search-box" placeholder="Search custom flows..." wire:model.live="searchCustom">
+            {{-- COLUMN 2: WORKFLOW DIRECTORY --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-list-check" style="color: #64748b;"></i> 2. Predefined Flows</span>
+                    <span class="m-item-badge">{{ count($predefinedFlows) }}</span>
                 </div>
 
-                @if(count($selectedCustomFlowIds) > 0)
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
-                        <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedCustomFlowIds) }} selected</span>
-                        <button type="button" x-data
-                            x-on:click="if(confirm('Are you sure you want to deactivate {{ count($selectedCustomFlowIds) }} flow(s)? They will be soft-deleted (hidden) but retained for transparency.')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkDeleteCustomFlows(); }"
-                            style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
-                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-trash-can"></i> Delete Selected</span>
-                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Deactivating {{ count($selectedCustomFlowIds) }} flow(s)...</span>
-                        </button>
-                    </div>
-                @endif
-
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; gap: 8px;">
-                    @if($customFlows->count() > 0)
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <input type="checkbox" wire:click="toggleAllCustomFlows" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedCustomFlowIds) > 0 && count($selectedCustomFlowIds) === $customFlows->count() ? 'checked' : '' }}>
-                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
-                        </div>
-                    @else
-                        <div></div>
-                    @endif
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <select wire:model.live="customPurposeFilter" style="padding: 5px 10px; border-radius: 6px; border: 1.5px solid #e2e8f0; outline: none; font-size: 11.5px; font-family: 'Inter', sans-serif; color: #64748b; cursor: pointer; transition: all 0.2s ease; background: #fff; font-weight: 500;">
-                            <option value="all">All Purposes</option>
-                            <option value="internal">Internal</option>
-                            <option value="external">External</option>
-                            <option value="issuances">Issuances</option>
-                            <option value="application">Application</option>
-                            <option value="others">Others</option>
-                            <option value="none">None</option>
-                        </select>
-
-                        <!-- Layout View Mode Toggle -->
-                        <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1;">
-                            <button type="button" wire:click="$set('customViewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $customViewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $customViewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $customViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
-                                <i class="fa-solid fa-border-all"></i> Cards
-                            </button>
-                            <button type="button" wire:click="$set('customViewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $customViewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $customViewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $customViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
-                                <i class="fa-solid fa-table-list"></i> Table
-                            </button>
-                        </div>
-                    </div>
+                <div class="m-col-search">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" placeholder="Search flows by name or code..." wire:model.live.debounce.200ms="searchPredefined">
                 </div>
 
-                @if($customViewMode === 'table')
-                    <!-- Table Layout View -->
-                    <div style="overflow-x: auto; max-height: calc(100vh - 280px); overflow-y: auto;">
-                        <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12.5px;">
-                            <thead>
-                                <tr style="background: #f8fafc; color: #475569; text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px; border-bottom: 1.5px solid #cbd5e1;">
-                                    <th style="padding: 8px 10px; width: 36px;"></th>
-                                    <th style="padding: 8px 10px;">Code</th>
-                                    <th style="padding: 8px 10px;">Flow Name</th>
-                                    <th style="padding: 8px 10px;">Visibility</th>
-                                    <th style="padding: 8px 10px;">Office Owner</th>
-                                    <th style="padding: 8px 10px;">Created By</th>
-                                    <th style="padding: 8px 10px;">Date Created</th>
-                                    <th style="padding: 8px 10px; text-align: center;">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse($customFlows as $flow)
-                                    @php
-                                        $isSelected = $selectedCustom === (string) $flow->id;
-                                        $creatorName = trim(($flow->first_name ?? '') . ' ' . ($flow->last_name ?? '')) ?: 'System / Admin';
-                                        $officeOwner = $flow->owner_office_name ? ($flow->owner_office_name . ' (' . $flow->owner_office_code . ')') : 'Global / Unassigned';
-                                        $dateCreatedFormatted = $flow->date_added ? \Carbon\Carbon::parse($flow->date_added)->format('M d, Y') : '—';
-                                    @endphp
-                                    <tr class="flow-tbl-row {{ $isSelected ? 'selected-row' : '' }}" 
-                                        wire:key="custom-flow-tbl-{{ $flow->id }}" 
-                                        wire:click="selectCustomFlow({{ $flow->id }})"
-                                        style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $isSelected ? '#eff6ff' : '#ffffff' }}; transition: background 0.12s ease;">
-                                        <td style="padding: 8px 10px;" onclick="event.stopPropagation()">
-                                            <input type="checkbox" wire:click.stop="toggleCustomFlowSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedCustomFlowIds) ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #3b82f6;">
-                                        </td>
-                                        <td style="padding: 8px 10px; font-weight: 700; color: #003699; font-family: monospace; font-size: 12px;">{{ $flow->flow_code }}</td>
-                                        <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">{{ $flow->flow_name }}</td>
-                                        <td style="padding: 8px 10px;">
-                                            @if(($flow->flow_for ?? 'system') === 'system')
-                                                <span style="padding: 2px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;">System-Wide</span>
-                                            @elseif(($flow->flow_for ?? 'system') === 'office')
-                                                <span style="padding: 2px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0;">Office-Wide</span>
-                                            @else
-                                                <span style="padding: 2px 7px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #faf5ff; color: #7e22ce; border: 1px solid #e9d5ff;">Personal</span>
-                                            @endif
-                                        </td>
-                                        <td style="padding: 8px 10px; color: #0369a1; font-weight: 500;">{{ $officeOwner }}</td>
-                                        <td style="padding: 8px 10px; color: #475569;">{{ $creatorName }}</td>
-                                        <td style="padding: 8px 10px; color: #64748b; font-size: 11.5px;">{{ $dateCreatedFormatted }}</td>
-                                        <td style="padding: 8px 10px; text-align: center;">
-                                            @if($flow->is_active)
-                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;">Active</span>
-                                            @else
-                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #fee2e2; color: #991b1b; border: 1px solid #fecdd3;">Inactive</span>
-                                            @endif
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="8" style="text-align: center; color: #94a3b8; padding: 20px;">No custom flows found.</td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-                @else
-                    <!-- Cards Grid Layout View -->
-                    <div class="offices-list">
-                        @forelse($customFlows as $flow)
-                            @php
-                                $isSelected = $selectedCustom === (string) $flow->id;
-                                $flowInitials = strtoupper(substr($flow->flow_code ?: '?', 0, 3));
-                                $creatorName = trim(($flow->first_name ?? '') . ' ' . ($flow->last_name ?? '')) ?: 'System / Admin';
-                                $officeOwner = $flow->owner_office_code ?: 'N/A';
-                            @endphp
-                            <div class="office-item-card {{ $isSelected ? 'active' : '' }}" wire:key="custom-flow-item-{{ $flow->id }}" wire:click="selectCustomFlow({{ $flow->id }})">
-                                <input type="checkbox" wire:click.stop="toggleCustomFlowSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedCustomFlowIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
-                                <div class="office-avatar-small">
-                                    <span>{{ $flowInitials }}</span>
+                <div class="m-col-list">
+                    @forelse($predefinedFlows as $f)
+                        <div class="m-item draggable-flow {{ $selectedPredefined == $f->id ? 'active' : '' }}"
+                             draggable="true"
+                             ondragstart="event.dataTransfer.setData('text/flow-id', '{{ $f->id }}'); event.dataTransfer.effectAllowed = 'move'; this.classList.add('is-dragging');"
+                             ondragend="this.classList.remove('is-dragging');"
+                             title="Click to inspect, or drag to Column 1 to change scope"
+                             wire:click="selectFlow({{ $f->id }})">
+                            <div class="m-item-left">
+                                <i class="fa-solid fa-route" style="font-size: 12px; color: {{ $f->is_active ? '#0284c7' : '#94a3b8' }};"></i>
+                                <div class="m-item-text" style="min-width: 0;">
+                                    <span class="m-item-title">{{ $f->flow_name }}</span>
+                                    <div style="display: flex; align-items: center; gap: 4px; margin-top: 2px;">
+                                        <span style="font-family: monospace; font-size: 9.5px; background: #f1f5f9; padding: 1px 4px; border-radius: 3px; color: #475569;">{{ $f->flow_code }}</span>
+                                        <span class="m-item-badge" style="font-size: 9px; padding: 1px 5px;">{{ $f->step_count }} stops</span>
+                                        @if($f->rdp_series_title)
+                                            <span style="font-size: 8.5px; background: #e0e7ff; color: #4338ca; padding: 1px 4px; border-radius: 3px; font-weight: 700;">RDP</span>
+                                        @endif
+                                    </div>
                                 </div>
-                                <div class="office-meta-info">
-                                    <span class="office-display-name">{{ $flow->flow_name }}</span>
-                                    <span class="office-display-code">Code: {{ $flow->flow_code }} | Owner: {{ $officeOwner }}</span>
-                                    <span class="office-display-code" style="color: #64748b; font-size: 11px;">By: {{ $creatorName }}</span>
-                                    <span class="office-status-badge {{ $flow->is_active ? 'active-badge' : 'inactive-badge' }}" style="margin-top: 4px; display: block; width: fit-content;">
-                                        {{ $flow->is_active ? 'Active' : 'Inactive' }}
+                            </div>
+                            <div class="m-item-right">
+                                <i class="fa-solid fa-chevron-right m-item-arrow"></i>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="m-empty-state">
+                            <i class="fa-solid fa-folder-open" style="font-size: 24px;"></i>
+                            <span style="font-size: 12px;">No predefined flows match filter.</span>
+                        </div>
+                    @endforelse
+                </div>
+            </div>
+
+            {{-- COLUMN 3: FLOW CONFIGURATION & RDP CONTINUITY --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-sliders" style="color: #64748b;"></i> 3. Flow Config & RDP Link</span>
+                    @if($selectedPredefined && $selectedPredefined !== 'import')
+                        <span class="m-item-badge" style="background: {{ $isActive ? '#ecfdf5' : '#fee2e2' }}; color: {{ $isActive ? '#065f46' : '#991b1b' }};">
+                            {{ $isActive ? 'Active' : 'Inactive' }}
+                        </span>
+                    @endif
+                </div>
+
+                <div class="m-inspector">
+                    @if($selectedPredefined === 'import')
+                        {{-- IMPORT FORM VIEW --}}
+                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px;">
+                            <h3 style="margin: 0 0 6px 0; font-size: 13.5px; color: #0284c7; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-file-import"></i> TXT Batch Import
+                            </h3>
+                            <p style="margin: 0 0 10px 0; font-size: 11.5px; color: #64748b;">
+                                Upload a structured text file formatted with sequence nodes (<code style="background:#e2e8f0; padding:1px 3px;">=Name; Code; []->OFFICE->[];</code>).
+                            </p>
+
+                            <input type="file" wire:model="flowFile" accept=".txt,text/plain" class="m-field-input" style="padding: 6px;">
+                            @error('flowFile') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror
+
+                            <div style="margin-top: 12px; display: flex; gap: 8px;">
+                                <button type="button" wire:click="importFlow" style="flex: 1; background: #0284c7; color: #fff; border: none; padding: 7px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                                    <i class="fa-solid fa-upload"></i> Process Import
+                                </button>
+                                <button type="button" wire:click="resetForm" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; padding: 7px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    @elseif($selectedPredefined)
+                        {{-- CONFIGURATION FORM --}}
+                        <div class="m-field-group">
+                            <label class="m-field-label">Flow Title / Name</label>
+                            <input type="text" class="m-field-input" placeholder="e.g. Standard Procurement Approval" wire:model="flowName">
+                            @error('flowName') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror
+                        </div>
+
+                        <div class="m-field-group">
+                            <label class="m-field-label">
+                                <span>Flow Code</span>
+                                <span style="font-size: 10px; color: #64748b; font-weight: normal;">Unique ID</span>
+                            </label>
+                            <input type="text" class="m-field-input" placeholder="e.g. FLOW-PR-APP" wire:model="flowCode" {{ $selectedPredefined !== 'new' ? 'readonly' : '' }} style="font-family: monospace; text-transform: uppercase;">
+                            @error('flowCode') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror
+                        </div>
+
+                        <div class="m-field-group">
+                            <label class="m-field-label">Workflow Purpose</label>
+                            <select class="m-field-select" wire:model="flowUse">
+                                <option value="none">General / None</option>
+                                <option value="internal">Internal Workflow</option>
+                                <option value="external">External / Inter-Agency</option>
+                                <option value="issuances">Issuances & Directives</option>
+                                <option value="application">Application & Clearance</option>
+                                <option value="others">Other Routing</option>
+                            </select>
+                        </div>
+
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+                            <div>
+                                <span style="font-size: 12px; font-weight: 600; color: #1e293b; display: block;">Flow Active For Use?</span>
+                                <span style="font-size: 10.5px; color: #64748b;">Available for routing in DTS</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" wire:model.live="isActive">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
+                        {{-- RDP RECORD SERIES CONTINUITY --}}
+                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-top: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #4338ca; display: flex; align-items: center; gap: 5px;">
+                                    <i class="fa-solid fa-box-archive"></i> RDP Retention Continuity
+                                </span>
+                                @if($continRdpId)
+                                    <button type="button" wire:click="clearContinRdpSeries" style="background: none; border: none; font-size: 10px; color: #ef4444; cursor: pointer; font-weight: 600;">
+                                        Disconnect
+                                    </button>
+                                @endif
+                            </div>
+                            <p style="font-size: 11px; color: #64748b; margin: 0 0 8px 0;">
+                                Connect this workflow to an RDP Record Series to automatically assign retention & disposal policies.
+                            </p>
+
+                            @if($continRdpId)
+                                <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #e0e7ff; border-radius: 6px; border: 1px solid #c7d2fe;">
+                                    <i class="fa-solid fa-link" style="color: #4338ca; font-size: 11px;"></i>
+                                    <span style="font-size: 11.5px; font-weight: 600; color: #3730a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                        {{ $this->continRdpSelectedLabel($continRdpId, $continRdpSearch) }}
                                     </span>
                                 </div>
-                            </div>
-                        @empty
-                            <div style="text-align: center; color: #94a3b8; font-size: 13.5px; padding: 24px 10px;">
-                                No custom flows found.
-                            </div>
-                        @endforelse
-                    </div>
-                @endif
+                            @else
+                                <div style="position: relative;">
+                                    <input type="text" class="m-field-input" placeholder="Search record series title or #number..." wire:model.live.debounce.150ms="continRdpSearch" wire:focus="$set('showRdpDropdown', true)">
+                                    @if($showRdpDropdown && strlen($continRdpSearch) > 0)
+                                        <div class="m-dropdown-results">
+                                            @foreach($this->continRdpChoices($continRdpSearch, $continRdpTypeFilter) as $series)
+                                                <div class="m-dropdown-row" wire:click="selectContinRdpSeries({{ $series->id }})">
+                                                    <span style="font-weight: 600;">#{{ $series->item_number }} &bull; {{ $series->series_title }}</span>
+                                                    <span style="font-size: 10px; color: #64748b;">{{ $series->shorted_type }}</span>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </div>
+                            @endif
+                        </div>
 
-                @if($customFlows->hasPages())
-                    <div class="flows-pagination-bar">
-                        {{ $customFlows->links('components.pagination') }}
-                    </div>
+                        {{-- ACTIONS --}}
+                        <div style="margin-top: auto; padding-top: 14px; border-top: 1px solid #f1f5f9; display: flex; flex-direction: column; gap: 8px;">
+                            <button type="button" wire:click="savePredefinedFlow" style="width: 100%; background: #0284c7; color: #ffffff; border: none; padding: 8px 14px; border-radius: 6px; font-size: 12.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                <i class="fa-solid fa-floppy-disk"></i> Save Flow Settings
+                            </button>
+
+                            @if($selectedPredefined !== 'new')
+                                @if($isActive)
+                                    <button type="button" wire:click="deleteFlow" style="width: 100%; background: #fff1f2; color: #e11d48; border: 1px solid #ffe4e6; padding: 7px 14px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                        <i class="fa-solid fa-ban"></i> Deactivate Predefined Flow
+                                    </button>
+                                @else
+                                    <button type="button" wire:click="toggleFlowActive" style="width: 100%; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; padding: 7px 14px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                        <i class="fa-solid fa-circle-check"></i> Reactivate Predefined Flow
+                                    </button>
+                                @endif
+                            @endif
+                        </div>
+                    @else
+                        <div class="m-empty-state" style="padding-top: 60px;">
+                            <i class="fa-solid fa-sliders" style="font-size: 28px;"></i>
+                            <span style="font-size: 13px; font-weight: 600;">Select a flow to configure</span>
+                            <span style="font-size: 11px;">Pick from Directory or click "+ New Flow"</span>
+                        </div>
+                    @endif
+                </div>
+            </div>
+
+            {{-- COLUMN 4: ROUTING PIPELINE & DISTRIBUTION (DEDICATED VISUAL AREA) --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-route" style="color: #64748b;"></i> 4. Routing Pipeline & Distribution</span>
+                    @if($selectedPredefined && $selectedPredefined !== 'import')
+                        <span class="m-item-badge">{{ count($flowOffices) }} Stops</span>
+                    @endif
+                </div>
+
+                <div class="m-inspector" style="background: #f8fafc;">
+                    @if($selectedPredefined && $selectedPredefined !== 'import')
+                        {{-- SEGMENTED PIPELINE NAV --}}
+                        <div class="m-pipe-tabs">
+                            <button type="button" class="m-pipe-tab {{ $flowPipelineTab === 'sequence' ? 'active' : '' }}" wire:click="$set('flowPipelineTab', 'sequence')">
+                                <i class="fa-solid fa-arrow-down-1-9"></i> Stops ({{ count($flowOffices) }})
+                            </button>
+                            <button type="button" class="m-pipe-tab {{ $flowPipelineTab === 'cf' ? 'active' : '' }}" wire:click="$set('flowPipelineTab', 'cf')">
+                                <i class="fa-solid fa-copy"></i> Copy Furnished ({{ count($cfOffices) }})
+                            </button>
+                            <button type="button" class="m-pipe-tab {{ $flowPipelineTab === 'hub' ? 'active' : '' }}" wire:click="$set('flowPipelineTab', 'hub')">
+                                <i class="fa-solid fa-share-nodes"></i> DTS Hub ({{ count($hubOffices) }})
+                            </button>
+                        </div>
+
+                        {{-- SUB-VIEW 1: SEQUENCE STOPS --}}
+                        @if($flowPipelineTab === 'sequence')
+                            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
+                                <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; display: block;">
+                                    <i class="fa-solid fa-plus-circle" style="color: #0284c7;"></i> Append Office Stop
+                                </label>
+                                <div style="position: relative;">
+                                    <input type="text" class="m-field-input" placeholder="Type office code or name to add..." wire:model.live.debounce.150ms="officeSearch" wire:focus="$set('showOfficeDropdown', true)">
+                                    @if($showOfficeDropdown && strlen($officeSearch) > 0)
+                                        <div class="m-dropdown-results">
+                                            @foreach($activeOffices as $o)
+                                                @if(stripos($o->office_name, $officeSearch) !== false || stripos($o->office_code, $officeSearch) !== false)
+                                                    <div class="m-dropdown-row" wire:click="selectOfficeForAppend('{{ $o->office_code }}', '{{ addslashes($o->office_name) }}')">
+                                                        <span style="font-weight: 600;">{{ $o->office_name }}</span>
+                                                        <span style="font-family: monospace; font-size: 10px; color: #0284c7;">{{ $o->office_code }}</span>
+                                                    </div>
+                                                @endif
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </div>
+                            </div>
+
+                            <div style="flex: 1; overflow-y: auto;">
+                                <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 6px;">
+                                    Sequential Routing Ladder
+                                </div>
+
+                                @foreach($flowOffices as $idx => $code)
+                                    @php
+                                        $isDraggable = ($idx > 0 && ($idx < count($flowOffices) - 1 || $code !== 'ORIGIN'));
+                                    @endphp
+                                    <div class="step-item {{ $isDraggable ? 'draggable-step' : '' }} {{ $code === 'ORIGIN' ? 'step-origin' : ($code === '[H]' || $code === '[HUB]' ? 'step-hub' : '') }}"
+                                         @if($isDraggable)
+                                             draggable="true"
+                                             ondragstart="event.dataTransfer.setData('text/step-index', '{{ $idx }}'); event.dataTransfer.effectAllowed = 'move'; this.classList.add('step-dragging');"
+                                             ondragend="this.classList.remove('step-dragging');"
+                                             ondragover="event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('step-drop-hover');"
+                                             ondragleave="this.classList.remove('step-drop-hover');"
+                                             ondrop="event.preventDefault(); this.classList.remove('step-drop-hover'); const fromIdx = event.dataTransfer.getData('text/step-index'); if(fromIdx !== '' && parseInt(fromIdx) !== {{ $idx }}) { window.dtsReorderStep(fromIdx, {{ $idx }}, this); }"
+                                         @endif>
+                                        <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+                                            @if($isDraggable)
+                                                <i class="fa-solid fa-grip-vertical" style="color: #94a3b8; font-size: 11px; cursor: pointer;" title="Drag up or down to reorder stop"></i>
+                                            @else
+                                                <span style="width: 11px;"></span>
+                                            @endif
+                                            <div class="step-badge {{ $code === 'ORIGIN' ? 'step-origin' : '' }}">
+                                                {{ $idx + 1 }}
+                                            </div>
+                                            <div style="min-width: 0;">
+                                                <div style="font-size: 12px; font-weight: 700; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                                    @if($code === 'ORIGIN')
+                                                        Originating Office (Sender)
+                                                    @elseif($code === '[H]' || $code === '[HUB]')
+                                                        DTS Central Routing Hub
+                                                    @else
+                                                        {{ $officeLookup[$code] ?? $code }}
+                                                    @endif
+                                                </div>
+                                                <span style="font-family: monospace; font-size: 10px; color: #64748b;">
+                                                    {{ $code }}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div style="display: flex; align-items: center; gap: 4px;">
+                                            @if($idx > 1)
+                                                <button type="button" class="step-btn" wire:click="moveOfficeUp({{ $idx }})" title="Move Step Up">
+                                                    <i class="fa-solid fa-arrow-up"></i>
+                                                </button>
+                                            @endif
+                                            @if($idx > 0 && $idx < count($flowOffices) - 1)
+                                                <button type="button" class="step-btn" wire:click="moveOfficeDown({{ $idx }})" title="Move Step Down">
+                                                    <i class="fa-solid fa-arrow-down"></i>
+                                                </button>
+                                            @endif
+                                            @if($idx > 0)
+                                                <button type="button" class="step-btn step-btn-remove" wire:click="removeOffice({{ $idx }})" title="Delete Stop">
+                                                    <i class="fa-solid fa-xmark"></i>
+                                                </button>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+
+                        {{-- SUB-VIEW 2: COPY FURNISHED --}}
+                        @elseif($flowPipelineTab === 'cf')
+                            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
+                                <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; display: block;">
+                                    <i class="fa-solid fa-copy" style="color: #0284c7;"></i> Add Copy Furnished Recipient
+                                </label>
+                                <div style="position: relative;">
+                                    <input type="text" class="m-field-input" placeholder="Search office for copy furnished..." wire:model.live.debounce.150ms="cfSearch" wire:focus="$set('showCfDropdown', true)">
+                                    @if($showCfDropdown && strlen($cfSearch) > 0)
+                                        <div class="m-dropdown-results">
+                                            @foreach($activeOffices as $o)
+                                                @if(stripos($o->office_name, $cfSearch) !== false || stripos($o->office_code, $cfSearch) !== false)
+                                                    <div class="m-dropdown-row" wire:click="selectCfOfficeForAppend('{{ $o->office_code }}', '{{ addslashes($o->office_name) }}')">
+                                                        <span style="font-weight: 600;">{{ $o->office_name }}</span>
+                                                        <span style="font-family: monospace; font-size: 10px; color: #0284c7;">{{ $o->office_code }}</span>
+                                                    </div>
+                                                @endif
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </div>
+                            </div>
+
+                            <div style="flex: 1; overflow-y: auto;">
+                                @forelse($cfOffices as $cIdx => $cCode)
+                                    <div class="step-item">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <i class="fa-solid fa-file-invoice" style="color: #64748b; font-size: 12px;"></i>
+                                            <div>
+                                                <span style="font-size: 12px; font-weight: 600;">{{ $officeLookup[$cCode] ?? $cCode }}</span>
+                                                <span style="font-family: monospace; font-size: 10px; color: #64748b; display: block;">{{ $cCode }}</span>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="step-btn step-btn-remove" wire:click="removeCfOffice({{ $cIdx }})">
+                                            <i class="fa-solid fa-xmark"></i>
+                                        </button>
+                                    </div>
+                                @empty
+                                    <div class="m-empty-state">
+                                        <i class="fa-solid fa-copy" style="font-size: 20px;"></i>
+                                        <span>No Copy Furnished recipients designated.</span>
+                                    </div>
+                                @endforelse
+                            </div>
+
+                        {{-- SUB-VIEW 3: DTS HUB --}}
+                        @elseif($flowPipelineTab === 'hub')
+                            <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+                                <button type="button" wire:click="selectAllHubOffices" style="flex: 1; background: #ffffff; border: 1px solid #cbd5e1; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; color: #0284c7;">
+                                    <i class="fa-solid fa-check-double"></i> Select All Active
+                                </button>
+                                <button type="button" wire:click="clearHubOffices" style="background: #ffffff; border: 1px solid #cbd5e1; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; color: #ef4444;">
+                                    Clear
+                                </button>
+                            </div>
+
+                            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
+                                <div style="position: relative;">
+                                    <input type="text" class="m-field-input" placeholder="Search and add hub office..." wire:model.live.debounce.150ms="hubSearch" wire:focus="$set('showHubDropdown', true)">
+                                    @if($showHubDropdown && strlen($hubSearch) > 0)
+                                        <div class="m-dropdown-results">
+                                            @foreach($activeOffices as $o)
+                                                @if(stripos($o->office_name, $hubSearch) !== false || stripos($o->office_code, $hubSearch) !== false)
+                                                    <div class="m-dropdown-row" wire:click="selectHubOfficeForAppend('{{ $o->office_code }}', '{{ addslashes($o->office_name) }}')">
+                                                        <span style="font-weight: 600;">{{ $o->office_name }}</span>
+                                                        <span style="font-family: monospace; font-size: 10px; color: #0284c7;">{{ $o->office_code }}</span>
+                                                    </div>
+                                                @endif
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </div>
+                            </div>
+
+                            <div style="flex: 1; overflow-y: auto;">
+                                @forelse($hubOffices as $hIdx => $hCode)
+                                    <div class="step-item">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <i class="fa-solid fa-share-nodes" style="color: #2563eb; font-size: 12px;"></i>
+                                            <div>
+                                                <span style="font-size: 12px; font-weight: 600;">{{ $officeLookup[$hCode] ?? $hCode }}</span>
+                                                <span style="font-family: monospace; font-size: 10px; color: #64748b; display: block;">{{ $hCode }}</span>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="step-btn step-btn-remove" wire:click="removeHubOffice({{ $hIdx }})">
+                                            <i class="fa-solid fa-xmark"></i>
+                                        </button>
+                                    </div>
+                                @empty
+                                    <div class="m-empty-state">
+                                        <i class="fa-solid fa-share-nodes" style="font-size: 20px;"></i>
+                                        <span>No DTS Hub receiving offices selected.</span>
+                                    </div>
+                                @endforelse
+                            </div>
+                        @endif
+
+                    @else
+                        <div class="m-empty-state" style="padding-top: 60px;">
+                            <i class="fa-solid fa-bezier-curve" style="font-size: 28px;"></i>
+                            <span style="font-size: 13px; font-weight: 600;">Pipeline View Inactive</span>
+                            <span style="font-size: 11px;">Select a flow from Column 2 to visualize routing ladder</span>
+                        </div>
+                    @endif
+                </div>
+            </div>
+        </div>
+
+        {{-- BREADCRUMBS PATH BAR --}}
+        <div class="miller-path-bar">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-folder-tree" style="color: #64748b;"></i>
+                <span>Root</span>
+                <i class="fa-solid fa-chevron-right" style="font-size: 9px; color: #94a3b8;"></i>
+                <span>{{ ucfirst($predefinedPurposeFilter) }} Purpose</span>
+                @if($selectedPredefined && $selectedPredefined !== 'new' && $selectedPredefined !== 'import')
+                    <i class="fa-solid fa-chevron-right" style="font-size: 9px; color: #94a3b8;"></i>
+                    <span style="color: #0284c7; font-weight: 700;">{{ $flowName }} ({{ $flowCode }})</span>
+                    <i class="fa-solid fa-chevron-right" style="font-size: 9px; color: #94a3b8;"></i>
+                    <span>{{ count($flowOffices) }} Steps</span>
+                @elseif($selectedPredefined === 'new')
+                    <i class="fa-solid fa-chevron-right" style="font-size: 9px; color: #94a3b8;"></i>
+                    <span style="color: #0284c7; font-weight: 700;">Creating New Flow</span>
                 @endif
             </div>
 
-            <!-- Right Pane: Custom Flow Configurator -->
-            @if($selectedCustom)
-                <div class="details-panel">
-                    @if($successMessage)
-                        <div class="toast-alert success" style="margin: 20px 20px 0 20px;">
-                            <i class="fa-solid fa-circle-check"></i>
-                            <span>{{ $successMessage }}</span>
-                        </div>
-                    @endif
+            @if($selectedPredefined && $selectedPredefined !== 'import')
+                <button type="button" wire:click="savePredefinedFlow" style="background: none; border: none; color: #0284c7; font-size: 11.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 5px;">
+                    <i class="fa-solid fa-floppy-disk"></i> Quick Save
+                </button>
+            @endif
+        </div>
 
-                    @if($errorMessage)
-                        <div class="toast-alert error" style="margin: 20px 20px 0 20px;">
-                            <i class="fa-solid fa-circle-exclamation"></i>
-                            <span>{{ $errorMessage }}</span>
-                        </div>
-                    @endif
+    {{-- ======================================================== --}}
+    {{-- MODE 2: CUSTOM OFFICE GENERATED FLOWS                    --}}
+    {{-- ======================================================== --}}
+    @else
+        <div class="miller-browser">
+            {{-- COLUMN 1: CUSTOM FLOW SCOPES --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-filter" style="color: #64748b;"></i> 1. Scope & Purpose</span>
+                    <span class="m-item-badge">{{ count($customFlows) }}</span>
+                </div>
 
-                    <!-- Header -->
-                    <div class="details-header">
-                        <div class="details-header-avatar">
-                            <i class="fa-solid fa-bezier-curve"></i>
-                        </div>
-                        <div class="details-header-info">
-                            <h2 class="details-header-name">
-                                {{ $selectedCustom === 'new' ? 'Configure New Custom Flow' : $customFlowName }}
-                            </h2>
-                            <span class="details-header-sub">
-                                {{ $selectedCustom === 'new' ? 'Create a custom routing sequence' : 'Review & adjust custom transaction flow office routing' }}
-                            </span>
-                            @if($selectedCustom !== 'new')
-                                @php
-                                    $curFlow = \DB::table('dts_transaction_flow')
-                                        ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as account_details', 'dts_transaction_flow.added_by', '=', 'account_details.account_id')
-                                        ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'account_details.office_id', '=', 'office.id')
-                                        ->where('dts_transaction_flow.id', (int) $selectedCustom)
-                                        ->select(['account_details.first_name', 'account_details.last_name', 'office.office_name', 'office.office_code', 'dts_transaction_flow.date_added'])
-                                        ->first();
-                                    $curCreator = trim(($curFlow?->first_name ?? '') . ' ' . ($curFlow?->last_name ?? '')) ?: 'System / Admin';
-                                    $curOffice = $curFlow?->office_name ? ($curFlow->office_name . ' (' . $curFlow->office_code . ')') : 'Global / Unassigned';
-                                    $curDate = $curFlow?->date_added ? \Carbon\Carbon::parse($curFlow->date_added)->format('M d, Y h:i A') : '—';
-                                @endphp
-                                <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size: 11.5px;">
-                                    <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(255, 255, 255, 0.15); padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff;">
-                                        <i class="fa-solid fa-building" style="color: #93c5fd;"></i>
-                                        <strong style="color: #ffffff;">Owner Office:</strong>
-                                        <span style="color: #e0f2fe;">{{ $curOffice }}</span>
-                                    </span>
-                                    <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(255, 255, 255, 0.15); padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff;">
-                                        <i class="fa-solid fa-user" style="color: #93c5fd;"></i>
-                                        <strong style="color: #ffffff;">Created By:</strong>
-                                        <span style="color: #e0f2fe;">{{ $curCreator }}</span>
-                                    </span>
-                                    <span style="display: inline-flex; align-items: center; gap: 5px; background: rgba(255, 255, 255, 0.15); padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff;">
-                                        <i class="fa-solid fa-calendar-day" style="color: #93c5fd;"></i>
-                                        <strong style="color: #ffffff;">Date Created:</strong>
-                                        <span style="color: #e0f2fe;">{{ $curDate }}</span>
-                                    </span>
-                                </div>
-                            @endif
+                <div class="m-col-list">
+                    <div style="padding: 4px 6px; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Custom Purpose</div>
+
+                    <div class="m-item {{ $customPurposeFilter === 'all' ? 'active' : '' }}" wire:click="$set('customPurposeFilter', 'all')">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-layer-group" style="color: #64748b;"></i>
+                            <div class="m-item-text"><span class="m-item-title">All Custom Flows</span></div>
                         </div>
                     </div>
-
-                    <!-- Form Body -->
-                    <div class="details-body">
-                        <form wire:submit.prevent="saveCustomFlow" style="display: flex; flex-direction: column; gap: 20px;">
-                            <!-- Flow Name -->
-                            <div class="form-group">
-                                <span class="form-label">Flow Name</span>
-                                <input type="text" class="form-input" placeholder="e.g. Special Department Project Route" wire:model="customFlowName">
-                                @error('customFlowName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                            </div>
-
-                            <!-- Flow Short Code -->
-                            <div class="form-group">
-                                <span class="form-label">Flow Code</span>
-                                <input type="text" class="form-input" placeholder="e.g. FLOW-CUSTOM-01" wire:model="customFlowCode" {{ $selectedCustom !== 'new' ? 'disabled' : '' }}>
-                                @error('customFlowCode') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                            </div>
-
-                            <!-- Flow Purpose -->
-                            <div class="form-group">
-                                <span class="form-label">Subsystem Purpose / Category</span>
-                                <select class="form-input" wire:model="customFlowUse" style="cursor: pointer;">
-                                    <option value="none">General / All Subsystems</option>
-                                    <option value="internal">Internal Transactions</option>
-                                    <option value="external">External Communications</option>
-                                    <option value="issuances">Document Issuances</option>
-                                    <option value="application">Application Letters</option>
-                                    <option value="others">Others</option>
-                                </select>
-                                @error('customFlowUse') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                            </div>
-
-                            @if(\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series'))
-                            <!-- RDP Continuity: Record Series -->
-                            <div class="form-group" style="border-top: 1.5px dashed #e2e8f0; padding-top: 20px; margin-top: 10px;">
-                                <span class="form-label" style="font-size: 13.5px; font-weight: 700; color: #1e3a8a; display: flex; align-items: center; gap: 6px;">
-                                    <i class="fa-solid fa-box-archive"></i> RDP Record Series (Continuity)
-                                </span>
-                                <span style="font-size: 11.5px; color: #64748b; margin-bottom: 12px; display: block; line-height: 1.4;">
-                                    Record series applied to documents from this flow when they are handed over to RDP after completion. Leave at <strong>Server default</strong> to follow the record series configured in System Settings.
-                                </span>
-
-                                <div style="display: flex; gap: 8px; align-items: center;">
-                                    <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
-                                        <div style="position: relative;">
-                                            <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 14px; margin: 0; line-height: 1; z-index: 1;"></i>
-                                            <input type="text"
-                                                   class="search-box"
-                                                   style="padding-left: 38px; padding-right: 30px; width: 100%; box-sizing: border-box; {{ $customContinRdpId ? 'font-weight: 600; color: #0f172a;' : '' }}"
-                                                   placeholder="Server default"
-                                                   wire:model.live="customContinRdpSearch"
-                                                   @focus="open = true">
-                                            @if($customContinRdpId)
-                                                <button type="button" wire:click="clearCustomContinRdpSeries" title="Revert to Server default" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 16px; line-height: 1; padding: 0;">&times;</button>
-                                            @endif
-                                        </div>
-
-                                        <div x-show="open" class="suggestions-dropdown" style="top: 100%; bottom: auto; margin-top: 4px;">
-                                            @php $customContinSeriesChoices = $this->continRdpChoices($customContinRdpSearch, $customContinRdpTypeFilter); @endphp
-                                            @forelse($customContinSeriesChoices as $series)
-                                                <div class="suggestion-item" @click="open = false" wire:click="selectCustomContinRdpSeries({{ $series->id }})">
-                                                    <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700;">{{ $series->item_number ?? '—' }}</span>
-                                                    <span style="font-weight: 500; color: #1e293b; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $series->series_title }}</span>
-                                                    <span style="color: #64748b; font-weight: 600; font-size: 11px; white-space: nowrap;">{{ $series->shorted_type ?: '—' }}</span>
-                                                </div>
-                                            @empty
-                                                <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No record series found</div>
-                                            @endforelse
-                                        </div>
-                                    </div>
-
-                                    <select wire:model.live="customContinRdpTypeFilter" title="Filter by record series type" style="flex-shrink: 0; height: 38px; padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #ffffff; font-size: 12px; font-weight: 600; color: #334155; cursor: pointer; max-width: 175px;">
-                                        <option value="">All Types</option>
-                                        @foreach($continRdpTypes as $rdpSeriesType)
-                                            <option value="{{ $rdpSeriesType['id'] }}">{{ $rdpSeriesType['type_name'] }}</option>
-                                        @endforeach
-                                    </select>
-                                </div>
-
-                                @if($customContinRdpId)
-                                    <span style="font-size: 11.5px; color: #059669; margin-top: 8px; display: block;">
-                                        <i class="fa-solid fa-circle-check"></i> Selected: {{ $this->continRdpSelectedLabel($customContinRdpId, $customContinRdpSearch) }} — applied when you click Save Configuration.
-                                    </span>
-                                @else
-                                    <span style="font-size: 11.5px; color: #64748b; margin-top: 8px; display: block;">
-                                        <i class="fa-solid fa-server"></i> Using <strong>Server default</strong>.
-                                    </span>
-                                @endif
-                            </div>
-                            @endif
-
-                            <!-- Flow Visibility / Who Can See This Flow -->
-                            <div class="form-group">
-                                <span class="form-label">Flow Visibility / Who Can See This Flow</span>
-                                <select class="form-input" wire:model="customFlowFor" style="cursor: pointer;">
-                                    <option value="system">🌐 System-Wide (Visible to All Offices & Users)</option>
-                                    <option value="office">🏢 Office-Wide (Visible to Creator's Office/Department Only)</option>
-                                    <option value="user">👤 Personal / Private (Visible ONLY to Creator)</option>
-                                </select>
-                                <span style="font-size: 11.5px; color: #64748b; margin-top: 4px; display: block;">
-                                    Controls which users can select this flow template when creating a new transaction in DTS.
-                                </span>
-                                @error('customFlowFor') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                            </div>
-
-                            <!-- Active Status Toggle -->
-                            @if($selectedCustom !== 'new')
-                                <div class="form-group">
-                                    <div class="status-toggle-wrapper">
-                                        <div class="status-toggle-label">
-                                            <span class="status-toggle-title">Flow Active Status</span>
-                                            <span class="status-toggle-desc">Soft-deactivate to temporarily hide from routing options.</span>
-                                        </div>
-                                        <label class="switch">
-                                            <input type="checkbox" wire:model="customIsActive">
-                                            <span class="slider"></span>
-                                        </label>
-                                    </div>
-                                </div>
-                            @endif
-
-                            <!-- Office Routing Sequence -->
-                            <div class="form-group">
-                                <span class="form-label">Sequential Office Route</span>
-                                <span style="font-size: 11.5px; color: #64748b; margin-bottom: 8px; display: block;">
-                                    Step 1 is fixed to <strong>ORIGIN</strong> (Requesting Office). Add intermediate recipient offices below.
-                                </span>
-
-                                <div style="display: flex; gap: 8px; position: relative;" x-data="{ open: false }" @click.outside="open = false">
-                                    <div style="flex: 1; position: relative;">
-                                        <input type="text" class="form-input" placeholder="Search office to insert into route..." wire:model.live="customOfficeSearch" @focus="open = true">
-                                        <div class="suggestions-dropdown" x-show="open" x-cloak>
-                                            @php
-                                                $cSearchLower = strtolower($customOfficeSearch);
-                                                $filteredOffices = $activeOffices->filter(function($o) use ($cSearchLower) {
-                                                    return empty($cSearchLower) || str_contains(strtolower($o->office_name), $cSearchLower) || str_contains(strtolower($o->office_code), $cSearchLower);
-                                                });
-                                            @endphp
-                                            @forelse($filteredOffices as $off)
-                                                <div class="suggestion-item" @click="open = false" wire:click="selectCustomOfficeForAppend('{{ $off->office_code }}', '{{ $off->office_name }}')">
-                                                    <span style="font-weight: 500; color: #1e293b;">{{ $off->office_name }}</span>
-                                                    <span style="color: #64748b; font-weight: 600;">{{ $off->office_code }}</span>
-                                                </div>
-                                            @empty
-                                                <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No offices found</div>
-                                            @endforelse
-                                        </div>
-                                    </div>
-                                    <button type="button" class="btn-save" style="padding: 10px 18px; display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;" wire:click="addCustomOfficeToPath">
-                                        <i class="fa-solid fa-plus"></i> Add Step
-                                    </button>
-                                </div>
-
-                                <div class="sequence-editor-box">
-                                    @foreach($customFlowOffices as $index => $officeCode)
-                                        @php
-                                            $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
-                                            $displayName = $officeObj ? $officeObj->office_name : ($officeCode === 'ORIGIN' ? 'Origin Office' : ($officeCode === '[H]' ? 'Cluster Head' : $officeCode));
-                                            $isOrigin = $index === 0;
-                                        @endphp
-                                        <div class="sequence-list-item">
-                                            <div>
-                                                <span class="seq-index">Step {{ $index + 1 }}:</span>
-                                                <span class="seq-name">{{ $displayName }} ({{ $officeCode }})</span>
-                                            </div>
-                                            <div class="seq-actions">
-                                                @if(!$isOrigin)
-                                                    <button type="button" class="btn-seq-nav" wire:click="moveCustomOfficeUp({{ $index }})" {{ $index <= 1 ? 'disabled' : '' }}>
-                                                        <i class="fa-solid fa-arrow-up"></i>
-                                                    </button>
-                                                    <button type="button" class="btn-seq-nav" wire:click="moveCustomOfficeDown({{ $index }})" {{ $index >= count($customFlowOffices) - 1 ? 'disabled' : '' }}>
-                                                        <i class="fa-solid fa-arrow-down"></i>
-                                                    </button>
-                                                    <button type="button" class="btn-seq-remove" wire:click="removeCustomOffice({{ $index }})">
-                                                        <i class="fa-solid fa-trash"></i>
-                                                    </button>
-                                                @else
-                                                    <span style="font-size: 11px; color: #94a3b8; font-style: italic; padding: 4px 8px;">Initial Origin</span>
-                                                @endif
-                                            </div>
-                                        </div>
-                                    @endforeach
-                                </div>
-
-                                @if(in_array('[HUB]', $customFlowOffices))
-                                    <!-- Custom Predefined HUB Receiving Offices Configuration -->
-                                    <div class="form-group" style="border-top: 1.5px dashed #f59e0b; padding-top: 20px; margin-top: 10px; background: rgba(245, 158, 11, 0.04); border-radius: 8px; padding: 16px; border: 1px solid rgba(245, 158, 11, 0.25);">
-                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                            <span class="form-label" style="font-size: 13.5px; font-weight: 700; color: #b45309; display: flex; align-items: center; gap: 6px; margin: 0;">
-                                                <i class="fa-solid fa-layer-group"></i> Predefined HUB Receiving Offices
-                                            </span>
-                                            <div style="display: flex; gap: 6px;">
-                                                <button type="button" class="btn-cancel" style="padding: 4px 10px; font-size: 11px; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; cursor: pointer;" wire:click="selectAllCustomHubOffices">
-                                                    <i class="fa-solid fa-check-double"></i> Select All
-                                                </button>
-                                                @if(count($customHubOffices) > 0)
-                                                    <button type="button" class="btn-cancel" style="padding: 4px 10px; font-size: 11px; color: #ef4444; border: 1px solid #fecaca; cursor: pointer;" wire:click="clearCustomHubOffices">
-                                                        <i class="fa-solid fa-xmark"></i> Clear
-                                                    </button>
-                                                @endif
-                                            </div>
-                                        </div>
-                                        <span style="font-size: 11.5px; color: #64748b; margin-bottom: 12px; display: block; line-height: 1.4;">
-                                            Specify default receiving offices that will automatically receive copies simultaneously when this HUB flow is selected in Issuances.
-                                        </span>
-                                        
-                                        <div style="display: flex; gap: 8px; align-items: center; position: relative;">
-                                            <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
-                                                <input type="text" 
-                                                       class="form-input" 
-                                                       placeholder="Search and select hub recipient office..." 
-                                                       wire:model.live="customHubSearch"
-                                                       @focus="open = true"
-                                                       style="margin: 0; width: 100%; padding: 9px 14px;">
-                                                
-                                                <div x-show="open" class="suggestions-dropdown" style="bottom: 100%; top: auto; margin-bottom: 4px; margin-top: 0;">
-                                                    @php
-                                                        $filteredCustomHub = $activeOffices->filter(function($off) {
-                                                            if ($off->office_code === 'ORIGIN' || $off->office_code === '[H]' || $off->office_code === '[HUB]') return false;
-                                                            if (empty($this->customHubSearch)) return true;
-                                                            return stripos($off->office_name, $this->customHubSearch) !== false 
-                                                                || stripos($off->office_code, $this->customHubSearch) !== false;
-                                                        });
-                                                    @endphp
-                                                    
-                                                    @forelse($filteredCustomHub as $off)
-                                                        <div class="suggestion-item" 
-                                                             @click="open = false"
-                                                             wire:click="selectCustomHubOfficeForAppend('{{ $off->office_code }}', '{{ $off->office_name }}')">
-                                                            <span style="font-weight: 500; color: #1e293b;">{{ $off->office_name }}</span>
-                                                            <span style="color: #64748b; font-weight: 600;">{{ $off->office_code }}</span>
-                                                        </div>
-                                                    @empty
-                                                        <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No offices found</div>
-                                                    @endforelse
-                                                </div>
-                                            </div>
-                                            <button type="button" class="btn-save" style="padding: 10px 18px; display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; background-color: #f59e0b; border-color: #d97706;" wire:click="addCustomHubOfficeToPath">
-                                                <i class="fa-solid fa-plus"></i> Add
-                                            </button>
-                                        </div>
-
-                                        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 12px; background: #fff; border: 1px solid #fde68a; border-radius: 8px; min-height: 48px; box-sizing: border-box;">
-                                            @forelse($customHubOffices as $index => $officeCode)
-                                                @php
-                                                    $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
-                                                    $displayName = $officeObj ? $officeObj->office_name : $officeCode;
-                                                @endphp
-                                                <div style="display: inline-flex; align-items: center; gap: 6px; background: #fef3c7; color: #92400e; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid #fcd34d; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                                                    <span>{{ $displayName }} ({{ $officeCode }})</span>
-                                                    <button type="button" wire:click="removeCustomHubOffice({{ $index }})" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 14px; font-weight: bold; line-height: 1; padding: 0; display: inline-flex; align-items: center; margin-left: 2px;">&times;</button>
-                                                </div>
-                                            @empty
-                                                <div style="display: flex; align-items: center; justify-content: center; width: 100%; color: #94a3b8; font-style: italic; font-size: 12.5px; height: 24px;">
-                                                    No hub receiving offices predefined yet.
-                                                </div>
-                                            @endforelse
-                                        </div>
-                                    </div>
-                                @endif
-                            </div>
-                        </form>
+                    <div class="m-item {{ $customPurposeFilter === 'internal' ? 'active' : '' }}"
+                         wire:click="$set('customPurposeFilter', 'internal')"
+                         ondragover="event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('drop-target-hover');"
+                         ondragleave="this.classList.remove('drop-target-hover');"
+                         ondrop="event.preventDefault(); this.classList.remove('drop-target-hover'); const fId = event.dataTransfer.getData('text/flow-id'); if (fId) { window.dtsChangeCustomPurpose(fId, 'internal', this); }">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-building" style="color: #0284c7;"></i>
+                            <div class="m-item-text"><span class="m-item-title">Internal Only</span></div>
+                        </div>
                     </div>
-
-                    <!-- Footer Actions -->
-                    <div class="details-footer">
-                        @if($selectedCustom !== 'new')
-                            <button type="button" class="btn-delete" wire:click="deleteCustomFlow" wire:confirm="Are you sure you want to deactivate this custom flow? It will be soft-deleted (hidden) but retained for transparency." style="margin-right: auto;">
-                                <i class="fa-solid fa-trash-can"></i> Delete Flow
-                            </button>
-                        @endif
-                        <button type="button" class="btn-cancel" wire:click="$set('selectedCustom', '')">Cancel</button>
-                        <button type="button" class="btn-save" wire:click="saveCustomFlow">
-                            <i class="fa-solid fa-floppy-disk"></i> Save Configuration
-                        </button>
+                    <div class="m-item {{ $customPurposeFilter === 'external' ? 'active' : '' }}"
+                         wire:click="$set('customPurposeFilter', 'external')"
+                         ondragover="event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('drop-target-hover');"
+                         ondragleave="this.classList.remove('drop-target-hover');"
+                         ondrop="event.preventDefault(); this.classList.remove('drop-target-hover'); const fId = event.dataTransfer.getData('text/flow-id'); if (fId) { window.dtsChangeCustomPurpose(fId, 'external', this); }">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-earth-americas" style="color: #059669;"></i>
+                            <div class="m-item-text"><span class="m-item-title">External Only</span></div>
+                        </div>
+                    </div>
+                    <div class="m-item {{ $customPurposeFilter === 'issuances' ? 'active' : '' }}"
+                         wire:click="$set('customPurposeFilter', 'issuances')"
+                         ondragover="event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('drop-target-hover');"
+                         ondragleave="this.classList.remove('drop-target-hover');"
+                         ondrop="event.preventDefault(); this.classList.remove('drop-target-hover'); const fId = event.dataTransfer.getData('text/flow-id'); if (fId) { window.dtsChangeCustomPurpose(fId, 'issuances', this); }">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-scroll" style="color: #d97706;"></i>
+                            <div class="m-item-text"><span class="m-item-title">Issuances</span></div>
+                        </div>
+                    </div>
+                    <div class="m-item {{ $customPurposeFilter === 'none' ? 'active' : '' }}"
+                         wire:click="$set('customPurposeFilter', 'none')"
+                         ondragover="event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('drop-target-hover');"
+                         ondragleave="this.classList.remove('drop-target-hover');"
+                         ondrop="event.preventDefault(); this.classList.remove('drop-target-hover'); const fId = event.dataTransfer.getData('text/flow-id'); if (fId) { window.dtsChangeCustomPurpose(fId, 'none', this); }">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-folder-tree" style="color: #64748b;"></i>
+                            <div class="m-item-text"><span class="m-item-title">General / None</span></div>
+                        </div>
                     </div>
                 </div>
+            </div>
+
+            {{-- COLUMN 2: CUSTOM FLOWS DIRECTORY --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-list-check" style="color: #64748b;"></i> 2. Custom Flows Directory</span>
+                    <span class="m-item-badge">{{ count($customFlows) }}</span>
+                </div>
+
+                <div class="m-col-search">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" placeholder="Search custom flows..." wire:model.live.debounce.200ms="searchCustom">
+                </div>
+
+                <div class="m-col-list">
+                    @forelse($customFlows as $cf)
+                        <div class="m-item draggable-flow {{ $selectedCustom == $cf->id ? 'active' : '' }}"
+                             draggable="true"
+                             ondragstart="event.dataTransfer.setData('text/flow-id', '{{ $cf->id }}'); event.dataTransfer.effectAllowed = 'move'; this.classList.add('is-dragging');"
+                             ondragend="this.classList.remove('is-dragging');"
+                             title="Click to inspect, or drag to Column 1 to change scope"
+                             wire:click="selectCustomFlow({{ $cf->id }})">
+                            <div class="m-item-left">
+                                <i class="fa-solid fa-bezier-curve" style="font-size: 12px; color: {{ $cf->is_active ? '#0284c7' : '#94a3b8' }};"></i>
+                                <div class="m-item-text" style="min-width: 0;">
+                                    <span class="m-item-title">{{ $cf->flow_name }}</span>
+                                    <span class="m-item-sub">By {{ $cf->office_name ?? $cf->username ?? 'System' }} &bull; {{ $cf->step_count }} stops</span>
+                                </div>
+                            </div>
+                            <div class="m-item-right"><i class="fa-solid fa-chevron-right m-item-arrow"></i></div>
+                        </div>
+                    @empty
+                        <div class="m-empty-state">
+                            <i class="fa-solid fa-folder-open" style="font-size: 24px;"></i>
+                            <span>No custom flows recorded.</span>
+                        </div>
+                    @endforelse
+                </div>
+            </div>
+
+            {{-- COLUMN 3: CUSTOM CONFIGURATION --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-sliders" style="color: #64748b;"></i> 3. Custom Settings & RDP</span>
+                </div>
+
+                <div class="m-inspector">
+                    @if($selectedCustom)
+                        <div class="m-field-group">
+                            <label class="m-field-label">Flow Title</label>
+                            <input type="text" class="m-field-input" wire:model="customFlowName">
+                        </div>
+
+                        <div class="m-field-group">
+                            <label class="m-field-label">Flow Scope Target</label>
+                            <select class="m-field-select" wire:model="customFlowFor">
+                                <option value="system">System Wide</option>
+                                <option value="office">Office Specific</option>
+                                <option value="user">User Specific</option>
+                            </select>
+                        </div>
+
+                        <div class="m-field-group">
+                            <label class="m-field-label">Flow Purpose</label>
+                            <select class="m-field-select" wire:model="customFlowUse">
+                                <option value="none">General / None</option>
+                                <option value="internal">Internal Workflow</option>
+                                <option value="external">External / Inter-Agency</option>
+                                <option value="issuances">Issuances</option>
+                                <option value="application">Applications</option>
+                                <option value="others">Others</option>
+                            </select>
+                        </div>
+
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+                            <span style="font-size: 12px; font-weight: 600; color: #1e293b;">Active Status</span>
+                            <label class="switch">
+                                <input type="checkbox" wire:model.live="customIsActive">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
+                        {{-- RDP RECORD SERIES LINK --}}
+                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #4338ca;">
+                                    <i class="fa-solid fa-box-archive"></i> Linked Record Series
+                                </span>
+                                @if($customContinRdpId)
+                                    <button type="button" wire:click="clearCustomContinRdpSeries" style="background: none; border: none; font-size: 10px; color: #ef4444; cursor: pointer; font-weight: 600;">Disconnect</button>
+                                @endif
+                            </div>
+
+                            @if($customContinRdpId)
+                                <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #e0e7ff; border-radius: 6px; border: 1px solid #c7d2fe;">
+                                    <i class="fa-solid fa-link" style="color: #4338ca; font-size: 11px;"></i>
+                                    <span style="font-size: 11.5px; font-weight: 600; color: #3730a3;">
+                                        {{ $this->continRdpSelectedLabel($customContinRdpId, $customContinRdpSearch) }}
+                                    </span>
+                                </div>
+                            @else
+                                <div style="position: relative;">
+                                    <input type="text" class="m-field-input" placeholder="Search series title or #..." wire:model.live.debounce.150ms="customContinRdpSearch" wire:focus="$set('showCustomRdpDropdown', true)">
+                                    @if($showCustomRdpDropdown && strlen($customContinRdpSearch) > 0)
+                                        <div class="m-dropdown-results">
+                                            @foreach($this->continRdpChoices($customContinRdpSearch, $customContinRdpTypeFilter) as $series)
+                                                <div class="m-dropdown-row" wire:click="selectCustomContinRdpSeries({{ $series->id }})">
+                                                    <span>#{{ $series->item_number }} &bull; {{ $series->series_title }}</span>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </div>
+                            @endif
+                        </div>
+
+                        <div style="margin-top: auto; padding-top: 14px; border-top: 1px solid #f1f5f9; display: flex; flex-direction: column; gap: 8px;">
+                            <button type="button" wire:click="saveCustomFlow" style="width: 100%; background: #0284c7; color: #ffffff; border: none; padding: 8px 14px; border-radius: 6px; font-size: 12.5px; font-weight: 700; cursor: pointer;">
+                                <i class="fa-solid fa-floppy-disk"></i> Save Custom Flow
+                            </button>
+                            @if($selectedCustom !== 'new')
+                                <button type="button" wire:click="deleteCustomFlow" style="width: 100%; background: #fff1f2; color: #e11d48; border: 1px solid #ffe4e6; padding: 7px 14px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer;">
+                                    <i class="fa-solid fa-trash-can"></i> Deactivate Custom Flow
+                                </button>
+                            @endif
+                        </div>
+                    @else
+                        <div class="m-empty-state" style="padding-top: 60px;">
+                            <i class="fa-solid fa-sliders" style="font-size: 28px;"></i>
+                            <span>Select a custom flow to configure</span>
+                        </div>
+                    @endif
+                </div>
+            </div>
+
+            {{-- COLUMN 4: CUSTOM ROUTING PIPELINE --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-route" style="color: #64748b;"></i> 4. Custom Pipeline Stops</span>
+                    @if($selectedCustom)
+                        <span class="m-item-badge">{{ count($customFlowOffices) }} Stops</span>
+                    @endif
+                </div>
+
+                <div class="m-inspector" style="background: #f8fafc;">
+                    @if($selectedCustom)
+                        <div class="m-pipe-tabs">
+                            <button type="button" class="m-pipe-tab {{ $customPipelineTab === 'sequence' ? 'active' : '' }}" wire:click="$set('customPipelineTab', 'sequence')">
+                                <i class="fa-solid fa-arrow-down-1-9"></i> Stops ({{ count($customFlowOffices) }})
+                            </button>
+                            <button type="button" class="m-pipe-tab {{ $customPipelineTab === 'cf' ? 'active' : '' }}" wire:click="$set('customPipelineTab', 'cf')">
+                                <i class="fa-solid fa-copy"></i> CF ({{ count($customCfOffices) }})
+                            </button>
+                        </div>
+
+                        @if($customPipelineTab === 'sequence')
+                            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
+                                <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; display: block;">
+                                    <i class="fa-solid fa-plus-circle" style="color: #0284c7;"></i> Append Stop
+                                </label>
+                                <div style="position: relative;">
+                                    <input type="text" class="m-field-input" placeholder="Type office code or name..." wire:model.live.debounce.150ms="customOfficeSearch" wire:focus="$set('showCustomOfficeDropdown', true)">
+                                    @if($showCustomOfficeDropdown && strlen($customOfficeSearch) > 0)
+                                        <div class="m-dropdown-results">
+                                            @foreach($activeOffices as $o)
+                                                @if(stripos($o->office_name, $customOfficeSearch) !== false || stripos($o->office_code, $customOfficeSearch) !== false)
+                                                    <div class="m-dropdown-row" wire:click="selectCustomOfficeForAppend('{{ $o->office_code }}', '{{ addslashes($o->office_name) }}')">
+                                                        <span>{{ $o->office_name }}</span>
+                                                        <span style="font-family: monospace; font-size: 10px; color: #0284c7;">{{ $o->office_code }}</span>
+                                                    </div>
+                                                @endif
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </div>
+                            </div>
+
+                            <div style="flex: 1; overflow-y: auto;">
+                                @foreach($customFlowOffices as $cRank => $cCode)
+                                    @php
+                                        $isCustomDraggable = ($cRank > 0 && ($cRank < count($customFlowOffices) - 1 || $cCode !== 'ORIGIN'));
+                                    @endphp
+                                    <div class="step-item {{ $isCustomDraggable ? 'draggable-step' : '' }} {{ $cCode === 'ORIGIN' ? 'step-origin' : '' }}"
+                                         @if($isCustomDraggable)
+                                             draggable="true"
+                                             ondragstart="event.dataTransfer.setData('text/step-index', '{{ $cRank }}'); event.dataTransfer.effectAllowed = 'move'; this.classList.add('step-dragging');"
+                                             ondragend="this.classList.remove('step-dragging');"
+                                             ondragover="event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('step-drop-hover');"
+                                             ondragleave="this.classList.remove('step-drop-hover');"
+                                             ondrop="event.preventDefault(); this.classList.remove('step-drop-hover'); const fromIdx = event.dataTransfer.getData('text/step-index'); if(fromIdx !== '' && parseInt(fromIdx) !== {{ $cRank }}) { window.dtsReorderCustomStep(fromIdx, {{ $cRank }}, this); }"
+                                         @endif>
+                                        <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+                                            @if($isCustomDraggable)
+                                                <i class="fa-solid fa-grip-vertical" style="color: #94a3b8; font-size: 11px; cursor: pointer;" title="Drag up or down to reorder stop"></i>
+                                            @else
+                                                <span style="width: 11px;"></span>
+                                            @endif
+                                            <div class="step-badge {{ $cCode === 'ORIGIN' ? 'step-origin' : '' }}">{{ $cRank + 1 }}</div>
+                                            <div style="min-width: 0;">
+                                                <span style="font-size: 12px; font-weight: 700; color: #1e293b; display: block;">
+                                                    {{ $cCode === 'ORIGIN' ? 'Originating Office' : ($officeLookup[$cCode] ?? $cCode) }}
+                                                </span>
+                                                <span style="font-family: monospace; font-size: 10px; color: #64748b;">{{ $cCode }}</span>
+                                            </div>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 4px;">
+                                            @if($cRank > 1)
+                                                <button type="button" class="step-btn" wire:click="moveCustomOfficeUp({{ $cRank }})"><i class="fa-solid fa-arrow-up"></i></button>
+                                            @endif
+                                            @if($cRank > 0 && $cRank < count($customFlowOffices) - 1)
+                                                <button type="button" class="step-btn" wire:click="moveCustomOfficeDown({{ $cRank }})"><i class="fa-solid fa-arrow-down"></i></button>
+                                            @endif
+                                            @if($cRank > 0)
+                                                <button type="button" class="step-btn step-btn-remove" wire:click="removeCustomOffice({{ $cRank }})"><i class="fa-solid fa-xmark"></i></button>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @else
+                            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
+                                <div style="position: relative;">
+                                    <input type="text" class="m-field-input" placeholder="Search office for copy furnished..." wire:model.live.debounce.150ms="customCfSearch" wire:focus="$set('showCustomCfDropdown', true)">
+                                    @if($showCustomCfDropdown && strlen($customCfSearch) > 0)
+                                        <div class="m-dropdown-results">
+                                            @foreach($activeOffices as $o)
+                                                @if(stripos($o->office_name, $customCfSearch) !== false || stripos($o->office_code, $customCfSearch) !== false)
+                                                    <div class="m-dropdown-row" wire:click="selectCustomCfOfficeForAppend('{{ $o->office_code }}', '{{ addslashes($o->office_name) }}')">
+                                                        <span>{{ $o->office_name }}</span>
+                                                        <span style="font-family: monospace; font-size: 10px; color: #0284c7;">{{ $o->office_code }}</span>
+                                                    </div>
+                                                @endif
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </div>
+                            </div>
+
+                            <div style="flex: 1; overflow-y: auto;">
+                                @forelse($customCfOffices as $ccIdx => $ccCode)
+                                    <div class="step-item">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <i class="fa-solid fa-file-invoice" style="color: #64748b; font-size: 12px;"></i>
+                                            <div>
+                                                <span style="font-size: 12px; font-weight: 600;">{{ $officeLookup[$ccCode] ?? $ccCode }}</span>
+                                                <span style="font-family: monospace; font-size: 10px; color: #64748b; display: block;">{{ $ccCode }}</span>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="step-btn step-btn-remove" wire:click="removeCustomCfOffice({{ $ccIdx }})">
+                                            <i class="fa-solid fa-xmark"></i>
+                                        </button>
+                                    </div>
+                                @empty
+                                    <div class="m-empty-state">
+                                        <i class="fa-solid fa-copy" style="font-size: 20px;"></i>
+                                        <span>No Copy Furnished offices assigned.</span>
+                                    </div>
+                                @endforelse
+                            </div>
+                        @endif
+                    @else
+                        <div class="m-empty-state" style="padding-top: 60px;">
+                            <i class="fa-solid fa-bezier-curve" style="font-size: 28px;"></i>
+                            <span>Select a custom flow from Column 2</span>
+                        </div>
+                    @endif
+                </div>
+            </div>
+        </div>
+
+        <div class="miller-path-bar">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-bezier-curve" style="color: #64748b;"></i>
+                <span>Custom Flows</span>
+                @if($selectedCustom && $selectedCustom !== 'new')
+                    <i class="fa-solid fa-chevron-right" style="font-size: 9px; color: #94a3b8;"></i>
+                    <span style="color: #0284c7; font-weight: 700;">{{ $customFlowName }}</span>
+                    <i class="fa-solid fa-chevron-right" style="font-size: 9px; color: #94a3b8;"></i>
+                    <span>{{ count($customFlowOffices) }} Stops</span>
+                @endif
+            </div>
+
+            @if($selectedCustom)
+                <button type="button" wire:click="saveCustomFlow" style="background: none; border: none; color: #0284c7; font-size: 11.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 5px;">
+                    <i class="fa-solid fa-floppy-disk"></i> Quick Save
+                </button>
             @endif
         </div>
     @endif
 </div>
+
+<script>
+    window.dtsGetLivewire = function(el) {
+        try {
+            const root = el ? el.closest('[wire\\:id]') : document.querySelector('.miller-container[wire\\:id]');
+            if (root && window.Livewire) {
+                return window.Livewire.find(root.getAttribute('wire:id'));
+            }
+        } catch (e) {
+            console.error('dtsGetLivewire error:', e);
+        }
+        return null;
+    };
+
+    window.dtsReorderStep = function(fromIdx, toIdx, el) {
+        const lw = window.dtsGetLivewire(el);
+        if (lw) {
+            lw.call('reorderStep', parseInt(fromIdx), parseInt(toIdx));
+        }
+    };
+
+    window.dtsReorderCustomStep = function(fromIdx, toIdx, el) {
+        const lw = window.dtsGetLivewire(el);
+        if (lw) {
+            lw.call('reorderCustomStep', parseInt(fromIdx), parseInt(toIdx));
+        }
+    };
+
+    window.dtsChangePurpose = function(flowId, purpose, el) {
+        const lw = window.dtsGetLivewire(el);
+        if (lw) {
+            lw.call('changeFlowPurpose', parseInt(flowId), purpose);
+        }
+    };
+
+    window.dtsChangeCustomPurpose = function(flowId, purpose, el) {
+        const lw = window.dtsGetLivewire(el);
+        if (lw) {
+            lw.call('changeCustomFlowPurpose', parseInt(flowId), purpose);
+        }
+    };
+</script>

@@ -1,57 +1,432 @@
 <?php
 /**
- * Admin Console - Accounts Management Users Volt Component
+ * Admin Console - Accounts Management Users & Requestors Volt Component
  * 
- * This component provides an interface for administrators to manage user accounts.
+ * ESXi File Manager / Miller Columns Inspired User Accounts Browser.
  * Features:
- *  - Real-time search (by name, email, or username)
- *  - Interactive directory listing
- *  - Configurable sorting (by name, username, assigned role, assigned office, or date created)
- *  - Custom sort direction toggles (ascending / descending)
- *  - Inline form editor (updates personal details, role, office, active state)
+ *  - 4-Column Miller Columns browser (Clusters/Roles -> Offices -> Staff Users -> User Profile Inspector)
+ *  - Scope switcher: Internal Staff Accounts vs. External Document Requestors (DTS)
+ *  - Instant search across username, full name, and email address
+ *  - Office and Role assignment pickers with live badge previews
+ *  - Account security controls, Google SSO status, and force logout synchronization
+ *  - Soft-deactivation and audit logging for system transparency
  */
 
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
-use Livewire\WithPagination;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
-new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends Component {
-    use WithPagination;
-
-    /** @var string Holds the active search input value */
-    public string $search = '';
-
-    /** @var string Holds the active tab ('users' or 'requestors') */
+new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] class extends Component {
+    /** @var string Active scope: 'users' (Internal Staff) or 'requestors' (DTS Document Requestors) */
     public string $activeTab = 'users';
 
-    // Requestor Management Properties
+    // ---- NAVIGATION & FILTERING PROPERTIES ----
+    public ?string $selectedClusterCode = null; // null = All
+    public ?int $selectedRoleIdFilter = null;   // null = All
+    public ?int $selectedOfficeIdFilter = null; // null = All in Cluster/Group
+    public string $clusterSearch = '';
+    public string $officeColSearch = '';
+    public string $search = '';
+
+    // ---- USER PROFILE FORM PROPERTIES ----
+    public ?int $selectedUserId = null; // -1 = Create Mode
+    public string $firstName = '';
+    public string $lastName = '';
+    public string $middleName = '';
+    public string $email = '';
+    public string $username = '';
+    public ?int $roleId = null;
+    public ?int $officeId = null;
+    public bool $isActive = true;
+
+    // Searchable dropdown properties for form editor
+    public string $roleSearch = '';
+    public bool $showRoleDropdown = false;
+    public string $officeSearch = '';
+    public bool $showOfficeDropdown = false;
+
+    // ---- REQUESTOR MANAGEMENT PROPERTIES ----
     public string $requestorSearch = '';
-    public string $reqSortBy = 'name';
-    public string $reqSortDir = 'asc';
-    public string $reqViewMode = 'table';
-    public ?int $selectedRequestorId = null;
+    public string $reqCategoryFilter = 'all'; // 'all' | 'Internal' | 'External' | 'Custom'
+    public ?int $selectedRequestorId = null;  // -1 = Create Mode
     public string $reqName = '';
     public string $reqPosition = '';
     public string $reqOffice = '';
     public bool $reqIsActive = true;
 
-    public function toggleReqSortDir(): void
+    // Toast notifications
+    public string $successMessage = '';
+    public string $errorMessage = '';
+
+    /**
+     * Component mount hook - initializes authorization.
+     */
+    public function mount(): void
     {
-        $this->reqSortDir = $this->reqSortDir === 'asc' ? 'desc' : 'asc';
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->is_admin && !$perms->can_sadm_modify_accountlist && !$perms->can_sadm_modify_account)) {
+            $this->redirect(route('portal'));
+            return;
+        }
+        $this->cancelSelection();
     }
 
-    public function setTab(string $tab): void
+    public function clearMessages(): void
+    {
+        $this->successMessage = '';
+        $this->errorMessage = '';
+    }
+
+    public function switchTab(string $tab): void
     {
         $this->activeTab = $tab;
         $this->cancelSelection();
         $this->cancelRequestorSelection();
     }
 
+    // ==========================================
+    // FILTERING NAVIGATION HANDLERS
+    // ==========================================
+    public function filterByAll(): void
+    {
+        $this->selectedClusterCode = null;
+        $this->selectedRoleIdFilter = null;
+        $this->selectedOfficeIdFilter = null;
+        $this->selectedUserId = null;
+        $this->clearMessages();
+    }
+
+    public function filterByCluster(?string $code): void
+    {
+        $this->selectedClusterCode = $code;
+        $this->selectedRoleIdFilter = null;
+        $this->selectedOfficeIdFilter = null;
+        $this->selectedUserId = null;
+        $this->clearMessages();
+    }
+
+    public function filterByRole(?int $roleId): void
+    {
+        $this->selectedRoleIdFilter = $roleId;
+        $this->selectedClusterCode = null;
+        $this->selectedOfficeIdFilter = null;
+        $this->selectedUserId = null;
+        $this->clearMessages();
+    }
+
+    public function filterByOffice(?int $officeId): void
+    {
+        $this->selectedOfficeIdFilter = $officeId;
+        $this->selectedUserId = null;
+        $this->clearMessages();
+    }
+
+    // ==========================================
+    // STAFF USER SELECTION & CRUD
+    // ==========================================
+    public function cancelSelection(): void
+    {
+        $this->selectedUserId = null;
+        $this->username = '';
+        $this->firstName = '';
+        $this->lastName = '';
+        $this->middleName = '';
+        $this->email = '';
+        $this->roleId = null;
+        $this->officeId = null;
+        $this->isActive = true;
+        $this->roleSearch = '';
+        $this->showRoleDropdown = false;
+        $this->officeSearch = '';
+        $this->showOfficeDropdown = false;
+        $this->clearMessages();
+    }
+
+    public function startCreate(): void
+    {
+        $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
+        if (! $currentUserPerms || (! $currentUserPerms->is_sadm && ! $currentUserPerms->can_sadm_modify_account)) {
+            $this->errorMessage = 'Unauthorized: You do not have permission to create user accounts.';
+            return;
+        }
+
+        $this->cancelSelection();
+        $this->selectedUserId = -1;
+        $this->isActive = true;
+
+        if ($this->selectedOfficeIdFilter) {
+            $this->officeId = $this->selectedOfficeIdFilter;
+            $off = \App\Models\office::find($this->officeId);
+            $this->officeSearch = $off ? $off->office_name : '';
+        }
+
+        if ($this->selectedRoleIdFilter) {
+            $this->roleId = $this->selectedRoleIdFilter;
+            $r = \App\Models\role_list::find($this->roleId);
+            $this->roleSearch = $r ? $r->key_name : '';
+        }
+    }
+
+    public function selectUser(int $id): void
+    {
+        $this->cancelSelection();
+        $this->selectedUserId = $id;
+
+        $user = \App\Models\User::with('details')->find($id);
+        if ($user) {
+            $this->username = $user->username;
+            $this->roleId = $user->account_role;
+            if ($this->roleId) {
+                $role = \App\Models\role_list::find($this->roleId);
+                $this->roleSearch = $role ? $role->key_name : '';
+            }
+
+            $this->isActive = (bool) $user->account_active;
+
+            $details = $user->details;
+            if ($details) {
+                $this->firstName = $details->first_name ?? '';
+                $this->lastName = $details->last_name ?? '';
+                $this->middleName = $details->middle_name ?? '';
+                $this->email = $details->email ?? '';
+                $this->officeId = $details->office_id;
+                if ($this->officeId) {
+                    $office = \App\Models\office::find($this->officeId);
+                    $this->officeSearch = $office ? $office->office_name : '';
+                }
+            }
+        }
+    }
+
+    public function selectRole(?int $id, string $name): void
+    {
+        $this->roleId = $id;
+        $this->roleSearch = $name;
+        $this->showRoleDropdown = false;
+    }
+
+    public function selectOffice(?int $id, string $name): void
+    {
+        $this->officeId = $id;
+        $this->officeSearch = $name;
+        $this->showOfficeDropdown = false;
+    }
+
+    public function saveUserChanges(): void
+    {
+        if (!$this->selectedUserId) return;
+
+        $this->clearMessages();
+
+        $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
+        if (! $currentUserPerms || (! $currentUserPerms->is_sadm && ! $currentUserPerms->can_sadm_modify_account)) {
+            $this->errorMessage = 'Unauthorized: You do not have permission to modify user accounts.';
+            return;
+        }
+
+        $accDetailsTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $condKeyTbl = Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+        $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        if ($this->selectedUserId === -1) {
+            $this->validate([
+                'firstName' => 'nullable|string|max:255',
+                'lastName' => 'nullable|string|max:255',
+                'middleName' => 'nullable|string|max:255',
+                'email' => "required|email|max:255|unique:{$accDetailsTbl},email",
+                'roleId' => "required|exists:{$condKeyTbl},id",
+                'officeId' => "nullable|exists:{$officeTbl},id",
+            ]);
+        } else {
+            $this->validate([
+                'firstName' => 'required|string|max:255',
+                'lastName' => 'required|string|max:255',
+                'middleName' => 'nullable|string|max:255',
+                'email' => "required|email|max:255|unique:{$accDetailsTbl},email,{$this->selectedUserId},account_id",
+                'roleId' => "required|exists:{$condKeyTbl},id",
+                'officeId' => "nullable|exists:{$officeTbl},id",
+            ]);
+        }
+
+        try {
+            DB::transaction(function () {
+                if ($this->selectedUserId === -1) {
+                    $baseUsername = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', explode('@', $this->email)[0] ?? 'user'));
+                    if (empty($baseUsername)) $baseUsername = 'user';
+                    $derivedUsername = $baseUsername;
+                    $counter = 1;
+                    while (\App\Models\User::where('username', $derivedUsername)->exists()) {
+                        $derivedUsername = $baseUsername . $counter;
+                        $counter++;
+                    }
+
+                    $user = new \App\Models\User();
+                    $user->username = $derivedUsername;
+                    $user->password = \Hash::make(Str::random(32));
+                    $user->account_status = 1;
+                    $user->account_role = $this->roleId;
+                    $user->account_active = $this->isActive;
+                    $user->date_created = now();
+                    $user->date_updated = now();
+                    $user->save();
+
+                    $details = new \App\Models\AccountDetail();
+                    $details->account_id = $user->id;
+                    $details->first_name = !empty(trim($this->firstName)) ? trim($this->firstName) : 'Pending';
+                    $details->last_name = !empty(trim($this->lastName)) ? trim($this->lastName) : 'Google Sync';
+                    $details->middle_name = $this->middleName;
+                    $details->email = $this->email;
+                    $details->office_id = $this->officeId;
+                    $details->is_currently_online = false;
+                    $details->save();
+
+                    $adminLogsTbl = Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                    DB::table($adminLogsTbl)->insert([
+                        'changes' => "Created user account: {$user->username} ({$this->firstName} {$this->lastName} <{$this->email}>)",
+                        'admin_id' => auth()->id(),
+                        'what_system' => 3,
+                        'when_changes' => now()
+                    ]);
+
+                    $this->selectedUserId = $user->id;
+                    $this->username = $user->username;
+                    $this->successMessage = 'User account created successfully!';
+                } else {
+                    $user = \App\Models\User::findOrFail($this->selectedUserId);
+                    $statusChanged = $user->account_active != $this->isActive;
+
+                    $user->update([
+                        'account_role' => $this->roleId,
+                        'account_active' => $this->isActive,
+                        'date_updated' => now(),
+                    ]);
+
+                    $details = \App\Models\AccountDetail::find($this->selectedUserId);
+                    if (!$details) {
+                        $details = new \App\Models\AccountDetail();
+                        $details->account_id = $this->selectedUserId;
+                    }
+                    $details->first_name = $this->firstName;
+                    $details->last_name = $this->lastName;
+                    $details->middle_name = $this->middleName;
+                    $details->email = $this->email;
+                    $details->office_id = $this->officeId;
+
+                    if ($this->selectedUserId !== auth()->id()) {
+                        $details->force_logout_at = now();
+                        $details->is_currently_online = false;
+                        $details->save();
+
+                        try {
+                            DB::table('sessions')->where('user_id', (string) $this->selectedUserId)->orWhere('user_id', (int) $this->selectedUserId)->delete();
+                        } catch (\Throwable) {}
+                    } else {
+                        $details->save();
+                    }
+
+                    $adminLogsTbl = Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                    DB::table($adminLogsTbl)->insert([
+                        'changes' => "Updated details for user: {$user->username} ({$this->firstName} {$this->lastName})",
+                        'admin_id' => auth()->id(),
+                        'what_system' => 3,
+                        'when_changes' => now()
+                    ]);
+
+                    if ($statusChanged) {
+                        DB::table($adminLogsTbl)->insert([
+                            'changes' => "Toggled active status (Value: " . ($this->isActive ? '1' : '0') . ") for user: {$user->username}",
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3,
+                            'when_changes' => now()
+                        ]);
+                    }
+
+                    $this->successMessage = 'User account profile updated successfully!';
+                }
+            });
+
+            try {
+                if (file_exists(public_path('chatify/core/WsPush.php'))) {
+                    require_once public_path('chatify/bootstrap.php');
+                    \WsPush::broadcast('users_changed', [
+                        'account_id' => $this->selectedUserId,
+                        'office_id'  => $this->officeId,
+                    ]);
+                }
+            } catch (\Throwable) {}
+
+            if ($this->selectedUserId === auth()->id()) {
+                session()->flash('success', 'User account updated successfully!');
+                $this->js('window.location.reload();');
+            }
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to save user account: ' . $e->getMessage();
+        }
+    }
+
+    public function deleteUser(): void
+    {
+        $this->clearMessages();
+
+        if (!$this->selectedUserId || $this->selectedUserId <= 0) return;
+
+        if ($this->selectedUserId === auth()->id()) {
+            $this->errorMessage = 'You cannot delete your own logged-in account!';
+            return;
+        }
+
+        try {
+            DB::transaction(function () {
+                $user = \App\Models\User::findOrFail($this->selectedUserId);
+                $user->update(['account_active' => false, 'date_updated' => now()]);
+
+                $accDetailsTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+                DB::table($accDetailsTbl)->where('account_id', $this->selectedUserId)->update([
+                    'force_logout_at' => now(),
+                    'is_currently_online' => false,
+                ]);
+
+                try {
+                    DB::table('sessions')->where('user_id', (string) $this->selectedUserId)->orWhere('user_id', (int) $this->selectedUserId)->delete();
+                } catch (\Throwable) {}
+
+                $adminLogsTbl = Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                DB::table($adminLogsTbl)->insert([
+                    'changes' => "Soft-deleted user account (Deactivated for transparency): {$user->username}",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now()
+                ]);
+
+                $this->cancelSelection();
+                $this->successMessage = 'User account deactivated successfully!';
+            });
+
+            try {
+                if (file_exists(public_path('chatify/core/WsPush.php'))) {
+                    require_once public_path('chatify/bootstrap.php');
+                    \WsPush::broadcast('users_changed', ['account_id' => $this->selectedUserId]);
+                }
+            } catch (\Throwable) {}
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to delete user: ' . $e->getMessage();
+        }
+    }
+
+    // ==========================================
+    // REQUESTOR MANAGEMENT ACTIONS
+    // ==========================================
     public function startCreateRequestor(): void
     {
         $this->cancelRequestorSelection();
         $this->selectedRequestorId = -1;
+        $this->reqName = 'New Requestor Contact';
+        $this->reqPosition = '';
+        $this->reqOffice = '';
+        $this->reqIsActive = true;
     }
 
     public function selectRequestorItem(int $id): void
@@ -59,7 +434,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
         $this->cancelRequestorSelection();
         $this->selectedRequestorId = $id;
 
-        $req = \DB::table('dts_requestor_history')->where('id', $id)->first();
+        $req = DB::table('dts_requestor_history')->where('id', $id)->first();
         if ($req) {
             $this->reqName = $req->requestor_name;
             $this->reqPosition = $req->requestor_position ?? '';
@@ -85,14 +460,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             'reqName' => 'required|string|max:255',
             'reqOffice' => 'required|string|max:100',
             'reqPosition' => 'nullable|string|max:255',
-        ], [
-            'reqName.required' => 'Requestor Name is required.',
-            'reqOffice.required' => 'Office / Agency is required.',
         ]);
 
         try {
             if ($this->selectedRequestorId === -1) {
-                $newId = \DB::table('dts_requestor_history')->insertGetId([
+                $newId = DB::table('dts_requestor_history')->insertGetId([
                     'requestor_name' => trim($this->reqName),
                     'requestor_position' => trim($this->reqPosition),
                     'office' => trim($this->reqOffice),
@@ -101,9 +473,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     'updated_at' => now(),
                 ]);
 
-                $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
-                \DB::table($adminLogsTbl)->insert([
-                    'changes' => "Created new requestor contact: {$this->reqName} ({$this->reqOffice})",
+                $adminLogsTbl = Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                DB::table($adminLogsTbl)->insert([
+                    'changes' => "Created requestor contact: {$this->reqName} ({$this->reqOffice})",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
                     'when_changes' => now(),
@@ -112,7 +484,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 $this->selectRequestorItem($newId);
                 $this->successMessage = 'Requestor contact created successfully!';
             } elseif ($this->selectedRequestorId > 0) {
-                \DB::table('dts_requestor_history')
+                DB::table('dts_requestor_history')
                     ->where('id', $this->selectedRequestorId)
                     ->update([
                         'requestor_name' => trim($this->reqName),
@@ -122,8 +494,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                         'updated_at' => now(),
                     ]);
 
-                $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
-                \DB::table($adminLogsTbl)->insert([
+                $adminLogsTbl = Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                DB::table($adminLogsTbl)->insert([
                     'changes' => "Updated requestor contact ID {$this->selectedRequestorId}: {$this->reqName}",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -139,21 +511,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
 
     public function deleteRequestor(): void
     {
-        if ($this->selectedRequestorId === null || $this->selectedRequestorId <= 0) {
-            return;
-        }
+        if ($this->selectedRequestorId === null || $this->selectedRequestorId <= 0) return;
 
         $this->clearMessages();
 
         try {
-            $req = \DB::table('dts_requestor_history')->where('id', $this->selectedRequestorId)->first();
+            $req = DB::table('dts_requestor_history')->where('id', $this->selectedRequestorId)->first();
             if ($req) {
-                \DB::table('dts_requestor_history')
-                    ->where('id', $this->selectedRequestorId)
-                    ->update(['is_active' => false, 'updated_at' => now()]);
+                DB::table('dts_requestor_history')->where('id', $this->selectedRequestorId)->update(['is_active' => false, 'updated_at' => now()]);
 
-                $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
-                \DB::table($adminLogsTbl)->insert([
+                $adminLogsTbl = Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                DB::table($adminLogsTbl)->insert([
                     'changes' => "Deactivated requestor contact: {$req->requestor_name}",
                     'admin_id' => auth()->id(),
                     'what_system' => 3,
@@ -168,508 +536,93 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
         }
     }
 
-    /** @var string Holds the column key to sort users by */
-    public string $sortBy = 'name';
-
-    /** @var string Sorting order direction ('asc' or 'desc') */
-    public string $sortDir = 'asc';
-
-    /** @var string View Mode toggle ('table' or 'grid') */
-    public string $viewMode = 'table';
-
-    /** @var int|null The ID of the currently selected user profile being viewed/edited. (-1 = create mode) */
-    public ?int $selectedUserId = null;
-
-    public function updatingSearch(): void
-    {
-        $this->resetPage();
-    }
-
-    public function updatingSortBy(): void
-    {
-        $this->resetPage();
-    }
-
-    public function updatingSortDir(): void
-    {
-        $this->resetPage();
-    }
-
-    /**
-     * Toggles the sort direction between ascending (asc) and descending (desc).
-     * Automatically clears any active success or error banners.
-     */
-    public function toggleSortDir(): void
-    {
-        $this->sortDir = $this->sortDir === 'asc' ? 'desc' : 'asc';
-        $this->resetPage();
-        $this->clearMessages();
-    }
-    
-    /** @var string Holds the active user's first name for editing */
-    public string $firstName = '';
-
-    /** @var string Holds the active user's last name for editing */
-    public string $lastName = '';
-
-    /** @var string Holds the active user's middle name for editing */
-    public string $middleName = '';
-
-    /** @var string Holds the active user's email address for editing */
-    public string $email = '';
-
-    /** @var string Holds the active user's username */
-    public string $username = '';
-
-    /** @var int|null ID of the selected role (references key_id/id in condition_key) */
-    public ?int $roleId = null;
-
-    /** @var int|null ID of the selected office (references id in office) */
-    public ?int $officeId = null;
-
-    /** @var bool Active status of the user account */
-    public bool $isActive = true;
-
-    public function mount(): void
-    {
-        $perms = auth()->user()?->permissions;
-        if (!$perms || (!$perms->is_sadm && !$perms->is_admin && !$perms->can_sadm_modify_accountlist && !$perms->can_sadm_modify_account)) {
-            $this->redirect(route('portal'));
-            return;
-        }
-    }
-
-    /** @var string Holds successful transaction alert messages */
-    public string $successMessage = '';
-
-    /** @var string Holds failure transaction alert messages */
-    public string $errorMessage = '';
-
-    // Searchable dropdown properties
-    public string $roleSearch = '';
-    public bool $showRoleDropdown = false;
-    public string $officeSearch = '';
-    public bool $showOfficeDropdown = false;
-
-    /**
-     * Initializes "Create Mode" for configuring a new user profile.
-     */
-    public function startCreate(): void
-    {
-        $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
-        if (! $currentUserPerms || (! $currentUserPerms->is_sadm && ! $currentUserPerms->can_sadm_modify_account)) {
-            return;
-        }
-        $this->cancelSelection();
-        $this->selectedUserId = -1; // -1 denotes "Create Mode"
-    }
-
-    /**
-     * Selects a user from the left-hand directory list.
-     * Fetches user credentials and details, populating form fields.
-     * 
-     * @param int $id The ID of the user record to select
-     */
-    public function selectUser(int $id): void
-    {
-        $this->cancelSelection();
-        $this->selectedUserId = $id;
-        
-        $user = \App\Models\User::with('details')->find($id);
-        if ($user) {
-            $this->username = $user->username;
-            $this->roleId = $user->account_role;
-            if ($this->roleId) {
-                $role = \App\Models\role_list::find($this->roleId);
-                $this->roleSearch = $role ? $role->key_name : '';
-            } else {
-                $this->roleSearch = '';
-            }
-            $this->isActive = (bool) $user->account_active;
-            
-            $details = $user->details;
-            if ($details) {
-                $this->firstName = $details->first_name ?? '';
-                $this->lastName = $details->last_name ?? '';
-                $this->middleName = $details->middle_name ?? '';
-                $this->email = $details->email ?? '';
-                $this->officeId = $details->office_id;
-                if ($this->officeId) {
-                    $office = \App\Models\office::find($this->officeId);
-                    $this->officeSearch = $office ? $office->office_name : '';
-                } else {
-                    $this->officeSearch = '';
-                }
-            }
-        }
-    }
-
-    /**
-     * Clears all session toast/alert message banners.
-     */
-    public function clearMessages(): void
-    {
-        $this->successMessage = '';
-        $this->errorMessage = '';
-    }
-
-    /**
-     * Resets the selected user state, hiding the edit form.
-     */
-    public function cancelSelection(): void
-    {
-        $this->selectedUserId = null;
-        $this->username = '';
-        $this->firstName = '';
-        $this->lastName = '';
-        $this->middleName = '';
-        $this->email = '';
-        $this->roleId = null;
-        $this->officeId = null;
-        $this->isActive = true;
-        $this->roleSearch = '';
-        $this->showRoleDropdown = false;
-        $this->officeSearch = '';
-        $this->showOfficeDropdown = false;
-        $this->clearMessages();
-    }
-
-    public function selectRole(?int $id, string $name): void
-    {
-        $this->roleId = $id;
-        $this->roleSearch = $name;
-        $this->showRoleDropdown = false;
-    }
-
-    public function selectOffice(?int $id, string $name): void
-    {
-        $this->officeId = $id;
-        $this->officeSearch = $name;
-        $this->showOfficeDropdown = false;
-    }
-
-    /**
-     * Validates and saves changes made to the user's details and settings.
-     * Performed inside a Database Transaction to preserve data integrity.
-     */
-    public function saveUserChanges(): void
-    {
-        if (!$this->selectedUserId) {
-            return;
-        }
-
-        $this->clearMessages();
-
-        // Authorization check: User must be is_sadm or have can_sadm_modify_account clearance
-        $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
-        if (! $currentUserPerms || (! $currentUserPerms->is_sadm && ! $currentUserPerms->can_sadm_modify_account)) {
-            $this->errorMessage = 'Unauthorized: You do not have permission to modify user accounts.';
-            return;
-        }
-
-        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
-        $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
-        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
-
-        // 1. Validation Rules
-        if ($this->selectedUserId === -1) {
-            // Create mode validation rules (Email-First registration: First & Last Name are optional and auto-sync on 1st login)
-            $this->validate([
-                'firstName' => 'nullable|string|max:255',
-                'lastName' => 'nullable|string|max:255',
-                'middleName' => 'nullable|string|max:255',
-                'email' => "required|email|max:255|unique:{$accDetailsTbl},email",
-                'roleId' => "required|exists:{$condKeyTbl},id",
-                'officeId' => "nullable|exists:{$officeTbl},id",
-            ]);
-        } else {
-            // Edit mode validation rules
-            $this->validate([
-                'firstName' => 'required|string|max:255',
-                'lastName' => 'required|string|max:255',
-                'middleName' => 'nullable|string|max:255',
-                'email' => "required|email|max:255|unique:{$accDetailsTbl},email,{$this->selectedUserId},account_id",
-                'roleId' => "required|exists:{$condKeyTbl},id",
-                'officeId' => "nullable|exists:{$officeTbl},id",
-            ]);
-        }
-
-        try {
-            \DB::transaction(function () {
-                if ($this->selectedUserId === -1) {
-                    // Derive unique username from email prefix for system record
-                    $baseUsername = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', explode('@', $this->email)[0] ?? 'user'));
-                    if (empty($baseUsername)) {
-                        $baseUsername = 'user';
-                    }
-                    $derivedUsername = $baseUsername;
-                    $counter = 1;
-                    while (\App\Models\User::where('username', $derivedUsername)->exists()) {
-                        $derivedUsername = $baseUsername . $counter;
-                        $counter++;
-                    }
-
-                    // Create account record with auto-generated secure random password
-                    $user = new \App\Models\User();
-                    $user->username = $derivedUsername;
-                    $user->password = \Hash::make(\Illuminate\Support\Str::random(32));
-                    $user->account_status = 1;
-                    $user->account_role = $this->roleId;
-                    $user->account_active = $this->isActive;
-                    $user->date_created = now();
-                    $user->date_updated = now();
-                    $user->save();
-
-                    // Create account details record (Auto-sync placeholders if name not entered)
-                    $details = new \App\Models\AccountDetail();
-                    $details->account_id = $user->id;
-                    $details->first_name = !empty(trim($this->firstName)) ? trim($this->firstName) : 'Pending';
-                    $details->last_name = !empty(trim($this->lastName)) ? trim($this->lastName) : 'Google Sync';
-                    $details->middle_name = $this->middleName;
-                    $details->email = $this->email;
-                    $details->office_id = $this->officeId;
-                    $details->is_currently_online = false;
-                    $details->save();
-
-                    // Audit Log: created user account
-                    $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
-                    \DB::table($adminLogsTbl)->insert([
-                        'changes' => "Created user account via Google SSO: {$user->username} ({$this->firstName} {$this->lastName} <{$this->email}>)",
-                        'admin_id' => auth()->id(),
-                        'what_system' => 3, // Admin Console
-                        'when_changes' => now()
-                    ]);
-
-                    // Update local state to switch into edit mode for the new user
-                    $this->selectedUserId = $user->id;
-                    $this->username = $user->username;
-                    
-                    $this->successMessage = 'User account created successfully!';
-                } else {
-                    // Update general Account details
-                    $user = \App\Models\User::findOrFail($this->selectedUserId);
-                    
-                    // Detect if status changed
-                    $statusChanged = $user->account_active != $this->isActive;
-
-                    $userData = [
-                        'account_role' => $this->roleId,
-                        'account_active' => $this->isActive,
-                        'date_updated' => now(),
-                    ];
-
-                    $user->update($userData);
-
-                    // Update/Create personal Profile details
-                    $details = \App\Models\AccountDetail::find($this->selectedUserId);
-                    if (!$details) {
-                        $details = new \App\Models\AccountDetail();
-                        $details->account_id = $this->selectedUserId;
-                    }
-                    $details->first_name = $this->firstName;
-                    $details->last_name = $this->lastName;
-                    $details->middle_name = $this->middleName;
-                    $details->email = $this->email;
-                    $details->office_id = $this->officeId;
-                    // Force logout modified user account (unless it is the current logged-in admin)
-                    if ($this->selectedUserId !== auth()->id()) {
-                        $details->force_logout_at = now();
-                        $details->is_currently_online = false;
-                        $details->save();
-
-                        try {
-                            \DB::table('sessions')
-                                ->where('user_id', (string) $this->selectedUserId)
-                                ->orWhere('user_id', (int) $this->selectedUserId)
-                                ->delete();
-                        } catch (\Throwable) {}
-                    } else {
-                        $details->save();
-                    }
-
-                    // Audit Log: updated details
-                    $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
-                    \DB::table($adminLogsTbl)->insert([
-                        'changes' => "Updated details for user: {$user->username} ({$this->firstName} {$this->lastName})",
-                        'admin_id' => auth()->id(),
-                        'what_system' => 3, // Admin Console
-                        'when_changes' => now()
-                    ]);
-
-                    // Audit Log: status changed
-                    if ($statusChanged) {
-                        \DB::table($adminLogsTbl)->insert([
-                            'changes' => "Toggled active status (Value: " . ($this->isActive ? '1' : '0') . ") for user: {$user->username}",
-                            'admin_id' => auth()->id(),
-                            'what_system' => 3, // Admin Console
-                            'when_changes' => now()
-                        ]);
-                    }
-                    
-                    $this->successMessage = 'User account details updated successfully!';
-                }
-            });
-
-            // Real-time broadcast to Chatify so all user directories, sidebars, and office GC member modals refresh immediately
-            try {
-                if (file_exists(public_path('chatify/core/WsPush.php'))) {
-                    require_once public_path('chatify/bootstrap.php');
-                    \WsPush::broadcast('users_changed', [
-                        'account_id' => $this->selectedUserId,
-                        'office_id'  => $this->officeId,
-                    ]);
-                }
-            } catch (\Throwable) {}
-
-            if ($this->selectedUserId === auth()->id()) {
-                session()->flash('success', 'User account details updated successfully!');
-                $this->js('window.location.reload();');
-            }
-        } catch (\Exception $e) {
-            $this->errorMessage = 'Failed to save user account: ' . $e->getMessage();
-        }
-    }
-
-    /**
-     * Soft-deactivates (soft-deletes) the selected user for transparency.
-     */
-    public function deleteUser(): void
-    {
-        $this->clearMessages();
-
-        if (!$this->selectedUserId || $this->selectedUserId <= 0) {
-            $this->errorMessage = 'No user selected to delete.';
-            return;
-        }
-
-        if ($this->selectedUserId === auth()->id()) {
-            $this->errorMessage = 'You cannot delete your own logged-in account!';
-            return;
-        }
-
-        try {
-            \DB::transaction(function () {
-                $user = \App\Models\User::findOrFail($this->selectedUserId);
-                
-                $user->update([
-                    'account_active' => false,
-                    'date_updated' => now(),
-                ]);
-
-                // Force logout deactivated user account
-                $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
-                \DB::table($accDetailsTbl)
-                    ->where('account_id', $this->selectedUserId)
-                    ->update([
-                        'force_logout_at' => now(),
-                        'is_currently_online' => false,
-                    ]);
-
-                try {
-                    \DB::table('sessions')
-                        ->where('user_id', (string) $this->selectedUserId)
-                        ->orWhere('user_id', (int) $this->selectedUserId)
-                        ->delete();
-                } catch (\Throwable) {}
-
-                // Audit Log: soft-deleted/deactivated
-                $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
-                \DB::table($adminLogsTbl)->insert([
-                    'changes' => "Soft-deleted user account (Deactivated for transparency): {$user->username}",
-                    'admin_id' => auth()->id(),
-                    'what_system' => 3, // Admin Console
-                    'when_changes' => now()
-                ]);
-
-                // Reset selection to close edit details pane but set success message
-                $this->cancelSelection();
-                $this->successMessage = 'User account soft-deleted successfully!';
-            });
-
-            // Real-time broadcast to Chatify so all user directories, sidebars, and office GC member modals refresh immediately
-            try {
-                if (file_exists(public_path('chatify/core/WsPush.php'))) {
-                    require_once public_path('chatify/bootstrap.php');
-                    \WsPush::broadcast('users_changed', [
-                        'account_id' => $this->selectedUserId,
-                    ]);
-                }
-            } catch (\Throwable) {}
-        } catch (\Exception $e) {
-            $this->errorMessage = 'Failed to delete user: ' . $e->getMessage();
-        }
-    }
-
-    /**
-     * Component Lifecycle Hook - passes computed query variables to the view.
-     * Queries users with live search criteria and applies custom sorting.
-     * 
-     * @return array Contains queried users list, available roles, and offices
-     */
     public function with(): array
     {
-        // Only return active users in the directory to match deletion expectations
-        $query = \App\Models\User::with(['details'])->where('account_active', true);
+        $accTable = Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accDetailsTable = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $roleTable = Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+        $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
 
-        // Handle Search Filters (searches across credentials and details)
+        // 1. Clusters Collection for Column 1
+        $clusterQuery = \App\Models\Cluster::query()->where('is_active', true);
+        if ($this->clusterSearch !== '') {
+            $cSearch = '%' . $this->clusterSearch . '%';
+            $clusterQuery->where(function($q) use ($cSearch) {
+                $q->where('cluster_name', 'ilike', $cSearch)->orWhere('cluster_code', 'ilike', $cSearch);
+            });
+        }
+        $clusters = $clusterQuery->orderBy('cluster_name', 'asc')->get();
+
+        // 2. Roles list for authority filter & dropdowns
+        $roles = \App\Models\role_list::where('is_active', true)->orderBy('key_name')->get();
+
+        // 3. User counts per role and per cluster
+        $roleUserCounts = \App\Models\User::where('account_active', true)
+            ->groupBy('account_role')
+            ->selectRaw('account_role, count(*) as count')
+            ->pluck('count', 'account_role')
+            ->toArray();
+
+        $totalUsersCount = \App\Models\User::where('account_active', true)->count();
+
+        // 4. Offices Query for Column 2
+        $officeQuery = \App\Models\office::query()->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', 'HUB']);
+        if ($this->selectedClusterCode !== null) {
+            $officeQuery->where('cluster', $this->selectedClusterCode);
+        }
+        if ($this->officeColSearch !== '') {
+            $oSearch = '%' . $this->officeColSearch . '%';
+            $officeQuery->where(function($q) use ($oSearch) {
+                $q->where('office_name', 'ilike', $oSearch)->orWhere('office_code', 'ilike', $oSearch);
+            });
+        }
+        $offices = $officeQuery->orderBy('office_name', 'asc')->get();
+
+        // Staff counts per office
+        $officeStaffCounts = [];
+        try {
+            if (Schema::hasTable($accDetailsTable) && Schema::hasTable($accTable)) {
+                $officeStaffCounts = DB::table($accDetailsTable . ' as ad')
+                    ->join($accTable . ' as a', 'a.id', '=', 'ad.account_id')
+                    ->where('a.account_active', true)
+                    ->groupBy('ad.office_id')
+                    ->selectRaw('ad.office_id, count(*) as count')
+                    ->pluck('count', 'office_id')
+                    ->toArray();
+            }
+        } catch (\Throwable $e) {}
+
+        // 5. Users Query for Column 3
+        $userQuery = \App\Models\User::with(['details', 'details.office'])->where('account_active', true);
+
+        if ($this->selectedOfficeIdFilter !== null) {
+            $userQuery->whereHas('details', function($q) {
+                $q->where('office_id', $this->selectedOfficeIdFilter);
+            });
+        } elseif ($this->selectedClusterCode !== null) {
+            $userQuery->whereHas('details.office', function($q) {
+                $q->where('cluster', $this->selectedClusterCode);
+            });
+        } elseif ($this->selectedRoleIdFilter !== null) {
+            $userQuery->where('account_role', $this->selectedRoleIdFilter);
+        }
+
         if ($this->search !== '') {
-            $searchVal = '%' . $this->search . '%';
-            $query->where(function($q) use ($searchVal) {
-                $q->where('username', 'ilike', $searchVal)
-                  ->orWhereHas('details', function($qDet) use ($searchVal) {
-                      $qDet->where('first_name', 'ilike', $searchVal)
-                           ->orWhere('last_name', 'ilike', $searchVal)
-                           ->orWhere('email', 'ilike', $searchVal);
+            $s = '%' . $this->search . '%';
+            $userQuery->where(function($q) use ($s) {
+                $q->where('username', 'ilike', $s)
+                  ->orWhereHas('details', function($d) use ($s) {
+                      $d->where('first_name', 'ilike', $s)
+                        ->orWhere('last_name', 'ilike', $s)
+                        ->orWhere('email', 'ilike', $s);
                   });
             });
         }
+        $users = $userQuery->orderBy('username', 'asc')->get();
 
-        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
-        $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
-        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
-        $accountTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
-
-        // Handle Sorting Options using subquery ordering
-        switch ($this->sortBy) {
-            case 'username':
-                $query->orderBy('username', $this->sortDir);
-                break;
-            case 'role':
-                $query->orderBy(
-                    \DB::raw("(select key_name from {$condKeyTbl} where {$condKeyTbl}.id = {$accountTbl}.account_role)"),
-                    $this->sortDir
-                );
-                break;
-            case 'office':
-                $query->orderBy(
-                    \DB::raw("(select office_name from {$officeTbl} join {$accDetailsTbl} on {$accDetailsTbl}.office_id = {$officeTbl}.id where {$accDetailsTbl}.account_id = {$accountTbl}.id)"),
-                    $this->sortDir
-                );
-                break;
-            case 'date_created':
-                $query->orderBy('date_created', $this->sortDir);
-                break;
-            case 'name':
-            default:
-                $query->orderBy(
-                    \DB::raw("(select last_name from {$accDetailsTbl} where {$accDetailsTbl}.account_id = {$accountTbl}.id)"),
-                    $this->sortDir
-                )->orderBy(
-                    \DB::raw("(select first_name from {$accDetailsTbl} where {$accDetailsTbl}.account_id = {$accountTbl}.id)"),
-                    $this->sortDir
-                );
-                break;
-        }
-
-        $users = $query->paginate(20);
-
-        // Fetch auxiliary lists for form dropdown lists (only active ones)
-        $roles = \App\Models\role_list::where('is_active', true)->orderBy('key_name')->get();
-        $offices = \App\Models\office::where('is_active', true)->orderBy('office_name')->get();
-        $sourceOffices = \DB::table('dts_source_office')->where('is_active', true)->orderBy('s_office_name')->get();
-
-        $requestorsQuery = \DB::table('dts_requestor_history as req')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as off', 'off.office_code', '=', 'req.office')
+        // 6. Requestors Query (Mode B)
+        $requestorsQuery = DB::table('dts_requestor_history as req')
+            ->leftJoin($officeTable . ' as off', 'off.office_code', '=', 'req.office')
             ->leftJoin('dts_source_office as src', 'src.s_office_code', '=', 'req.office')
             ->when(!empty($this->requestorSearch), function($q) {
                 $s = trim($this->requestorSearch);
@@ -683,685 +636,1171 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             })
             ->select(
                 'req.*',
-                \DB::raw("COALESCE(off.office_name, src.s_office_name, req.office) as office_display_name"),
-                \DB::raw("CASE WHEN off.office_code IS NOT NULL THEN 'Internal' WHEN src.s_office_code IS NOT NULL THEN 'External' ELSE 'Custom' END as office_category")
+                DB::raw("COALESCE(off.office_name, src.s_office_name, req.office) as office_display_name"),
+                DB::raw("CASE WHEN off.office_code IS NOT NULL THEN 'Internal' WHEN src.s_office_code IS NOT NULL THEN 'External' ELSE 'Custom' END as office_category")
             );
 
-        switch ($this->reqSortBy) {
-            case 'position':
-                $requestorsQuery->orderBy('req.requestor_position', $this->reqSortDir);
-                break;
-            case 'office':
-                $requestorsQuery->orderBy('req.office', $this->reqSortDir);
-                break;
-            case 'status':
-                $requestorsQuery->orderBy('req.is_active', $this->reqSortDir);
-                break;
-            case 'date_created':
-                $requestorsQuery->orderBy('req.created_at', $this->reqSortDir);
-                break;
-            case 'name':
-            default:
-                $requestorsQuery->orderBy('req.requestor_name', $this->reqSortDir);
-                break;
+        if ($this->reqCategoryFilter !== 'all') {
+            if ($this->reqCategoryFilter === 'active') {
+                $requestorsQuery->where('req.is_active', true);
+            } elseif ($this->reqCategoryFilter === 'inactive') {
+                $requestorsQuery->where('req.is_active', false);
+            }
+        }
+        $requestors = $requestorsQuery->orderBy('req.requestor_name', 'asc')->get();
+
+        // Requestor filing history in DTS for Column 3
+        $reqTransactions = collect();
+        if ($this->selectedRequestorId && $this->selectedRequestorId > 0 && Schema::hasTable('dts_transaction_details') && Schema::hasColumn('dts_transaction_details', 'requestor_id')) {
+            try {
+                $orderCol = Schema::hasColumn('dts_transaction_details', 'date_created') ? 'date_created' : 'id';
+                $reqTransactions = DB::table('dts_transaction_details')
+                    ->where('requestor_id', $this->selectedRequestorId)
+                    ->orderBy($orderCol, 'desc')
+                    ->limit(8)
+                    ->get();
+            } catch (\Throwable $e) {}
         }
 
-        $requestors = $requestorsQuery->get();
-
         return [
-            'users' => $users,
-            'roles' => $roles,
-            'offices' => $offices,
-            'sourceOffices' => $sourceOffices,
-            'requestors' => $requestors,
+            'clusters'          => $clusters,
+            'roles'             => $roles,
+            'roleUserCounts'    => $roleUserCounts,
+            'totalUsersCount'   => $totalUsersCount,
+            'offices'           => $offices,
+            'officeStaffCounts' => $officeStaffCounts,
+            'users'             => $users,
+            'requestors'        => $requestors,
+            'reqTransactions'   => $reqTransactions,
         ];
     }
 };
 ?>
 
 @push('styles')
-    @vite('resources/css/admin/accounts_users.css')
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
-        .tabs-header {
+        .miller-container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 16px 20px;
+            height: calc(100vh - 100px);
             display: flex;
-            gap: 12px;
-            border-bottom: 2px solid #e2e8f0;
-            margin-bottom: 20px;
+            flex-direction: column;
+            box-sizing: border-box;
+            user-select: none;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
         }
-        .tab-btn {
-            background: none;
+
+        /* 4-Column Miller Browser Layout */
+        .miller-browser {
+            flex: 1 1 auto;
+            display: grid;
+            grid-template-columns: 260px 260px 1fr 340px;
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px 10px 0 0;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+            min-height: 540px;
+        }
+
+        .miller-column {
+            border-right: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            background: #ffffff;
+            min-height: 0;
+            position: relative;
+        }
+        .miller-column:nth-child(even) {
+            background: #fafbfc;
+        }
+        .miller-column:last-child {
+            border-right: none;
+        }
+
+        .m-col-header {
+            padding: 11px 14px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11.5px;
+            font-weight: 800;
+            color: #334155;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .m-col-header span {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .m-col-search {
+            padding: 8px 10px;
+            border-bottom: 1px solid #f1f5f9;
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .m-col-search input {
+            width: 100%;
+            padding: 6px 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 12px;
+            outline: none;
+            box-sizing: border-box;
+            background: #ffffff;
+            color: #0f172a;
+        }
+        .m-col-search input:focus {
+            border-color: #0284c7;
+            box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+        }
+
+        .m-col-list {
+            flex: 1 1 auto;
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+
+        .m-item {
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #334155;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.1s ease;
+            border-left: 3px solid transparent;
+            gap: 8px;
+        }
+        .m-item:hover {
+            background: #f1f5f9;
+            color: #0f172a;
+        }
+        .m-item.active {
+            background: #0284c7;
+            color: #ffffff;
+            border-left-color: #0369a1;
+            font-weight: 600;
+        }
+        .m-item.active .m-item-icon,
+        .m-item.active .m-item-arrow,
+        .m-item.active .m-item-sub {
+            color: #ffffff !important;
+            opacity: 0.9;
+        }
+        .m-item.active .m-item-badge {
+            background: rgba(255, 255, 255, 0.25);
+            color: #ffffff;
+            border-color: rgba(255, 255, 255, 0.35);
+        }
+
+        .m-item-left {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1 1 auto;
+        }
+        .m-item-avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: #e0f2fe;
+            color: #0369a1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 800;
+            flex-shrink: 0;
+        }
+        .m-item.active .m-item-avatar {
+            background: rgba(255, 255, 255, 0.25);
+            color: #ffffff;
+        }
+
+        .m-item-text {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .m-item-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12.5px;
+            font-weight: 600;
+        }
+        .m-item-sub {
+            font-size: 10.5px;
+            color: #64748b;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .m-item-right {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .m-item-badge {
+            font-size: 10.5px;
+            padding: 2px 7px;
+            border-radius: 9999px;
+            background: #e2e8f0;
+            color: #475569;
+            font-weight: 700;
+            border: 1px solid #cbd5e1;
+        }
+        .m-item-arrow {
+            font-size: 11px;
+            color: #94a3b8;
+        }
+
+        /* Scope Pills Toolbar */
+        .scope-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            font-weight: 700;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.15s ease;
+        }
+        .scope-pill.active {
+            background: #0284c7;
+            color: #ffffff;
+            box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2);
+        }
+        .scope-pill:not(.active) {
+            background: #f1f5f9;
+            color: #475569;
+            border-color: #cbd5e1;
+        }
+        .scope-pill:not(.active):hover {
+            background: #e2e8f0;
+            color: #0f172a;
+        }
+
+        /* Buttons */
+        .m-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 7px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
             border: none;
-            padding: 12px 20px;
-            font-size: 14.5px;
+            transition: all 0.15s ease;
+        }
+        .m-btn-primary {
+            background: #0284c7;
+            color: #ffffff;
+        }
+        .m-btn-primary:hover {
+            background: #0369a1;
+        }
+        .m-btn-danger {
+            background: #ef4444;
+            color: #ffffff;
+        }
+        .m-btn-danger:hover {
+            background: #dc2626;
+        }
+        .m-btn-secondary {
+            background: #f1f5f9;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+        }
+        .m-btn-secondary:hover {
+            background: #e2e8f0;
+            color: #0f172a;
+        }
+
+        /* Column 4: Inspector Panel */
+        .m-inspector {
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            overflow-y: auto;
+            flex: 1 1 auto;
+        }
+        .m-inspector-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .m-inspector-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: 800;
+            flex-shrink: 0;
+            box-shadow: 0 4px 6px -1px rgba(2, 132, 199, 0.25);
+        }
+        .m-inspector-title {
+            font-size: 15px;
+            font-weight: 800;
+            color: #0f172a;
+            line-height: 1.3;
+            margin: 0;
+        }
+        .m-inspector-sub {
+            font-size: 11px;
+            color: #64748b;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .m-field-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .m-field-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .m-field-input {
+            width: 100%;
+            padding: 7px 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 12.5px;
+            color: #0f172a;
+            outline: none;
+            box-sizing: border-box;
+            background: #ffffff;
+        }
+        .m-field-input:focus {
+            border-color: #0284c7;
+            box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+        }
+
+        .m-metric-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .m-metric-label {
+            font-size: 11.5px;
             font-weight: 600;
             color: #64748b;
-            cursor: pointer;
+        }
+        .m-metric-value {
+            font-size: 13px;
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        /* Switch */
+        .switch {
             position: relative;
-            outline: none;
-            transition: all 0.2s ease;
-            font-family: 'Outfit', sans-serif;
+            display: inline-block;
+            width: 38px;
+            height: 22px;
+            flex-shrink: 0;
         }
-        .tab-btn.active {
-            color: #003699;
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #cbd5e1; transition: .2s; border-radius: 22px;
         }
-        .tab-btn.active::after {
-            content: '';
-            position: absolute;
-            bottom: -2px;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: #003699;
-            border-radius: 99px;
+        .slider:before {
+            position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px;
+            background-color: white; transition: .2s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
         }
-        .admin-users-outer {
-            padding: 12px 24px;
+        input:checked + .slider { background-color: #0284c7; }
+        input:checked + .slider:before { transform: translateX(16px); }
+
+        /* Bottom Breadcrumb Bar */
+        .miller-path-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-top: none;
+            border-radius: 0 0 10px 10px;
+            padding: 9px 16px;
+            font-size: 12px;
+            color: #475569;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+        .miller-path-tag {
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .m-empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+            text-align: center;
+            color: #94a3b8;
+            height: 100%;
+            box-sizing: border-box;
+        }
+        .m-empty-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+            color: #cbd5e1;
+        }
+
+        /* Dark mode */
+        [data-theme="dark"] .miller-browser,
+        [data-theme="dark"] .miller-column {
+            background: #1e293b;
+            border-color: #334155;
+        }
+        [data-theme="dark"] .miller-column:nth-child(even) { background: #182234; }
+        [data-theme="dark"] .m-col-header,
+        [data-theme="dark"] .miller-path-bar {
+            background: #0f172a;
+            border-color: #334155;
+            color: #f1f5f9;
+        }
+        [data-theme="dark"] .m-col-search {
+            background: #1e293b;
+            border-color: #334155;
+        }
+        [data-theme="dark"] .m-col-search input {
+            background: #0f172a;
+            border-color: #334155;
+            color: #f1f5f9;
+        }
+        [data-theme="dark"] .m-item { color: #cbd5e1; }
+        [data-theme="dark"] .m-item:hover { background: #334155; color: #f8fafc; }
+        [data-theme="dark"] .m-item.active { background: #0284c7; color: #ffffff; }
+        [data-theme="dark"] .m-field-input {
+            background: #0f172a;
+            border-color: #334155;
+            color: #f1f5f9;
+        }
+        [data-theme="dark"] .m-metric-card {
+            background: #0f172a;
+            border-color: #334155;
         }
     </style>
 @endpush
 
-<div class="admin-users-outer">
-    <!-- Tabs Header -->
-    <div class="tabs-header">
-        <button type="button" class="tab-btn {{ $activeTab === 'users' ? 'active' : '' }}" wire:click="setTab('users')">
-            <i class="fa-solid fa-users" style="margin-right: 6px;"></i> System Users
-        </button>
-        <button type="button" class="tab-btn {{ $activeTab === 'requestors' ? 'active' : '' }}" wire:click="setTab('requestors')">
-            <i class="fa-solid fa-user-pen" style="margin-right: 6px;"></i> Requestor Users
-        </button>
+<div class="miller-container">
+    {{-- Top Action Toolbar --}}
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+            <div>
+                <h1 style="font-size: 20px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-users-gear" style="color: #0284c7;"></i> User Accounts & Credentials
+                </h1>
+                <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
+                    Directory browser: inspect departmental staff, role clearance mappings, and DTS requestor history.
+                </p>
+            </div>
+
+            {{-- Scope Selector --}}
+            <div style="display: flex; gap: 6px; background: #e2e8f0; padding: 3px; border-radius: 10px;">
+                <button type="button" class="scope-pill {{ $activeTab === 'users' ? 'active' : '' }}" wire:click="switchTab('users')">
+                    <i class="fa-solid fa-user-shield"></i> Internal Staff Accounts
+                </button>
+                <button type="button" class="scope-pill {{ $activeTab === 'requestors' ? 'active' : '' }}" wire:click="switchTab('requestors')">
+                    <i class="fa-solid fa-address-book"></i> External Requestors (DTS)
+                </button>
+            </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+            @if($activeTab === 'users')
+                <button type="button" wire:click="startCreate" class="m-btn m-btn-primary">
+                    <i class="fa-solid fa-user-plus"></i> New Staff User
+                </button>
+            @else
+                <button type="button" wire:click="startCreateRequestor" class="m-btn m-btn-primary">
+                    <i class="fa-solid fa-plus"></i> New Requestor
+                </button>
+            @endif
+
+            @if($selectedUserId || $selectedRequestorId)
+                <button type="button" wire:click="cancelSelection" class="m-btn m-btn-secondary" title="Close active selection">
+                    <i class="fa-solid fa-xmark"></i> Close Selection
+                </button>
+            @endif
+        </div>
     </div>
 
+    {{-- Feedback Messages --}}
+    @if($successMessage || session('success'))
+        <div role="status" style="margin-bottom: 12px; padding: 10px 14px; border: 1px solid #bbf7d0; border-radius: 8px; background: #f0fdf4; color: #15803d; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between;">
+            <div><i class="fa-solid fa-circle-check" style="margin-right: 8px;"></i> {{ $successMessage ?: session('success') }}</div>
+            <button type="button" wire:click="clearMessages" style="background: none; border: none; color: #15803d; cursor: pointer; font-size: 16px;">&times;</button>
+        </div>
+    @endif
+
+    @if($errorMessage || session('error'))
+        <div role="alert" style="margin-bottom: 12px; padding: 10px 14px; border: 1px solid #fecaca; border-radius: 8px; background: #fef2f2; color: #b91c1c; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between;">
+            <div><i class="fa-solid fa-triangle-exclamation" style="margin-right: 8px;"></i> {{ $errorMessage ?: session('error') }}</div>
+            <button type="button" wire:click="clearMessages" style="background: none; border: none; color: #b91c1c; cursor: pointer; font-size: 16px;">&times;</button>
+        </div>
+    @endif
+
+    {{-- ======================================================== --}}
+    {{-- MODE 1: INTERNAL STAFF USERS --}}
+    {{-- ======================================================== --}}
     @if($activeTab === 'users')
-        <div class="admin-users-container {{ !$selectedUserId ? 'no-selection' : 'has-selection' }}" wire:key="tab-users-view">
-    <!-- Left Pane: Users Directory -->
-    <div class="directory-panel">
-        <div class="directory-header-row">
-            <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Users Directory</span>
-            @php
-                $canModify = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_account;
-            @endphp
-            @if($canModify)
-            <button type="button" class="btn-create-new" wire:click="startCreate">
-                <i class="fa-solid fa-plus"></i> New User
-            </button>
+        <div class="miller-browser">
+            {{-- COLUMN 1: SCOPE GROUPS (CLUSTERS / ROLES) --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-sitemap" style="color: #64748b;"></i> 1. Organization & Scopes</span>
+                    <span class="m-item-badge">{{ $totalUsersCount }} Staff</span>
+                </div>
+
+                <div class="m-col-list">
+                    {{-- All Users --}}
+                    <div class="m-item {{ $selectedClusterCode === null && $selectedRoleIdFilter === null ? 'active' : '' }}" wire:click="filterByAll">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-users m-item-icon" style="font-size: 13px; color: #64748b; width: 18px; text-align: center;"></i>
+                            <div class="m-item-text">
+                                <span class="m-item-title">All College Staff</span>
+                                <span class="m-item-sub">System-wide directory</span>
+                            </div>
+                        </div>
+                        <div class="m-item-right">
+                            <span class="m-item-badge">{{ $totalUsersCount }}</span>
+                            <i class="fa-solid fa-chevron-right m-item-arrow"></i>
+                        </div>
+                    </div>
+
+                    {{-- Section Divider: Clusters --}}
+                    <div style="padding: 6px 14px 2px 14px; font-size: 10px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">
+                        Divisions & Clusters
+                    </div>
+
+                    @foreach($clusters as $c)
+                        <div class="m-item {{ $selectedClusterCode === $c->cluster_code ? 'active' : '' }}" wire:click="filterByCluster('{{ $c->cluster_code }}')" wire:key="c-scope-{{ $c->id }}">
+                            <div class="m-item-left">
+                                <i class="fa-solid fa-building-columns m-item-icon" style="font-size: 13px; color: #64748b; width: 18px; text-align: center;"></i>
+                                <div class="m-item-text">
+                                    <span class="m-item-title">{{ $c->cluster_name }}</span>
+                                    <span class="m-item-sub">Code: {{ $c->cluster_code }}</span>
+                                </div>
+                            </div>
+                            <div class="m-item-right">
+                                <i class="fa-solid fa-chevron-right m-item-arrow"></i>
+                            </div>
+                        </div>
+                    @endforeach
+
+                    {{-- Section Divider: Roles --}}
+                    <div style="padding: 10px 14px 2px 14px; font-size: 10px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">
+                        Authority & Roles
+                    </div>
+
+                    @foreach($roles as $r)
+                        @php $rCount = $roleUserCounts[$r->id] ?? 0; @endphp
+                        <div class="m-item {{ $selectedRoleIdFilter === $r->id ? 'active' : '' }}" wire:click="filterByRole({{ $r->id }})" wire:key="r-scope-{{ $r->id }}">
+                            <div class="m-item-left">
+                                <i class="fa-solid fa-user-shield m-item-icon" style="font-size: 13px; color: #64748b; width: 18px; text-align: center;"></i>
+                                <div class="m-item-text">
+                                    <span class="m-item-title">{{ $r->key_name }}</span>
+                                    <span class="m-item-sub">Role ID #{{ $r->id }}</span>
+                                </div>
+                            </div>
+                            <div class="m-item-right">
+                                <span class="m-item-badge">{{ $rCount }}</span>
+                                <i class="fa-solid fa-chevron-right m-item-arrow"></i>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+
+            {{-- COLUMN 2: OFFICES DIRECTORY --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span>
+                        <i class="fa-solid fa-building" style="color: #64748b;"></i> 
+                        2. Offices
+                        @if($selectedClusterCode)
+                            <span style="font-size: 10px; font-weight: 700; color: #0284c7; background: #e0f2fe; padding: 1px 6px; border-radius: 4px;">{{ $selectedClusterCode }}</span>
+                        @endif
+                    </span>
+                    <span class="m-item-badge">{{ count($offices) }}</span>
+                </div>
+
+                <div class="m-col-search">
+                    <i class="fa-solid fa-magnifying-glass" style="font-size: 11px; color: #94a3b8;"></i>
+                    <input type="text" placeholder="Search offices..." wire:model.live="officeColSearch">
+                </div>
+
+                <div class="m-col-list">
+                    {{-- All Offices in Scope item --}}
+                    <div class="m-item {{ $selectedOfficeIdFilter === null ? 'active' : '' }}" wire:click="filterByOffice(null)">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-layer-group m-item-icon" style="font-size: 13px; color: #64748b; width: 18px; text-align: center;"></i>
+                            <div class="m-item-text">
+                                <span class="m-item-title">All Offices in Scope</span>
+                                <span class="m-item-sub">View all staff in selected scope</span>
+                            </div>
+                        </div>
+                        <div class="m-item-right">
+                            <i class="fa-solid fa-chevron-right m-item-arrow"></i>
+                        </div>
+                    </div>
+
+                    @forelse($offices as $off)
+                        @php
+                            $sCount = $officeStaffCounts[$off->id] ?? 0;
+                            $isSelectedOff = ($selectedOfficeIdFilter === $off->id);
+                        @endphp
+                        <div class="m-item {{ $isSelectedOff ? 'active' : '' }}" wire:click="filterByOffice({{ $off->id }})" wire:key="off-col-{{ $off->id }}">
+                            <div class="m-item-left">
+                                <div class="m-item-avatar" style="border-radius: 6px; width: 26px; height: 26px; font-size: 10px;">
+                                    {{ strtoupper(substr($off->office_code ?: '?', 0, 3)) }}
+                                </div>
+                                <div class="m-item-text">
+                                    <span class="m-item-title">{{ $off->office_name }}</span>
+                                    <span class="m-item-sub">{{ $off->office_code }}</span>
+                                </div>
+                            </div>
+                            <div class="m-item-right">
+                                <span class="m-item-badge">{{ $sCount }}</span>
+                                <i class="fa-solid fa-chevron-right m-item-arrow"></i>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="m-empty-state">
+                            <span style="font-size: 12px; font-weight: 600;">No offices match</span>
+                        </div>
+                    @endforelse
+                </div>
+            </div>
+
+            {{-- COLUMN 3: STAFF USERS DIRECTORY --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-id-badge" style="color: #64748b;"></i> 3. Staff Users</span>
+                    <span class="m-item-badge">{{ count($users) }} Users</span>
+                </div>
+
+                <div class="m-col-search">
+                    <i class="fa-solid fa-magnifying-glass" style="font-size: 11px; color: #94a3b8;"></i>
+                    <input type="text" placeholder="Search by name, username, or email..." wire:model.live="search">
+                </div>
+
+                <div class="m-col-list">
+                    @if($selectedUserId === -1)
+                        <div class="m-item active" style="background: #0284c7;">
+                            <div class="m-item-left">
+                                <div class="m-item-avatar" style="background: rgba(255,255,255,0.25); color: #fff;">
+                                    <i class="fa-solid fa-user-plus"></i>
+                                </div>
+                                <div class="m-item-text">
+                                    <span class="m-item-title">{{ $firstName ? $firstName . ' ' . $lastName : 'New Staff Account' }}</span>
+                                    <span class="m-item-sub">[Draft Registration]</span>
+                                </div>
+                            </div>
+                            <div class="m-item-right">
+                                <span class="m-item-badge">New</span>
+                            </div>
+                        </div>
+                    @endif
+
+                    @forelse($users as $u)
+                        @php
+                            $det = $u->details;
+                            $uInitials = strtoupper(substr($det?->first_name ?: $u->username, 0, 1) . substr($det?->last_name ?: '', 0, 1));
+                            if (strlen($uInitials) === 1) $uInitials = strtoupper(substr($u->username, 0, 2));
+                            $isUserActive = ($selectedUserId === $u->id);
+                            $userRoleName = $roles->firstWhere('id', $u->account_role)?->key_name ?: 'Basic User';
+                            $userOfficeName = $det?->office?->office_code ?: 'Unassigned';
+                        @endphp
+                        <div class="m-item {{ $isUserActive ? 'active' : '' }}" wire:click="selectUser({{ $u->id }})" wire:key="user-row-{{ $u->id }}">
+                            <div class="m-item-left">
+                                <div class="m-item-avatar" style="background: {{ $det?->is_currently_online ? '#dcfce7' : '#e0f2fe' }}; color: {{ $det?->is_currently_online ? '#15803d' : '#0369a1' }}; border: 1.5px solid {{ $det?->is_currently_online ? '#86efac' : '#bae6fd' }};">
+                                    {{ $uInitials }}
+                                </div>
+                                <div class="m-item-text">
+                                    <span class="m-item-title">{{ $det?->first_name ? $det->first_name . ' ' . $det->last_name : $u->username }}</span>
+                                    <span class="m-item-sub">{{ '@' . $u->username }} · {{ $userOfficeName }}</span>
+                                </div>
+                            </div>
+                            <div class="m-item-right">
+                                <span class="m-item-badge">{{ $userRoleName }}</span>
+                                <i class="fa-solid fa-chevron-right m-item-arrow"></i>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="m-empty-state">
+                            <i class="fa-solid fa-user-slash m-empty-icon"></i>
+                            <span style="font-size: 12px; font-weight: 600;">No users in this scope</span>
+                            <span style="font-size: 11px; margin-top: 4px;">Click <strong>+ New Staff User</strong> to create an account</span>
+                        </div>
+                    @endforelse
+                </div>
+            </div>
+
+            {{-- COLUMN 4: USER PROFILE INSPECTOR --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-sliders" style="color: #64748b;"></i> 4. Profile Inspector</span>
+                    @if($selectedUserId && $selectedUserId > 0)
+                        <span class="m-item-badge" style="background: {{ $isActive ? '#dcfce7' : '#fee2e2' }}; color: {{ $isActive ? '#15803d' : '#991b1b' }}; border-color: {{ $isActive ? '#bbf7d0' : '#fecaca' }};">
+                            {{ $isActive ? 'Active' : 'Suspended' }}
+                        </span>
+                    @endif
+                </div>
+
+                @if($selectedUserId)
+                    <div class="m-inspector">
+                        <div class="m-inspector-header">
+                            <div class="m-inspector-avatar">
+                                <i class="fa-solid fa-user-check"></i>
+                            </div>
+                            <div style="overflow: hidden; flex: 1 1 auto;">
+                                <h3 class="m-inspector-title">{{ $firstName ? $firstName . ' ' . $lastName : ($username ?: 'New Staff Account') }}</h3>
+                                <span class="m-inspector-sub">{{ $selectedUserId === -1 ? 'New User Registration' : '@' . $username . ' · ID #' . $selectedUserId }}</span>
+                            </div>
+                        </div>
+
+                        {{-- Email Input --}}
+                        <div class="m-field-group">
+                            <label class="m-field-label">Institutional Email Address</label>
+                            <input type="email" class="m-field-input" placeholder="e.g. staff@cspc.edu.ph" wire:model="email">
+                            @error('email') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror
+                        </div>
+
+                        {{-- Name Fields --}}
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <div class="m-field-group">
+                                <label class="m-field-label">First Name</label>
+                                <input type="text" class="m-field-input" placeholder="First Name" wire:model="firstName">
+                                @error('firstName') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror
+                            </div>
+
+                            <div class="m-field-group">
+                                <label class="m-field-label">Last Name</label>
+                                <input type="text" class="m-field-input" placeholder="Last Name" wire:model="lastName">
+                                @error('lastName') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror
+                            </div>
+                        </div>
+
+                        <div class="m-field-group">
+                            <label class="m-field-label">Middle Name (Optional)</label>
+                            <input type="text" class="m-field-input" placeholder="Middle Name" wire:model="middleName">
+                        </div>
+
+                        {{-- Office Assignment Picker --}}
+                        <div class="m-field-group" style="position: relative;">
+                            <label class="m-field-label">Assigned Office / Station</label>
+                            <input type="text" class="m-field-input" placeholder="Search and assign office..." wire:model.live="officeSearch" wire:focus="$set('showOfficeDropdown', true)">
+                            @if($showOfficeDropdown)
+                                <div style="position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); z-index: 50; max-height: 180px; overflow-y: auto; margin-top: 2px;">
+                                    <div wire:click="selectOffice(null, 'No Assigned Office')" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #64748b;">
+                                        None (Unassigned)
+                                    </div>
+                                    @foreach($offices as $o)
+                                        <div wire:click="selectOffice({{ $o->id }}, '{{ $o->office_name }}')" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #0f172a;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+                                            <strong>{{ $o->office_name }}</strong> ({{ $o->office_code }})
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @endif
+                            @error('officeId') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror
+                        </div>
+
+                        {{-- Role Assignment Picker --}}
+                        <div class="m-field-group" style="position: relative;">
+                            <label class="m-field-label">System Role & Clearance Level</label>
+                            <input type="text" class="m-field-input" placeholder="Search and assign role..." wire:model.live="roleSearch" wire:focus="$set('showRoleDropdown', true)">
+                            @if($showRoleDropdown)
+                                <div style="position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); z-index: 50; max-height: 180px; overflow-y: auto; margin-top: 2px;">
+                                    @foreach($roles as $r)
+                                        <div wire:click="selectRole({{ $r->id }}, '{{ $r->key_name }}')" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #0f172a;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+                                            <strong>{{ $r->key_name }}</strong>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @endif
+                            @error('roleId') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror
+                        </div>
+
+                        {{-- Active Status Toggle --}}
+                        @if($selectedUserId > 0)
+                            <div class="m-metric-card">
+                                <span class="m-metric-label">Account Active Status</span>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="isActive">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        {{-- Security info --}}
+                        <div style="padding: 8px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 11px; color: #64748b; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-brands fa-google" style="color: #ea4335; font-size: 13px;"></i>
+                            <span>Google SSO Login Enabled. Staff log in with their institutional email.</span>
+                        </div>
+
+                        {{-- Sticky Action Buttons at bottom of Inspector --}}
+                        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+                            <button type="button" class="m-btn m-btn-primary" wire:click="saveUserChanges" wire:loading.attr="disabled" style="width: 100%;">
+                                <i class="fa-solid fa-floppy-disk" wire:loading.remove wire:target="saveUserChanges"></i>
+                                <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="saveUserChanges"></i>
+                                <span>Save User Account</span>
+                            </button>
+
+                            <div style="display: flex; gap: 8px;">
+                                @if($selectedUserId > 0 && $selectedUserId !== auth()->id())
+                                    <button type="button" class="m-btn m-btn-danger" wire:click="deleteUser" wire:confirm="Are you sure you want to deactivate this account?" style="flex: 1;" title="Soft-deactivate user account">
+                                        <i class="fa-solid fa-user-xmark"></i> Deactivate
+                                    </button>
+                                @endif
+                                <button type="button" class="m-btn m-btn-secondary" wire:click="cancelSelection" style="flex: 1;">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                @else
+                    <div class="m-empty-state">
+                        <i class="fa-solid fa-user-gear m-empty-icon"></i>
+                        <span style="font-size: 13px; font-weight: 700; color: #475569;">Profile Inspector</span>
+                        <span style="font-size: 11.5px; margin-top: 4px; max-width: 220px; line-height: 1.4;">
+                            Select a user account or click <strong>+ New Staff User</strong> to inspect profile credentials and role assignments.
+                        </span>
+                    </div>
+                @endif
+            </div>
+        </div>
+
+        {{-- Bottom Breadcrumb Path Bar --}}
+        <div class="miller-path-bar">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-users" style="color: #64748b;"></i>
+                <span>Staff Directory</span>
+                <i class="fa-solid fa-chevron-right" style="font-size: 10px; color: #94a3b8;"></i>
+                <span class="miller-path-tag">{{ $selectedClusterCode ?: 'All Clusters' }}</span>
+                @if($selectedOfficeIdFilter)
+                    <i class="fa-solid fa-chevron-right" style="font-size: 10px; color: #94a3b8;"></i>
+                    <span>{{ $offices->firstWhere('id', $selectedOfficeIdFilter)?->office_code ?: 'Office' }}</span>
+                @endif
+                @if($selectedUserId && $selectedUserId > 0)
+                    <i class="fa-solid fa-chevron-right" style="font-size: 10px; color: #94a3b8;"></i>
+                    <span style="color: #0284c7; font-weight: 700;">{{ $firstName ? $firstName . ' ' . $lastName : $username }} ({{ '@' . $username }})</span>
+                @endif
+            </div>
+
+            @if($selectedUserId)
+                <button type="button" wire:click="saveUserChanges" style="background: none; border: none; color: #0284c7; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 5px;">
+                    <i class="fa-solid fa-floppy-disk"></i> Quick Save User
+                </button>
             @endif
         </div>
 
-        <div class="directory-controls-bar">
-            <div class="search-box-wrapper">
-                <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                <input type="text" class="search-box" placeholder="Search by name, email, user..." wire:model.live="search">
-            </div>
-            
-            <div class="sort-controls-wrapper">
-                <span class="sort-label">Sort By:</span>
-                <select class="sort-select" wire:model.live="sortBy">
-                    <option value="name">Name</option>
-                    <option value="username">Username</option>
-                    <option value="role">Role</option>
-                    <option value="office">Office</option>
-                    <option value="date_created">Date Created</option>
-                </select>
-                <button type="button" wire:click="toggleSortDir" class="btn-sort-dir" title="Toggle Order Direction ({{ strtoupper($sortDir) }})">
-                    @if($sortDir === 'asc')
-                        <i class="fa-solid fa-arrow-up-a-z"></i>
-                    @else
-                        <i class="fa-solid fa-arrow-down-z-a"></i>
-                    @endif
-                </button>
-            </div>
-
-            <!-- View Mode Toggle -->
-            <div class="view-mode-toggle" style="margin-left: auto;">
-                <button type="button" wire:click="$set('viewMode', 'grid')" title="Cards Grid Layout" class="view-mode-btn {{ $viewMode === 'grid' ? 'active' : '' }}">
-                    <i class="fa-solid fa-border-all"></i> Cards
-                </button>
-                <button type="button" wire:click="$set('viewMode', 'table')" title="Table Layout" class="view-mode-btn {{ $viewMode === 'table' ? 'active' : '' }}">
-                    <i class="fa-solid fa-table-list"></i> Table
-                </button>
-            </div>
-        </div>
-
-        @if($viewMode === 'table')
-            <!-- Table Layout View -->
-            <div class="users-table-container">
-                <table class="users-data-table">
-                    <thead>
-                        <tr class="users-table-head-row">
-                            <th style="min-width: 180px;">User Name</th>
-                            <th style="min-width: 220px;">Email (Google Account)</th>
-                            <th style="min-width: 150px;">Assigned Role</th>
-                            <th style="width: 110px; text-align: center;">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse($users as $user)
-                            @php
-                                $userDet = $user->details;
-                                $displayName = $userDet ? ($userDet->first_name . ' ' . $userDet->last_name) : $user->username;
-                                $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
-                                $roleKey = \DB::table($condKeyTbl)->where('id', $user->account_role)->first();
-                            @endphp
-                            <tr class="user-tbl-row {{ $selectedUserId === $user->id ? 'selected-row' : '' }}" 
-                                wire:key="user-tbl-{{ $user->id }}" 
-                                wire:click="selectUser({{ $user->id }})">
-                                <td class="user-name-cell">{{ $displayName }}</td>
-                                <td class="user-email-cell">{{ $userDet?->email ?: '—' }}</td>
-                                <td class="user-role-cell">
-                                    <span>
-                                        {{ $roleKey?->key_name ?: 'User' }}
-                                    </span>
-                                </td>
-                                <td style="text-align: center;">
-                                    @if($user->account_active)
-                                        <span class="user-status-badge active">Active</span>
-                                    @else
-                                        <span class="user-status-badge blocked">Blocked</span>
-                                    @endif
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="4" class="users-table-empty">No users found matching your search.</td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-        @else
-            <!-- Cards Grid Layout View -->
-            <div class="users-list">
-                @forelse($users as $user)
-                    @php
-                        $userDet = $user->details;
-                        $initials = strtoupper(substr($userDet?->first_name ?: '?', 0, 1) . substr($userDet?->last_name ?: '?', 0, 1));
-                        $displayName = $userDet ? ($userDet->first_name . ' ' . $userDet->last_name) : $user->username;
-                        $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
-                        $roleKey = \DB::table($condKeyTbl)->where('id', $user->account_role)->first();
-                    @endphp
-                    <div class="user-item-card {{ $selectedUserId === $user->id ? 'active' : '' }}" wire:key="user-{{ $user->id }}" wire:click="selectUser({{ $user->id }})">
-                        <div class="user-avatar-small">
-                            @if(!empty($userDet?->avatar_url))
-                                <img src="{{ $userDet->avatar_url }}" alt="Avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
-                            @else
-                                <span>{{ $initials }}</span>
-                            @endif
-                        </div>
-                        <div class="user-meta-info">
-                            <span class="user-display-name">{{ $displayName }}</span>
-                            <span class="user-display-email">{{ $userDet?->email ?: '@' . $user->username }}</span>
-                            <span class="user-display-role-badge">{{ $roleKey?->key_name ?: 'User' }}</span>
-                        </div>
-                        @if(!$user->account_active)
-                            <i class="fa-solid fa-ban" style="color: #ef4444; font-size: 13px;" title="Account Blocked"></i>
-                        @endif
-                    </div>
-                @empty
-                    <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
-                        No users found matching your search.
-                    </div>
-                @endforelse
-            </div>
-        @endif
-
-        @if($users->hasPages())
-            <div class="users-pagination-bar">
-                {{ $users->links('components.pagination') }}
-            </div>
-        @endif
-    </div>
-
-    <!-- Right Pane: User Details & Form (Only rendered when a user is selected or creating a new user) -->
-    @if($selectedUserId)
-        <div class="details-panel" wire:key="user-details-panel-{{ $selectedUserId }}">
-            @php
-                if ($selectedUserId > 0) {
-                    $selectedUser = \App\Models\User::with('details')->find($selectedUserId);
-                    $selectedUserDet = $selectedUser?->details;
-                    $selInitials = strtoupper(substr($selectedUserDet?->first_name ?: '?', 0, 1) . substr($selectedUserDet?->last_name ?: '?', 0, 1));
-                    $selDisplayName = $selectedUserDet ? ($selectedUserDet->first_name . ' ' . $selectedUserDet->last_name) : $selectedUser->username;
-                    $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
-                    $selRoleKey = \DB::table($condKeyTbl)->where('id', $selectedUser->account_role)->first();
-                    $selRoleName = $selRoleKey?->key_name ?: 'User';
-                    $isOnline = $selectedUserDet?->is_currently_online;
-                } else {
-                    $selInitials = 'NU';
-                    $selDisplayName = 'Configure New User';
-                    $selRoleName = 'Guest';
-                    $isOnline = false;
-                }
-            @endphp
-            
-            <!-- Header -->
-            <div class="details-header">
-                <div class="details-header-avatar">
-                    @if($selectedUserId === -1)
-                        <i class="fa-solid fa-user-plus" style="font-size: 20px;"></i>
-                    @elseif(!empty($selectedUserDet?->avatar_url))
-                        <img src="{{ $selectedUserDet->avatar_url }}" alt="Avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
-                    @else
-                        <span>{{ $selInitials }}</span>
-                    @endif
+    {{-- ======================================================== --}}
+    {{-- MODE 2: EXTERNAL REQUESTORS (DTS) --}}
+    {{-- ======================================================== --}}
+    @else
+        <div class="miller-browser">
+            {{-- COLUMN 1: REQUESTOR CATEGORIES --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-filter" style="color: #64748b;"></i> 1. Requestor Filters</span>
+                    <span class="m-item-badge">{{ count($requestors) }}</span>
                 </div>
-                <div class="details-header-info">
-                    <h2 class="details-header-name">{{ $selDisplayName }}</h2>
-                    <span class="details-header-sub">
-                        @if($selectedUserId === -1)
-                            Configure access credentials & profile details for a new platform account
-                        @else
-                            <i class="fa-solid fa-user-shield"></i> {{ $selRoleName }} &nbsp;•&nbsp; 
-                            <i class="fa-solid fa-circle {{ $isOnline ? 'online' : 'offline' }}" style="color: {{ $isOnline ? '#10b981' : '#cbd5e1' }}; font-size: 8px;"></i>
-                            {{ $isOnline ? 'Online Now' : 'Offline' }}
-                        @endif
-                    </span>
-                </div>
-                <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close Details Panel">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-            </div>
 
-            <!-- Body/Form -->
-            <div class="details-body">
-                @if($successMessage || session('success'))
-                    <div class="toast-alert success">
-                        <i class="fa-solid fa-circle-check"></i>
-                        <span>{{ $successMessage ?: session('success') }}</span>
-                    </div>
-                @endif
-
-                @if($errorMessage || session('error'))
-                    <div class="toast-alert error">
-                        <i class="fa-solid fa-circle-exclamation"></i>
-                        <span>{{ $errorMessage ?: session('error') }}</span>
-                    </div>
-                @endif
-
-                <form wire:submit.prevent="saveUserChanges" class="form-grid-layout">
-                    <!-- Email -->
-                    <div class="form-group full-width">
-                        <span class="form-label">Email Address (Google Account)</span>
-                        <input type="email" class="form-input" placeholder="e.g. john.doe@cspc.edu.ph" wire:model="email">
-                        @error('email') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                    </div>
-
-                    <!-- First Name -->
-                    <div class="form-group">
-                        <span class="form-label">First Name</span>
-                        <input type="text" class="form-input" placeholder="Enter first name..." wire:model="firstName">
-                        @error('firstName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                    </div>
-
-                    <!-- Last Name -->
-                    <div class="form-group">
-                        <span class="form-label">Last Name</span>
-                        <input type="text" class="form-input" placeholder="Enter last name..." wire:model="lastName">
-                        @error('lastName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                    </div>
-
-                    <!-- Middle Name -->
-                    <div class="form-group full-width">
-                        <span class="form-label">Middle Name</span>
-                        <input type="text" class="form-input" placeholder="Enter middle name..." wire:model="middleName">
-                        @error('middleName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                    </div>
-
-                    <!-- Role -->
-                    <div class="form-group" wire:click.outside="$set('showRoleDropdown', false)">
-                        <span class="form-label">Assigned Role</span>
-                        <div style="position: relative;">
-                            <input type="text" 
-                                   class="form-input" 
-                                   placeholder="Search and select role..." 
-                                   wire:model.live="roleSearch" 
-                                   wire:focus="$set('showRoleDropdown', true)" 
-                                   autocomplete="off" 
-                                   style="padding-right: 32px; font-family: 'Inter', sans-serif;">
-                            <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
-                            
-                            @if($showRoleDropdown)
-                                <div class="users-custom-dropdown">
-                                    <div class="users-dropdown-item placeholder-item" wire:click="selectRole(null, '')">
-                                        Select Role
-                                    </div>
-                                    @php
-                                        $rSearchLower = strtolower($roleSearch);
-                                        $filteredRoles = $roles->filter(function($r) use ($rSearchLower) {
-                                            return empty($rSearchLower) || str_contains(strtolower($r->key_name), $rSearchLower);
-                                        });
-                                    @endphp
-                                    @forelse($filteredRoles as $role)
-                                        <div class="users-dropdown-item {{ $roleId === $role->id ? 'selected' : '' }}" wire:click="selectRole({{ $role->id }}, '{{ addslashes($role->key_name) }}')">
-                                            {{ $role->key_name }}
-                                        </div>
-                                    @empty
-                                        <div class="users-dropdown-empty">No matching roles found</div>
-                                    @endforelse
-                                </div>
-                            @endif
-                        </div>
-                        @error('roleId') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                    </div>
-
-                    <!-- Office -->
-                    <div class="form-group" wire:click.outside="$set('showOfficeDropdown', false)">
-                        <span class="form-label">Assigned Office</span>
-                        <div style="position: relative;">
-                            <input type="text" 
-                                   class="form-input" 
-                                   placeholder="Search and select office..." 
-                                   wire:model.live="officeSearch" 
-                                   wire:focus="$set('showOfficeDropdown', true)" 
-                                   autocomplete="off" 
-                                   style="padding-right: 32px; font-family: 'Inter', sans-serif;">
-                            <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
-                            
-                            @if($showOfficeDropdown)
-                                <div class="users-custom-dropdown">
-                                    <div class="users-dropdown-item placeholder-item" wire:click="selectOffice(null, '')">
-                                        No Office Assigned
-                                    </div>
-                                    @php
-                                        $oSearchLower = strtolower($officeSearch);
-                                        $filteredOffices = $offices->filter(function($o) use ($oSearchLower) {
-                                            return empty($oSearchLower) 
-                                                || str_contains(strtolower($o->office_name), $oSearchLower)
-                                                || str_contains(strtolower($o->office_code), $oSearchLower);
-                                        });
-                                    @endphp
-                                    @forelse($filteredOffices as $office)
-                                        <div class="users-dropdown-item {{ $officeId === $office->id ? 'selected' : '' }}" wire:click="selectOffice({{ $office->id }}, '{{ addslashes($office->office_name) }}')">
-                                            {{ $office->office_name }} ({{ $office->office_code }})
-                                        </div>
-                                    @empty
-                                        <div class="users-dropdown-empty">No matching offices found</div>
-                                    @endforelse
-                                </div>
-                            @endif
-                        </div>
-                        @error('officeId') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                    </div>
-
-                    <!-- Active Toggle Wrapper -->
-                    <div class="form-group full-width">
-                        <div class="status-toggle-wrapper">
-                            <div class="status-toggle-label">
-                                <span class="status-toggle-title">Account Status</span>
-                                <span class="status-toggle-desc">Toggle whether this user account is active or suspended.</span>
+                <div class="m-col-list">
+                    <div class="m-item {{ $reqCategoryFilter === 'all' ? 'active' : '' }}" wire:click="$set('reqCategoryFilter', 'all')">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-globe m-item-icon" style="font-size: 13px; color: #64748b; width: 18px; text-align: center;"></i>
+                            <div class="m-item-text">
+                                <span class="m-item-title">All Requestors</span>
+                                <span class="m-item-sub">Total registered contacts</span>
                             </div>
-                            <label class="switch">
-                                <input type="checkbox" wire:model="isActive">
-                                <span class="slider"></span>
-                            </label>
+                        </div>
+                        <div class="m-item-right">
+                            <i class="fa-solid fa-chevron-right m-item-arrow"></i>
                         </div>
                     </div>
-                </form>
+
+                    <div class="m-item {{ $reqCategoryFilter === 'active' ? 'active' : '' }}" wire:click="$set('reqCategoryFilter', 'active')">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-circle-check m-item-icon" style="font-size: 13px; color: #16a34a; width: 18px; text-align: center;"></i>
+                            <div class="m-item-text">
+                                <span class="m-item-title">Active Contacts</span>
+                                <span class="m-item-sub">Available in DTS dropdown</span>
+                            </div>
+                        </div>
+                        <div class="m-item-right">
+                            <i class="fa-solid fa-chevron-right m-item-arrow"></i>
+                        </div>
+                    </div>
+
+                    <div class="m-item {{ $reqCategoryFilter === 'inactive' ? 'active' : '' }}" wire:click="$set('reqCategoryFilter', 'inactive')">
+                        <div class="m-item-left">
+                            <i class="fa-solid fa-circle-xmark m-item-icon" style="font-size: 13px; color: #ef4444; width: 18px; text-align: center;"></i>
+                            <div class="m-item-text">
+                                <span class="m-item-title">Deactivated Contacts</span>
+                                <span class="m-item-sub">Soft-deleted contacts</span>
+                            </div>
+                        </div>
+                        <div class="m-item-right">
+                            <i class="fa-solid fa-chevron-right m-item-arrow"></i>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <!-- Footer -->
-            <div class="details-footer">
-                @php
-                    $canModify = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_account;
-                @endphp
-                @if($selectedUserId > 0)
-                    <button type="button" class="btn-delete" wire:click="deleteUser" style="margin-right: auto;" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
-                        <i class="fa-solid fa-trash-can"></i> Delete Account
-                    </button>
-                @endif
-                <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
-                <button type="button" class="btn-save" wire:click="saveUserChanges" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
-                    <i class="fa-solid fa-floppy-disk"></i> {{ $selectedUserId === -1 ? 'Create User' : 'Save Changes' }}
-                </button>
+            {{-- COLUMN 2: REQUESTORS DIRECTORY --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-address-book" style="color: #64748b;"></i> 2. Requestor Directory</span>
+                    <span class="m-item-badge">{{ count($requestors) }}</span>
+                </div>
+
+                <div class="m-col-search">
+                    <i class="fa-solid fa-magnifying-glass" style="font-size: 11px; color: #94a3b8;"></i>
+                    <input type="text" placeholder="Search requestor name or agency..." wire:model.live="requestorSearch">
+                </div>
+
+                <div class="m-col-list">
+                    @if($selectedRequestorId === -1)
+                        <div class="m-item active" style="background: #0284c7;">
+                            <div class="m-item-left">
+                                <div class="m-item-avatar" style="background: rgba(255,255,255,0.25); color: #fff;">
+                                    <i class="fa-solid fa-plus"></i>
+                                </div>
+                                <div class="m-item-text">
+                                    <span class="m-item-title">{{ $reqName ?: 'New Requestor Contact' }}</span>
+                                    <span class="m-item-sub">[Draft Entry]</span>
+                                </div>
+                            </div>
+                            <div class="m-item-right">
+                                <span class="m-item-badge">New</span>
+                            </div>
+                        </div>
+                    @endif
+
+                    @forelse($requestors as $rq)
+                        <div class="m-item {{ $selectedRequestorId === $rq->id ? 'active' : '' }}" wire:click="selectRequestorItem({{ $rq->id }})" wire:key="rq-{{ $rq->id }}">
+                            <div class="m-item-left">
+                                <div class="m-item-avatar" style="background: #f1f5f9; color: #475569;">
+                                    {{ strtoupper(substr($rq->requestor_name ?: '?', 0, 2)) }}
+                                </div>
+                                <div class="m-item-text">
+                                    <span class="m-item-title">{{ $rq->requestor_name }}</span>
+                                    <span class="m-item-sub">{{ $rq->requestor_position ? $rq->requestor_position . ' · ' : '' }}{{ $rq->office }}</span>
+                                </div>
+                            </div>
+                            <div class="m-item-right">
+                                <i class="fa-solid fa-chevron-right m-item-arrow"></i>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="m-empty-state">
+                            <span style="font-size: 12px; font-weight: 600;">No requestors found</span>
+                        </div>
+                    @endforelse
+                </div>
             </div>
-        </div>
-    @endif
-    </div>
-    @elseif($activeTab === 'requestors')
-        <div class="admin-users-container {{ !$selectedRequestorId ? 'no-selection' : 'has-selection' }}" wire:key="tab-requestors-view">
-            <!-- Left Pane: Requestors Directory -->
-            <div class="directory-panel">
-                <div class="directory-header-row">
-                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Requestor Contacts Directory</span>
-                    @php
-                        $canModify = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_account;
-                    @endphp
-                    @if($canModify)
-                    <button type="button" class="btn-create-new" wire:click="startCreateRequestor">
-                        <i class="fa-solid fa-plus"></i> New Requestor
-                    </button>
+
+            {{-- COLUMN 3: FILING HISTORY IN DTS --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-file-invoice" style="color: #64748b;"></i> 3. Document Filing History</span>
+                    @if($selectedRequestorId && $selectedRequestorId > 0)
+                        <span class="m-item-badge">{{ count($reqTransactions) }} Filed</span>
                     @endif
                 </div>
 
-                <div class="directory-controls-bar">
-                    <div class="search-box-wrapper">
-                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                        <input type="text" class="search-box" placeholder="Search by name, position, office..." wire:model.live="requestorSearch">
-                    </div>
-                    
-                    <div class="sort-controls-wrapper">
-                        <span class="sort-label">Sort By:</span>
-                        <select class="sort-select" wire:model.live="reqSortBy">
-                            <option value="name">Name</option>
-                            <option value="position">Position</option>
-                            <option value="office">Office</option>
-                            <option value="status">Status</option>
-                            <option value="date_created">Date Created</option>
-                        </select>
-                        <button type="button" wire:click="toggleReqSortDir" class="btn-sort-dir" title="Toggle Order Direction ({{ strtoupper($reqSortDir) }})">
-                            @if($reqSortDir === 'asc')
-                                <i class="fa-solid fa-arrow-up-a-z"></i>
-                            @else
-                                <i class="fa-solid fa-arrow-down-z-a"></i>
-                            @endif
-                        </button>
-                    </div>
+                <div class="m-col-list" style="padding: 12px 14px;">
+                    @if($selectedRequestorId && $selectedRequestorId > 0)
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <div class="m-metric-card" style="flex-direction: column; align-items: flex-start; gap: 4px;">
+                                <span class="m-metric-label">Agency / Institutional Affiliation</span>
+                                <span class="m-metric-value" style="color: #0284c7;">{{ $reqOffice ?: 'Private Citizen / Unaffiliated' }}</span>
+                            </div>
 
-                    <!-- View Mode Toggle -->
-                    <div class="view-mode-toggle" style="margin-left: auto;">
-                        <button type="button" wire:click="$set('reqViewMode', 'grid')" class="view-mode-btn {{ $reqViewMode === 'grid' ? 'active' : '' }}" title="Cards Grid Layout">
-                            <i class="fa-solid fa-border-all"></i> Cards
-                        </button>
-                        <button type="button" wire:click="$set('reqViewMode', 'table')" class="view-mode-btn {{ $reqViewMode === 'table' ? 'active' : '' }}" title="Table Layout">
-                            <i class="fa-solid fa-table-list"></i> Table
-                        </button>
-                    </div>
+                            <div class="m-metric-card" style="flex-direction: column; align-items: flex-start; gap: 4px;">
+                                <span class="m-metric-label">Official Position / Title</span>
+                                <span class="m-metric-value">{{ $reqPosition ?: 'Designation Not Provided' }}</span>
+                            </div>
+
+                            <div>
+                                <span style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; display: block; margin: 10px 0 6px 0;">
+                                    Recent DTS Transactions Filed
+                                </span>
+
+                                @forelse($reqTransactions as $rt)
+                                    <div style="padding: 8px 10px; border-radius: 6px; background: #f8fafc; border: 1px solid #e2e8f0; margin-bottom: 6px; display: flex; flex-direction: column; gap: 2px;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                                            <span style="font-size: 11.5px; font-weight: 800; color: #0284c7; font-family: monospace;">{{ $rt->control_number ?? ($rt->id ?? 'DTS-DOC') }}</span>
+                                            <span style="font-size: 10px; color: #64748b;">
+                                                @if(!empty($rt->date_created))
+                                                    {{ \Carbon\Carbon::parse($rt->date_created)->format('M d, Y') }}
+                                                @endif
+                                            </span>
+                                        </div>
+                                        <span style="font-size: 11.5px; color: #1e293b; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                            {{ $rt->subject ?? 'No subject' }}
+                                        </span>
+                                    </div>
+                                @empty
+                                    <div class="m-empty-state" style="padding: 16px 0;">
+                                        <span style="font-size: 11.5px; color: #94a3b8;">No transactions registered under this contact</span>
+                                    </div>
+                                @endforelse
+                            </div>
+                        </div>
+                    @else
+                        <div class="m-empty-state">
+                            <i class="fa-solid fa-hand-pointer m-empty-icon"></i>
+                            <span style="font-size: 12px; font-weight: 600;">Select a requestor from Column 2</span>
+                            <span style="font-size: 11px; margin-top: 4px;">to view documents and transactions filed</span>
+                        </div>
+                    @endif
+                </div>
+            </div>
+
+            {{-- COLUMN 4: REQUESTOR INSPECTOR --}}
+            <div class="miller-column">
+                <div class="m-col-header">
+                    <span><i class="fa-solid fa-sliders" style="color: #64748b;"></i> 4. Requestor Inspector</span>
+                    @if($selectedRequestorId && $selectedRequestorId > 0)
+                        <span class="m-item-badge" style="background: {{ $reqIsActive ? '#dcfce7' : '#fee2e2' }}; color: {{ $reqIsActive ? '#15803d' : '#991b1b' }}; border-color: {{ $reqIsActive ? '#bbf7d0' : '#fecaca' }};">
+                            {{ $reqIsActive ? 'Active' : 'Suspended' }}
+                        </span>
+                    @endif
                 </div>
 
-                @if($reqViewMode === 'table')
-                    <div class="users-table-container">
-                        <table class="users-data-table">
-                            <thead>
-                                <tr class="req-table-head-row">
-                                    <th style="min-width: 180px;">Requestor Name</th>
-                                    <th style="min-width: 160px;">Position / Title</th>
-                                    <th style="min-width: 180px;">Office / Agency</th>
-                                    <th style="min-width: 120px;">Category</th>
-                                    <th style="width: 100px;">Status</th>
-                                    <th style="width: 120px; text-align: right;">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse($requestors as $req)
-                                    <tr class="req-tbl-row {{ $selectedRequestorId === $req->id ? 'selected-row' : '' }}" wire:click="selectRequestorItem({{ $req->id }})" wire:key="req-tbl-{{ $req->id }}">
-                                        <td class="user-name-cell">
-                                            <div style="display: flex; align-items: center; gap: 8px;">
-                                                <div style="width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: #0284c7; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;">
-                                                    <i class="fa-solid fa-user-pen"></i>
-                                                </div>
-                                                <span>{{ $req->requestor_name }}</span>
-                                            </div>
-                                        </td>
-                                        <td class="req-pos-cell">
-                                            {{ $req->requestor_position ?: '—' }}
-                                        </td>
-                                        <td class="req-office-cell" style="font-weight: 500;">
-                                            {{ $req->office_display_name }} <span class="req-office-code" style="font-size: 11px;">({{ $req->office }})</span>
-                                        </td>
-                                        <td>
-                                            <span class="req-cat-badge req-cat-{{ strtolower($req->office_category) }}">
-                                                {{ $req->office_category }}
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <span class="badge {{ $req->is_active ? 'badge-active' : 'badge-inactive' }}">
-                                                {{ $req->is_active ? 'Active' : 'Inactive' }}
-                                            </span>
-                                        </td>
-                                        <td style="text-align: right;">
-                                            <button type="button" class="btn-table-action" wire:click.stop="selectRequestorItem({{ $req->id }})">
-                                                <i class="fa-solid fa-pen-to-square"></i> Configure
-                                            </button>
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="6" class="users-table-empty">
-                                            No requestor contacts found.
-                                        </td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
+                @if($selectedRequestorId)
+                    <div class="m-inspector">
+                        <div class="m-inspector-header">
+                            <div class="m-inspector-avatar" style="background: linear-gradient(135deg, #059669 0%, #047857 100%);">
+                                <i class="fa-solid fa-address-card"></i>
+                            </div>
+                            <div style="overflow: hidden; flex: 1 1 auto;">
+                                <h3 class="m-inspector-title">{{ $reqName ?: 'Untitled Requestor' }}</h3>
+                                <span class="m-inspector-sub">{{ $selectedRequestorId === -1 ? 'New Requestor Contact' : 'Requestor ID #' . $selectedRequestorId }}</span>
+                            </div>
+                        </div>
+
+                        <div class="m-field-group">
+                            <label class="m-field-label">Full Requestor Name</label>
+                            <input type="text" class="m-field-input" placeholder="e.g. Atty. Roberto Morales" wire:model="reqName">
+                            @error('reqName') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror
+                        </div>
+
+                        <div class="m-field-group">
+                            <label class="m-field-label">Official Position / Title</label>
+                            <input type="text" class="m-field-input" placeholder="e.g. Regional Director" wire:model="reqPosition">
+                            @error('reqPosition') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror
+                        </div>
+
+                        <div class="m-field-group">
+                            <label class="m-field-label">Agency / Office Affiliation</label>
+                            <input type="text" class="m-field-input" placeholder="e.g. CHED Regional Office V" wire:model="reqOffice">
+                            @error('reqOffice') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror
+                        </div>
+
+                        @if($selectedRequestorId > 0)
+                            <div class="m-metric-card">
+                                <span class="m-metric-label">Active Contact in DTS</span>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="reqIsActive">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+                            <button type="button" class="m-btn m-btn-primary" wire:click="saveRequestorChanges" wire:loading.attr="disabled" style="width: 100%;">
+                                <i class="fa-solid fa-floppy-disk" wire:loading.remove wire:target="saveRequestorChanges"></i>
+                                <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="saveRequestorChanges"></i>
+                                <span>Save Requestor Details</span>
+                            </button>
+
+                            <div style="display: flex; gap: 8px;">
+                                @if($selectedRequestorId > 0)
+                                    <button type="button" class="m-btn m-btn-danger" wire:click="deleteRequestor" wire:confirm="Are you sure you want to deactivate this requestor?" style="flex: 1;" title="Soft-deactivate requestor">
+                                        <i class="fa-solid fa-user-xmark"></i> Deactivate
+                                    </button>
+                                @endif
+                                <button type="button" class="m-btn m-btn-secondary" wire:click="cancelRequestorSelection" style="flex: 1;">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 @else
-                    <div class="directory-list" style="margin-top: 12px;">
-                        @forelse($requestors as $req)
-                            <div class="directory-item {{ $selectedRequestorId === $req->id ? 'selected' : '' }}" wire:click="selectRequestorItem({{ $req->id }})" wire:key="req-item-{{ $req->id }}">
-                                <div class="item-avatar">
-                                    <i class="fa-solid fa-user-pen"></i>
-                                </div>
-                                <div class="item-details">
-                                    <span class="item-title">{{ $req->requestor_name }}</span>
-                                    <span class="item-subtitle">
-                                        @if(!empty($req->requestor_position)) {{ $req->requestor_position }} • @endif {{ $req->office_display_name }} ({{ $req->office }})
-                                    </span>
-                                </div>
-                                <div class="item-badges" style="margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                                    <span class="req-cat-badge req-cat-{{ strtolower($req->office_category) }}">
-                                        {{ $req->office_category }}
-                                    </span>
-                                    <span class="badge {{ $req->is_active ? 'badge-active' : 'badge-inactive' }}">
-                                        {{ $req->is_active ? 'Active' : 'Inactive' }}
-                                    </span>
-                                </div>
-                            </div>
-                        @empty
-                            <div style="padding: 24px; text-align: center; color: #94a3b8; font-size: 13px;">
-                                No requestor contacts recorded yet.
-                            </div>
-                        @endforelse
+                    <div class="m-empty-state">
+                        <i class="fa-solid fa-address-book m-empty-icon"></i>
+                        <span style="font-size: 13px; font-weight: 700; color: #475569;">Requestor Inspector</span>
+                        <span style="font-size: 11.5px; margin-top: 4px; max-width: 220px; line-height: 1.4;">
+                            Select a requestor or click <strong>+ New Requestor</strong> to configure contact info.
+                        </span>
                     </div>
                 @endif
             </div>
+        </div>
 
-            <!-- Right Pane: Details / Form Panel -->
+        {{-- Bottom Breadcrumb Path Bar --}}
+        <div class="miller-path-bar">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-address-book" style="color: #64748b;"></i>
+                <span>Requestors Directory</span>
+                <i class="fa-solid fa-chevron-right" style="font-size: 10px; color: #94a3b8;"></i>
+                <span class="miller-path-tag">{{ $selectedRequestorId ? $reqName . ' (' . $reqOffice . ')' : 'Directory' }}</span>
+                @if($selectedRequestorId && $selectedRequestorId > 0)
+                    <i class="fa-solid fa-chevron-right" style="font-size: 10px; color: #94a3b8;"></i>
+                    <span style="color: #0284c7; font-weight: 700;">{{ count($reqTransactions) }} Transactions</span>
+                @endif
+            </div>
+
             @if($selectedRequestorId)
-                <div class="details-panel" wire:key="req-details-panel-{{ $selectedRequestorId }}">
-                    <!-- Header -->
-                    <div class="details-header">
-                        <div class="details-header-avatar">
-                            @if($selectedRequestorId === -1)
-                                <i class="fa-solid fa-user-plus" style="font-size: 20px;"></i>
-                            @else
-                                <i class="fa-solid fa-user-pen" style="font-size: 20px;"></i>
-                            @endif
-                        </div>
-                        <div class="details-header-info">
-                            <h2 class="details-header-name">{{ $selectedRequestorId === -1 ? 'Create Requestor Contact' : ($reqName ?: 'Requestor Configuration') }}</h2>
-                            <span class="details-header-sub">
-                                @if($selectedRequestorId === -1)
-                                    Register a new frequent requestor for internal or external transactions
-                                @else
-                                    <i class="fa-solid fa-building"></i> {{ $reqOffice ?: 'Assigned Office' }} &nbsp;•&nbsp; 
-                                    <i class="fa-solid fa-circle {{ $reqIsActive ? 'online' : 'offline' }}" style="color: {{ $reqIsActive ? '#10b981' : '#cbd5e1' }}; font-size: 8px;"></i>
-                                    {{ $reqIsActive ? 'Active Contact' : 'Inactive' }}
-                                @endif
-                            </span>
-                        </div>
-                        <button type="button" class="btn-close-details" wire:click="cancelRequestorSelection" title="Close Details Panel">
-                            <i class="fa-solid fa-xmark"></i>
-                        </button>
-                    </div>
-
-                    <!-- Alerts -->
-                    @if($successMessage)
-                        <div class="alert alert-success" style="margin: 12px 24px 0 24px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; border-radius: 8px; font-size: 13px;">
-                            <i class="fa-solid fa-circle-check"></i> {{ $successMessage }}
-                        </div>
-                    @endif
-                    @if($errorMessage)
-                        <div class="alert alert-error" style="margin: 12px 24px 0 24px; padding: 10px 14px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; font-size: 13px;">
-                            <i class="fa-solid fa-triangle-exclamation"></i> {{ $errorMessage }}
-                        </div>
-                    @endif
-
-                    <!-- Body -->
-                    <div class="details-body">
-                        <form wire:submit.prevent="saveRequestorChanges">
-                            <div class="form-grid">
-                                <!-- Requestor Full Name -->
-                                <div class="form-group full-width">
-                                    <label class="form-label">Requestor Name <span style="color:#ef4444;">*</span></label>
-                                    <input type="text" class="form-input" wire:model="reqName" placeholder="e.g. Dr. Juan Dela Cruz">
-                                    @error('reqName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                                </div>
-
-                                <!-- Requestor Job Position -->
-                                <div class="form-group full-width">
-                                    <label class="form-label">Job Position / Title <span style="font-size: 11px; color: #94a3b8; font-weight: normal;">(Optional)</span></label>
-                                    <input type="text" class="form-input" wire:model="reqPosition" placeholder="e.g. Regional Director / Faculty Officer">
-                                    @error('reqPosition') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                                </div>
-
-                                <!-- Office / Agency Dropdown -->
-                                <div class="form-group full-width">
-                                    <label class="form-label">Office / Agency <span style="color:#ef4444;">*</span></label>
-                                    <select class="form-select" wire:model="reqOffice">
-                                        <option value="">Select Office / Agency</option>
-                                        <optgroup label="Internal CSPC Offices">
-                                            @foreach($offices as $o)
-                                                <option value="{{ $o->office_code }}">{{ $o->office_name }} ({{ $o->office_code }})</option>
-                                            @endforeach
-                                        </optgroup>
-                                        <optgroup label="External Source Offices">
-                                            @foreach($sourceOffices as $so)
-                                                <option value="{{ $so->s_office_code }}">{{ $so->s_office_name }} ({{ $so->s_office_code }})</option>
-                                            @endforeach
-                                        </optgroup>
-                                    </select>
-                                    @error('reqOffice') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
-                                </div>
-
-                                <!-- Active Status -->
-                                <div class="form-group full-width">
-                                    <div class="status-toggle-wrapper">
-                                        <div class="status-toggle-label">
-                                            <span class="status-toggle-title">Active Status</span>
-                                            <span class="status-toggle-desc">Toggle whether this requestor contact appears in transaction forms.</span>
-                                        </div>
-                                        <label class="switch">
-                                            <input type="checkbox" wire:model="reqIsActive">
-                                            <span class="slider"></span>
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
-
-                    <!-- Footer -->
-                    <div class="details-footer">
-                        @if($selectedRequestorId > 0)
-                            <button type="button" class="btn-delete" wire:click="deleteRequestor" wire:confirm="Are you sure you want to deactivate this requestor?" style="margin-right: auto;" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
-                                <i class="fa-solid fa-trash-can"></i> Deactivate Requestor
-                            </button>
-                        @endif
-                        <button type="button" class="btn-cancel" wire:click="cancelRequestorSelection">Cancel</button>
-                        <button type="button" class="btn-save" wire:click="saveRequestorChanges" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
-                            <i class="fa-solid fa-floppy-disk"></i> {{ $selectedRequestorId === -1 ? 'Create Requestor' : 'Save Changes' }}
-                        </button>
-                    </div>
-                </div>
+                <button type="button" wire:click="saveRequestorChanges" style="background: none; border: none; color: #0284c7; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 5px;">
+                    <i class="fa-solid fa-floppy-disk"></i> Quick Save Requestor
+                </button>
             @endif
         </div>
     @endif

@@ -709,13 +709,15 @@ try {
 
   <!-- User Verification Modal (Super Admin only) -->
   <div class="modal" id="userVerificationModal" aria-hidden="true">
-    <div class="modal-content" style="max-width:460px;">
-      <div class="modal-header" style="padding:16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:10px;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">User Verification</h3>
-        <button type="button" id="resetAllBadgesBtn" onclick="openResetAllBadgesConfirmModal()" title="Remove All Verified Badges" style="margin-left:auto;background:none;border:1px solid #ef4444;color:#ef4444;padding:4px 9px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all 0.15s;outline:none;" onmouseover="this.style.background='#ef4444';this.style.color='#fff';" onmouseout="this.style.background='none';this.style.color='#ef4444';">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-          <span>Reset All</span>
+    <div class="modal-content" style="max-width:460px;min-width:300px;box-sizing:border-box;">
+      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;gap:10px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;white-space:nowrap;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);white-space:nowrap;">User Verification</h3>
+        </div>
+        <button type="button" id="resetAllBadgesBtn" onclick="openResetAllBadgesConfirmModal()" title="Remove All Verified Badges" style="margin-left:auto;flex-shrink:0;white-space:nowrap;background:none;border:1px solid #ef4444;color:#ef4444;padding:4px 9px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all 0.15s;outline:none;" onmouseover="this.style.background='#ef4444';this.style.color='#fff';" onmouseout="this.style.background='none';this.style.color='#ef4444';">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          <span style="white-space:nowrap;">Reset All</span>
         </button>
       </div>
       <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;text-align:left;">

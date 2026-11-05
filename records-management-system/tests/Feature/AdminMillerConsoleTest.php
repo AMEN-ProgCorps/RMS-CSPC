@@ -94,18 +94,38 @@ class AdminMillerConsoleTest extends TestCase
             ->assertHasNoErrors();
     }
 
-    public function test_transaction_flow_drag_scope_reassignment()
+    public function test_user_drag_reassign_office()
     {
-        $flow = DB::table('dts_transaction_flow')->first();
-        if ($flow) {
-            Volt::test('pages.admin.dts.transaction-flows')
-                ->call('changeFlowPurpose', $flow->id, 'issuances')
-                ->assertHasNoErrors()
-                ->assertSee('moved to Issuances scope!');
+        $user = User::first();
+        $office = DB::table('sys_office')->where('id', '!=', $user->details?->office_id ?? 0)->first();
 
-            $this->assertDatabaseHas('dts_transaction_flow', [
-                'id' => $flow->id,
-                'flow_use' => 'issuances',
+        if ($user && $office) {
+            Volt::test('pages.admin.accounts.users')
+                ->call('assignUserOffice', $user->id, $office->id)
+                ->assertHasNoErrors()
+                ->assertSee('successfully reassigned to');
+
+            $this->assertDatabaseHas('sys_account_details', [
+                'account_id' => $user->id,
+                'office_id' => $office->id,
+            ]);
+        }
+    }
+
+    public function test_office_drag_reassign_cluster()
+    {
+        $office = DB::table('sys_office')->first();
+        $cluster = DB::table('sys_cluster')->first();
+
+        if ($office && $cluster) {
+            Volt::test('pages.admin.accounts.users')
+                ->call('assignOfficeCluster', $office->id, $cluster->cluster_code)
+                ->assertHasNoErrors()
+                ->assertSee('assigned to cluster');
+
+            $this->assertDatabaseHas('sys_office', [
+                'id' => $office->id,
+                'cluster' => $cluster->cluster_code,
             ]);
         }
     }

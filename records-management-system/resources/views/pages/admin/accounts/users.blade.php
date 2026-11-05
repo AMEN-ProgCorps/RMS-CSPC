@@ -416,6 +416,125 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
     }
 
+    /**
+     * Drag-and-drop: Reassign a user to a different office.
+     */
+    public function assignUserOffice(int $userId, int $officeId): void
+    {
+        $this->clearMessages();
+
+        $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
+        if (! $currentUserPerms || (! $currentUserPerms->is_sadm && ! $currentUserPerms->can_sadm_modify_account)) {
+            $this->errorMessage = 'Unauthorized: You do not have permission to modify user accounts.';
+            return;
+        }
+
+        $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $office = DB::table($officeTbl)->where('id', $officeId)->first();
+        if (!$office) {
+            $this->errorMessage = 'Selected office does not exist.';
+            return;
+        }
+
+        try {
+            DB::transaction(function () use ($userId, $officeId, $office) {
+                $user = \App\Models\User::with('details')->findOrFail($userId);
+
+                $details = \App\Models\AccountDetail::find($userId);
+                if (!$details) {
+                    $details = new \App\Models\AccountDetail();
+                    $details->account_id = $userId;
+                    $details->first_name = $user->username;
+                    $details->last_name = '';
+                    $details->email = $user->username . '@cspc.edu.ph';
+                }
+                $details->office_id = $officeId;
+                $details->save();
+
+                $user->update(['date_updated' => now()]);
+
+                if ($this->selectedUserId === $userId) {
+                    $this->officeId = $officeId;
+                    $this->officeSearch = $office->office_name;
+                }
+
+                $adminLogsTbl = Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                DB::table($adminLogsTbl)->insert([
+                    'changes' => "Reassigned user @{$user->username} to office: {$office->office_name} ({$office->office_code}) via Miller drag-and-drop",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now()
+                ]);
+
+                $this->successMessage = "User @{$user->username} successfully reassigned to {$office->office_name} ({$office->office_code})!";
+            });
+
+            try {
+                if (file_exists(public_path('chatify/core/WsPush.php'))) {
+                    require_once public_path('chatify/bootstrap.php');
+                    \WsPush::broadcast('users_changed', [
+                        'account_id' => $userId,
+                        'office_id'  => $officeId,
+                    ]);
+                }
+            } catch (\Throwable) {}
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to reassign user office: ' . $e->getMessage();
+        }
+    }
+
+    /**
+     * Drag-and-drop: Reassign an office to a different cluster.
+     */
+    public function assignOfficeCluster(int $officeId, ?string $clusterCode): void
+    {
+        $this->clearMessages();
+
+        $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
+        if (! $currentUserPerms || (! $currentUserPerms->is_sadm && ! $currentUserPerms->can_sadm_modify_account && ! $currentUserPerms->is_admin)) {
+            $this->errorMessage = 'Unauthorized: You do not have permission to modify office organization.';
+            return;
+        }
+
+        $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        try {
+            DB::transaction(function () use ($officeId, $clusterCode, $officeTbl) {
+                $office = DB::table($officeTbl)->where('id', $officeId)->first();
+                if (!$office) {
+                    throw new \Exception('Office not found.');
+                }
+
+                $targetCode = !empty($clusterCode) ? $clusterCode : null;
+                $clusterLabel = $targetCode;
+                if ($targetCode) {
+                    $cluster = DB::table('sys_cluster')->where('cluster_code', $targetCode)->first();
+                    if ($cluster) {
+                        $clusterLabel = "{$cluster->cluster_name} ({$targetCode})";
+                    }
+                } else {
+                    $clusterLabel = 'Unassigned';
+                }
+
+                DB::table($officeTbl)->where('id', $officeId)->update([
+                    'cluster' => $targetCode,
+                ]);
+
+                $adminLogsTbl = Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+                DB::table($adminLogsTbl)->insert([
+                    'changes' => "Reassigned office {$office->office_name} ({$office->office_code}) to cluster: {$clusterLabel} via Miller drag-and-drop",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now()
+                ]);
+
+                $this->successMessage = "Office {$office->office_name} assigned to cluster {$clusterLabel} successfully!";
+            });
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to reassign office cluster: ' . $e->getMessage();
+        }
+    }
+
     // ==========================================
     // REQUESTOR MANAGEMENT ACTIONS
     // ==========================================
@@ -1087,6 +1206,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             color: #cbd5e1;
         }
 
+        /* Drag and Drop Styling */
+        .m-item.draggable-item {
+            cursor: pointer;
+        }
+        .m-item.draggable-item:active {
+            cursor: grabbing;
+        }
+        .m-item.is-dragging {
+            cursor: grabbing;
+            opacity: 0.45;
+            background: #e0f2fe;
+            border: 1px dashed #0284c7;
+        }
+        .drop-target-hover {
+            background: #e0f2fe !important;
+            border: 1.5px dashed #0284c7 !important;
+            transform: scale(1.02);
+            transition: all 0.12s ease;
+        }
+
         /* Dark mode */
         [data-theme="dark"] .miller-browser,
         [data-theme="dark"] .miller-column {
@@ -1112,6 +1251,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         [data-theme="dark"] .m-item { color: #cbd5e1; }
         [data-theme="dark"] .m-item:hover { background: #334155; color: #f8fafc; }
         [data-theme="dark"] .m-item.active { background: #0284c7; color: #ffffff; }
+        [data-theme="dark"] .m-item.is-dragging { background: #0c4a6e; border-color: #38bdf8; }
+        [data-theme="dark"] .drop-target-hover { background: #0c4a6e !important; border-color: #38bdf8 !important; }
         [data-theme="dark"] .m-field-input {
             background: #0f172a;
             border-color: #334155;
@@ -1216,7 +1357,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                     </div>
 
                     @foreach($clusters as $c)
-                        <div class="m-item {{ $selectedClusterCode === $c->cluster_code ? 'active' : '' }}" wire:click="filterByCluster('{{ $c->cluster_code }}')" wire:key="c-scope-{{ $c->id }}">
+                        <div class="m-item {{ $selectedClusterCode === $c->cluster_code ? 'active' : '' }}" 
+                             wire:click="filterByCluster('{{ $c->cluster_code }}')" 
+                             wire:key="c-scope-{{ $c->id }}"
+                             ondragover="if (event.dataTransfer.types.includes('text/office-id')) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('drop-target-hover'); }"
+                             ondragleave="this.classList.remove('drop-target-hover');"
+                             ondrop="event.preventDefault(); this.classList.remove('drop-target-hover'); const offId = event.dataTransfer.getData('text/office-id'); if (offId) { window.usersAssignOfficeCluster(offId, '{{ $c->cluster_code }}', this); }">
                             <div class="m-item-left">
                                 <i class="fa-solid fa-building-columns m-item-icon" style="font-size: 13px; color: #64748b; width: 18px; text-align: center;"></i>
                                 <div class="m-item-text">
@@ -1292,8 +1438,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                             $sCount = $officeStaffCounts[$off->id] ?? 0;
                             $isSelectedOff = ($selectedOfficeIdFilter === $off->id);
                         @endphp
-                        <div class="m-item {{ $isSelectedOff ? 'active' : '' }}" wire:click="filterByOffice({{ $off->id }})" wire:key="off-col-{{ $off->id }}">
+                        <div class="m-item draggable-item {{ $isSelectedOff ? 'active' : '' }}" 
+                             wire:click="filterByOffice({{ $off->id }})" 
+                             wire:key="off-col-{{ $off->id }}"
+                             draggable="true"
+                             ondragstart="event.dataTransfer.setData('text/office-id', '{{ $off->id }}'); event.dataTransfer.effectAllowed = 'move'; this.classList.add('is-dragging');"
+                             ondragend="this.classList.remove('is-dragging');"
+                             ondragover="if (event.dataTransfer.types.includes('text/user-id')) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; this.classList.add('drop-target-hover'); }"
+                             ondragleave="this.classList.remove('drop-target-hover');"
+                             ondrop="event.preventDefault(); this.classList.remove('drop-target-hover'); const uId = event.dataTransfer.getData('text/user-id'); if (uId) { window.usersAssignUserOffice(uId, {{ $off->id }}, this); }"
+                             title="Drag onto a cluster in Column 1 to change cluster, or drop a user here to assign office">
                             <div class="m-item-left">
+                                <i class="fa-solid fa-grip-vertical" style="color: #cbd5e1; font-size: 11px; margin-right: 2px;"></i>
                                 <div class="m-item-avatar" style="border-radius: 6px; width: 26px; height: 26px; font-size: 10px;">
                                     {{ strtoupper(substr($off->office_code ?: '?', 0, 3)) }}
                                 </div>
@@ -1354,8 +1510,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                             $userRoleName = $roles->firstWhere('id', $u->account_role)?->key_name ?: 'Basic User';
                             $userOfficeName = $det?->office?->office_code ?: 'Unassigned';
                         @endphp
-                        <div class="m-item {{ $isUserActive ? 'active' : '' }}" wire:click="selectUser({{ $u->id }})" wire:key="user-row-{{ $u->id }}">
+                        <div class="m-item draggable-item {{ $isUserActive ? 'active' : '' }}" 
+                             wire:click="selectUser({{ $u->id }})" 
+                             wire:key="user-row-{{ $u->id }}"
+                             draggable="true"
+                             ondragstart="event.dataTransfer.setData('text/user-id', '{{ $u->id }}'); event.dataTransfer.effectAllowed = 'move'; this.classList.add('is-dragging');"
+                             ondragend="this.classList.remove('is-dragging');"
+                             title="Drag onto an office in Column 2 to reassign office">
                             <div class="m-item-left">
+                                <i class="fa-solid fa-grip-vertical" style="color: #cbd5e1; font-size: 11px; margin-right: 2px;"></i>
                                 <div class="m-item-avatar" style="background: {{ $det?->is_currently_online ? '#dcfce7' : '#e0f2fe' }}; color: {{ $det?->is_currently_online ? '#15803d' : '#0369a1' }}; border: 1.5px solid {{ $det?->is_currently_online ? '#86efac' : '#bae6fd' }};">
                                     {{ $uInitials }}
                                 </div>
@@ -1805,3 +1968,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         </div>
     @endif
 </div>
+
+<script>
+    window.usersGetLivewire = function(el) {
+        try {
+            const root = el ? el.closest('[wire\\:id]') : document.querySelector('.miller-container[wire\\:id]');
+            if (root && window.Livewire) {
+                return window.Livewire.find(root.getAttribute('wire:id'));
+            }
+        } catch (e) {
+            console.error('usersGetLivewire error:', e);
+        }
+        return null;
+    };
+
+    window.usersAssignUserOffice = function(userId, officeId, el) {
+        const lw = window.usersGetLivewire(el);
+        if (lw) {
+            lw.call('assignUserOffice', parseInt(userId), parseInt(officeId));
+        }
+    };
+
+    window.usersAssignOfficeCluster = function(officeId, clusterCode, el) {
+        const lw = window.usersGetLivewire(el);
+        if (lw) {
+            lw.call('assignOfficeCluster', parseInt(officeId), clusterCode || null);
+        }
+    };
+</script>

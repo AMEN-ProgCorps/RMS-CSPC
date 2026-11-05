@@ -349,7 +349,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             });
 
             try {
-                if (file_exists(public_path('chatify/core/WsPush.php'))) {
+                if (file_exists(public_path('messify/core/WsPush.php'))) {
+                    require_once public_path('messify/bootstrap.php');
+                    \WsPush::broadcast('users_changed', [
+                        'account_id' => $this->selectedUserId,
+                        'office_id'  => $this->officeId,
+                    ]);
+                } elseif (file_exists(public_path('chatify/core/WsPush.php'))) {
                     require_once public_path('chatify/bootstrap.php');
                     \WsPush::broadcast('users_changed', [
                         'account_id' => $this->selectedUserId,
@@ -406,7 +412,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             });
 
             try {
-                if (file_exists(public_path('chatify/core/WsPush.php'))) {
+                if (file_exists(public_path('messify/core/WsPush.php'))) {
+                    require_once public_path('messify/bootstrap.php');
+                    \WsPush::broadcast('users_changed', ['account_id' => $this->selectedUserId]);
+                } elseif (file_exists(public_path('chatify/core/WsPush.php'))) {
                     require_once public_path('chatify/bootstrap.php');
                     \WsPush::broadcast('users_changed', ['account_id' => $this->selectedUserId]);
                 }
@@ -470,7 +479,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             });
 
             try {
-                if (file_exists(public_path('chatify/core/WsPush.php'))) {
+                if (file_exists(public_path('messify/core/WsPush.php'))) {
+                    require_once public_path('messify/bootstrap.php');
+                    \WsPush::broadcast('users_changed', [
+                        'account_id' => $userId,
+                        'office_id'  => $officeId,
+                    ]);
+                } elseif (file_exists(public_path('chatify/core/WsPush.php'))) {
                     require_once public_path('chatify/bootstrap.php');
                     \WsPush::broadcast('users_changed', [
                         'account_id' => $userId,

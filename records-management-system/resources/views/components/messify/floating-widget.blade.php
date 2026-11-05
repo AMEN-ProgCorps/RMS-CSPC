@@ -4,7 +4,7 @@
     // (Admin > Subsystems > Activate/Deactivate) — same flag the portal uses.
     $chatifySubsystemActive = \Illuminate\Support\Facades\DB::table(
         \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems'
-    )->where('subsystem_name', 'Chatify')->where('is_active', true)->exists();
+    )->whereIn('subsystem_name', ['Chatify', 'Messify'])->where('is_active', true)->exists();
 @endphp
 @if($chatifySubsystemActive)
 @unless(request()->routeIs('login', 'track-document', 'tracked') || request()->is('/', 'track-document', 'tracked'))
@@ -26,7 +26,7 @@
 }
 </script>
 
-<div id="chatify-global-widget" style="position: fixed; bottom: 24px; right: 24px; z-index: 999999; font-family: 'Inter', system-ui, -apple-system, sans-serif; transition: bottom 0.35s cubic-bezier(0.34, 1.25, 0.64, 1);">
+<div id="messify-global-widget" class="messify-floating-widget chatify-floating-widget" style="position: fixed; bottom: 24px; right: 24px; z-index: 999999; font-family: 'Inter', system-ui, -apple-system, sans-serif; transition: bottom 0.35s cubic-bezier(0.34, 1.25, 0.64, 1);">
     <!-- Chat Window Container -->
     <div id="chatify-widget-card" 
          style="display: none; opacity: 0; transform: translateY(16px) scale(0.96); transition: opacity 0.25s ease, transform 0.25s ease; position: absolute; bottom: 72px; right: 0; width: 420px; height: 620px; max-width: calc(100vw - 32px); max-height: calc(100vh - 100px); border-radius: 16px; box-shadow: 0 20px 40px -8px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(148, 163, 184, 0.2); background: #ffffff; overflow: hidden; flex-direction: column;">
@@ -35,13 +35,13 @@
         <div style="background: #0f172a; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255, 255, 255, 0.1); user-select: none;">
             <div style="display: flex; align-items: center; gap: 10px;">
                 <div style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></div>
-                <span style="color: #f8fafc; font-weight: 600; font-size: 14px; letter-spacing: 0.2px;">Chatify</span>
+                <span style="color: #f8fafc; font-weight: 600; font-size: 14px; letter-spacing: 0.2px;">Messify</span>
                 <span style="background: rgba(255, 255, 255, 0.15); color: #94a3b8; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px;">Live</span>
             </div>
 
             <div style="display: flex; align-items: center; gap: 8px;">
                 <!-- Refresh Button -->
-                <button type="button" onclick="reloadChatifyIframe()" title="Reload Chatify" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
+                <button type="button" onclick="reloadChatifyIframe()" title="Reload Messify" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
                     <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 </button>
                 <!-- Minimize Button -->
@@ -55,7 +55,7 @@
         <div style="flex: 1; position: relative; background: #0f172a;">
             <div id="chatify-iframe-loader" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0f172a; color: #94a3b8; font-size: 13px; font-weight: 500; gap: 10px; z-index: 2;">
                 <div style="width: 28px; height: 28px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #3b82f6; border-radius: 50%; animation: chatify-spin 0.8s linear infinite;"></div>
-                <span>Connecting to Chatify...</span>
+                <span>Connecting to Messify...</span>
             </div>
             <iframe id="chatify-iframe" data-src="{{ route('open-chat') }}" style="width: 100%; height: 100%; border: none; display: block;" onload="typeof hideChatifyLoader === 'function' && hideChatifyLoader()" allow="autoplay; clipboard-write"></iframe>
         </div>
@@ -71,7 +71,7 @@
         <button id="chatify-widget-btn" 
                 type="button" 
                 onclick="toggleChatifyWidget()" 
-                title="Chatify Messages"
+                title="Messify Messages"
                 class="rms-chatify-fab">
             
             <span class="rms-chatify-fab-icon">
@@ -86,7 +86,7 @@
                 </svg>
             </span>
 
-            <span id="chatify-widget-btn-label" class="rms-chatify-fab-label">Chatify</span>
+            <span id="chatify-widget-btn-label" class="rms-chatify-fab-label">Messify</span>
         </button>
     </div>
 </div>
@@ -158,17 +158,21 @@ body.chatify-widget-open .rms-chatify-fab:hover {
     width: 120px;
 }
 
-/* When Report Problem widget is opened, Chatify moves UP above the Report Card */
+/* When Report Problem widget is opened, Messify moves UP above the Report Card */
+body.report-widget-open #messify-global-widget,
 body.report-widget-open #chatify-global-widget {
     bottom: calc(min(580px, calc(100vh - 100px)) + 104px) !important;
     z-index: 1000000 !important;
 }
 
 @media print {
+    #messify-global-widget,
     #chatify-global-widget,
     #chatify-widget-card,
     #chatify-widget-btn,
     .chatify-widget,
+    .messify-widget,
+    [id^="messify"],
     [id^="chatify"] {
         display: none !important;
         visibility: hidden !important;
@@ -176,6 +180,7 @@ body.report-widget-open #chatify-global-widget {
     }
 }
 @media (max-width: 767px) {
+    #messify-global-widget,
     #chatify-global-widget {
         display: none !important;
     }
@@ -630,18 +635,18 @@ body.report-widget-open #chatify-global-widget {
     window.addEventListener('message', function(event) {
         if (!event.data) return;
 
-        if (event.data.type === 'CHATIFY_NEW_MESSAGE') {
+        if (event.data.type === 'CHATIFY_NEW_MESSAGE' || event.data.type === 'MESSIFY_NEW_MESSAGE') {
             if (typeof event.data.unread_count === 'number') {
                 applyUnreadCounts(event.data.unread_count, lastSystemUnread);
             }
             playNotificationSound();
             // Single debounced refresh — AbortController cancels any in-flight request.
             scheduleUnreadPoll(300);
-        } else if (event.data.type === 'CHATIFY_PLAY_SOUND') {
+        } else if (event.data.type === 'CHATIFY_PLAY_SOUND' || event.data.type === 'MESSIFY_PLAY_SOUND') {
             playNotificationSound();
-        } else if (event.data.type === 'CHATIFY_USER_INTERACTION') {
+        } else if (event.data.type === 'CHATIFY_USER_INTERACTION' || event.data.type === 'MESSIFY_USER_INTERACTION') {
             initAudioContext();
-        } else if (event.data.type === 'CHATIFY_MARK_READ' || event.data.type === 'CHATIFY_REFRESH_BADGE') {
+        } else if (event.data.type === 'CHATIFY_MARK_READ' || event.data.type === 'MESSIFY_MARK_READ' || event.data.type === 'CHATIFY_REFRESH_BADGE' || event.data.type === 'MESSIFY_REFRESH_BADGE') {
             if (typeof event.data.unread_count === 'number') {
                 applyUnreadCounts(event.data.unread_count, lastSystemUnread);
             }
@@ -807,12 +812,12 @@ body.report-widget-open #chatify-global-widget {
                 iconChat.style.display = 'none';
                 iconClose.style.display = 'block';
             }
-            btn.setAttribute('title', 'Minimize Chatify');
+            btn.setAttribute('title', 'Minimize Messify');
         } else {
             document.body.classList.remove('chatify-widget-open');
             window.dispatchEvent(new CustomEvent('rms-widget-closed', { detail: { widget: 'chatify' } }));
             const labelEl = document.getElementById('chatify-widget-btn-label');
-            if (labelEl) labelEl.textContent = 'Chatify';
+            if (labelEl) labelEl.textContent = 'Messify';
 
             if (animate) {
                 card.style.opacity = '0';
@@ -833,7 +838,7 @@ body.report-widget-open #chatify-global-widget {
                 iconChat.style.display = 'block';
                 iconClose.style.display = 'none';
             }
-            btn.setAttribute('title', 'Chatify Messages');
+            btn.setAttribute('title', 'Messify Messages');
         }
     }
 

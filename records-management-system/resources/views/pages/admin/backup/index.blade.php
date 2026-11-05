@@ -228,7 +228,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 ],
             ],
             'chat' => [
-                'name' => 'Chatify & Messaging System',
+                'name' => 'Messify & Messaging System',
                 'description' => 'Conversations, direct & group messages, reactions, read markers, chat backups & legal agreements',
                 'icon' => 'fa-solid fa-comments',
                 'color' => '#e11d48',
@@ -1530,7 +1530,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             @endif
                         </div>
                         <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 1.4;">
-                            Choose specific data categories to back up (Users, Offices, Roles, Flows, DTS, Chatify, Logs).
+                            Choose specific data categories to back up (Users, Offices, Roles, Flows, DTS, Messify, Logs).
                         </p>
                     </div>
                 </div>

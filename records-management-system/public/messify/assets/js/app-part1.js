@@ -1589,7 +1589,7 @@
             return true;
           }
           if (window.parent && window.parent.document) {
-            const card = window.parent.document.getElementById('chatify-widget-card');
+            const card = window.parent.document.getElementById('messify-widget-card') || window.parent.document.getElementById('chatify-widget-card');
             if (card) {
               const style = window.parent.getComputedStyle(card);
               if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {

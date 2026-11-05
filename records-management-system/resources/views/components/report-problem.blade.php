@@ -115,10 +115,12 @@ new class extends Component {
                 document.body.classList.add('report-widget-open');
             }
             const syncChatifyPresent = () => {
-                if (!document.getElementById('chatify-global-widget')) {
+                if (!document.getElementById('messify-global-widget') && !document.getElementById('chatify-global-widget')) {
                     document.body.classList.add('no-chatify-widget');
+                    document.body.classList.add('no-messify-widget');
                 } else {
                     document.body.classList.remove('no-chatify-widget');
+                    document.body.classList.remove('no-messify-widget');
                 }
             };
             syncChatifyPresent();

@@ -11,7 +11,7 @@ try {
 }
 
 const PORT = process.env.PORT || 8080;
-// Fallback key matches public/chatify/config/db.php CHAT_SHARED_SECRET default
+// Fallback key matches public/messify/config/db.php CHAT_SHARED_SECRET default
 const CHAT_SHARED_SECRET = process.env.CHAT_SHARED_SECRET || '7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd';
 
 // Secret PHP uses to authenticate server-to-server pushes (see handleInternalPush
@@ -36,6 +36,8 @@ function internalFetchPhp(endpointPath, queryParams, accountId, callback) {
 
   const pathsToTry = [
     endpointPath,
+    '/messify' + endpointPath,
+    '/public/messify' + endpointPath,
     '/chatify' + endpointPath,
     '/public/chatify' + endpointPath
   ];
@@ -72,7 +74,7 @@ function internalFetchPhp(endpointPath, queryParams, accountId, callback) {
       headers: {
         'X-Internal-Secret': INTERNAL_PUSH_SECRET,
         'X-Internal-Account-Id': String(accountId),
-        'User-Agent': 'Chatify-WS-Server/1.0'
+        'User-Agent': 'Messify-WS-Server/1.0'
       },
       timeout: 2000
     };

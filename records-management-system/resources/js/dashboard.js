@@ -588,7 +588,7 @@ function isExemptedModalElement(element) {
     if (!element) return false;
     // Exempt: Action container dropdown, Notification center, and Chatify widget
     return !!element.closest(
-        '.actions-container, #dropdown, .notification-container, .notif-wrapper, .notif-dropdown, #chatify-global-widget, #chatify-widget-card, .chatify-widget, [id^="chatify"], .nav-flyout-popover'
+        '.actions-container, #dropdown, .notification-container, .notif-wrapper, .notif-dropdown, #messify-global-widget, #messify-widget-card, .messify-widget, [id^="messify"], #chatify-global-widget, #chatify-widget-card, .chatify-widget, [id^="chatify"], .nav-flyout-popover'
     );
 }
 

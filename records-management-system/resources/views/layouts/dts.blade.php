@@ -156,7 +156,7 @@
             {{ $slot }}
         </div>
     </section>
-    <x-chatify.floating-widget />
+    <x-messify.floating-widget />
     <livewire:components.scanner-modal />
     <livewire:components.dts-rdp-handoff-modal />
     @auth

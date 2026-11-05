@@ -267,7 +267,7 @@
     @endif
     <x-rms-error />
     <x-dcs.toast />
-    <x-chatify.floating-widget />
+    <x-messify.floating-widget />
     @stack('scripts')
     @livewireScripts
 </body>

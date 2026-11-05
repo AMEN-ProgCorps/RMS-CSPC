@@ -7,8 +7,8 @@ echo "────────────────────────�
 
 # ── Ensure Nginx run dir & Laravel storage directories exist with permissions ─
 mkdir -p /run/nginx /var/log/nginx /var/log/supervisor
-mkdir -p storage/framework/views storage/framework/sessions storage/framework/cache/data storage/logs bootstrap/cache public/chatify/uploads public/chatify/storage
-chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage
+mkdir -p storage/framework/views storage/framework/sessions storage/framework/cache/data storage/logs bootstrap/cache public/messify/uploads public/messify/storage
+chmod -R 777 storage bootstrap/cache public/messify/uploads public/messify/storage
 # Named volume at storage/framework/views (see docker-compose) — avoid /tmp and bind-mount utime failures.
 export VIEW_COMPILED_PATH="${VIEW_COMPILED_PATH:-/var/www/html/storage/framework/views}"
 mkdir -p "$VIEW_COMPILED_PATH"
@@ -89,7 +89,7 @@ else
 fi
 
 # Artisan/migrate run as root and may create storage files the FPM pool cannot write.
-chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage
+chmod -R 777 storage bootstrap/cache public/messify/uploads public/messify/storage
 
 # Compiled Blade views: artisan (root) can leave root-owned files in VIEW_COMPILED_PATH.
 # chmod 777 is not enough — PHP-FPM (appuser) can overwrite them but utime() still

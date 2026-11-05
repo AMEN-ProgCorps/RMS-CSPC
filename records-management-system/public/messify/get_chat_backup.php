@@ -103,7 +103,7 @@ try {
         'exported_at'     => gmdate('Y-m-d\TH:i:s\Z'),
         'filter_date'     => $archived ? substr($archived, 0, 10) : null,
         'total_records'   => count($output),
-        'system'          => 'CSPC RMS — Chatify Backup Export',
+        'system'          => 'CSPC RMS — Messify Backup Export',
     ];
 
     $payload = json_encode([
@@ -111,7 +111,7 @@ try {
         'messages' => $output,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-    $filename = 'chatify_backup_' . ($archived ? substr($archived, 0, 10) . '_' : '') . gmdate('Ymd_His') . '.json';
+    $filename = 'messify_backup_' . ($archived ? substr($archived, 0, 10) . '_' : '') . gmdate('Ymd_His') . '.json';
 
     header('Content-Type: application/json');
     header('Content-Disposition: attachment; filename="' . $filename . '"');

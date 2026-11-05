@@ -194,7 +194,7 @@
     @endif
     @endauth
     <x-rms-error />
-    <x-chatify.floating-widget />
+    <x-messify.floating-widget />
     @auth
     <livewire:components.scanner-modal />
     <livewire:components.session-guard />

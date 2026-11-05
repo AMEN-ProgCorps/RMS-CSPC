@@ -192,6 +192,6 @@
         @endif
         @endauth
         <x-rms-error />
-        <x-chatify.floating-widget />
+        <x-messify.floating-widget />
     </body>
 </html>

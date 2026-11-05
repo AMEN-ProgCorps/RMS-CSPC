@@ -265,7 +265,7 @@
             {{ $slot }}
         </div>
     </section>
-    <x-chatify.floating-widget />
+    <x-messify.floating-widget />
     @auth
     <livewire:components.session-guard />
     <livewire:components.report-problem />

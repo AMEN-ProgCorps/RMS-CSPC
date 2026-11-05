@@ -588,7 +588,7 @@
                     'active' => request()->routeIs('admin.activity.dcs.*'),
                 ],
                 [
-                    'label' => 'Chatify',
+                    'label' => 'Messify',
                     'icon' => 'fa-solid fa-comments',
                     'url' => route('admin.activity.chat-audit'),
                     'active' => request()->routeIs('admin.activity.chat-audit'),

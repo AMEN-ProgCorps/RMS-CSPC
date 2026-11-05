@@ -1617,7 +1617,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             }
         }
         $unique = array_values(array_unique($valid));
-        return !empty($unique) ? implode(', ', $unique) : '—';
+        if (empty($unique)) {
+            return '—';
+        }
+        if (count($unique) > 5) {
+            return 'Office Concern';
+        }
+        return implode(', ', $unique);
     }
 
     private function formatItemDate(string $rawDate): string

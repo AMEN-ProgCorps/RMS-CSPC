@@ -215,4 +215,18 @@ class RdpVerificationModalTest extends TestCase
         $component->assertSee('2021 Records');
         $component->assertSee('admin@cspc.edu.ph');
     }
+
+    public function test_verification_modal_renders_office_concern_when_more_than_five_duplicates(): void
+    {
+        $component = Volt::test('pages.rdp.add-records.inventory-and-appraisal');
+        $this->setValidSingleRecordData($component, [
+            'selectedSeriesTitle' => 'MANY DUPLICATES SERIES',
+            'description' => 'Many Duplicates Test',
+            'duplicate_offices' => ['ACCESS', 'President', 'Board Secretary', 'COA', 'FAI', 'SSC', 'IAU'],
+        ]);
+
+        $component->call('openVerificationModal');
+        $component->assertSet('showVerificationModal', true);
+        $component->assertSee('Office Concern');
+    }
 }

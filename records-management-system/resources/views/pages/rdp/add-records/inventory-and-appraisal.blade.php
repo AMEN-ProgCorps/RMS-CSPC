@@ -318,6 +318,41 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Format duplicate offices according to official NAP Form 1 standard:
+     * - Empty: 'None'
+     * - 1 to 5 offices: comma-separated list of office codes
+     * - More than 5 offices: 'Office Concern' to prevent layout overflow
+     */
+    public function formatDuplicationForPreview(?array $offices): string
+    {
+        if (empty($offices)) {
+            return 'None';
+        }
+
+        $valid = [];
+        foreach ($offices as $o) {
+            $parts = preg_split('/\s*,\s*/', trim((string)$o));
+            foreach ($parts as $p) {
+                $p = trim($p);
+                if (!empty($p) && $p !== '—' && strcasecmp($p, 'None') !== 0) {
+                    $valid[] = $p;
+                }
+            }
+        }
+
+        $unique = array_values(array_unique($valid));
+        if (empty($unique)) {
+            return 'None';
+        }
+
+        if (count($unique) > 5) {
+            return 'Office Concern';
+        }
+
+        return implode(', ', $unique);
+    }
+
     public function formatBatchDateRange(?string $startDate, ?string $endDate = null, bool $isHeader = false): string
     {
         $startDate = trim((string)$startDate);
@@ -5805,7 +5840,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                         <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $restriction ?: '—' }}</td>
                                         <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $records_location ?: '—' }}</td>
                                         <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $frequence_use ?: '—' }}</td>
-                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ !empty($duplicate_offices) ? implode(', ', $duplicate_offices) : 'None' }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $this->formatDuplicationForPreview($duplicate_offices) }}</td>
                                         <td style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">{{ $time_value ?: 'T' }}</td>
                                         <td style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">{{ $this->formatUtilityValuesForPreview($utility_values) }}</td>
                                         @if($is_permanent)
@@ -5837,7 +5872,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                         <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $restriction ?: '—' }}</td>
                                         <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $records_location ?: '—' }}</td>
                                         <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $frequence_use ?: '—' }}</td>
-                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ !empty($duplicate_offices) ? implode(', ', $duplicate_offices) : 'None' }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $this->formatDuplicationForPreview($duplicate_offices) }}</td>
                                         <td style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">{{ $time_value ?: 'T' }}</td>
                                         <td style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">{{ $this->formatUtilityValuesForPreview($utility_values) }}</td>
                                         @if($is_permanent)
@@ -5896,7 +5931,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                             <td style="{{ $cellBorder }} padding: 3px 2px;">{{ $bItem['restriction'] ?? '—' }}</td>
                                             <td style="{{ $cellBorder }} padding: 3px 2px;">{{ $bItem['records_location'] ?? '—' }}</td>
                                             <td style="{{ $cellBorder }} padding: 3px 2px;">{{ $bItem['frequence_use'] ?? '—' }}</td>
-                                            <td style="{{ $cellBorder }} padding: 3px 2px;">{{ !empty($bItem['duplicate_offices']) ? implode(', ', $bItem['duplicate_offices']) : 'None' }}</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px;">{{ $this->formatDuplicationForPreview($bItem['duplicate_offices'] ?? []) }}</td>
                                             <td style="{{ $cellBorder }} padding: 3px 2px; font-weight: bold;">{{ $bItem['time_value'] ?? 'T' }}</td>
                                             <td style="{{ $cellBorder }} padding: 3px 2px; font-weight: bold;">{{ $this->formatUtilityValuesForPreview($bItem['utility_values'] ?? []) }}</td>
                                             @if($is_permanent)

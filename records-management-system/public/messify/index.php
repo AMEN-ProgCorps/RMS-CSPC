@@ -567,12 +567,21 @@ try {
           </div>
           <div id="officeMembersModalSubtitle" style="font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">Group Chat Directory</div>
         </div>
-        <button type="button" id="officeMembersAddUserBtn" style="display:none;width:34px;height:34px;border-radius:50%;border:none;background:#1b74e4;color:#ffffff;align-items:center;justify-content:center;cursor:pointer;padding:0;outline:none;flex-shrink:0;transition:opacity 0.15s;" title="Add member to group chat" onclick="openAddGcMembersModal()" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-        </button>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          <input type="file" id="customGcAvatarFileInput" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;" onchange="handleCustomGcAvatarSelect(event)">
+          <button type="button" id="customGcAvatarUploadBtn" style="display:none;width:34px;height:34px;border-radius:50%;border:none;background:rgba(27,116,228,0.12);color:#1b74e4;align-items:center;justify-content:center;cursor:pointer;padding:0;outline:none;flex-shrink:0;transition:opacity 0.15s, background 0.15s;" title="Upload group profile (1:1 square image)" onclick="triggerCustomGcAvatarUpload()" onmouseover="this.style.background='rgba(27,116,228,0.22)'" onmouseout="this.style.background='rgba(27,116,228,0.12)'">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+              <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+          </button>
+          <button type="button" id="officeMembersAddUserBtn" style="display:none;width:34px;height:34px;border-radius:50%;border:none;background:#1b74e4;color:#ffffff;align-items:center;justify-content:center;cursor:pointer;padding:0;outline:none;flex-shrink:0;transition:opacity 0.15s;" title="Add member to group chat" onclick="openAddGcMembersModal()" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+        </div>
       </div>
       <div class="modal-body" id="officeMembersList" style="padding:16px;overflow-y:auto;flex:1;min-height:0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scroll-behavior:smooth;touch-action:pan-y;display:flex;flex-direction:column;gap:8px;">
         <!-- Members populated dynamically via JS -->

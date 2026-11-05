@@ -94,7 +94,7 @@ if ($searchQuery !== '') {
                 'unreadCount'         => (int) ($cg['unread_count'] ?? 0),
                 'is_newly_added'      => !empty($cg['is_newly_added']),
                 'is_messify_verified' => false,
-                'avatar_url'          => 'cspc.webp',
+                'avatar_url'          => !empty($cg['avatar_url']) ? $cg['avatar_url'] : 'cspc.webp',
             ];
         }
     }
@@ -272,7 +272,7 @@ if ($searchQuery !== '') {
             'unreadCount'         => (int) ($cg['unread_count'] ?? 0),
             'is_newly_added'      => !empty($cg['is_newly_added']),
             'is_messify_verified' => false,
-            'avatar_url'          => 'cspc.webp',
+            'avatar_url'          => !empty($cg['avatar_url']) ? $cg['avatar_url'] : 'cspc.webp',
         ];
     }
 
@@ -454,7 +454,7 @@ if ($isAdmin) {
             // Custom GC match: search by group name
             try {
                 $stmt = $pdo->prepare('
-                    SELECT g.id, g.name,
+                    SELECT g.id, g.name, g.avatar_url,
                            (SELECT COUNT(*) FROM messify_chat_custom_group_members WHERE group_id = g.id) AS member_count
                     FROM messify_chat_custom_groups g
                     WHERE g.name ILIKE :like_search
@@ -472,7 +472,7 @@ if ($isAdmin) {
                         'office_id'           => null,
                         'office_name'         => null,
                         'office_code'         => null,
-                        'avatar_url'          => 'cspc.webp',
+                        'avatar_url'          => !empty($gc['avatar_url']) ? $gc['avatar_url'] : 'cspc.webp',
                         'is_messify_verified' => false,
                     ];
                 }

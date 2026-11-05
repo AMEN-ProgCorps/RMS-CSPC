@@ -66,6 +66,7 @@ echo json_encode([
         'id'          => (int) $group['id'],
         'name'        => $group['name'],
         'creator_id'  => (int) $group['creator_id'],
+        'avatar_url'  => $group['avatar_url'] ?? null,
         'is_gc_admin' => $isGcAdmin,
     ],
     'members' => $members,

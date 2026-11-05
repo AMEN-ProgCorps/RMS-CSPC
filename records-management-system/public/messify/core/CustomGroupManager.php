@@ -43,6 +43,7 @@ class CustomGroupManager
                 ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS last_opened_at TIMESTAMP WITH TIME ZONE;
                 ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS new_member_seen BOOLEAN NOT NULL DEFAULT FALSE;
                 ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE messify_chat_custom_groups ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(255) DEFAULT NULL;
             ");
         } catch (Throwable $t) {
             error_log('CustomGroupManager::ensureTables() — ' . $t->getMessage());
@@ -132,7 +133,7 @@ class CustomGroupManager
             self::ensureTables($pdo);
 
             $stmt = $pdo->prepare(
-                'SELECT id, name, creator_id, created_at FROM messify_chat_custom_groups WHERE id = :id LIMIT 1'
+                'SELECT id, name, creator_id, created_at, avatar_url FROM messify_chat_custom_groups WHERE id = :id LIMIT 1'
             );
             $stmt->execute([':id' => $groupId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -159,7 +160,7 @@ class CustomGroupManager
             self::ensureTables($pdo);
 
             $stmt = $pdo->prepare(
-                'SELECT g.id, g.name, g.creator_id, g.created_at,
+                'SELECT g.id, g.name, g.creator_id, g.created_at, g.avatar_url,
                         EXTRACT(EPOCH FROM g.created_at)::BIGINT AS created_ts,
                         EXTRACT(EPOCH FROM m.joined_at)::BIGINT AS joined_ts,
                         (SELECT COUNT(*) FROM messify_chat_custom_group_members WHERE group_id = g.id) AS member_count,
@@ -250,6 +251,7 @@ class CustomGroupManager
                     'name'           => $row['name'],
                     'creator_id'     => (int) $row['creator_id'],
                     'member_count'   => (int) $row['member_count'],
+                    'avatar_url'     => $row['avatar_url'] ?? null,
                     'last_message'   => $lastMsg,
                     'last_timestamp' => $effectiveTs,
                     'unread_count'   => $unreadCount,
@@ -512,6 +514,44 @@ class CustomGroupManager
      * Can only be called by a group admin (creator or admin) or super admin.
      * Cannot modify creator's admin status.
      */
+    /**
+     * Update group profile avatar URL.
+     * Can only be called by a group admin (creator or promoted admin) or super admin.
+     */
+    public static function updateGroupAvatar(int $groupId, string $avatarUrl, int $requesterId): bool
+    {
+        if ($groupId <= 0) {
+            return false;
+        }
+
+        try {
+            $pdo = Database::getConnection();
+            self::ensureTables($pdo);
+
+            $group = self::getGroup($groupId);
+            if (!$group) {
+                return false;
+            }
+
+            $isCreator = ((int)$group['creator_id'] === $requesterId);
+            $isSuperAdmin = Auth::isAdmin();
+            $isGroupAdmin = self::isGroupAdmin($groupId, $requesterId);
+
+            if (!$isCreator && !$isSuperAdmin && !$isGroupAdmin) {
+                return false;
+            }
+
+            $stmt = $pdo->prepare('UPDATE messify_chat_custom_groups SET avatar_url = :avatar_url WHERE id = :id');
+            return $stmt->execute([
+                ':avatar_url' => $avatarUrl,
+                ':id'         => $groupId,
+            ]);
+        } catch (Throwable $e) {
+            error_log('CustomGroupManager::updateGroupAvatar() - ' . $e->getMessage());
+            return false;
+        }
+    }
+
     public static function setMemberAdmin(int $groupId, int $targetAccountId, bool $isAdmin, int $requesterId): bool
     {
         if ($groupId <= 0 || $targetAccountId <= 0) return false;

@@ -1407,6 +1407,23 @@
               modalTitleEl.title = 'Click to rename group (' + newName + ')';
             }
           }
+        } else if (data.type === 'custom_gc_avatar_updated') {
+          const gid = Number(data.group_id);
+          const newAvatar = data.avatar_url || '';
+          if (Array.isArray(allUsersData)) {
+            const u = allUsersData.find(x => x.is_custom_gc && Number(x.gc_id) === gid);
+            if (u) {
+              u.avatar_url = newAvatar;
+              renderSidebarUsers();
+            }
+          }
+          if (window.activeChannel === 'gc' && window.activeCustomGc && Number(window.activeCustomGc.gc_id) === gid) {
+            window.activeCustomGc.avatar_url = newAvatar;
+            applyHeaderAvatar({ avatar_url: newAvatar || 'cspc.webp', name: window.activeCustomGc.name });
+          }
+          if (window.activeCustomGcGroupInfo && Number(window.activeCustomGcGroupInfo.id) === gid) {
+            window.activeCustomGcGroupInfo.avatar_url = newAvatar;
+          }
         } else if (data.type === 'custom_gc_admin_changed') {
           const gid = Number(data.group_id);
           const targetAccId = Number(data.target_account_id);
@@ -1432,6 +1449,10 @@
             const addBtnInModal = document.getElementById('officeMembersAddUserBtn');
             if (addBtnInModal) {
               addBtnInModal.style.display = newIsAdmin ? 'flex' : 'none';
+            }
+            const avatarBtnInModal = document.getElementById('customGcAvatarUploadBtn');
+            if (avatarBtnInModal) {
+              avatarBtnInModal.style.display = newIsAdmin ? 'flex' : 'none';
             }
 
             const disbandBtn = document.getElementById('disbandGcBtn');
@@ -2512,11 +2533,12 @@
 
         if (u.is_office_gc || u.is_custom_gc) {
           if (dot) dot.style.display = 'none';
-          if (avatar.dataset.avatarType !== 'gc') {
-            avatar.innerHTML = `<img src="cspc.webp" width="48" height="48" alt="Group Chat" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;border-radius:50%;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">`;
+          const gcAvatarSrc = (u.is_custom_gc && u.avatar_url) ? u.avatar_url : 'cspc.webp';
+          if (avatar.dataset.avatarType !== 'gc' || avatar.dataset.avatarUrl !== gcAvatarSrc) {
+            avatar.innerHTML = `<img src="${escapeHtml(gcAvatarSrc)}" width="48" height="48" alt="Group Chat" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;border-radius:50%;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">`;
             avatar.dataset.avatarType = 'gc';
             avatar.dataset.initials = '';
-            avatar.dataset.avatarUrl = '';
+            avatar.dataset.avatarUrl = gcAvatarSrc;
           }
         } else {
           if (dot) dot.style.display = '';
@@ -4029,7 +4051,7 @@
             unreadCount: 0,
             is_newly_added: false,
             is_messify_verified: false,
-            avatar_url: 'cspc.webp'
+            avatar_url: group.avatar_url || 'cspc.webp'
           });
         }
       }
@@ -4075,7 +4097,7 @@
 
       chatHeaderTitle.innerHTML = escapeHtml(group.name);
       applyHeaderAdminBadge();
-      applyHeaderAvatar({ avatar_url: 'cspc.webp', name: group.name });
+      applyHeaderAvatar({ avatar_url: group.avatar_url || 'cspc.webp', name: group.name });
       chatBox.innerHTML = '';
 
       removePaginationBtn();
@@ -5248,6 +5270,8 @@
         // Also check in-memory groupInfo for promoted-admin status (avoids flash before fetch)
         const isCachedGcAdmin = isCreatorForAddBtn || (!isCustomGcAdminSpy && Boolean(window.activeCustomGcGroupInfo && Number(window.activeCustomGcGroupInfo.id) === gcId && window.activeCustomGcGroupInfo.is_gc_admin));
         if (addBtn) addBtn.style.display = isCachedGcAdmin ? 'flex' : 'none';
+        const avatarUploadBtn = document.getElementById('customGcAvatarUploadBtn');
+        if (avatarUploadBtn) avatarUploadBtn.style.display = isCachedGcAdmin ? 'flex' : 'none';
 
         if (!silent && listEl) {
           listEl.innerHTML = '<div style="padding:32px 16px;text-align:center;color:var(--text-secondary);font-size:13px;font-weight:500;">Loading members...</div>';
@@ -5276,6 +5300,8 @@
             // Also update the + add button visibility — creator and promoted admins can add members
             const addBtnInModal = document.getElementById('officeMembersAddUserBtn');
             if (addBtnInModal) addBtnInModal.style.display = isGcAdmin ? 'flex' : 'none';
+            const avatarUploadBtnInModal = document.getElementById('customGcAvatarUploadBtn');
+            if (avatarUploadBtnInModal) avatarUploadBtnInModal.style.display = isGcAdmin ? 'flex' : 'none';
 
             const disbandBtn = document.getElementById('disbandGcBtn');
             const cancelBtn = document.getElementById('officeMembersCancelBtn') || document.querySelector('#officeMembersModal .cancel-button');
@@ -5322,6 +5348,8 @@
       // ── Private DM branch (Super Admin Spy Mode) ────────────────────────────
       if (typeof activeAdminConv === 'string' && /^\d+_\d+$/.test(activeAdminConv)) {
         if (addBtn) addBtn.style.display = 'none';
+        const _avBtn = document.getElementById('customGcAvatarUploadBtn');
+        if (_avBtn) _avBtn.style.display = 'none';
         const _disbandBtn = document.getElementById('disbandGcBtn');
         if (_disbandBtn) _disbandBtn.style.display = 'none';
         const _cancelBtn = document.getElementById('officeMembersCancelBtn') || document.querySelector('#officeMembersModal .cancel-button');
@@ -5360,6 +5388,8 @@
       // ── Fixed Office GC branch ──────────────────────────────────────────────
       if (titleEl) { titleEl.onclick = null; titleEl.style.cursor = 'default'; }
       if (addBtn) addBtn.style.display = 'none';
+      const _avBtn2 = document.getElementById('customGcAvatarUploadBtn');
+      if (_avBtn2) _avBtn2.style.display = 'none';
       const _disbandBtn = document.getElementById('disbandGcBtn');
       if (_disbandBtn) _disbandBtn.style.display = 'none';
       const _cancelBtn = document.getElementById('officeMembersCancelBtn') || document.querySelector('#officeMembersModal .cancel-button');
@@ -5443,6 +5473,8 @@
       modal.setAttribute('aria-hidden', 'true');
       const disbandBtn = document.getElementById('disbandGcBtn');
       if (disbandBtn) disbandBtn.style.display = 'none';
+      const avatarUploadBtn = document.getElementById('customGcAvatarUploadBtn');
+      if (avatarUploadBtn) avatarUploadBtn.style.display = 'none';
       const cancelBtn = document.getElementById('officeMembersCancelBtn') || document.querySelector('#officeMembersModal .cancel-button');
       if (cancelBtn) {
         cancelBtn.textContent = 'Close';
@@ -5837,6 +5869,127 @@
         submitRenameCustomGc();
       }
     });
+
+    function triggerCustomGcAvatarUpload() {
+      const input = document.getElementById('customGcAvatarFileInput');
+      if (!input) return;
+      input.value = '';
+      input.click();
+    }
+    window.triggerCustomGcAvatarUpload = triggerCustomGcAvatarUpload;
+
+    function handleCustomGcAvatarSelect(e) {
+      const input = e.target;
+      const file = input && input.files && input.files[0];
+      if (!file) return;
+
+      // 1. Validate file extension and MIME type
+      const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+      const validExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+      const fileName = file.name.toLowerCase();
+      const hasValidExt = validExts.some(ext => fileName.endsWith(ext));
+
+      if (!validTypes.includes(file.type) || !hasValidExt) {
+        alert('Only image files (JPG, PNG, WEBP, GIF) are allowed. Executable or script files are strictly prohibited.');
+        input.value = '';
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size exceeds maximum limit of 5MB.');
+        input.value = '';
+        return;
+      }
+
+      const gcId = (window.activeCustomGc && window.activeCustomGc.gc_id) || (window.activeCustomGcGroupInfo && window.activeCustomGcGroupInfo.id);
+      if (!gcId) {
+        alert('No active custom group selected.');
+        input.value = '';
+        return;
+      }
+
+      // 2. Strictly validate 1:1 square aspect ratio
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = function() {
+        URL.revokeObjectURL(objectUrl);
+        const width = img.naturalWidth || img.width;
+        const height = img.naturalHeight || img.height;
+
+        if (width !== height) {
+          alert('Group profile image must have a 1:1 square aspect ratio (e.g. 500x500).\nSelected image dimensions are ' + width + 'x' + height + '.');
+          input.value = '';
+          return;
+        }
+
+        // 3. Upload file
+        const avatarBtn = document.getElementById('customGcAvatarUploadBtn');
+        const originalBtnContent = avatarBtn ? avatarBtn.innerHTML : '';
+        if (avatarBtn) {
+          avatarBtn.disabled = true;
+          avatarBtn.innerHTML = '<div style="width:16px;height:16px;border:2px solid rgba(27,116,228,0.3);border-top-color:#1b74e4;border-radius:50%;animation:chatify-spin 0.8s linear infinite;"></div>';
+        }
+
+        const formData = new FormData();
+        formData.append('group_id', gcId);
+        formData.append('avatar', file);
+
+        fetch('upload_custom_gc_avatar.php', {
+          method: 'POST',
+          body: formData,
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (avatarBtn) {
+              avatarBtn.disabled = false;
+              avatarBtn.innerHTML = originalBtnContent;
+            }
+            input.value = '';
+
+            if (!data || !data.success) {
+              alert(data?.error || 'Failed to upload group profile.');
+              return;
+            }
+
+            const newAvatarUrl = data.avatar_url;
+
+            // Update in-memory models
+            if (window.activeCustomGc && Number(window.activeCustomGc.gc_id) === Number(gcId)) {
+              window.activeCustomGc.avatar_url = newAvatarUrl;
+              applyHeaderAvatar({ avatar_url: newAvatarUrl, name: window.activeCustomGc.name });
+            }
+            if (window.activeCustomGcGroupInfo && Number(window.activeCustomGcGroupInfo.id) === Number(gcId)) {
+              window.activeCustomGcGroupInfo.avatar_url = newAvatarUrl;
+            }
+
+            // Update sidebar item
+            if (Array.isArray(allUsersData)) {
+              const u = allUsersData.find(x => x.is_custom_gc && Number(x.gc_id) === Number(gcId));
+              if (u) {
+                u.avatar_url = newAvatarUrl;
+                renderSidebarUsers();
+              }
+            }
+          })
+          .catch(() => {
+            if (avatarBtn) {
+              avatarBtn.disabled = false;
+              avatarBtn.innerHTML = originalBtnContent;
+            }
+            input.value = '';
+            alert('Network error while uploading group profile. Please try again.');
+          });
+      };
+
+      img.onerror = function() {
+        URL.revokeObjectURL(objectUrl);
+        alert('Failed to load image. The file may be corrupt or not a valid image.');
+        input.value = '';
+      };
+
+      img.src = objectUrl;
+    }
+    window.handleCustomGcAvatarSelect = handleCustomGcAvatarSelect;
 
     function renderOfficeMembersList(members, isSilent = false, groupInfo = null) {
       const listEl = document.getElementById('officeMembersList');

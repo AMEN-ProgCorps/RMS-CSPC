@@ -14,10 +14,38 @@ class RdpVerificationModalTest extends TestCase
     {
         parent::setUp();
 
-        $admin = User::find(1);
-        if ($admin) {
-            Auth::login($admin);
+        $admin = User::first();
+        if (!$admin) {
+            $userId = DB::table('sys_account')->insertGetId([
+                'username' => 'test_admin_' . uniqid(),
+                'password' => bcrypt('password'),
+                'account_role' => 1,
+                'account_status' => 1,
+                'account_active' => true,
+                'date_created' => now(),
+                'date_updated' => now(),
+            ]);
+            $admin = User::find($userId);
         }
+
+        $office = DB::table('sys_office')->where('is_active', true)->first();
+        if ($office && $admin) {
+            DB::table('sys_account_details')
+                ->updateOrInsert(
+                    ['account_id' => $admin->id],
+                    [
+                        'office_id' => $office->id,
+                        'first_name' => 'Admin',
+                        'last_name' => 'User',
+                        'email' => 'admin@cspc.edu.ph',
+                    ]
+                );
+        }
+
+        $admin = User::find($admin->id);
+        Auth::login($admin);
+        $this->actingAs($admin);
+        \Livewire\Livewire::actingAs($admin);
     }
 
     private function setValidSingleRecordData($component, array $overrides = []): void
@@ -140,14 +168,15 @@ class RdpVerificationModalTest extends TestCase
     {
         $component = Volt::test('pages.rdp.add-records.inventory-and-appraisal');
         $this->setValidSingleRecordData($component, [
-            'collectiveOffices' => ['O-VPAA'],
+            'spreadToDuplicateOffices' => true,
+            'duplicate_offices' => ['O-VPAA'],
         ]);
 
         $component->call('openVerificationModal');
         $component->assertSet('showVerificationModal', true);
-        $component->assertSee('Collective Office Spread Activated');
+        $component->assertSee('Duplicate Offices Spread Activated');
         $component->assertSee('O-VPAA');
-        $component->assertSee('Submit &amp; Spread to Collective', false);
+        $component->assertSee('Submit &amp; Spread to Duplicate Offices', false);
     }
 
     public function test_standalone_save_draft_button_is_removed(): void
@@ -159,5 +188,31 @@ class RdpVerificationModalTest extends TestCase
         $this->assertStringNotContainsString('wire:click="saveDraft"', $html);
         // Ensure Create Record button triggers openVerificationModal
         $this->assertStringContainsString('wire:click="openVerificationModal"', $html);
+    }
+
+    public function test_verification_modal_renders_in_batch_mode(): void
+    {
+        $component = Volt::test('pages.rdp.add-records.inventory-and-appraisal');
+        $component->set('entryMode', 'batch');
+        $component->set('selectedSeriesTitle', 'BATCH RECORD SERIES');
+        $component->set('description', 'Batch Test Record');
+        $component->set('batch_start_date', '2020-01-01');
+        $component->set('batch_end_date', '2022-12-31');
+        $component->set('batch_sub_periods', [
+            ['start_date' => '2020-01-01', 'end_date' => '2020-12-31', 'volume' => '1 Folder', 'description' => '2020 Records'],
+            ['start_date' => '2021-01-01', 'end_date' => '2021-12-31', 'volume' => '1 Folder', 'description' => '2021 Records'],
+        ]);
+        $component->set('records_location', 'Cabinet 1, Shelf 2');
+        $component->set('records_medium', 1);
+        $component->set('restriction', 'Open Access');
+        $component->set('frequence_use', 'Daily');
+        $component->set('utility_values', [1]);
+        $component->set('retention_period', '5 Years');
+
+        $component->call('openVerificationModal');
+        $component->assertSet('showVerificationModal', true);
+        $component->assertSee('2020 Records');
+        $component->assertSee('2021 Records');
+        $component->assertSee('admin@cspc.edu.ph');
     }
 }

@@ -79,6 +79,25 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 $userOffice = $firstRec?->recorded_at_office ?? null;
             }
 
+            $selectedInts = array_map('intval', $this->selectedIds);
+
+            // Safe lock: ensure none of the selected series are already part of an active RDS cluster
+            $alreadyPackaged = DB::table('rdp_grouped_record_series')
+                ->join('rdp_pending_record_series', 'rdp_grouped_record_series.group_head', '=', 'rdp_pending_record_series.cluster_id')
+                ->whereIn('rdp_grouped_record_series.record_series_id', $selectedInts)
+                ->where('rdp_grouped_record_series.is_active', true)
+                ->where('rdp_pending_record_series.is_active', true)
+                ->whereIn('rdp_pending_record_series.status_id', [1, 2, 4, 5])
+                ->select(['rdp_grouped_record_series.record_series_id', 'rdp_pending_record_series.cluster_name'])
+                ->get();
+
+            if ($alreadyPackaged->isNotEmpty()) {
+                $firstLocked = $alreadyPackaged->first();
+                $this->errorMessage = "Series #{$firstLocked->record_series_id} is already packaged in active form '{$firstLocked->cluster_name}'. Please refresh the page.";
+                DB::rollBack();
+                return;
+            }
+
             $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
             $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
                 'status'     => 'UNUSED',
@@ -231,6 +250,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                     'rdp_remarks_logic.remarks_value',
                     'CAST(rdp_record_series.item_number AS TEXT)',
                 ]);
+            }
+
+            // Exclude series already packaged in active RDS clusters
+            $lockedSeriesIds = DB::table('rdp_grouped_record_series')
+                ->join('rdp_pending_record_series', 'rdp_grouped_record_series.group_head', '=', 'rdp_pending_record_series.cluster_id')
+                ->where('rdp_grouped_record_series.is_active', true)
+                ->where('rdp_pending_record_series.is_active', true)
+                ->whereIn('rdp_pending_record_series.status_id', [1, 2, 4, 5])
+                ->pluck('rdp_grouped_record_series.record_series_id')
+                ->all();
+
+            if (!empty($lockedSeriesIds)) {
+                $query->whereNotIn('rdp_record_series.id', $lockedSeriesIds);
             }
 
             $allIds = $query->pluck('rdp_record_series.id')->toArray();
@@ -737,8 +769,34 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $permanentCount = count(array_filter($treeOrdered, fn($i) => $i->effective_is_permanent || strtolower(trim($i->effective_total ?? '')) === 'permanent'));
         $temporaryCount = $totalCount - $permanentCount;
 
+        // Safe lock: Pre-fetch series already packaged in active RDS clusters
+        $seriesIds = array_column($treeOrdered, 'id');
+        $activeClustersBySeries = empty($seriesIds) ? collect() : DB::table('rdp_grouped_record_series')
+            ->join('rdp_pending_record_series', 'rdp_grouped_record_series.group_head', '=', 'rdp_pending_record_series.cluster_id')
+            ->whereIn('rdp_grouped_record_series.record_series_id', $seriesIds)
+            ->where('rdp_grouped_record_series.is_active', true)
+            ->where('rdp_pending_record_series.is_active', true)
+            ->whereIn('rdp_pending_record_series.status_id', [1, 2, 4, 5])
+            ->select([
+                'rdp_grouped_record_series.record_series_id',
+                'rdp_pending_record_series.cluster_id',
+                'rdp_pending_record_series.cluster_name',
+                'rdp_pending_record_series.status_id',
+                'rdp_pending_record_series.is_verified',
+            ])
+            ->get()
+            ->groupBy('record_series_id');
+
+        foreach ($treeOrdered as $item) {
+            $lockedCluster = ($activeClustersBySeries[$item->id] ?? collect())->first();
+            $item->is_locked = !empty($lockedCluster);
+            $item->locked_status_label = $item->is_locked ? (((int)$lockedCluster->status_id === 5 || (int)$lockedCluster->status_id === 2 || (bool)($lockedCluster->is_verified ?? false)) ? 'Submitted' : 'Pending') : null;
+            $item->locked_cluster_name = $lockedCluster?->cluster_name;
+            $item->locked_cluster_id = $lockedCluster?->cluster_id;
+        }
+
         $allSelectableRecordIds = array_values(array_filter(array_map(function($item) {
-            return empty($item->is_parent_context) ? (string)$item->id : null;
+            return (empty($item->is_parent_context) && empty($item->is_locked)) ? (string)$item->id : null;
         }, $treeOrdered)));
 
         $officesList = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)->orderBy('office_name')->get();
@@ -1129,7 +1187,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                             @if(!$isRoot) x-show="!isRootCollapsed('root-{{ $item->root_id }}')" @endif>
                             <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                 <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                    @if(!$isParentCtx)
+                                    @if(!empty($item->is_locked))
+                                        <span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;" title="Packaged in active form: {{ $item->locked_cluster_name }}">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="20 6 9 17 4 12"></polyline>
+                                            </svg>
+                                        </span>
+                                    @elseif(!$isParentCtx)
                                         <input type="checkbox" 
                                                :checked="isSelected('{{ $itemIdStr }}')" 
                                                @click.stop="toggleId('{{ $itemIdStr }}')" 

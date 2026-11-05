@@ -106,8 +106,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             return;
         }
 
-        if ($statusId === 2) {
-            $this->errorMessage = 'Approved or verified forms cannot be cancelled.';
+        if ($statusId === 2 || $statusId === 5 || $statusId === 3 || $statusId === 4) {
+            $this->errorMessage = 'Historical, submitted, or evaluated forms cannot be cancelled.';
             return;
         }
 
@@ -273,6 +273,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     'rdp_pending_record_series.cluster_id',
                     'rdp_pending_record_series.cluster_name',
                     'rdp_pending_record_series.status_id',
+                    'rdp_pending_record_series.evaluation_remarks',
                     DB::raw("COALESCE(rdp_pending_record_series.office, submitter_office.office_code) as office"),
                     'rdp_pending_record_series.created_at',
                     'rdp_pending_status.status_name',
@@ -312,6 +313,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     'rdp_pending_record.cluster_id',
                     'rdp_pending_record.cluster_name',
                     'rdp_pending_record.status_id',
+                    'rdp_pending_record.evaluation_remarks',
                     DB::raw("COALESCE(rdp_pending_record.office, submitter_office.office_code) as office"),
                     'rdp_pending_record.is_for_nap_one',
                     'rdp_pending_record.is_for_nap_three',
@@ -1502,6 +1504,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     'rdp_pending_record_series.cluster_id',
                     'rdp_pending_record_series.cluster_name',
                     'rdp_pending_record_series.status_id',
+                    'rdp_pending_record_series.evaluation_remarks',
                     DB::raw("COALESCE(rdp_pending_record_series.office, submitter_office.office_code) as office"),
                     'rdp_pending_record_series.created_at',
                     'rdp_pending_status.status_name',
@@ -1576,6 +1579,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     'rdp_pending_record.cluster_id',
                     'rdp_pending_record.cluster_name',
                     'rdp_pending_record.status_id',
+                    'rdp_pending_record.evaluation_remarks',
                     DB::raw("COALESCE(rdp_pending_record.office, submitter_office.office_code) as office"),
                     'rdp_pending_record.is_for_nap_one',
                     'rdp_pending_record.is_for_nap_three',
@@ -1796,7 +1800,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         .status-null, .status-1 { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; } /* Pending */
         .status-2 { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; } /* Approved */
         .status-3 { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; } /* Rejected */
-        .status-4 { background: #e0f2fe; color: #075985; border: 1px solid #bae6fd; } /* Returned */
+        .status-4 { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; } /* Returned / Rejected */
+        .status-5 { background: #ecfdf5; color: #047857; border: 1px solid #6ee7b7; font-weight: 700; } /* Submitted */
 
         .form-type-pill {
             background: #f1f5f9;
@@ -2520,6 +2525,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         Status: {{ $selectedCluster->status_name ?? 'Draft Group' }}
                     </span>
                 </div>
+                @if(!empty($selectedCluster->evaluation_remarks))
+                    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+                        <span style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #b91c1c; display: block; margin-bottom: 2px;">Evaluator Correction Remarks:</span>
+                        <p style="margin: 0; font-size: 13px; color: #7f1d1d; line-height: 1.4;">{{ $selectedCluster->evaluation_remarks }}</p>
+                    </div>
+                @endif
                 <table class="pending-table" style="font-size: 13px;">
                     <thead>
                         <tr>
@@ -2556,7 +2567,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     </tbody>
                 </table>
                 <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
-                    @if(($selectedCluster->status_id ?? 1) != 2)
+                    @if((int)($selectedCluster->status_id ?? 1) === 1)
                         <button type="button"
                             wire:click="openCancelConfirmModal"
                             style="padding: 8px 14px; background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; border-radius: 6px; font-weight: 700; font-size: 12.5px; cursor: pointer;"

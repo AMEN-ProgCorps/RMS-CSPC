@@ -147,6 +147,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 ]);
             }
 
+            // Exclude records already packaged in active NAP 1 clusters
+            $lockedRecordIds = DB::table('rdp_grouped_record')
+                ->join('rdp_pending_record', 'rdp_grouped_record.group_head', '=', 'rdp_pending_record.cluster_id')
+                ->where('rdp_grouped_record.is_active', true)
+                ->where('rdp_pending_record.is_active', true)
+                ->where('rdp_pending_record.is_for_nap_one', true)
+                ->whereIn('rdp_pending_record.status_id', [1, 2, 4, 5])
+                ->pluck('rdp_grouped_record.record_id')
+                ->all();
+
+            if (!empty($lockedRecordIds)) {
+                $query->whereNotIn('rdp_record.id', $lockedRecordIds);
+            }
+
             $allIds = $query->pluck('rdp_record.id')->toArray();
             $this->selectedIds = array_map('strval', $allIds);
         } else {
@@ -286,6 +300,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
             if (empty($validRecordIds)) {
                 $this->errorMessage = 'Please select at least one valid record to create a form.';
+                DB::rollBack();
+                return;
+            }
+
+            // Safe lock: ensure none of the selected records are already part of an active NAP 1 cluster
+            $alreadyPackaged = DB::table('rdp_grouped_record')
+                ->join('rdp_pending_record', 'rdp_grouped_record.group_head', '=', 'rdp_pending_record.cluster_id')
+                ->whereIn('rdp_grouped_record.record_id', $validRecordIds)
+                ->where('rdp_grouped_record.is_active', true)
+                ->where('rdp_pending_record.is_active', true)
+                ->where('rdp_pending_record.is_for_nap_one', true)
+                ->whereIn('rdp_pending_record.status_id', [1, 2, 4, 5])
+                ->select(['rdp_grouped_record.record_id', 'rdp_pending_record.cluster_name'])
+                ->get();
+
+            if ($alreadyPackaged->isNotEmpty()) {
+                $firstLocked = $alreadyPackaged->first();
+                $this->errorMessage = "Record #{$firstLocked->record_id} is already packaged in active form '{$firstLocked->cluster_name}'. Please refresh the page.";
                 DB::rollBack();
                 return;
             }
@@ -1057,7 +1089,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $effIsActionBefore = null,
         $effRemActive = null,
         $effRemStorage = null,
-        $effRemTotal = null
+        $effRemTotal = null,
+        $activeClustersByRecord = null
     ): array {
         $childItems = [];
 
@@ -1194,25 +1227,36 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 foreach ($uRows as $un) $compiledUtils[] = $un;
                 $totalItemsCount++;
 
+                $childLockedCluster = null;
+                if (!empty($activeClustersByRecord) && isset($activeClustersByRecord[$r->id])) {
+                    $childLockedCluster = $activeClustersByRecord[$r->id]->first();
+                }
+                $isChildLocked = !empty($childLockedCluster);
+                $childLockedStatus = $isChildLocked ? (((int)$childLockedCluster->status_id === 5 || (int)$childLockedCluster->status_id === 2 || (bool)($childLockedCluster->is_verified ?? false)) ? 'Submitted' : 'Pending') : null;
+
                 $childItems[] = (object)[
-                    'id'            => $r->id,
-                    'series_id'     => $seriesId,
-                    'description'   => $r->description,
-                    'date_covered'  => $formattedDate,
-                    'volume'        => $recVolume,
-                    'medium'        => $recMedium,
-                    'restriction'   => $recRestriction,
-                    'location'      => $r->records_location ?: '—',
-                    'frequence_use' => $recFreq,
-                    'duplication'   => $recDup,
-                    'time_value'    => $r->time_value ?: 'T',
-                    'utility'       => $this->formatItemUtility($uRows),
-                    'is_batch'      => false,
-                    'sub_periods'   => [],
-                    'status'        => $singleStatus,
-                    'is_disposed'   => ($singleStatus === 'disposed'),
-                    'is_revised'    => ($singleStatus === 'revised'),
-                    'immunity'      => $immunity,
+                    'id'                  => $r->id,
+                    'series_id'           => $seriesId,
+                    'description'         => $r->description,
+                    'date_covered'        => $formattedDate,
+                    'volume'              => $recVolume,
+                    'medium'              => $recMedium,
+                    'restriction'         => $recRestriction,
+                    'location'            => $r->records_location ?: '—',
+                    'frequence_use'       => $recFreq,
+                    'duplication'         => $recDup,
+                    'time_value'          => $r->time_value ?: 'T',
+                    'utility'             => $this->formatItemUtility($uRows),
+                    'is_batch'            => false,
+                    'sub_periods'         => [],
+                    'status'              => $singleStatus,
+                    'is_disposed'         => ($singleStatus === 'disposed'),
+                    'is_revised'          => ($singleStatus === 'revised'),
+                    'immunity'            => $immunity,
+                    'is_locked'           => $isChildLocked,
+                    'locked_status_label' => $childLockedStatus,
+                    'locked_cluster_name' => $childLockedCluster?->cluster_name,
+                    'locked_cluster_id'   => $childLockedCluster?->cluster_id,
                 ];
             } else {
                 // Batch Record (Single Batch or Merged Batch from same subject & office)
@@ -1305,27 +1349,38 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         continue;
                     }
 
+                    $subLockedCluster = null;
+                    if (!empty($activeClustersByRecord) && isset($activeClustersByRecord[$r->id])) {
+                        $subLockedCluster = $activeClustersByRecord[$r->id]->first();
+                    }
+                    $isSubLocked = !empty($subLockedCluster);
+                    $subLockedStatus = $isSubLocked ? (((int)$subLockedCluster->status_id === 5 || (int)$subLockedCluster->status_id === 2 || (bool)($subLockedCluster->is_verified ?? false)) ? 'Submitted' : 'Pending') : null;
+
                     $subPeriodItems[] = (object)[
-                        'id'            => $r->id . '-sub-' . ($p->id ?? rand(1000, 9999)),
-                        'parent_rec_id' => $r->id,
-                        'period_id'     => $p->id ?? null,
-                        'description'   => $subTitle,
-                        'date_covered'  => $this->formatBatchDateRange($pStart, $pEnd, false),
-                        'volume'        => $subVol,
-                        'medium'        => $rMedium,
-                        'restriction'   => $rRestriction,
-                        'location'      => $r->records_location ?: '—',
-                        'frequence_use' => $rFreq,
-                        'duplication'   => $rDup,
-                        'time_value'    => $r->time_value ?: 'T',
-                        'utility'       => $this->formatItemUtility($rURows),
-                        'is_sub_period' => true,
-                        'sub_index'     => 1,
-                        'raw_sort_date' => $pEnd ?: ($pStart ?: '0000-00-00'),
-                        'status'        => $pStatus,
-                        'is_disposed'   => ($pStatus === 'disposed'),
-                        'is_revised'    => ($pStatus === 'revised'),
-                        'immunity'      => $subImmunity,
+                        'id'                  => $r->id . '-sub-' . ($p->id ?? rand(1000, 9999)),
+                        'parent_rec_id'       => $r->id,
+                        'period_id'           => $p->id ?? null,
+                        'description'         => $subTitle,
+                        'date_covered'        => $this->formatBatchDateRange($pStart, $pEnd, false),
+                        'volume'              => $subVol,
+                        'medium'              => $rMedium,
+                        'restriction'         => $rRestriction,
+                        'location'            => $r->records_location ?: '—',
+                        'frequence_use'       => $rFreq,
+                        'duplication'         => $rDup,
+                        'time_value'          => $r->time_value ?: 'T',
+                        'utility'             => $this->formatItemUtility($rURows),
+                        'is_sub_period'       => true,
+                        'sub_index'           => 1,
+                        'raw_sort_date'       => $pEnd ?: ($pStart ?: '0000-00-00'),
+                        'status'              => $pStatus,
+                        'is_disposed'         => ($pStatus === 'disposed'),
+                        'is_revised'          => ($pStatus === 'revised'),
+                        'immunity'            => $subImmunity,
+                        'is_locked'           => $isSubLocked,
+                        'locked_status_label' => $subLockedStatus,
+                        'locked_cluster_name' => $subLockedCluster?->cluster_name,
+                        'locked_cluster_id'   => $subLockedCluster?->cluster_id,
                     ];
                 }
 
@@ -1413,26 +1468,47 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $totalItemsCount++;
                 }
 
+                $unlockedSubItems = array_values(array_filter($subPeriodItems, fn($s) => empty($s->is_locked)));
+                $isBatchLocked = !empty($subPeriodItems) && empty($unlockedSubItems);
+                $batchLockedCluster = null;
+                if ($isBatchLocked && !empty($subPeriodItems)) {
+                    $firstLocked = collect($subPeriodItems)->first(fn($s) => !empty($s->is_locked));
+                    if ($firstLocked) {
+                        $batchLockedCluster = (object)[
+                            'cluster_name' => $firstLocked->locked_cluster_name,
+                            'cluster_id'   => $firstLocked->locked_cluster_id,
+                            'status_id'    => 5,
+                        ];
+                    }
+                }
+                $batchLockedStatus = $isBatchLocked ? 'Submitted' : null;
+                $selectableBatchRecIds = array_values(array_unique(array_filter(array_map(fn($s) => (empty($s->is_locked) && ($s->status ?? 'active') !== 'disposed') ? (string)$s->parent_rec_id : null, $subPeriodItems))));
+
                 $childItems[] = (object)[
-                    'id'            => $firstRec->id,
-                    'group_rec_ids' => $group->pluck('id')->all(),
-                    'series_id'     => $seriesId,
-                    'description'   => $primarySubject,
-                    'date_covered'  => $formattedDate,
-                    'volume'        => $recVolume,
-                    'medium'        => $parentMedium,
-                    'restriction'   => $parentRestriction,
-                    'location'      => $parentLocation,
-                    'frequence_use' => $parentFreq,
-                    'duplication'   => $parentDup,
-                    'time_value'    => $firstRec->time_value ?: 'T',
-                    'utility'       => $this->formatItemUtility($parentUtils),
-                    'is_batch'      => true,
-                    'sub_periods'   => $subPeriodItems,
-                    'status'        => $batchStatus,
-                    'is_disposed'   => ($batchStatus === 'disposed'),
-                    'is_revised'    => ($batchStatus === 'revised'),
-                    'immunity'      => $subPeriodItems[0]->immunity ?? null,
+                    'id'                  => $firstRec->id,
+                    'group_rec_ids'       => $group->pluck('id')->all(),
+                    'selectable_rec_ids'  => $selectableBatchRecIds,
+                    'series_id'           => $seriesId,
+                    'description'         => $primarySubject,
+                    'date_covered'        => $formattedDate,
+                    'volume'              => $recVolume,
+                    'medium'              => $parentMedium,
+                    'restriction'         => $parentRestriction,
+                    'location'            => $parentLocation,
+                    'frequence_use'       => $parentFreq,
+                    'duplication'         => $parentDup,
+                    'time_value'          => $firstRec->time_value ?: 'T',
+                    'utility'             => $this->formatItemUtility($parentUtils),
+                    'is_batch'            => true,
+                    'sub_periods'         => $subPeriodItems,
+                    'status'              => $batchStatus,
+                    'is_disposed'         => ($batchStatus === 'disposed'),
+                    'is_revised'          => ($batchStatus === 'revised'),
+                    'immunity'            => $subPeriodItems[0]->immunity ?? null,
+                    'is_locked'           => $isBatchLocked,
+                    'locked_status_label' => $batchLockedStatus,
+                    'locked_cluster_name' => $batchLockedCluster?->cluster_name,
+                    'locked_cluster_id'   => $batchLockedCluster?->cluster_id,
                 ];
             }
         }
@@ -1689,6 +1765,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         // Sorting records chronologically by which one was added first (id ASC)
         $allRecords = $recordsQuery->orderBy('id', 'asc')->get();
         $recordIds = $allRecords->pluck('id')->all();
+
+        // Safe Lock: Pre-fetch records already packaged in active NAP 1 clusters
+        $activeClustersByRecord = empty($recordIds) ? collect() : DB::table('rdp_grouped_record')
+            ->join('rdp_pending_record', 'rdp_grouped_record.group_head', '=', 'rdp_pending_record.cluster_id')
+            ->whereIn('rdp_grouped_record.record_id', $recordIds)
+            ->where('rdp_grouped_record.is_active', true)
+            ->where('rdp_pending_record.is_active', true)
+            ->where('rdp_pending_record.is_for_nap_one', true)
+            ->whereIn('rdp_pending_record.status_id', [1, 2, 4, 5])
+            ->select([
+                'rdp_grouped_record.record_id',
+                'rdp_pending_record.cluster_id',
+                'rdp_pending_record.cluster_name',
+                'rdp_pending_record.status_id',
+                'rdp_pending_record.is_verified',
+            ])
+            ->get()
+            ->groupBy('record_id');
 
         // Pre-load DCS revision / obsolete records to detect "Revised" footprint
         $dcsObsoleteDocs = [];
@@ -1955,59 +2049,78 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         $subIsActionBefore,
                         $subRemActive,
                         $subRemStorage,
-                        $subRemTotal
+                        $subRemTotal,
+                        $activeClustersByRecord
                     );
 
                     if (empty($childItems)) continue;
 
                     $activeChildItems = array_values(array_filter($childItems, fn($c) => ($c->status ?? 'active') !== 'disposed'));
+                    $unlockedChildItems = array_values(array_filter($activeChildItems, fn($c) => empty($c->is_locked)));
                     $hasOnlyDisposed = !empty($childItems) && empty($activeChildItems);
-                    $selectableChildIds = array_values(array_filter(array_column($activeChildItems, 'id')));
+                    $allRecordsLocked = !empty($activeChildItems) && empty($unlockedChildItems);
+                    $selectableChildIds = [];
+                    foreach ($activeChildItems as $c) {
+                        if (!empty($c->is_batch)) {
+                            foreach ($c->selectable_rec_ids ?? [] as $bId) {
+                                $selectableChildIds[] = (string)$bId;
+                            }
+                        } elseif (empty($c->is_locked)) {
+                            $selectableChildIds[] = (string)$c->id;
+                        }
+                    }
+                    $selectableChildIds = array_values(array_unique($selectableChildIds));
 
                     if (!$hasOnlyDisposed) {
                         if ($isPerm) $permanentCount++; else $temporaryCount++;
                     }
 
                     $rootNode->sub_series[] = (object)[
-                        'id'                   => $sub->id,
-                        'series_title'         => $sub->series_title,
-                        'shorted_type'         => $sub->shorted_type ?: $root->shorted_type,
-                        'compiled_period'      => $hasOnlyDisposed ? '—' : $this->compilePeriodCovered($compiledDates),
-                        'compiled_volume'      => $hasOnlyDisposed ? '—' : $this->compileVolume($compiledVols),
-                        'compiled_medium'      => $hasOnlyDisposed ? '—' : $this->compileMedium($compiledMediums),
-                        'compiled_restriction' => $hasOnlyDisposed ? '—' : $this->compileRestriction($compiledRestrictions),
-                        'compiled_location'    => $hasOnlyDisposed ? '—' : $this->compileLocation($compiledLocs),
-                        'compiled_freq'        => $hasOnlyDisposed ? '—' : $this->compileFrequency($compiledFreqs),
-                        'compiled_duplication' => $hasOnlyDisposed ? '—' : $this->compileDuplication($compiledDups),
-                        'compiled_time'        => $hasOnlyDisposed ? '—' : $this->compileTimeValue($compiledTimes),
-                        'compiled_util'        => $hasOnlyDisposed ? '—' : $this->compileUtility($compiledUtils),
-                        'active_period'        => $hasOnlyDisposed ? '—' : ($isPerm ? 'PERMANENT' : $effActive),
-                        'storage_period'       => $hasOnlyDisposed ? '—' : ($isPerm ? '' : $effStorage),
-                        'total_period'         => $hasOnlyDisposed ? '—' : ($isPerm ? 'PERMANENT' : $effTotal),
-                        'is_permanent'         => $isPerm,
-                        'remarks'              => $hasOnlyDisposed ? '—' : ($sub->remarks ?: ($root->remarks ?: '')),
-                        'records'              => $childItems,
-                        'record_ids'           => array_column($childItems, 'id'),
-                        'selectable_record_ids'=> $selectableChildIds,
-                        'active_records_count' => count($activeChildItems),
-                        'has_only_disposed'    => $hasOnlyDisposed,
-                        'immunity'             => $subImmunity,
+                        'id'                     => $sub->id,
+                        'series_title'           => $sub->series_title,
+                        'shorted_type'           => $sub->shorted_type ?: $root->shorted_type,
+                        'compiled_period'        => $hasOnlyDisposed ? '—' : $this->compilePeriodCovered($compiledDates),
+                        'compiled_volume'        => $hasOnlyDisposed ? '—' : $this->compileVolume($compiledVols),
+                        'compiled_medium'        => $hasOnlyDisposed ? '—' : $this->compileMedium($compiledMediums),
+                        'compiled_restriction'   => $hasOnlyDisposed ? '—' : $this->compileRestriction($compiledRestrictions),
+                        'compiled_location'      => $hasOnlyDisposed ? '—' : $this->compileLocation($compiledLocs),
+                        'compiled_freq'          => $hasOnlyDisposed ? '—' : $this->compileFrequency($compiledFreqs),
+                        'compiled_duplication'   => $hasOnlyDisposed ? '—' : $this->compileDuplication($compiledDups),
+                        'compiled_time'          => $hasOnlyDisposed ? '—' : $this->compileTimeValue($compiledTimes),
+                        'compiled_util'          => $hasOnlyDisposed ? '—' : $this->compileUtility($compiledUtils),
+                        'active_period'          => $hasOnlyDisposed ? '—' : ($isPerm ? 'PERMANENT' : $effActive),
+                        'storage_period'         => $hasOnlyDisposed ? '—' : ($isPerm ? '' : $effStorage),
+                        'total_period'           => $hasOnlyDisposed ? '—' : ($isPerm ? 'PERMANENT' : $effTotal),
+                        'is_permanent'           => $isPerm,
+                        'remarks'                => $hasOnlyDisposed ? '—' : ($sub->remarks ?: ($root->remarks ?: '')),
+                        'records'                => $childItems,
+                        'record_ids'             => array_column($childItems, 'id'),
+                        'selectable_record_ids'  => $selectableChildIds,
+                        'active_records_count'   => count($activeChildItems),
+                        'unlocked_records_count' => count($unlockedChildItems),
+                        'all_records_locked'     => $allRecordsLocked,
+                        'has_only_disposed'      => $hasOnlyDisposed,
+                        'immunity'               => $subImmunity,
                     ];
                 }
 
                 $allSelectableInSubs = [];
                 $allSubRecordsCount = 0;
                 $activeSubRecordsCount = 0;
+                $unlockedSubRecordsCount = 0;
                 foreach ($rootNode->sub_series as $s) {
                     foreach ($s->selectable_record_ids as $sId) {
                         $allSelectableInSubs[] = $sId;
                     }
                     $allSubRecordsCount += count($s->records);
                     $activeSubRecordsCount += ($s->active_records_count ?? 0);
+                    $unlockedSubRecordsCount += ($s->unlocked_records_count ?? 0);
                 }
-                $rootNode->selectable_record_ids = array_values(array_unique($allSelectableInSubs));
-                $rootNode->active_records_count  = $activeSubRecordsCount;
-                $rootNode->has_only_disposed     = ($allSubRecordsCount > 0 && $activeSubRecordsCount === 0);
+                $rootNode->selectable_record_ids  = array_values(array_unique($allSelectableInSubs));
+                $rootNode->active_records_count   = $activeSubRecordsCount;
+                $rootNode->unlocked_records_count = $unlockedSubRecordsCount;
+                $rootNode->all_records_locked     = ($activeSubRecordsCount > 0 && $unlockedSubRecordsCount === 0);
+                $rootNode->has_only_disposed      = ($allSubRecordsCount > 0 && $activeSubRecordsCount === 0);
             } else {
                 // Direct records under root
                 $directRecs = $recordsBySeries[$root->id] ?? collect();
@@ -2076,22 +2189,37 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $rootIsActionBefore,
                     $rootRemActive,
                     $rootRemStorage,
-                    $rootRemTotal
+                    $rootRemTotal,
+                    $activeClustersByRecord
                 );
 
                 if (empty($childItems)) continue;
 
                 $activeChildItems = array_values(array_filter($childItems, fn($c) => ($c->status ?? 'active') !== 'disposed'));
+                $unlockedChildItems = array_values(array_filter($activeChildItems, fn($c) => empty($c->is_locked)));
                 $hasOnlyDisposed = !empty($childItems) && empty($activeChildItems);
-                $selectableChildIds = array_values(array_filter(array_column($activeChildItems, 'id')));
+                $allRecordsLocked = !empty($activeChildItems) && empty($unlockedChildItems);
+                $selectableChildIds = [];
+                foreach ($activeChildItems as $c) {
+                    if (!empty($c->is_batch)) {
+                        foreach ($c->selectable_rec_ids ?? [] as $bId) {
+                            $selectableChildIds[] = (string)$bId;
+                        }
+                    } elseif (empty($c->is_locked)) {
+                        $selectableChildIds[] = (string)$c->id;
+                    }
+                }
+                $selectableChildIds = array_values(array_unique($selectableChildIds));
 
                 if (!$hasOnlyDisposed) {
                     if ($isPerm) $permanentCount++; else $temporaryCount++;
                 }
 
-                $rootNode->has_only_disposed     = $hasOnlyDisposed;
-                $rootNode->active_records_count  = count($activeChildItems);
-                $rootNode->selectable_record_ids = $selectableChildIds;
+                $rootNode->has_only_disposed      = $hasOnlyDisposed;
+                $rootNode->active_records_count   = count($activeChildItems);
+                $rootNode->unlocked_records_count = count($unlockedChildItems);
+                $rootNode->all_records_locked     = $allRecordsLocked;
+                $rootNode->selectable_record_ids  = $selectableChildIds;
 
                 $rootNode->compiled_period      = $hasOnlyDisposed ? '—' : $this->compilePeriodCovered($compiledDates);
                 $rootNode->compiled_volume      = $hasOnlyDisposed ? '—' : $this->compileVolume($compiledVols);
@@ -2190,9 +2318,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         allSubjectsCollapsed: false,
         collapsedRoots: {},
         allRootsCollapsed: false,
+        collapsedBatches: {},
 
         isSelected(id) {
             return this.selectedIds.includes(String(id));
+        },
+        toggleRecord(id) {
+            if (!id) return;
+            const strId = String(id);
+            if (this.selectedIds.includes(strId)) {
+                this.selectedIds = this.selectedIds.filter(i => i !== strId);
+            } else {
+                this.selectedIds = [...this.selectedIds, strId];
+            }
+            if (this.$wire) {
+                this.$wire.set('selectedIds', this.selectedIds, false);
+            }
         },
         isSeriesSelected(childIds) {
             if (!childIds || !childIds.length) return false;
@@ -2261,17 +2402,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             if (this.collapsedRoots[key] !== undefined) return this.collapsedRoots[key];
             return this.allRootsCollapsed;
         },
+        toggleBatch(key) {
+            this.collapsedBatches[key] = !this.isBatchCollapsed(key);
+        },
+        isBatchCollapsed(key) {
+            if (this.$wire?.search && this.$wire.search.trim().length > 0) return false;
+            if (this.collapsedBatches[key] !== undefined) return this.collapsedBatches[key];
+            return false;
+        },
         collapseAll() {
             this.allSubjectsCollapsed = true;
             this.allRootsCollapsed = false;
             this.collapsedSubjects = {};
             this.collapsedRoots = {};
+            this.collapsedBatches = {};
         },
         expandAll() {
             this.allSubjectsCollapsed = false;
             this.allRootsCollapsed = false;
             this.collapsedSubjects = {};
             this.collapsedRoots = {};
+            this.collapsedBatches = {};
         }
      }"
      style="padding: 24px; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
@@ -2727,7 +2878,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     @if(!$root->has_children)
                                         <span @click="toggleSubjects('root-{{ $root->id }}')" style="cursor: pointer;" title="Click to hide/unhide subjects">{{ $root->series_title }}</span>
                                         @if(($root->active_records_count ?? 0) > 0)
-                                            <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ $root->active_records_count }})</span>
+                                            @if(!empty($root->all_records_locked))
+                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;" title="All records packaged">({{ $root->active_records_count }} packaged)</span>
+                                            @elseif(($root->unlocked_records_count ?? 0) < $root->active_records_count)
+                                                <span style="font-size: 11px; font-weight: 600; color: #0284c7;" title="{{ $root->unlocked_records_count }} of {{ $root->active_records_count }} available">({{ $root->unlocked_records_count }}/{{ $root->active_records_count }} available)</span>
+                                            @else
+                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ $root->active_records_count }})</span>
+                                            @endif
                                         @endif
                                     @else
                                         <span @click="toggleRoot('root-{{ $root->id }}')" style="cursor: pointer;" title="Click to hide/unhide group">{{ $root->series_title }}</span>
@@ -2735,7 +2892,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                             $activeSubsCount = count(array_filter($root->sub_series, fn($s) => !($s->has_only_disposed ?? false)));
                                         @endphp
                                         @if($activeSubsCount > 0)
-                                            <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ $activeSubsCount }} sub)</span>
+                                            @if(!empty($root->all_records_locked))
+                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;" title="All records packaged">({{ $activeSubsCount }} sub, packaged)</span>
+                                            @elseif(($root->unlocked_records_count ?? 0) < ($root->active_records_count ?? 0))
+                                                <span style="font-size: 11px; font-weight: 600; color: #0284c7;" title="{{ $root->unlocked_records_count }} of {{ $root->active_records_count }} available">({{ $activeSubsCount }} sub, {{ $root->unlocked_records_count }} available)</span>
+                                            @else
+                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ $activeSubsCount }} sub)</span>
+                                            @endif
                                         @endif
                                     @endif
                                     @if($root->shorted_type)
@@ -2835,7 +2998,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                             <span class="corner-symbol">└</span>
                                             <span @click="toggleSubjects('sub-{{ $sub->id }}')" style="cursor: pointer;" title="Click to hide/unhide subjects">{{ $sub->series_title }}</span>
                                             @if(($sub->active_records_count ?? 0) > 0)
-                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ $sub->active_records_count }})</span>
+                                                @if(!empty($sub->all_records_locked))
+                                                    <span style="font-size: 11px; font-weight: 600; color: #64748b;" title="All records packaged">({{ $sub->active_records_count }} packaged)</span>
+                                                @elseif(($sub->unlocked_records_count ?? 0) < $sub->active_records_count)
+                                                    <span style="font-size: 11px; font-weight: 600; color: #0284c7;" title="{{ $sub->unlocked_records_count }} of {{ $sub->active_records_count }} available">({{ $sub->unlocked_records_count }}/{{ $sub->active_records_count }} available)</span>
+                                                @else
+                                                    <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ $sub->active_records_count }})</span>
+                                                @endif
                                             @endif
                                         </div>
                                     </td>
@@ -2896,12 +3065,43 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
                                         <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                                <span style="width: 15px; display: inline-block;"></span>
-                                                <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                                @if(!empty($rec->is_batch))
+                                                    <span style="width: 15px; display: inline-block;"></span>
+                                                    <button type="button" 
+                                                            @click.stop="toggleBatch('batch-{{ $rec->id }}')" 
+                                                            class="nap-chevron-btn"
+                                                            :style="isBatchCollapsed('batch-{{ $rec->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'"
+                                                            title="Toggle batch records">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <polyline points="6 9 12 15 18 9"></polyline>
+                                                        </svg>
+                                                    </button>
+                                                @elseif(!empty($rec->is_locked))
+                                                    <span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;" title="Packaged in active form: {{ $rec->locked_cluster_name }}">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                                                            <polyline points="20 6 9 17 4 12"></polyline>
+                                                        </svg>
+                                                    </span>
+                                                    <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                                @elseif(($rec->status ?? 'active') === 'active')
+                                                    <input type="checkbox" 
+                                                           :checked="isSelected('{{ $recIdStr }}')" 
+                                                           @click.stop="toggleRecord('{{ $recIdStr }}')" 
+                                                           style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" 
+                                                           title="Select record">
+                                                    <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                                @else
+                                                    <span style="width: 15px; display: inline-block;"></span>
+                                                    <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                                @endif
                                             </div>
                                         </td>
                                         <td style="padding-left: 42px;">
-                                            <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
+                                            @if(!empty($rec->is_batch))
+                                                <span @click="toggleBatch('batch-{{ $rec->id }}')" style="font-weight: 600; color: #1e293b; cursor: pointer;" title="Click to expand/collapse batch records">{{ $rec->description }}</span>
+                                            @else
+                                                <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
+                                            @endif
                                             @if($recStatus === 'disposed')
                                                 <span class="nap-badge-disposed" title="Disposed / Lifecycle ended">Disposed</span>
                                             @elseif($recStatus === 'revised')
@@ -2973,9 +3173,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                                 $subPStatus = $subP->status ?? 'active';
                                             @endphp
                                             <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }} {{ $subPStatus === 'disposed' ? 'is-disposed' : '' }} {{ $subPStatus === 'revised' ? 'is-revised' : '' }}" 
-                                                :class="{ 'is-selected': isSelected('{{ $recIdStr }}') }"
-                                                x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
-                                                <td style="text-align: center; padding: 6px 4px; white-space: nowrap;"></td>
+                                                :class="{ 'is-selected': isSelected('{{ (string)$subP->parent_rec_id }}') }"
+                                                x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}') && !isBatchCollapsed('batch-{{ $rec->id }}')">
+                                                <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
+                                                    <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                                                        @if(!empty($subP->is_locked))
+                                                            <span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;" title="Packaged in active form: {{ $subP->locked_cluster_name }}">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                                                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                                                </svg>
+                                                            </span>
+                                                        @elseif(($subPStatus ?? 'active') === 'active')
+                                                            <input type="checkbox" 
+                                                                   :checked="isSelected('{{ (string)$subP->parent_rec_id }}')" 
+                                                                   @click.stop="toggleRecord('{{ (string)$subP->parent_rec_id }}')" 
+                                                                   style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" 
+                                                                   title="Select record item">
+                                                        @else
+                                                            <span style="width: 15px; display: inline-block;"></span>
+                                                        @endif
+                                                        <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                                    </div>
+                                                </td>
                                                 <td style="padding-left: 64px;">
                                                     <span style="color: #94a3b8; margin-right: 4px;">└</span>
                                                     <span style="font-weight: 500; color: #334155; font-size: 12px;">{{ $subP->description }}</span>
@@ -3039,12 +3258,43 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
                                     <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                         <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                            <span style="width: 15px; display: inline-block;"></span>
-                                            <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                            @if(!empty($rec->is_batch))
+                                                <span style="width: 15px; display: inline-block;"></span>
+                                                <button type="button" 
+                                                        @click.stop="toggleBatch('batch-{{ $rec->id }}')" 
+                                                        class="nap-chevron-btn"
+                                                        :style="isBatchCollapsed('batch-{{ $rec->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'"
+                                                        title="Toggle batch records">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <polyline points="6 9 12 15 18 9"></polyline>
+                                                    </svg>
+                                                </button>
+                                            @elseif(!empty($rec->is_locked))
+                                                <span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;" title="Packaged in active form: {{ $rec->locked_cluster_name }}">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                                    </svg>
+                                                </span>
+                                                <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                            @elseif(($rec->status ?? 'active') === 'active')
+                                                <input type="checkbox" 
+                                                       :checked="isSelected('{{ $recIdStr }}')" 
+                                                       @click.stop="toggleRecord('{{ $recIdStr }}')" 
+                                                       style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" 
+                                                       title="Select record">
+                                                <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                            @else
+                                                <span style="width: 15px; display: inline-block;"></span>
+                                                <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                            @endif
                                         </div>
                                     </td>
                                     <td style="padding-left: 28px;">
-                                        <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
+                                        @if(!empty($rec->is_batch))
+                                            <span @click="toggleBatch('batch-{{ $rec->id }}')" style="font-weight: 600; color: #1e293b; cursor: pointer;" title="Click to expand/collapse batch records">{{ $rec->description }}</span>
+                                        @else
+                                            <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
+                                        @endif
                                         @if($recStatus === 'disposed')
                                             <span class="nap-badge-disposed" title="Disposed / Lifecycle ended">Disposed</span>
                                         @elseif($recStatus === 'revised')
@@ -3095,9 +3345,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                             $subPStatus = $subP->status ?? 'active';
                                         @endphp
                                         <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }} {{ $subPStatus === 'disposed' ? 'is-disposed' : '' }} {{ $subPStatus === 'revised' ? 'is-revised' : '' }}" 
-                                            :class="{ 'is-selected': isSelected('{{ $recIdStr }}') }"
-                                            x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
-                                            <td style="text-align: center; padding: 6px 4px; white-space: nowrap;"></td>
+                                            :class="{ 'is-selected': isSelected('{{ (string)$subP->parent_rec_id }}') }"
+                                            x-show="!isSubjectsCollapsed('root-{{ $root->id }}') && !isBatchCollapsed('batch-{{ $rec->id }}')">
+                                            <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
+                                                <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                                                    @if(!empty($subP->is_locked))
+                                                        <span style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;" title="Packaged in active form: {{ $subP->locked_cluster_name }}">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                                                                <polyline points="20 6 9 17 4 12"></polyline>
+                                                            </svg>
+                                                        </span>
+                                                    @elseif(($subPStatus ?? 'active') === 'active')
+                                                        <input type="checkbox" 
+                                                               :checked="isSelected('{{ (string)$subP->parent_rec_id }}')" 
+                                                               @click.stop="toggleRecord('{{ (string)$subP->parent_rec_id }}')" 
+                                                               style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" 
+                                                               title="Select record item">
+                                                    @else
+                                                        <span style="width: 15px; display: inline-block;"></span>
+                                                    @endif
+                                                    <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                                </div>
+                                            </td>
                                             <td style="padding-left: 50px;">
                                                 <span style="color: #94a3b8; margin-right: 4px;">└</span>
                                                 <span style="font-weight: 500; color: #334155; font-size: 12px;">{{ $subP->description }}</span>

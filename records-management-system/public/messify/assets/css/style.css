@@ -2108,23 +2108,26 @@
     .empty-chat {
       text-align: center;
       color: var(--text-secondary);
-      padding: 60px 20px;
+      padding: 40px 20px;
       position: absolute;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 80%;
-      max-width: 480px;
+      width: 85%;
+      max-width: 440px;
       box-sizing: border-box;
       overflow-wrap: break-word;
       word-break: break-word;
+      pointer-events: none;
+      user-select: none;
     }
 
     .empty-chat .chat-icon {
-      width: 60px;
-      height: 60px;
-      margin: 0 auto 20px;
-      background: var(--bg-avatar-received);
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 18px;
+      background: rgba(27, 116, 228, 0.08);
+      border: 1px solid rgba(27, 116, 228, 0.15);
       border-radius: 50%;
       display: flex;
       align-items: center;
@@ -2132,24 +2135,55 @@
     }
 
     .empty-chat svg {
-      width: 30px;
-      height: 30px;
-      fill: var(--text-secondary);
+      width: 34px;
+      height: 34px;
+      color: #1b74e4;
+    }
+
+    .empty-chat svg[fill="none"] {
+      stroke: currentColor;
+      fill: none;
+    }
+
+    .empty-chat svg:not([fill="none"]) {
+      fill: currentColor;
+    }
+
+    [data-theme="dark"] .empty-chat .chat-icon {
+      background: rgba(59, 130, 246, 0.12);
+      border-color: rgba(59, 130, 246, 0.25);
+    }
+
+    [data-theme="dark"] .empty-chat svg {
+      color: #60a5fa;
     }
 
     .empty-chat h3 {
-      font-size: 18px;
-      font-weight: 600;
-      margin-bottom: 8px;
+      font-size: 19px;
+      font-weight: 700;
+      margin: 0 0 8px;
       color: var(--text-primary);
       overflow-wrap: break-word;
       word-break: break-word;
+      letter-spacing: -0.2px;
     }
 
     .empty-chat p {
       font-size: 14px;
       line-height: 1.5;
       color: var(--text-secondary);
+      margin: 0;
+    }
+
+    /* When no chat is selected on home */
+    .app-container.no-chat-selected .header,
+    .app-container.no-chat-selected .input-area {
+      display: none !important;
+    }
+
+    .app-container.no-chat-selected #chat-box {
+      height: 100% !important;
+      flex: 1 1 100% !important;
     }
 
     /* Message Input Area */

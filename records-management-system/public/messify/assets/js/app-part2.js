@@ -79,7 +79,7 @@
           if (typeof updateHeaderActiveStatus === 'function') updateHeaderActiveStatus();
           if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
           removePaginationBtn();
-          chatBox.innerHTML = '<div class="empty-chat"></div>';
+          if (typeof setNoChatSelected === 'function') setNoChatSelected(true); else chatBox.innerHTML = '<div class="empty-chat"></div>';
 
           applyAdminAllChatsView();
         } else {
@@ -159,7 +159,7 @@
             applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge
             applyHeaderAvatar(null);
             removePaginationBtn();
-            chatBox.innerHTML = '<div class="empty-chat"></div>';
+            if (typeof setNoChatSelected === 'function') setNoChatSelected(true); else chatBox.innerHTML = '<div class="empty-chat"></div>';
           }
 
           // Clean up pre-spy state

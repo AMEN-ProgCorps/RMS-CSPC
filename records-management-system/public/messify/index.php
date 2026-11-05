@@ -294,7 +294,12 @@ try {
     </div>
 
     <!-- Main Chat Area -->
-    <div class="app-container">
+    <div class="app-container" id="appContainer">
+      <script>
+        if (!localStorage.getItem('activeDM')) {
+          document.currentScript.parentElement.classList.add('no-chat-selected');
+        }
+      </script>
       <div class="header">
         <div class="header-left">
           <button id="backButton" class="clear-button" style="display:none;margin-right:10px;min-width:auto;" aria-label="Go back" title="Go back">
@@ -333,6 +338,15 @@ try {
       <div class="drop-overlay" id="dropOverlay">
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:36px;height:36px;margin-bottom:8px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="17 8 12 3 7 8" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="3" x2="12" y2="15" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Drop images or files here
+      </div>
+      <div class="empty-chat" id="noChatSelectedState">
+        <div class="chat-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+        </div>
+        <h3>No chat selected</h3>
+        <p>Choose a conversation from the sidebar to start messaging.</p>
       </div>
     </div>
 

@@ -47,6 +47,37 @@
     const sidebar         = document.getElementById('sidebar');
     const backButton      = document.getElementById('backButton');
 
+    function getNoChatSelectedHtml() {
+      return `
+        <div class="empty-chat" id="noChatSelectedState">
+          <div class="chat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+          </div>
+          <h3>No chat selected</h3>
+          <p>Choose a conversation from the sidebar to start messaging.</p>
+        </div>
+      `;
+    }
+
+    function setNoChatSelected(active) {
+      const appContainer = document.getElementById('appContainer') || document.querySelector('.app-container');
+      if (active) {
+        if (appContainer) appContainer.classList.add('no-chat-selected');
+        if (chatBox) {
+          const dropOverlay = document.getElementById('dropOverlay');
+          chatBox.innerHTML = getNoChatSelectedHtml();
+          if (dropOverlay) chatBox.prepend(dropOverlay);
+        }
+      } else {
+        if (appContainer) appContainer.classList.remove('no-chat-selected');
+        const emptyState = chatBox ? chatBox.querySelector('#noChatSelectedState') : null;
+        if (emptyState) emptyState.remove();
+      }
+    }
+    window.setNoChatSelected = setNoChatSelected;
+
     // The cancel-edit X button now lives inline in the message row itself
     // (next to Send), so no separate width-sync against #sendButton is
     // needed anymore — that was only for lining up the old two-row layout.
@@ -838,7 +869,7 @@
           if (isCustomGcClear) {
             // If admin is spying on this custom GC
             if (typeof activeAdminConv !== 'undefined' && activeAdminConv === clearedConvId) {
-              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              setNoChatSelected(true);
               isFirstLoad = true;
               chatFullyLoaded = false;
               isLoadingAdminConv = false;
@@ -989,7 +1020,7 @@
               adminConvXhr = null;
             }
             if (chatBox) {
-              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              setNoChatSelected(true);
             }
             if (typeof loadAdminConv === 'function') {
               loadAdminConv(activeAdminConv, false);
@@ -1005,7 +1036,7 @@
             // Wipe the pane immediately — makes the clear visually instant for
             // BOTH the admin who cleared and the recipient on the other side.
             if (chatBox) {
-              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              setNoChatSelected(true);
             }
             resetToHome();
           }
@@ -2057,7 +2088,7 @@
           return;
         }
         // User genuinely not in the list — show empty state
-        chatBox.innerHTML = '<div class="empty-chat"></div>';
+        setNoChatSelected(true);
         return;
       }
 
@@ -2071,7 +2102,7 @@
         if (savedActiveDM) {
           restoreActiveConversation(savedActiveDM);
         } else {
-          chatBox.innerHTML = '<div class="empty-chat"></div>';
+          setNoChatSelected(true);
         }
       }
     }
@@ -2135,7 +2166,7 @@
         // The saved conversation partner no longer exists / isn't reachable
         // anymore — don't keep pointing at a chat we can't reopen.
         localStorage.removeItem('activeDM');
-        chatBox.innerHTML = '<div class="empty-chat"></div>';
+        setNoChatSelected(true);
       }
     }
 
@@ -3650,6 +3681,7 @@
     }
 
     function performSelectDM(u) {
+      if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
       if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
 
@@ -3751,6 +3783,7 @@
     window.getActiveChannelConvId = getActiveChannelConvId;
 
     function selectGlobalChat() {
+      if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       if (isGlobalChat && window.activeChannel === 'global' && !activeDM && !activeAdminConv) {
         if (isMobileViewport()) {
           sidebar.classList.remove('open');
@@ -3833,6 +3866,7 @@
     // ── End Office GC unread badge helpers ────────────────────────────────────
 
     function selectOfficeChat() {
+      if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       const hasOffice = !!(window.currentOfficeInfo && window.currentOfficeInfo.office_id && Number(window.currentOfficeInfo.office_id) > 0);
       if (!hasOffice) {
         localStorage.removeItem('activeDM');
@@ -3921,6 +3955,7 @@
     window.selectOfficeChat = selectOfficeChat;
 
     function selectCustomGc(group) {
+      if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       if (!group) return;
 
       if (isGlobalChat && window.activeChannel === 'gc' && window.activeCustomGc && window.activeCustomGc.gc_id === group.gc_id && !activeDM && !activeAdminConv) {
@@ -5972,6 +6007,7 @@
     let adminConvXhr = null;          // track in-flight XHR so stale responses can be discarded
 
     function loadAdminConv(convId, isAutoPoll = false, loadOlderMode = false) {
+      if (!isAutoPoll && typeof setNoChatSelected === 'function') setNoChatSelected(false);
       if (isAutoPoll && !loadOlderMode && (adminConvViewingOlder || window.replyJumpActive)) return;
       if (isLoadingAdminConv) {
         // For non-poll (explicit open) calls, abort any in-flight request and proceed
@@ -6439,7 +6475,7 @@
       }
 
       if (chatBox) {
-        chatBox.innerHTML = '<div class="empty-chat"></div>';
+        setNoChatSelected(true);
       }
       const gcItem = document.getElementById('globalChatItem');
       if (gcItem) gcItem.classList.remove('active');

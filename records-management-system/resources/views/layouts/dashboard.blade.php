@@ -15,8 +15,8 @@
             window.RMS_ACTION_TOGGLE_KEY = actionToggleKey;
             var notifToggleKey = localStorage.getItem('rms-notif-toggle-key') || '{{ auth()->user()?->notificationToggleKey() ?? "" }}';
             window.RMS_NOTIF_TOGGLE_KEY = notifToggleKey;
-            var chatifyToggleKey = localStorage.getItem('rms-chatify-toggle-key') || '{{ auth()->user()?->chatifyToggleKey() ?? "" }}';
-            window.RMS_CHATIFY_TOGGLE_KEY = chatifyToggleKey;
+            var messifyToggleKey = localStorage.getItem('rms-messify-toggle-key') || '{{ auth()->user()?->messifyToggleKey() ?? "" }}';
+            window.RMS_MESSIFY_TOGGLE_KEY = messifyToggleKey;
             var followScrollEnabled = localStorage.getItem('rms-follow-scroll-enabled') !== null
                 ? localStorage.getItem('rms-follow-scroll-enabled') === 'true'
                 : {{ auth()->user()?->followScrollEnabled() ? 'true' : 'false' }};
@@ -265,7 +265,7 @@
             {{ $slot }}
         </div>
     </section>
-    <x-chatify.floating-widget />
+    <x-messify.floating-widget />
     @auth
     <livewire:components.session-guard />
     <livewire:components.report-problem />

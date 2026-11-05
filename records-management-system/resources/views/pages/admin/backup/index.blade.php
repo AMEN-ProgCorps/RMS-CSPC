@@ -228,18 +228,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 ],
             ],
             'chat' => [
-                'name' => 'Chatify & Messaging System',
+                'name' => 'Messify & Messaging System',
                 'description' => 'Conversations, direct & group messages, reactions, read markers, chat backups & legal agreements',
                 'icon' => 'fa-solid fa-comments',
                 'color' => '#e11d48',
-                'tables' => ['chat_conversations', 'chat_messages', 'chat_reactions', 'chat_read_markers', 'chatify_chat_backup', 'chat_notifications', 'chatify_legal_agreements'],
+                'tables' => ['messify_chat_conversations', 'messify_chat_messages', 'messify_chat_reactions', 'messify_chat_read_markers', 'messify_chat_backup', 'chat_notifications', 'messify_chat_legal_agreements'],
             ],
             'logs' => [
                 'name' => 'Audit Trails & System Logs',
                 'description' => 'Admin action history, security login logs, chat audit logs, notifications & system tracking logs',
                 'icon' => 'fa-solid fa-clipboard-list',
                 'color' => '#4b5563',
-                'tables' => ['sys_admin_logs', 'sys_security_logs', 'chatify_audit_logs', 'sys_notifications', 'sys_notification_div', 'sys_notif_content', 'dts_transaction_logs'],
+                'tables' => ['sys_admin_logs', 'sys_security_logs', 'messify_chat_audit_logs', 'sys_notifications', 'sys_notification_div', 'sys_notif_content', 'dts_transaction_logs'],
             ],
         ];
     }
@@ -1530,7 +1530,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             @endif
                         </div>
                         <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 1.4;">
-                            Choose specific data categories to back up (Users, Offices, Roles, Flows, DTS, Chatify, Logs).
+                            Choose specific data categories to back up (Users, Offices, Roles, Flows, DTS, Messify, Logs).
                         </p>
                     </div>
                 </div>

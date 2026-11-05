@@ -71,7 +71,7 @@ class UpdateUserOnlineStatus
             $details = DB::table($accDetailsTbl)->where('account_id', $user->id)->first();
             $now = now();
 
-            // Helper to build appropriate logout response depending on request type (AJAX vs Chatify iframe vs Main page)
+            // Helper to build appropriate logout response depending on request type (AJAX vs Messify iframe vs Main page)
             $buildLogoutResponse = function (string $reasonMessage) use ($request) {
                 if ($request->ajax() || $request->wantsJson() || $request->header('X-Livewire') || $request->header('X-Requested-With') === 'XMLHttpRequest') {
                     $response = response()->json([
@@ -96,7 +96,7 @@ class UpdateUserOnlineStatus
                     ], 401);
                 }
 
-                if ($request->is('open-chat', 'chatify*')) {
+                if ($request->is('open-chat', 'messify*', 'messify*')) {
                     return response('<!DOCTYPE html><html><head><script>if(window.top){window.top.location.href="' . route('login') . '";}</script></head><body></body></html>', 401)
                         ->header('Content-Type', 'text/html');
                 }
@@ -133,7 +133,7 @@ class UpdateUserOnlineStatus
 
             // B. Check if inactive for longer than configured timeout
             // IMPORTANT: Skip this check for automated background polls (e.g. chat/unread-count,
-            // wire:poll). Chatify's iframe requests go directly to standalone PHP files and bypass
+            // wire:poll). Messify's iframe requests go directly to standalone PHP files and bypass
             // this Laravel middleware entirely, so they never refresh last_online_time here.
             // Without this guard, a passive poll would see the stale timestamp and force a logout
             // even though the user is actively chatting — the poll should observe, not enforce.

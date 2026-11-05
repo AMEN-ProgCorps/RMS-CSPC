@@ -2143,14 +2143,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 position: static !important;
             }
 
-            /* Hide web application layout components (header, sidebar, chatify, tables, buttons, etc.) */
+            /* Hide web application layout components (header, sidebar, messify, tables, buttons, etc.) */
             header,
             nav,
             .navigation,
             #navigation,
             .top-nav-tabs-wrapper,
             .dcs-top-tabs-host,
-            .chatify-floating-widget,
+            .messify-floating-widget,
             .header-card,
             .controls-group,
             .pending-table-wrapper,
@@ -2692,7 +2692,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     font-family: Arial, sans-serif !important;
                     font-size: 12px !important;
                 }
-                header, #navigation, .navigation, nav, .top-nav-tabs-wrapper, .dcs-top-tabs-host, .chatify-floating-widget, .no-print, .modal-overlay.no-print, .modal-overlay > :not(.modal-card), footer {
+                header, #navigation, .navigation, nav, .top-nav-tabs-wrapper, .dcs-top-tabs-host, .messify-floating-widget, .no-print, .modal-overlay.no-print, .modal-overlay > :not(.modal-card), footer {
                     display: none !important;
                 }
                 .modal-overlay {

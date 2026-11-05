@@ -8,14 +8,14 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('chat_messages', function (Blueprint $table) {
+        Schema::table('messify_chat_messages', function (Blueprint $table) {
             $table->boolean('is_edited')->default(false);
         });
     }
 
     public function down(): void
     {
-        Schema::table('chat_messages', function (Blueprint $table) {
+        Schema::table('messify_chat_messages', function (Blueprint $table) {
             $table->dropColumn('is_edited');
         });
     }

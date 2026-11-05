@@ -1048,7 +1048,7 @@
     color: #64748b !important;
 }
 
-/* Chatify Audit Tab Bar */
+/* Messify Audit Tab Bar */
 [data-theme="dark"] .audit-tab-bar {
     border-bottom-color: #1e293b !important;
 }
@@ -1066,7 +1066,7 @@
     border-bottom-color: #60a5fa !important;
 }
 
-/* Chatify Meta Pills & Target Chips */
+/* Messify Meta Pills & Target Chips */
 [data-theme="dark"] .target-chip {
     color: #94a3b8 !important;
 }

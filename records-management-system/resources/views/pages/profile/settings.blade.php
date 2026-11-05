@@ -15,7 +15,7 @@ use App\Helpers\DcsDatabaseColumns;
 use App\Helpers\RegisterQueryHelper;
 
 new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settings')] class extends Component {
-    /** @var bool Personal preference for auto-opening Chatify widget upon login */
+    /** @var bool Personal preference for auto-opening Messify widget upon login */
     public bool $autoOpenChat = true;
 
     /** @var bool Personal preference for notification sound alerts (SFX) */
@@ -42,8 +42,8 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
     /** @var string|null Personal preference for notification center toggle shortcut */
     public ?string $notificationToggleKey = null;
 
-    /** @var string|null Personal preference for chatify widget toggle shortcut */
-    public ?string $chatifyToggleKey = null;
+    /** @var string|null Personal preference for messify widget toggle shortcut */
+    public ?string $messifyToggleKey = null;
 
     /** @var array<string, bool> */
     public array $dcsDbVisibleGroups = [];
@@ -88,7 +88,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $this->sidebarToggleKey = $user->sidebarToggleKey();
             $this->actionToggleKey = $user->actionToggleKey();
             $this->notificationToggleKey = $user->notificationToggleKey();
-            $this->chatifyToggleKey = $user->chatifyToggleKey();
+            $this->messifyToggleKey = $user->messifyToggleKey();
             $this->followScrollEnabled = $user->followScrollEnabled();
             $this->followScrollSide = $user->followScrollSide();
             $this->followScrollVertical = $user->followScrollVertical();
@@ -111,8 +111,8 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $setting->auto_open_chat = !$setting->auto_open_chat;
             $setting->save();
             $this->autoOpenChat = (bool) $setting->auto_open_chat;
-            $this->feedbackMessage = 'Preference updated: Chatify auto-open ' . ($this->autoOpenChat ? 'enabled' : 'disabled') . '.';
-            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Chatify auto-open preference updated.');
+            $this->feedbackMessage = 'Preference updated: Messify auto-open ' . ($this->autoOpenChat ? 'enabled' : 'disabled') . '.';
+            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Messify auto-open preference updated.');
         }
     }
 
@@ -321,7 +321,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 'sidebar_toggle_key' => null,
                 'action_toggle_key' => null,
                 'notification_toggle_key' => null,
-                'chatify_toggle_key' => null,
+                'messify_toggle_key' => null,
             ]
         );
 
@@ -331,7 +331,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             'sidebar_toggle_key' => ['prop' => 'sidebarToggleKey', 'name' => 'Sidebar Navigation', 'storage' => 'rms-sidebar-toggle-key', 'event' => 'rms-sidebar-key-changed', 'window' => 'RMS_SIDEBAR_TOGGLE_KEY'],
             'action_toggle_key' => ['prop' => 'actionToggleKey', 'name' => 'Actions Menu', 'storage' => 'rms-action-toggle-key', 'event' => 'rms-action-key-changed', 'window' => 'RMS_ACTION_TOGGLE_KEY'],
             'notification_toggle_key' => ['prop' => 'notificationToggleKey', 'name' => 'Notification Center', 'storage' => 'rms-notif-toggle-key', 'event' => 'rms-notif-key-changed', 'window' => 'RMS_NOTIF_TOGGLE_KEY'],
-            'chatify_toggle_key' => ['prop' => 'chatifyToggleKey', 'name' => 'Chatify Widget', 'storage' => 'rms-chatify-toggle-key', 'event' => 'rms-chatify-key-changed', 'window' => 'RMS_CHATIFY_TOGGLE_KEY'],
+            'messify_toggle_key' => ['prop' => 'messifyToggleKey', 'name' => 'Messify Widget', 'storage' => 'rms-messify-toggle-key', 'event' => 'rms-messify-key-changed', 'window' => 'RMS_MESSIFY_TOGGLE_KEY'],
         ];
 
         if ($key !== null) {
@@ -412,14 +412,14 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         $this->setNotificationToggleKey(null);
     }
 
-    public function setChatifyToggleKey(?string $key): void
+    public function setMessifyToggleKey(?string $key): void
     {
-        $this->assignKeySetting('chatify_toggle_key', $key, 'Chatify Messaging Widget Toggle');
+        $this->assignKeySetting('messify_toggle_key', $key, 'Messify Messaging Widget Toggle');
     }
 
-    public function resetChatifyToggleKey(): void
+    public function resetMessifyToggleKey(): void
     {
-        $this->setChatifyToggleKey(null);
+        $this->setMessifyToggleKey(null);
     }
 
     public function checkRoleUpdate(): void
@@ -935,12 +935,12 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 <i class="fa-solid fa-comments"></i> Communication & Messaging
             </h2>
 
-            <!-- Auto-open Chatify -->
+            <!-- Auto-open Messify -->
             <div class="settings-block-row">
                 <div class="settings-row-header">
                     <span class="settings-info-title">
                         <i class="fa-solid fa-message" style="color: #2563eb; margin-right: 8px; font-size: 14px;"></i>
-                        Auto-open Chatify upon login
+                        Auto-open Messify upon login
                     </span>
                     <button type="button" wire:click="toggleAutoOpenChat" role="switch" aria-checked="{{ $autoOpenChat ? 'true' : 'false' }}"
                         style="position: relative; display: inline-flex; width: 48px; height: 26px; border: none; cursor: pointer; background-color: {{ $autoOpenChat ? '#2563eb' : '#cbd5e1' }}; transition: background-color 0.25s ease; border-radius: 26px; padding: 0; outline: none; flex-shrink: 0;">
@@ -948,7 +948,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                     </button>
                 </div>
                 <span class="settings-info-desc">
-                    Automatically pop up the floating Chatify messaging widget whenever you sign into your RMS account.
+                    Automatically pop up the floating Messify messaging widget whenever you sign into your RMS account.
                 </span>
             </div>
 
@@ -1283,7 +1283,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 <!-- Full-width Clarification Badge -->
                 <div class="settings-clarification-badge" style="margin-top: 6px;">
                     <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-top: 2px;"></i>
-                    <span><strong>Clarification:</strong> By default, this is set to <strong>Escape (Esc)</strong>. When pressed, it closes any active modal across all subsystems (except Action menu, notification dropdown, and Chatify widget). Set to <strong>None</strong> to disable the keyboard shortcut.</span>
+                    <span><strong>Clarification:</strong> By default, this is set to <strong>Escape (Esc)</strong>. When pressed, it closes any active modal across all subsystems (except Action menu, notification dropdown, and Messify widget). Set to <strong>None</strong> to disable the keyboard shortcut.</span>
                 </div>
             </div>
 
@@ -1568,12 +1568,12 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 </div>
             </div>
 
-            <!-- Chatify Messaging Widget Toggle Shortcut Key Configuration -->
+            <!-- Messify Messaging Widget Toggle Shortcut Key Configuration -->
             <div class="settings-block-row"
                  style="border-top: 1px solid var(--border-color, #e2e8f0); padding-top: 18px; margin-top: 14px;"
                  x-data="{
                      isRecording: false,
-                     currentKey: @entangle('chatifyToggleKey'),
+                     currentKey: @entangle('messifyToggleKey'),
                      startRecording() {
                          this.isRecording = true;
                          const handleKey = (e) => {
@@ -1582,7 +1582,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                              let pressedKey = e.key;
                              if (pressedKey === ' ' || e.code === 'Space') pressedKey = 'Space';
                              if (pressedKey === 'Escape' || pressedKey === 'Esc') pressedKey = 'Escape';
-                             $wire.setChatifyToggleKey(pressedKey);
+                             $wire.setMessifyToggleKey(pressedKey);
                              this.isRecording = false;
                              window.removeEventListener('keydown', handleKey, true);
                          };
@@ -1600,10 +1600,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                     <div style="flex: 1; min-width: 260px;">
                         <span class="settings-info-title">
                             <i class="fa-solid fa-comment-dots" style="color: #2563eb; margin-right: 8px; font-size: 14px;"></i>
-                            Chatify Messaging Widget Toggle
+                            Messify Messaging Widget Toggle
                         </span>
                         <span class="settings-info-desc" style="margin-top: 3px;">
-                            Choose or record a keyboard shortcut key to quickly open and minimize the floating Chatify messenger.
+                            Choose or record a keyboard shortcut key to quickly open and minimize the floating Messify messenger.
                         </span>
                     </div>
 
@@ -1614,20 +1614,20 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                             <span class="shortcut-key-label">Active Key:</span>
                             <kbd class="shortcut-kbd-badge" 
                                  :style="!currentKey || currentKey === 'none' ? 'color: #94a3b8; font-weight: 500;' : ''" 
-                                 x-text="!currentKey || currentKey === 'none' ? 'None' : currentKey">{{ empty($chatifyToggleKey) ? 'None' : $chatifyToggleKey }}</kbd>
+                                 x-text="!currentKey || currentKey === 'none' ? 'None' : currentKey">{{ empty($messifyToggleKey) ? 'None' : $messifyToggleKey }}</kbd>
                         </div>
 
                         <!-- Quick Preset Dropdown -->
                         <div class="shortcut-select-wrapper">
                             <select class="shortcut-select-dropdown"
-                                    @change="$wire.setChatifyToggleKey($event.target.value)"
+                                    @change="$wire.setMessifyToggleKey($event.target.value)"
                                     :value="!currentKey || currentKey === 'none' ? 'none' : (['c', 'm', 'j', 'F7'].includes(currentKey) ? currentKey : 'custom')">
                                 <option value="none">None (Disabled)</option>
                                 <option value="c">C Key</option>
                                 <option value="m">M Key</option>
                                 <option value="j">J Key</option>
                                 <option value="F7">F7 Key</option>
-                                <option value="custom" x-show="currentKey && currentKey !== 'none' && !['c', 'm', 'j', 'F7'].includes(currentKey)" x-text="'Custom Key (' + (currentKey === ' ' ? 'Space' : currentKey) + ')'">Custom Key ({{ $chatifyToggleKey }})</option>
+                                <option value="custom" x-show="currentKey && currentKey !== 'none' && !['c', 'm', 'j', 'F7'].includes(currentKey)" x-text="'Custom Key (' + (currentKey === ' ' ? 'Space' : currentKey) + ')'">Custom Key ({{ $messifyToggleKey }})</option>
                             </select>
                         </div>
 
@@ -1636,17 +1636,17 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                                 @click="startRecording()" 
                                 :class="{ 'shortcut-record-btn--active': isRecording }"
                                 class="shortcut-record-btn"
-                                title="Click to press any key on your keyboard to set as chatify toggle shortcut">
+                                title="Click to press any key on your keyboard to set as messify toggle shortcut">
                             <i class="fa-solid fa-record-vinyl" :style="isRecording ? 'color: #ef4444; animation: recordingPulse 1s infinite;' : ''"></i>
                             <span x-text="isRecording ? 'Press key now...' : 'Record Key'">Record Key</span>
                         </button>
 
                         <!-- Clear Button -->
                         <button type="button" 
-                                wire:click="resetChatifyToggleKey"
+                                wire:click="resetMessifyToggleKey"
                                 class="shortcut-reset-btn"
                                 x-show="currentKey && currentKey !== 'none'"
-                                title="Clear shortcut and disable chatify toggle keybind">
+                                title="Clear shortcut and disable messify toggle keybind">
                             <i class="fa-solid fa-trash-can"></i>
                             <span>Clear</span>
                         </button>
@@ -1656,7 +1656,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 <!-- Full-width Clarification Badge -->
                 <div class="settings-clarification-badge" style="margin-top: 6px;">
                     <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-top: 2px;"></i>
-                    <span><strong>Clarification:</strong> By default, this is <strong>Unassigned (None)</strong>. When assigned to any key, pressing it will expand or minimize the floating Chatify messenger widget from any screen.</span>
+                    <span><strong>Clarification:</strong> By default, this is <strong>Unassigned (None)</strong>. When assigned to any key, pressing it will expand or minimize the floating Messify messenger widget from any screen.</span>
                 </div>
             </div>
         </div>

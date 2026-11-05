@@ -6,14 +6,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Creates chat_message_mentions.
+ * Creates messify_chat_message_mentions.
  * ============================================================
  * Before this, an @mention picked in the compose box (mention_search.php /
  * selectMentionUser() in app-part1.js) lived only in the browser's
  * `activeMentions` array for as long as it took to fire notify.php — once
  * the message was sent, nothing tied "this message mentioned that user"
- * back to the row in chat_messages. This table makes that relationship
- * durable, the same way chat_reactions/chat_read_markers do for their
+ * back to the row in messify_chat_messages. This table makes that relationship
+ * durable, the same way messify_chat_reactions/messify_chat_read_markers do for their
  * own per-message, per-user facts.
  *
  * One row per (message, mentioned user). Written by
@@ -26,14 +26,14 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (!Schema::hasTable('chat_message_mentions')) {
-            Schema::create('chat_message_mentions', function (Blueprint $table) {
+        if (!Schema::hasTable('messify_chat_message_mentions')) {
+            Schema::create('messify_chat_message_mentions', function (Blueprint $table) {
                 $table->bigIncrements('id');
 
                 $table->string('msg_uuid', 32)->nullable();
                 $table->foreign('msg_uuid', 'fk_cmm_message')
                       ->references('msg_uuid')
-                      ->on('chat_messages')
+                      ->on('messify_chat_messages')
                       ->onDelete('cascade');
 
                 $table->unsignedInteger('sender_account_id')->nullable();
@@ -57,7 +57,7 @@ return new class extends Migration
 
         DB::statement(
             'CREATE INDEX IF NOT EXISTS idx_chat_message_mentions_account_unseen
-             ON chat_message_mentions (mentioned_account_id, is_seen, created_at DESC)'
+             ON messify_chat_message_mentions (mentioned_account_id, is_seen, created_at DESC)'
         );
     }
 
@@ -65,12 +65,12 @@ return new class extends Migration
     {
         DB::statement('DROP INDEX IF EXISTS idx_chat_message_mentions_account');
 
-        if (Schema::hasTable('chat_message_mentions')) {
-            Schema::table('chat_message_mentions', function (Blueprint $table) {
+        if (Schema::hasTable('messify_chat_message_mentions')) {
+            Schema::table('messify_chat_message_mentions', function (Blueprint $table) {
                 $table->dropForeign('fk_cmm_message');
                 $table->dropForeign('fk_cmm_account');
             });
-            Schema::dropIfExists('chat_message_mentions');
+            Schema::dropIfExists('messify_chat_message_mentions');
         }
     }
 };

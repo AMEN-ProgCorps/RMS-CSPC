@@ -558,7 +558,7 @@
                 ],
             ];
         }
-        // 2. Activity Logs Group (with Category Switcher Pills: Systems | DTS | RDP | DCS | Chatify)
+        // 2. Activity Logs Group (with Category Switcher Pills: Systems | DTS | RDP | DCS | Messify)
         elseif (request()->routeIs('admin.activity.*')) {
             $sectionTitle = 'Activity Logs';
             
@@ -588,7 +588,7 @@
                     'active' => request()->routeIs('admin.activity.dcs.*'),
                 ],
                 [
-                    'label' => 'Chatify',
+                    'label' => 'Messify',
                     'icon' => 'fa-solid fa-comments',
                     'url' => route('admin.activity.chat-audit'),
                     'active' => request()->routeIs('admin.activity.chat-audit'),
@@ -670,7 +670,7 @@
                     ],
                 ];
             }
-            // Sub-tabs for Chatify
+            // Sub-tabs for Messify
             elseif (request()->routeIs('admin.activity.chat-audit')) {
                 $tabs = [
                     [

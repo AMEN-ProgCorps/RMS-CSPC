@@ -36,11 +36,11 @@ return new class extends Migration
                   ->onDelete('cascade');
         });
 
-        // Register Chatify subsystem
+        // Register Messify subsystem
         DB::statement("
             INSERT INTO subsystems (subsystem_name, subsystem_version, is_active, created_at, update_at)
-            SELECT 'Chatify', '1.0.0', true, NOW(), NOW()
-            WHERE NOT EXISTS (SELECT 1 FROM subsystems WHERE subsystem_name = 'Chatify')
+            SELECT 'Messify', '1.0.0', true, NOW(), NOW()
+            WHERE NOT EXISTS (SELECT 1 FROM subsystems WHERE subsystem_name = 'Messify')
         ");
     }
 
@@ -57,7 +57,7 @@ return new class extends Migration
         Schema::dropIfExists('chat_notifications');
 
         DB::statement("
-            DELETE FROM subsystems WHERE subsystem_name = 'Chatify'
+            DELETE FROM subsystems WHERE subsystem_name = 'Messify'
         ");
     }
 };

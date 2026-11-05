@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Migration cleanup: chat_notifications table is obsolete.
- * Notifications now read directly from chat_message_mentions.
+ * Notifications now read directly from messify_chat_message_mentions.
  */
 return new class extends Migration
 {

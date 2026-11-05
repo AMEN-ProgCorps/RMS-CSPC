@@ -492,10 +492,10 @@ class NotificationOverlayTest extends TestCase
         $this->assertGreaterThanOrEqual(1, $counts['dts'] ?? 0);
         $this->assertGreaterThanOrEqual(1, $counts['dcs'] ?? 0);
 
-        // 3. Verify EXCEPTIONS: Profile, Admin Console, and Chatify MUST NOT have unread notification badges
+        // 3. Verify EXCEPTIONS: Profile, Admin Console, and Messify MUST NOT have unread notification badges
         $this->assertEquals(0, $counts['profile'] ?? 0);
         $this->assertEquals(0, $counts['admin'] ?? 0);
-        $this->assertEquals(0, $counts['chatify'] ?? 0);
+        $this->assertEquals(0, $counts['messify'] ?? 0);
 
         // 4. Verify badges render in HTML for DTS and DCS
         $portal->assertSee('subsystem-notif-badge');

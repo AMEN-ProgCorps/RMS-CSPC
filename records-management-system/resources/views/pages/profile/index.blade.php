@@ -35,7 +35,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
 
     public ?int $currentRoleId = null;
 
-    /** @var bool Personal preference for auto-opening Chatify widget upon login */
+    /** @var bool Personal preference for auto-opening Messify widget upon login */
     public bool $autoOpenChat = true;
 
     /** @var string Google Cloud CDN Avatar URL */

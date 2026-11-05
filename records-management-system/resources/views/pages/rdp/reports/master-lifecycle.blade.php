@@ -2258,7 +2258,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
 
         init() {
             this.$watch('drawerOpen', (open) => {
-                const widget = document.getElementById('chatify-global-widget');
+                const widget = document.getElementById('messify-global-widget') || document.getElementById('messify-global-widget');
                 if (widget) {
                     widget.style.transition = 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
                     widget.style.transform = open ? 'translateX(-390px)' : 'translateX(0)';
@@ -2277,7 +2277,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             });
         },
         destroy() {
-            const widget = document.getElementById('chatify-global-widget');
+            const widget = document.getElementById('messify-global-widget') || document.getElementById('messify-global-widget');
             if (widget) {
                 widget.style.transform = 'translateX(0)';
             }

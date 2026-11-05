@@ -6,16 +6,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Chatify PostgreSQL Migration
+ * Messify PostgreSQL Migration
  * ============================================================
- * Moves all Chatify message/reaction/read-marker storage from
+ * Moves all Messify message/reaction/read-marker storage from
  * flat JSON files on the filesystem into the existing PostgreSQL
  * database used by the RMS application.
  *
  * Tables created:
- *   chat_messages      — global + private messages (unified)
- *   chat_reactions     — per-message emoji reactions
- *   chat_read_markers  — per-user read position per conversation
+ *   messify_chat_messages      — global + private messages (unified)
+ *   messify_chat_reactions     — per-message emoji reactions
+ *   messify_chat_read_markers  — per-user read position per conversation
  *
  * Existing table untouched:
  *   chat_notifications — already in PostgreSQL, no changes needed
@@ -24,11 +24,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // ── chat_messages ────────────────────────────────────────────────────
+        // ── messify_chat_messages ────────────────────────────────────────────────────
         // Stores both global messages (conv_id = 'global') and private DMs
         // (conv_id = '{min_id}_{max_id}', e.g. '2_5').
         // Message content remains AES-256-GCM encrypted (same as the old JSON).
-        Schema::create('chat_messages', function (Blueprint $table) {
+        Schema::create('messify_chat_messages', function (Blueprint $table) {
             $table->bigIncrements('id');
 
             // Conversation bucket: 'global' | '{min}_{max}'
@@ -64,7 +64,7 @@ return new class extends Migration
             $table->string('msg_uuid', 32)->unique();
         });
 
-        // ── chat_messages indexes ─────────────────────────────────────────────
+        // ── messify_chat_messages indexes ─────────────────────────────────────────────
         //
         // Primary index for ALL chat query patterns:
         //   1. Latest messages:   WHERE conv_id = ? ORDER BY created_at DESC, id DESC LIMIT 100
@@ -73,22 +73,22 @@ return new class extends Migration
         //
         // DESC order matches the query direction, avoiding a sort step entirely.
         // The old ASC index required PostgreSQL to scan backward or re-sort for DESC queries.
-        DB::statement('CREATE INDEX idx_chat_messages_conv_cur ON chat_messages (conv_id, created_at DESC, id DESC)');
+        DB::statement('CREATE INDEX idx_chat_messages_conv_cur ON messify_chat_messages (conv_id, created_at DESC, id DESC)');
 
         // Supporting indexes for sender delete and receiver notification queries
-        DB::statement('CREATE INDEX idx_chat_sender   ON chat_messages (sender_id)');
-        DB::statement('CREATE INDEX idx_chat_receiver ON chat_messages (receiver_id) WHERE receiver_id IS NOT NULL');
+        DB::statement('CREATE INDEX idx_chat_sender   ON messify_chat_messages (sender_id)');
+        DB::statement('CREATE INDEX idx_chat_receiver ON messify_chat_messages (receiver_id) WHERE receiver_id IS NOT NULL');
 
-        // ── chat_reactions ───────────────────────────────────────────────────
+        // ── messify_chat_reactions ───────────────────────────────────────────────────
         // One row per (message, user) — a user can only have one active emoji
         // per message. Toggle logic: same emoji = remove, different = replace.
-        Schema::create('chat_reactions', function (Blueprint $table) {
+        Schema::create('messify_chat_reactions', function (Blueprint $table) {
             $table->bigIncrements('id');
 
             $table->string('msg_uuid', 32)->index();
             $table->foreign('msg_uuid', 'fk_cr_message')
                   ->references('msg_uuid')
-                  ->on('chat_messages')
+                  ->on('messify_chat_messages')
                   ->onDelete('cascade');
 
             // The reacting user
@@ -106,10 +106,10 @@ return new class extends Migration
             $table->timestampTz('reacted_at')->useCurrent();
         });
 
-        // ── chat_read_markers ────────────────────────────────────────────────
+        // ── messify_chat_read_markers ────────────────────────────────────────────────
         // Tracks the last message each user has read in each conversation.
         // UPSERT pattern: INSERT … ON CONFLICT (conv_id, account_id) DO UPDATE.
-        Schema::create('chat_read_markers', function (Blueprint $table) {
+        Schema::create('messify_chat_read_markers', function (Blueprint $table) {
             $table->bigIncrements('id');
 
             $table->string('conv_id', 30);
@@ -137,21 +137,21 @@ return new class extends Migration
     public function down(): void
     {
         // Drop in dependency order
-        Schema::table('chat_reactions', function (Blueprint $table) {
+        Schema::table('messify_chat_reactions', function (Blueprint $table) {
             $table->dropForeign('fk_cr_message');
             $table->dropForeign('fk_cr_account');
         });
-        Schema::dropIfExists('chat_reactions');
+        Schema::dropIfExists('messify_chat_reactions');
 
-        Schema::table('chat_read_markers', function (Blueprint $table) {
+        Schema::table('messify_chat_read_markers', function (Blueprint $table) {
             $table->dropForeign('fk_crm_account');
         });
-        Schema::dropIfExists('chat_read_markers');
+        Schema::dropIfExists('messify_chat_read_markers');
 
-        Schema::table('chat_messages', function (Blueprint $table) {
+        Schema::table('messify_chat_messages', function (Blueprint $table) {
             $table->dropForeign('fk_cm_sender');
             $table->dropForeign('fk_cm_receiver');
         });
-        Schema::dropIfExists('chat_messages');
+        Schema::dropIfExists('messify_chat_messages');
     }
 };

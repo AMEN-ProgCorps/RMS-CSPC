@@ -192,9 +192,7 @@ try {
       is_gc_admin: <?php echo json_encode($is_admin); ?>,
       display_title: <?php echo json_encode($current_office_id > 0 ? ($current_office_code !== '' ? $current_office_code : $current_office_name) : null); ?>
     };
-    if (!window.currentOfficeInfo.office_id && localStorage.getItem('activeDM') === '__office__') {
-      localStorage.removeItem('activeDM');
-    }
+    try { localStorage.removeItem('activeDM'); } catch(e) {}
   </script>
   <!-- Apply dark mode BEFORE page renders to prevent flash -->
   <script>
@@ -245,7 +243,7 @@ try {
     <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
     <!-- Sidebar -->
-    <div class="sidebar no-anim" id="sidebar">
+    <div class="sidebar no-anim open" id="sidebar">
       <div class="sidebar-header">
         <span style="flex-grow:1;">Messify</span>
         <div class="sidebar-header-actions">
@@ -294,12 +292,7 @@ try {
     </div>
 
     <!-- Main Chat Area -->
-    <div class="app-container" id="appContainer">
-      <script>
-        if (!localStorage.getItem('activeDM')) {
-          document.currentScript.parentElement.classList.add('no-chat-selected');
-        }
-      </script>
+    <div class="app-container no-chat-selected" id="appContainer">
       <div class="header">
         <div class="header-left">
           <button id="backButton" class="clear-button" style="display:none;margin-right:10px;min-width:auto;" aria-label="Go back" title="Go back">

@@ -6,6 +6,11 @@
     // 991 directly, so there's a single place to change it.
     const MOBILE_BREAKPOINT = 991;
     function isMobileViewport() {
+      try {
+        if (window.self !== window.top) return true; // floating widget iframe
+      } catch (e) {
+        return true;
+      }
       return window.innerWidth <= MOBILE_BREAKPOINT;
     }
 
@@ -2098,7 +2103,12 @@
         // Reopen whichever chat was active before the tab was
         // refreshed, instead of always dropping back to the
         // placeholder screen.
-        const savedActiveDM = (!isAdminAllChatsView) ? localStorage.getItem('activeDM') : null;
+        const savedActiveDM = null; // Do not auto-restore to prevent auto-seen
+        try { localStorage.removeItem('activeDM'); } catch(e) {}
+        if (isMobileViewport()) {
+          if (sidebar) sidebar.classList.add('open');
+          if (backButton) backButton.style.display = 'none';
+        }
         if (savedActiveDM) {
           restoreActiveConversation(savedActiveDM);
         } else {
@@ -3722,7 +3732,7 @@
       }
       showTypingIndicator('', false);
 
-      localStorage.setItem('activeDM', u.username);
+
       chatHeaderTitle.textContent = u.name;
       applyHeaderAdminBadge();
       applyHeaderAvatar(u);
@@ -3832,7 +3842,7 @@
       }
       showTypingIndicator('', false);
 
-      localStorage.setItem('activeDM', '__global__');
+
       chatHeaderTitle.innerHTML = 'Global Chat';
       applyHeaderAdminBadge();
       applyHeaderAvatar({ avatar_url: 'cspc.webp', name: 'Global Chat' });
@@ -3925,7 +3935,7 @@
       }
       showTypingIndicator('', false);
 
-      localStorage.setItem('activeDM', '__office__');
+
       const officeTitle = (window.currentOfficeInfo && window.currentOfficeInfo.display_title)
         ? window.currentOfficeInfo.display_title
         : 'Office Group Chat';
@@ -4062,7 +4072,7 @@
       }
       showTypingIndicator('', false);
 
-      localStorage.setItem('activeDM', '__gc_' + group.gc_id + '__');
+
       chatHeaderTitle.innerHTML = escapeHtml(group.name);
       applyHeaderAdminBadge();
       applyHeaderAvatar({ avatar_url: 'cspc.webp', name: group.name });

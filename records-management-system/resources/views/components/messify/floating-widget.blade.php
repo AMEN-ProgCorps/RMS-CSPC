@@ -800,6 +800,11 @@ body.report-widget-open #messify-global-widget {
                 // Already loaded and cached in DOM — keep loader hidden
                 const loader = document.getElementById('messify-iframe-loader');
                 if (loader) loader.style.display = 'none';
+                try {
+                    if (iframe && iframe.contentWindow && typeof iframe.contentWindow.resetToHome === 'function') {
+                        iframe.contentWindow.resetToHome();
+                    }
+                } catch(e) {}
             }
 
             card.style.display = 'flex';
@@ -818,6 +823,12 @@ body.report-widget-open #messify-global-widget {
             window.dispatchEvent(new CustomEvent('rms-widget-closed', { detail: { widget: 'messify' } }));
             const labelEl = document.getElementById('messify-widget-btn-label');
             if (labelEl) labelEl.textContent = 'Messify';
+
+            try {
+                if (iframe && iframe.contentWindow && typeof iframe.contentWindow.resetToHome === 'function') {
+                    iframe.contentWindow.resetToHome();
+                }
+            } catch(e) {}
 
             if (animate) {
                 card.style.opacity = '0';

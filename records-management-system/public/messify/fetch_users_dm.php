@@ -70,7 +70,7 @@ if ($searchQuery !== '') {
                 'lastMessage'         => '',
                 'lastTimestamp'       => 0,
                 'unreadCount'         => $officeGcUnreadCount,
-                'is_chatify_verified' => false,
+                'is_messify_verified' => false,
                 'avatar_url'          => 'cspc.webp',
             ];
         }
@@ -93,7 +93,7 @@ if ($searchQuery !== '') {
                 'lastTimestamp'       => (int) ($cg['last_timestamp'] ?? 0),
                 'unreadCount'         => (int) ($cg['unread_count'] ?? 0),
                 'is_newly_added'      => !empty($cg['is_newly_added']),
-                'is_chatify_verified' => false,
+                'is_messify_verified' => false,
                 'avatar_url'          => 'cspc.webp',
             ];
         }
@@ -153,7 +153,7 @@ if ($searchQuery !== '') {
             'allow_see_typing_preview' => (isset($user['allow_see_typing_preview']) && $user['allow_see_typing_preview'] !== null)
                 ? (!in_array($user['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
                 : true,
-            'is_chatify_verified' => (bool) ($user['is_chatify_verified'] ?? false),
+            'is_messify_verified' => (bool) ($user['is_messify_verified'] ?? false),
             'avatar_url'          => $user['avatar_url'] ?? null,
         ];
     }
@@ -208,7 +208,7 @@ if ($searchQuery !== '') {
             'allow_see_typing_preview' => (isset($userInfo['allow_see_typing_preview']) && $userInfo['allow_see_typing_preview'] !== null)
                 ? (!in_array($userInfo['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
                 : true,
-            'is_chatify_verified' => (bool) ($userInfo['is_chatify_verified'] ?? false),
+            'is_messify_verified' => (bool) ($userInfo['is_messify_verified'] ?? false),
             'avatar_url'          => $userInfo['avatar_url'] ?? null,
         ];
     }
@@ -221,7 +221,7 @@ if ($searchQuery !== '') {
             $pdo = Database::getConnection();
             $stmt = $pdo->prepare(
                 "SELECT message, msg_type, EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
-                 FROM chat_messages
+                 FROM messify_chat_messages
                  WHERE conv_id = :conv_id AND status = 'active'
                  ORDER BY created_at DESC, id DESC
                  LIMIT 1"
@@ -250,7 +250,7 @@ if ($searchQuery !== '') {
             'lastMessage'         => $officeLastMsg,
             'lastTimestamp'       => $officeLastTs,
             'unreadCount'         => $officeGcUnreadCount,
-            'is_chatify_verified' => false,
+            'is_messify_verified' => false,
             'avatar_url'          => 'cspc.webp',
         ];
     }
@@ -271,7 +271,7 @@ if ($searchQuery !== '') {
             'lastTimestamp'       => (int) ($cg['last_timestamp'] ?? 0),
             'unreadCount'         => (int) ($cg['unread_count'] ?? 0),
             'is_newly_added'      => !empty($cg['is_newly_added']),
-            'is_chatify_verified' => false,
+            'is_messify_verified' => false,
             'avatar_url'          => 'cspc.webp',
         ];
     }
@@ -322,11 +322,11 @@ if ($isAdmin) {
             $stmt = $pdo->prepare('
                 SELECT g.id, g.name, g.creator_id,
                        EXTRACT(EPOCH FROM g.created_at)::BIGINT AS created_ts,
-                       (SELECT COUNT(*) FROM chat_custom_group_members WHERE group_id = g.id) AS member_count,
-                       (SELECT COUNT(*) FROM chat_messages WHERE conv_id = (\'gc_\' || g.id) AND status = \'active\') AS msg_count
-                FROM chat_custom_groups g
+                       (SELECT COUNT(*) FROM messify_chat_custom_group_members WHERE group_id = g.id) AS member_count,
+                       (SELECT COUNT(*) FROM messify_chat_messages WHERE conv_id = (\'gc_\' || g.id) AND status = \'active\') AS msg_count
+                FROM messify_chat_custom_groups g
                 WHERE g.creator_id = :target_id
-                   OR EXISTS (SELECT 1 FROM chat_custom_group_members WHERE group_id = g.id AND account_id = :target_id)
+                   OR EXISTS (SELECT 1 FROM messify_chat_custom_group_members WHERE group_id = g.id AND account_id = :target_id)
                 ORDER BY g.created_at DESC
             ');
             $stmt->execute([':target_id' => $adminTargetId]);
@@ -375,7 +375,7 @@ if ($isAdmin) {
                 'office_name'         => 'Campus-Wide',
                 'office_code'         => 'GLOBAL',
                 'avatar_url'          => 'cspc.webp',
-                'is_chatify_verified' => true,
+                'is_messify_verified' => true,
             ];
         }
 
@@ -444,7 +444,7 @@ if ($isAdmin) {
                         'office_name'         => $name,
                         'office_code'         => $code,
                         'avatar_url'          => 'cspc.webp',
-                        'is_chatify_verified' => false,
+                        'is_messify_verified' => false,
                     ];
                 }
             } catch (Throwable $e) {
@@ -455,8 +455,8 @@ if ($isAdmin) {
             try {
                 $stmt = $pdo->prepare('
                     SELECT g.id, g.name,
-                           (SELECT COUNT(*) FROM chat_custom_group_members WHERE group_id = g.id) AS member_count
-                    FROM chat_custom_groups g
+                           (SELECT COUNT(*) FROM messify_chat_custom_group_members WHERE group_id = g.id) AS member_count
+                    FROM messify_chat_custom_groups g
                     WHERE g.name ILIKE :like_search
                     ORDER BY g.name ASC
                     LIMIT 11
@@ -473,7 +473,7 @@ if ($isAdmin) {
                         'office_name'         => null,
                         'office_code'         => null,
                         'avatar_url'          => 'cspc.webp',
-                        'is_chatify_verified' => false,
+                        'is_messify_verified' => false,
                     ];
                 }
             } catch (Throwable $e) {

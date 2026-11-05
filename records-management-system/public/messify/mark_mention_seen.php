@@ -33,7 +33,7 @@ try {
     // Scope to the logged-in user's own mention row so nobody can mark
     // someone else's notification as seen by guessing an id.
     $stmt = $pdo->prepare(
-        'UPDATE chat_message_mentions
+        'UPDATE messify_chat_message_mentions
          SET is_seen = TRUE
          WHERE id = :id AND mentioned_account_id = :account_id'
     );

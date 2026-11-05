@@ -37,7 +37,7 @@ class ChatNotifier
 
         try {
             $pdo->exec("
-                CREATE TABLE IF NOT EXISTS chat_message_mentions (
+                CREATE TABLE IF NOT EXISTS messify_chat_message_mentions (
                     id BIGSERIAL PRIMARY KEY,
                     msg_uuid VARCHAR(32) NULL,
                     sender_account_id INT NULL,
@@ -46,11 +46,11 @@ class ChatNotifier
                     is_seen BOOLEAN NOT NULL DEFAULT FALSE,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 );
-                ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS sender_account_id INT NULL;
-                ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS message_snippet TEXT NULL;
-                ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS is_seen BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE messify_chat_message_mentions ADD COLUMN IF NOT EXISTS sender_account_id INT NULL;
+                ALTER TABLE messify_chat_message_mentions ADD COLUMN IF NOT EXISTS message_snippet TEXT NULL;
+                ALTER TABLE messify_chat_message_mentions ADD COLUMN IF NOT EXISTS is_seen BOOLEAN NOT NULL DEFAULT FALSE;
                 CREATE INDEX IF NOT EXISTS idx_cmm_account_unseen
-                ON chat_message_mentions (mentioned_account_id, is_seen, created_at DESC);
+                ON messify_chat_message_mentions (mentioned_account_id, is_seen, created_at DESC);
             ");
         } catch (Throwable $t) {
             error_log('ChatNotifier::ensureMentionsTable() — ' . $t->getMessage());
@@ -76,7 +76,7 @@ class ChatNotifier
             if ($mentionRowId <= 0) {
                 $snippet = ($message === null || $message === '') ? null : mb_substr($message, 0, 250);
                 $insert = $pdo->prepare(
-                    'INSERT INTO chat_message_mentions (msg_uuid, sender_account_id, mentioned_account_id, message_snippet, is_seen, created_at)
+                    'INSERT INTO messify_chat_message_mentions (msg_uuid, sender_account_id, mentioned_account_id, message_snippet, is_seen, created_at)
                      VALUES (:msg_uuid, :sender, :recipient, :snippet, FALSE, NOW())
                      RETURNING id'
                 );
@@ -141,7 +141,7 @@ class ChatNotifier
     private static function pushLegacyChain(PDO $pdo, string $senderName, int $recipientId, int $senderId, ?string $message): void
     {
         try {
-            $subsystemStmt = $pdo->prepare("SELECT subsystem_id FROM " . Database::t('subsystems') . " WHERE subsystem_name IN ('Messify', 'Chatify') LIMIT 1");
+            $subsystemStmt = $pdo->prepare("SELECT subsystem_id FROM " . Database::t('subsystems') . " WHERE subsystem_name IN ('Messify', 'Messify') LIMIT 1");
             $subsystemStmt->execute();
             $subsystem = $subsystemStmt->fetch();
 

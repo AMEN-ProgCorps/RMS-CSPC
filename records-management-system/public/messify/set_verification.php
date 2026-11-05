@@ -1,6 +1,6 @@
 <?php
 // =============================================================================
-// set_verification.php — Toggle Chatify verification badge for a user
+// set_verification.php — Toggle Messify verification badge for a user
 // =============================================================================
 // POST body (JSON): { account_id: int, is_verified: bool }
 // Requires: Super Admin authentication (account_id = 1)
@@ -36,7 +36,7 @@ if ($targetAccountId <= 0) {
 try {
     $pdo  = Database::getConnection();
     $stmt = $pdo->prepare(
-        'UPDATE ' . Database::t('account_details') . ' SET is_chatify_verified = :v WHERE account_id = :id'
+        'UPDATE ' . Database::t('account_details') . ' SET is_messify_verified = :v WHERE account_id = :id'
     );
     $stmt->bindValue(':v',   $isVerified, PDO::PARAM_BOOL);
     $stmt->bindValue(':id',  $targetAccountId, PDO::PARAM_INT);

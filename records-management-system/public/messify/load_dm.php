@@ -240,10 +240,10 @@ for ($i = 0; $i < $msgCount; $i++) {
     $initials    = dmInitials2($senderName);
     $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
 
-    // Verified badge — driven by is_chatify_verified from DB
+    // Verified badge — driven by is_messify_verified from DB
     if (!isset($verifiedIds[$senderId])) {
         $senderInfo = UserResolver::getUserInfo($senderId);
-        $verifiedIds[$senderId] = (bool) ($senderInfo['is_chatify_verified'] ?? false);
+        $verifiedIds[$senderId] = (bool) ($senderInfo['is_messify_verified'] ?? false);
     }
     $avatarInner = UserResolver::avatarInner($senderId, $initials);
     $adminBadge = '';

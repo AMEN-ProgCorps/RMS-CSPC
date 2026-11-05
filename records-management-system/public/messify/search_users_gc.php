@@ -5,7 +5,7 @@
 // GET params:
 //   q (string) — Search query (partial first or last name)
 // Requires: Authentication (any user, not just admin)
-// Returns JSON: { users: [{account_id, full_name, avatar_url, is_chatify_verified}] }
+// Returns JSON: { users: [{account_id, full_name, avatar_url, is_messify_verified}] }
 // Returns up to 3 results maximum.
 // =============================================================================
 
@@ -32,7 +32,7 @@ $excludeIds = [$myAccountId => true];
 if ($groupId > 0) {
     try {
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare('SELECT account_id FROM chat_custom_group_members WHERE group_id = :gid');
+        $stmt = $pdo->prepare('SELECT account_id FROM messify_chat_custom_group_members WHERE group_id = :gid');
         $stmt->execute([':gid' => $groupId]);
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $excludeIds[(int) $row['account_id']] = true;
@@ -56,7 +56,7 @@ foreach ($matched as $user) {
         'account_id'          => $accId,
         'full_name'           => $user['full_name'],
         'avatar_url'          => $user['avatar_url'] ?? null,
-        'is_chatify_verified' => (bool) ($user['is_chatify_verified'] ?? false),
+        'is_messify_verified' => (bool) ($user['is_messify_verified'] ?? false),
     ];
     if (count($users) >= 3) {
         break;

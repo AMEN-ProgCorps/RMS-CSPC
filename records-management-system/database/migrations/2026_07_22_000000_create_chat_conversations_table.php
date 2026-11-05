@@ -8,18 +8,18 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Chatify Conversations Metadata Table Migration
+     * Messify Conversations Metadata Table Migration
      * ============================================================
      * Creates a high-performance 1-row-per-conversation table to store
      * recent conversation metadata (last message, last timestamp, unread counters).
      *
      * This decouples sidebar contact listing from scanning the millions of rows
-     * in `chat_messages`, enabling sub-5ms query times at 20M+ message scale.
+     * in `messify_chat_messages`, enabling sub-5ms query times at 20M+ message scale.
      */
     public function up(): void
     {
-        if (!Schema::hasTable('chat_conversations')) {
-            Schema::create('chat_conversations', function (Blueprint $table) {
+        if (!Schema::hasTable('messify_chat_conversations')) {
+            Schema::create('messify_chat_conversations', function (Blueprint $table) {
                 // Canonical conversation ID: '{min_user_id}_{max_user_id}' (e.g., '2_5')
                 $table->string('conv_id', 30)->primary();
 
@@ -47,7 +47,7 @@ return new class extends Migration
                 $table->unsignedInteger('unread_user_2')->default(0);
 
                 // Soft-delete / "clear chat" support: messages are never removed
-                // from chat_messages when a conversation is cleared — instead the
+                // from messify_chat_messages when a conversation is cleared — instead the
                 // conversation is flagged inactive and stamped with a cutoff time
                 // so the UI can hide everything up to that point.
                 $table->boolean('is_active')->default(true);
@@ -58,16 +58,16 @@ return new class extends Migration
 
             // ── PostgreSQL Composite Indexes for Sidebar Lookup ──────────────────
             // User 1 sidebar query: WHERE user_1 = :id ORDER BY last_message_time DESC
-            DB::statement('CREATE INDEX idx_chat_conv_user1 ON chat_conversations (user_1, last_message_time DESC)');
+            DB::statement('CREATE INDEX idx_chat_conv_user1 ON messify_chat_conversations (user_1, last_message_time DESC)');
 
             // User 2 sidebar query: WHERE user_2 = :id ORDER BY last_message_time DESC
-            DB::statement('CREATE INDEX idx_chat_conv_user2 ON chat_conversations (user_2, last_message_time DESC)');
+            DB::statement('CREATE INDEX idx_chat_conv_user2 ON messify_chat_conversations (user_2, last_message_time DESC)');
         }
 
-        // ── Zero-downtime Backfill from existing chat_messages ──────────────────
-        // Populate chat_conversations using DISTINCT ON (conv_id) from current chat_messages
+        // ── Zero-downtime Backfill from existing messify_chat_messages ──────────────────
+        // Populate messify_chat_conversations using DISTINCT ON (conv_id) from current messify_chat_messages
         DB::statement("
-            INSERT INTO chat_conversations (
+            INSERT INTO messify_chat_conversations (
                 conv_id,
                 user_1,
                 user_2,
@@ -92,7 +92,7 @@ return new class extends Migration
                 0 AS unread_user_2,
                 created_at AS created_at,
                 created_at AS updated_at
-            FROM chat_messages
+            FROM messify_chat_messages
             WHERE conv_id != 'global'
               AND receiver_id IS NOT NULL
             ORDER BY conv_id, created_at DESC, id DESC
@@ -102,6 +102,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('chat_conversations');
+        Schema::dropIfExists('messify_chat_conversations');
     }
 };

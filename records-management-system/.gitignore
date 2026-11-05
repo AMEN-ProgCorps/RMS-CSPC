@@ -31,7 +31,7 @@ Thumbs.db
 !/bootstrap/cache/.gitignore
 
 # WebSocket server packages
-/public/chatify/ws-server/node_modules
+/public/messify/ws-server/node_modules
 /public/messify/ws-server/node_modules
 
 # Google Drive Credentials

@@ -114,17 +114,17 @@ new class extends Component {
             if (this.isOpen) {
                 document.body.classList.add('report-widget-open');
             }
-            const syncChatifyPresent = () => {
-                if (!document.getElementById('messify-global-widget') && !document.getElementById('chatify-global-widget')) {
-                    document.body.classList.add('no-chatify-widget');
+            const syncMessifyPresent = () => {
+                if (!document.getElementById('messify-global-widget') && !document.getElementById('messify-global-widget')) {
+                    document.body.classList.add('no-messify-widget');
                     document.body.classList.add('no-messify-widget');
                 } else {
-                    document.body.classList.remove('no-chatify-widget');
+                    document.body.classList.remove('no-messify-widget');
                     document.body.classList.remove('no-messify-widget');
                 }
             };
-            syncChatifyPresent();
-            setTimeout(syncChatifyPresent, 400);
+            syncMessifyPresent();
+            setTimeout(syncMessifyPresent, 400);
         }
     }"
     x-on:rms-open-report-problem.window="$wire.openModal($event.detail.reference || null, $event.detail.title || null, $event.detail.description || null, window.location.href)"
@@ -147,7 +147,7 @@ new class extends Component {
         <span class="rms-report-fab-label" x-text="isOpen ? 'Close' : 'Report'">Report</span>
     </button>
 
-    <!-- Floating Report Widget Card (docked in bottom-right like Chatify) -->
+    <!-- Floating Report Widget Card (docked in bottom-right like Messify) -->
     <div
         x-show="isOpen"
         x-cloak
@@ -238,11 +238,11 @@ new class extends Component {
 </div>
 
 <style>
-    /* Default state: Circular icon button matching Chatify */
+    /* Default state: Circular icon button matching Messify */
     .rms-report-fab {
         position: fixed;
         right: 24px;
-        bottom: 92px; /* clear Chatify FAB (56px @ bottom 24px + 12px gap) */
+        bottom: 92px; /* clear Messify FAB (56px @ bottom 24px + 12px gap) */
         z-index: 999998;
         height: 56px;
         min-width: 56px;
@@ -313,8 +313,8 @@ new class extends Component {
         width: 124px;
     }
 
-    /* When Chatify widget is open, Report FAB moves UP above the Chatify card */
-    body.chatify-widget-open .rms-report-fab {
+    /* When Messify widget is open, Report FAB moves UP above the Messify card */
+    body.messify-widget-open .rms-report-fab {
         bottom: calc(min(620px, calc(100vh - 100px)) + 104px) !important;
         z-index: 1000000 !important;
     }
@@ -325,12 +325,12 @@ new class extends Component {
         z-index: 1000000 !important;
     }
 
-    /* If Chatify is absent/disabled, Report FAB rests at bottom 24px */
-    body.no-chatify-widget .rms-report-fab {
+    /* If Messify is absent/disabled, Report FAB rests at bottom 24px */
+    body.no-messify-widget .rms-report-fab {
         bottom: 24px;
     }
 
-    /* Floating Report Card (matches Chatify widget card layout & animation) */
+    /* Floating Report Card (matches Messify widget card layout & animation) */
     .rms-report-widget-card {
         position: fixed;
         bottom: 88px;

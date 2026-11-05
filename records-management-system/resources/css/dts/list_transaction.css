@@ -1242,8 +1242,8 @@ button.rms-select {
     .rms-toolbar,
     .rms-pagination-wrap,
     .dts-export-modal-backdrop,
-    #chatify-floating-bubble,
-    .chatify-widget-container {
+    #messify-floating-bubble,
+    .messify-widget-container {
         display: none !important;
     }
 }

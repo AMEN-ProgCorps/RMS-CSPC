@@ -29,34 +29,34 @@ class GlobalChatManager
     // -------------------------------------------------------------------------
 
     /**
-     * Ensure chat_messages.status exists (safety net if the migration hasn't
+     * Ensure messify_chat_messages.status exists (safety net if the migration hasn't
      * run yet — mirrors ConversationManager::ensureMessageStatusColumn()).
      *
      * Also self-heals the indexes that loadRaw()'s keyset queries actually
      * need. (conv_id, status) alone lets Postgres find the right rows but
      * still forces a sort on every page — fine at a few hundred rows, but at
-     * real scale (millions of chat_messages rows) that sort is the whole
+     * real scale (millions of messify_chat_messages rows) that sort is the whole
      * bottleneck. A partial composite index matching the exact WHERE +
      * ORDER BY shape used by loadRaw() lets Postgres walk the index in order
      * and stop as soon as it has LIMIT rows — no sort step, no scanning rows
      * that don't matter. It's a *partial* index (WHERE status = 'active')
      * so it stays small and cheap to maintain even as inactive/deleted rows
-     * pile up. We also index chat_messages.msg_uuid and chat_reactions.msg_uuid,
+     * pile up. We also index messify_chat_messages.msg_uuid and messify_chat_reactions.msg_uuid,
      * since every "load older" page does an msg_uuid point-lookup for the
-     * cursor plus a reactions IN(...) lookup, and index chat_messages
+     * cursor plus a reactions IN(...) lookup, and index messify_chat_messages
      * on it so the reply-preview LEFT JOIN doesn't need a seq scan either.
-     * CONCURRENTLY avoids locking chat_messages for writers while this runs.
+     * CONCURRENTLY avoids locking messify_chat_messages for writers while this runs.
      */
     private static function ensureMessageStatusColumn(PDO $pdo): void
     {
-        // Same underlying chat_messages/chat_reactions schema that
+        // Same underlying messify_chat_messages/messify_chat_reactions schema that
         // ConversationManager::ensureMessageStatusColumn() self-heals, so
         // this shares the SAME cache key — whichever manager runs first on
         // a given deploy satisfies it for both. See core/SelfHealCache.php.
         SelfHealCache::once('message_status_column', function () use ($pdo) {
             try {
-                $pdo->exec("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'active'");
-                $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON chat_messages (conv_id, status)");
+                $pdo->exec("ALTER TABLE messify_chat_messages ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'active'");
+                $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON messify_chat_messages (conv_id, status)");
             } catch (Throwable $t) {
                 error_log('GlobalChatManager::ensureMessageStatusColumn() — ' . $t->getMessage());
             }
@@ -67,16 +67,16 @@ class GlobalChatManager
             // block the others from being created.
             self::ensureIndexConcurrently($pdo, 'idx_chat_messages_conv_active_created',
                 "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_conv_active_created
-                 ON chat_messages (conv_id, created_at DESC, id DESC)
+                 ON messify_chat_messages (conv_id, created_at DESC, id DESC)
                  WHERE status = 'active'");
 
             self::ensureIndexConcurrently($pdo, 'idx_chat_messages_msg_uuid',
                 "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_msg_uuid
-                 ON chat_messages (msg_uuid)");
+                 ON messify_chat_messages (msg_uuid)");
 
             self::ensureIndexConcurrently($pdo, 'idx_chat_reactions_msg_uuid',
                 "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_reactions_msg_uuid
-                 ON chat_reactions (msg_uuid)");
+                 ON messify_chat_reactions (msg_uuid)");
         });
     }
 
@@ -131,8 +131,8 @@ class GlobalChatManager
                             r.msg_type AS reply_msg_type,
                             r.sender_id AS reply_sender_id,
                             to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                     FROM chat_messages m
-                     LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
+                     FROM messify_chat_messages m
+                     LEFT JOIN messify_chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                      WHERE m.conv_id = :conv_id
                        AND m.status = \'active\'
                      ORDER BY m.created_at DESC, m.id DESC
@@ -143,7 +143,7 @@ class GlobalChatManager
             } else {
                 // ── Keyset: messages older than the cursor ────────────────────
                 $cur = $pdo->prepare(
-                    'SELECT created_at, id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1'
+                    'SELECT created_at, id FROM messify_chat_messages WHERE msg_uuid = :uuid LIMIT 1'
                 );
                 $cur->execute([':uuid' => $beforeUuid]);
                 $curRow = $cur->fetch();
@@ -165,8 +165,8 @@ class GlobalChatManager
                             r.msg_type AS reply_msg_type,
                             r.sender_id AS reply_sender_id,
                             to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                     FROM chat_messages m
-                     LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
+                     FROM messify_chat_messages m
+                     LEFT JOIN messify_chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                      WHERE m.conv_id = :conv_id
                        AND (m.created_at, m.id) < (:cur_ts, :cur_id)
                        AND m.status = \'active\'
@@ -212,7 +212,7 @@ class GlobalChatManager
 
             // Resolve the anchor row
             $cur = $pdo->prepare(
-                'SELECT created_at, id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1'
+                'SELECT created_at, id FROM messify_chat_messages WHERE msg_uuid = :uuid LIMIT 1'
             );
             $cur->execute([':uuid' => $aroundUuid]);
             $curRow = $cur->fetch();
@@ -242,8 +242,8 @@ class GlobalChatManager
                         r.msg_type AS reply_msg_type,
                         r.sender_id AS reply_sender_id,
                         to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                 FROM chat_messages m
-                 LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
+                 FROM messify_chat_messages m
+                 LEFT JOIN messify_chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                  WHERE m.conv_id = :conv_id
                    AND (m.created_at, m.id) <= (:cur_ts, :cur_id)
                    AND m.status = \'active\'
@@ -284,7 +284,7 @@ class GlobalChatManager
             $pdo  = Database::getConnection();
             self::ensureMessageStatusColumn($pdo);
             $stmt = $pdo->prepare(
-                "SELECT COUNT(*) FROM chat_messages WHERE conv_id = :conv_id AND status = 'active'"
+                "SELECT COUNT(*) FROM messify_chat_messages WHERE conv_id = :conv_id AND status = 'active'"
             );
             $stmt->execute([':conv_id' => $convId]);
             return (int) $stmt->fetchColumn();
@@ -300,7 +300,7 @@ class GlobalChatManager
      * @param int[] $mentionedIds  account_ids @mentioned in $plaintext (from
      *                             the compose box's activeMentions — see
      *                             send.php). Persisted to
-     *                             chat_message_mentions and notified via
+     *                             messify_chat_message_mentions and notified via
      *                             ChatNotifier once the message itself is
      *                             safely saved.
      */
@@ -387,7 +387,7 @@ class GlobalChatManager
 
         try {
             $pdo->exec("
-                CREATE TABLE IF NOT EXISTS chat_message_mentions (
+                CREATE TABLE IF NOT EXISTS messify_chat_message_mentions (
                     id BIGSERIAL PRIMARY KEY,
                     msg_uuid VARCHAR(32) NULL,
                     sender_account_id INT NULL,
@@ -396,11 +396,11 @@ class GlobalChatManager
                     is_seen BOOLEAN NOT NULL DEFAULT FALSE,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 );
-                ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS sender_account_id INT NULL;
-                ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS message_snippet TEXT NULL;
-                ALTER TABLE chat_message_mentions ADD COLUMN IF NOT EXISTS is_seen BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE messify_chat_message_mentions ADD COLUMN IF NOT EXISTS sender_account_id INT NULL;
+                ALTER TABLE messify_chat_message_mentions ADD COLUMN IF NOT EXISTS message_snippet TEXT NULL;
+                ALTER TABLE messify_chat_message_mentions ADD COLUMN IF NOT EXISTS is_seen BOOLEAN NOT NULL DEFAULT FALSE;
                 CREATE INDEX IF NOT EXISTS idx_cmm_account_unseen
-                ON chat_message_mentions (mentioned_account_id, is_seen, created_at DESC);
+                ON messify_chat_message_mentions (mentioned_account_id, is_seen, created_at DESC);
             ");
         } catch (Throwable $t) {
             error_log('GlobalChatManager::ensureMentionsTable() — ' . $t->getMessage());
@@ -409,7 +409,7 @@ class GlobalChatManager
 
     /**
      * Persist each @mention against the saved message and notify the
-     * mentioned user (chat_message_mentions + live WS push), atomic with the send.
+     * mentioned user (messify_chat_message_mentions + live WS push), atomic with the send.
      *
      * Dedupes ids and never notifies the sender for mentioning themselves.
      *
@@ -432,7 +432,7 @@ class GlobalChatManager
             self::ensureMentionsTable($pdo);
 
             $insertMention = $pdo->prepare(
-                'INSERT INTO chat_message_mentions (msg_uuid, sender_account_id, mentioned_account_id, message_snippet, is_seen, created_at)
+                'INSERT INTO messify_chat_message_mentions (msg_uuid, sender_account_id, mentioned_account_id, message_snippet, is_seen, created_at)
                  VALUES (:msg_uuid, :sender_id, :account_id, :snippet, FALSE, NOW())
                  RETURNING id'
             );
@@ -475,7 +475,7 @@ class GlobalChatManager
         try {
             $pdo  = Database::getConnection();
             $stmt = $pdo->prepare(
-                'SELECT message, msg_type FROM chat_messages
+                'SELECT message, msg_type FROM messify_chat_messages
                  WHERE msg_uuid = :uuid AND conv_id = :conv_id AND status = \'active\'
                  LIMIT 1'
             );
@@ -529,7 +529,7 @@ class GlobalChatManager
                 $placeholders = implode(',', array_fill(0, count($msgUuids), '?'));
                 $stmt = $pdo->prepare(
                     "SELECT r.msg_uuid, r.emoji, r.account_id
-                     FROM chat_reactions r
+                     FROM messify_chat_reactions r
                      WHERE r.msg_uuid IN ($placeholders)
                      ORDER BY r.reacted_at ASC"
                 );
@@ -538,8 +538,8 @@ class GlobalChatManager
                 // Fallback: all reactions for the whole channel
                 $stmt = $pdo->prepare(
                     'SELECT r.msg_uuid, r.emoji, r.account_id
-                     FROM chat_reactions r
-                     JOIN chat_messages  m ON m.msg_uuid = r.msg_uuid
+                     FROM messify_chat_reactions r
+                     JOIN messify_chat_messages  m ON m.msg_uuid = r.msg_uuid
                      WHERE m.conv_id = :conv_id
                      ORDER BY r.reacted_at ASC'
                 );
@@ -577,7 +577,7 @@ class GlobalChatManager
 
             // Verify message belongs to this channel
             $check = $pdo->prepare(
-                'SELECT msg_uuid FROM chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id LIMIT 1'
+                'SELECT msg_uuid FROM messify_chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id LIMIT 1'
             );
             $check->execute([':uuid' => $msgId, ':conv_id' => $convId]);
             if (!$check->fetch()) {
@@ -599,9 +599,9 @@ class GlobalChatManager
         try {
             $pdo  = Database::getConnection();
             $stmt = $pdo->prepare(
-                'DELETE FROM chat_reactions
+                'DELETE FROM messify_chat_reactions
                  WHERE msg_uuid IN (
-                     SELECT msg_uuid FROM chat_messages WHERE conv_id = :conv_id
+                     SELECT msg_uuid FROM messify_chat_messages WHERE conv_id = :conv_id
                  )'
             );
             $stmt->execute([':conv_id' => $convId]);
@@ -622,7 +622,7 @@ class GlobalChatManager
             self::ensureMessageStatusColumn($pdo);
 
             $stmt = $pdo->prepare(
-                "UPDATE chat_messages
+                "UPDATE messify_chat_messages
                  SET status = 'inactive', updated_at = NOW()
                  WHERE conv_id = :conv_id AND status = 'active'"
             );
@@ -681,7 +681,7 @@ class GlobalChatManager
             $pdo = Database::getConnection();
 
             $stmt = $pdo->prepare(
-                'INSERT INTO chat_messages (conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid, reply_to_msg_uuid)
+                'INSERT INTO messify_chat_messages (conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid, reply_to_msg_uuid)
                  VALUES (:conv_id, :sender_id, NULL, :message, :msg_type, :created_at, :created_at, :msg_uuid, :reply_to)'
             );
             $stmt->execute([
@@ -717,7 +717,7 @@ class GlobalChatManager
         try {
             $pdo  = Database::getConnection();
             $stmt = $pdo->prepare(
-                'SELECT 1 FROM chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id AND status = \'active\' LIMIT 1'
+                'SELECT 1 FROM messify_chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id AND status = \'active\' LIMIT 1'
             );
             $stmt->execute([':uuid' => $msgUuid, ':conv_id' => $convId]);
             return (bool) $stmt->fetchColumn();
@@ -742,7 +742,7 @@ class GlobalChatManager
     ): array {
         // Find any existing reaction this user has on this message
         $existing = $pdo->prepare(
-            'SELECT id, emoji FROM chat_reactions WHERE msg_uuid = :uuid AND account_id = :acct LIMIT 1'
+            'SELECT id, emoji FROM messify_chat_reactions WHERE msg_uuid = :uuid AND account_id = :acct LIMIT 1'
         );
         $existing->execute([':uuid' => $msgId, ':acct' => $accountId]);
         $prev = $existing->fetch();
@@ -750,20 +750,20 @@ class GlobalChatManager
         if ($prev) {
             if ($prev['emoji'] === $emoji) {
                 // Same emoji — toggle off (remove)
-                $del = $pdo->prepare('DELETE FROM chat_reactions WHERE id = :id');
+                $del = $pdo->prepare('DELETE FROM messify_chat_reactions WHERE id = :id');
                 $del->execute([':id' => $prev['id']]);
                 return ['ok' => true, 'action' => 'removed'];
             }
 
             // Different emoji — replace
-            $upd = $pdo->prepare('UPDATE chat_reactions SET emoji = :emoji, reacted_at = NOW() WHERE id = :id');
+            $upd = $pdo->prepare('UPDATE messify_chat_reactions SET emoji = :emoji, reacted_at = NOW() WHERE id = :id');
             $upd->execute([':emoji' => $emoji, ':id' => $prev['id']]);
             return ['ok' => true, 'action' => 'replaced'];
         }
 
         // No previous reaction — insert new
         $ins = $pdo->prepare(
-            'INSERT INTO chat_reactions (msg_uuid, account_id, emoji, reacted_at)
+            'INSERT INTO messify_chat_reactions (msg_uuid, account_id, emoji, reacted_at)
              VALUES (:uuid, :acct, :emoji, NOW())'
         );
         $ins->execute([':uuid' => $msgId, ':acct' => $accountId, ':emoji' => $emoji]);

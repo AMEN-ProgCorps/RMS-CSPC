@@ -1,6 +1,6 @@
 <?php
 // =============================================================================
-// accept_legal.php — Record that the current user has accepted the Chatify
+// accept_legal.php — Record that the current user has accepted the Messify
 //                    legal authorization agreement.
 // =============================================================================
 // POST params:
@@ -51,7 +51,7 @@ try {
 
     // PostgreSQL UPSERT — update the timestamp/IP each time they re-agree
     $stmt = $pdo->prepare(
-        'INSERT INTO chatify_legal_agreements (account_id, agreed_at, ip_address, user_agent)
+        'INSERT INTO messify_chat_legal_agreements (account_id, agreed_at, ip_address, user_agent)
          VALUES (:account_id, NOW(), :ip, :ua)
          ON CONFLICT (account_id)
          DO UPDATE SET agreed_at  = EXCLUDED.agreed_at,

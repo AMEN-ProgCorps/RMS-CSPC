@@ -18,8 +18,8 @@ return new class extends Migration
             if (!Schema::hasColumn('account_details', 'allow_see_typing_preview')) {
                 $table->boolean('allow_see_typing_preview')->default(true);
             }
-            if (!Schema::hasColumn('account_details', 'is_chatify_verified')) {
-                $table->boolean('is_chatify_verified')->default(false);
+            if (!Schema::hasColumn('account_details', 'is_messify_verified')) {
+                $table->boolean('is_messify_verified')->default(false);
             }
         });
     }
@@ -33,7 +33,7 @@ return new class extends Migration
             $table->dropColumn([
                 'allow_typing_preview',
                 'allow_see_typing_preview',
-                'is_chatify_verified',
+                'is_messify_verified',
             ]);
         });
     }

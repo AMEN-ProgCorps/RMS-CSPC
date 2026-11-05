@@ -37,7 +37,7 @@ try {
                 to_char(cmm.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS\') AS created_at,
                 ad.first_name AS sender_first_name,
                 ad.last_name  AS sender_last_name
-         FROM chat_message_mentions cmm
+         FROM messify_chat_message_mentions cmm
          LEFT JOIN ' . Database::t('account_details') . ' ad ON ad.account_id = cmm.sender_account_id
          WHERE cmm.mentioned_account_id = :account_id AND cmm.is_seen = FALSE
          ORDER BY cmm.created_at ASC'

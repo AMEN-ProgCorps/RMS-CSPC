@@ -38,8 +38,8 @@ function internalFetchPhp(endpointPath, queryParams, accountId, callback) {
     endpointPath,
     '/messify' + endpointPath,
     '/public/messify' + endpointPath,
-    '/chatify' + endpointPath,
-    '/public/chatify' + endpointPath
+    '/messify' + endpointPath,
+    '/public/messify' + endpointPath
   ];
 
   let parsedUrl;

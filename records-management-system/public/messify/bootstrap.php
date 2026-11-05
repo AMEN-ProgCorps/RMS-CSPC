@@ -31,7 +31,7 @@ require_once __DIR__ . '/core/Reactions.php';
 require_once __DIR__ . '/log_chat_action.php';
 
 // ── Secure Session Cookie Configuration ─────────────────────────────────────
-// Ensure all sessions created or resumed in Chatify enforce HttpOnly, SameSite,
+// Ensure all sessions created or resumed in Messify enforce HttpOnly, SameSite,
 // and Secure flags so that session cookies (PHPSESSID) cannot be read via JavaScript.
 if (session_status() === PHP_SESSION_NONE) {
     ini_set('session.cookie_httponly', '1');

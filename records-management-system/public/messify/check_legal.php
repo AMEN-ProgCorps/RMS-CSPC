@@ -1,6 +1,6 @@
 <?php
 // =============================================================================
-// check_legal.php — Check whether the current user has accepted the Chatify
+// check_legal.php — Check whether the current user has accepted the Messify
 //                   legal authorization agreement.
 // =============================================================================
 // GET  → { agreed: true|false }
@@ -19,7 +19,7 @@ $accountId = Auth::accountId();
 try {
     $pdo  = Database::getConnection();
     $stmt = $pdo->prepare(
-        'SELECT id FROM chatify_legal_agreements WHERE account_id = :id LIMIT 1'
+        'SELECT id FROM messify_chat_legal_agreements WHERE account_id = :id LIMIT 1'
     );
     $stmt->execute([':id' => $accountId]);
     $row = $stmt->fetch();

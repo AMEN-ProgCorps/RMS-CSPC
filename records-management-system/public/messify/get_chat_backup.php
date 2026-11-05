@@ -1,6 +1,6 @@
 <?php
 // =============================================================================
-// get_chat_backup.php — Admin-only: Download chatify_chat_backup as plain-text
+// get_chat_backup.php — Admin-only: Download messify_chat_backup as plain-text
 //                       JSON for audit purposes.
 // =============================================================================
 // GET params:
@@ -48,7 +48,7 @@ try {
                     ad_recv.first_name     AS receiver_first,
                     ad_recv.last_name      AS receiver_last,
                     acc_recv.username      AS receiver_username
-               FROM chatify_chat_backup b
+               FROM messify_chat_backup b
                LEFT JOIN ' . Database::t('account_details') . ' ad_sender   ON b.sender_id   = ad_sender.account_id
                LEFT JOIN ' . Database::t('account') . '         acc_sender   ON b.sender_id   = acc_sender.id
                LEFT JOIN ' . Database::t('account_details') . ' ad_recv      ON b.receiver_id = ad_recv.account_id

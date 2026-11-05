@@ -202,9 +202,9 @@ class Auth
     /**
      * Return the session check result for check_session.php.
      *
-     * IMPORTANT: this used to only look at Chatify's own local
+     * IMPORTANT: this used to only look at Messify's own local
      * `chat_authenticated`/`chat_expires` session keys — a check that
-     * never asked Laravel/RMS anything. That made it a Chatify-only
+     * never asked Laravel/RMS anything. That made it a Messify-only
      * session check: once minted, it stayed "valid" for the full
      * CHAT_SESSION_LIFETIME (8h) even if the RMS session behind it was
      * destroyed a minute later by a normal 120-minute RMS timeout, an
@@ -226,9 +226,9 @@ class Auth
             return ['valid' => false, 'reason' => 'expired'];
         }
 
-        // Belt-and-suspenders: also honor Chatify's own local expiry clock
+        // Belt-and-suspenders: also honor Messify's own local expiry clock
         // even though check() just proved the RMS session is still alive —
-        // this bounds how long a single Chatify session can live even
+        // this bounds how long a single Messify session can live even
         // under an RMS session that never seems to expire.
         if (!isset($_SESSION['chat_expires']) || time() > $_SESSION['chat_expires']) {
             self::destroy();
@@ -510,7 +510,7 @@ class Auth
             if ($row) {
                 // Mirror Laravel's own SESSION_LIFETIME (minutes) config
                 // rather than guessing — a stale hardcoded value here could
-                // let Chatify treat a session as alive/dead in a way that
+                // let Messify treat a session as alive/dead in a way that
                 // doesn't actually match RMS's own idea of session validity.
                 $lifetime = ((int) getEnvValue('SESSION_LIFETIME', '120')) * 60;
                 if (time() - (int)$row['last_activity'] <= $lifetime && $row['user_id'] !== null) {

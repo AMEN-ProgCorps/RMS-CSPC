@@ -586,9 +586,9 @@ function isModalKeyMatch(event, targetKey) {
 
 function isExemptedModalElement(element) {
     if (!element) return false;
-    // Exempt: Action container dropdown, Notification center, and Chatify widget
+    // Exempt: Action container dropdown, Notification center, and Messify widget
     return !!element.closest(
-        '.actions-container, #dropdown, .notification-container, .notif-wrapper, .notif-dropdown, #messify-global-widget, #messify-widget-card, .messify-widget, [id^="messify"], #chatify-global-widget, #chatify-widget-card, .chatify-widget, [id^="chatify"], .nav-flyout-popover'
+        '.actions-container, #dropdown, .notification-container, .notif-wrapper, .notif-dropdown, #messify-global-widget, #messify-widget-card, .messify-widget, [id^="messify"], #messify-global-widget, #messify-widget-card, .messify-widget, [id^="messify"], .nav-flyout-popover'
     );
 }
 
@@ -813,17 +813,17 @@ function getRMSNotifToggleKey() {
 }
 window.getRMSNotifToggleKey = getRMSNotifToggleKey;
 
-function getRMSChatifyToggleKey() {
-    if (window.RMS_CHATIFY_TOGGLE_KEY !== undefined && window.RMS_CHATIFY_TOGGLE_KEY !== null && window.RMS_CHATIFY_TOGGLE_KEY !== '') {
-        return window.RMS_CHATIFY_TOGGLE_KEY;
+function getRMSMessifyToggleKey() {
+    if (window.RMS_MESSIFY_TOGGLE_KEY !== undefined && window.RMS_MESSIFY_TOGGLE_KEY !== null && window.RMS_MESSIFY_TOGGLE_KEY !== '') {
+        return window.RMS_MESSIFY_TOGGLE_KEY;
     }
     try {
-        const stored = localStorage.getItem('rms-chatify-toggle-key');
+        const stored = localStorage.getItem('rms-messify-toggle-key');
         if (stored && stored !== 'none') return stored;
     } catch (e) {}
     return '';
 }
-window.getRMSChatifyToggleKey = getRMSChatifyToggleKey;
+window.getRMSMessifyToggleKey = getRMSMessifyToggleKey;
 
 function isTypingActive() {
     const activeEl = document.activeElement;
@@ -872,21 +872,21 @@ function handleNotificationToggleShortcut(event) {
 }
 window.handleNotificationToggleShortcut = handleNotificationToggleShortcut;
 
-function handleChatifyToggleShortcut(event) {
-    const targetKey = getRMSChatifyToggleKey();
+function handleMessifyToggleShortcut(event) {
+    const targetKey = getRMSMessifyToggleKey();
     if (!targetKey || targetKey.toLowerCase() === 'none') return false;
     if (!isModalKeyMatch(event, targetKey)) return false;
     if (isTypingActive()) return false;
 
-    const chatifyBtn = document.getElementById('chatify-widget-btn');
-    if (chatifyBtn) {
-        chatifyBtn.click();
+    const messifyBtn = document.getElementById('messify-widget-btn');
+    if (messifyBtn) {
+        messifyBtn.click();
     }
     event.preventDefault();
     event.stopPropagation();
     return true;
 }
-window.handleChatifyToggleShortcut = handleChatifyToggleShortcut;
+window.handleMessifyToggleShortcut = handleMessifyToggleShortcut;
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -897,7 +897,7 @@ document.addEventListener('keydown', (e) => {
         if (!handleSidebarToggleShortcut(e)) {
             if (!handleActionToggleShortcut(e)) {
                 if (!handleNotificationToggleShortcut(e)) {
-                    handleChatifyToggleShortcut(e);
+                    handleMessifyToggleShortcut(e);
                 }
             }
         }
@@ -939,10 +939,10 @@ window.addEventListener('rms-notif-key-changed', (e) => {
     }
 });
 
-window.addEventListener('rms-chatify-key-changed', (e) => {
+window.addEventListener('rms-messify-key-changed', (e) => {
     if (e) {
         const keyVal = typeof e.detail === 'string' ? e.detail : (e.detail?.key || '');
-        window.RMS_CHATIFY_TOGGLE_KEY = (keyVal === 'none' || !keyVal) ? '' : keyVal;
+        window.RMS_MESSIFY_TOGGLE_KEY = (keyVal === 'none' || !keyVal) ? '' : keyVal;
     }
 });
 
@@ -995,8 +995,8 @@ window.setupIconModeInteractions = setupIconModeInteractions;
         if (e.key === 'rms-notif-toggle-key') {
             window.RMS_NOTIF_TOGGLE_KEY = (e.newValue === 'none' || !e.newValue) ? '' : e.newValue;
         }
-        if (e.key === 'rms-chatify-toggle-key') {
-            window.RMS_CHATIFY_TOGGLE_KEY = (e.newValue === 'none' || !e.newValue) ? '' : e.newValue;
+        if (e.key === 'rms-messify-toggle-key') {
+            window.RMS_MESSIFY_TOGGLE_KEY = (e.newValue === 'none' || !e.newValue) ? '' : e.newValue;
         }
         if (e.key === 'sidebarState' && e.newValue) {
             const dcsToggle = document.getElementById('dcs-sidebar-collapsed');

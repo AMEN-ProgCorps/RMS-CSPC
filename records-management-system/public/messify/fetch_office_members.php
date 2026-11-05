@@ -84,7 +84,7 @@ try {
                ad.is_currently_online,
                ad.last_online_time,
                ad.avatar_url,
-               COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified,
+               COALESCE(ad.is_messify_verified, FALSE) AS is_messify_verified,
                ck.key_name AS role_name,
                cd.is_sadm
         FROM {$tblDetails} ad
@@ -119,7 +119,7 @@ try {
             'avatar_url'          => $row['avatar_url'] ?? null,
             'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
             'last_online_time'    => $row['last_online_time'] ?? null,
-            'is_chatify_verified' => (bool) ($row['is_chatify_verified'] ?? false) || $isSadm,
+            'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false) || $isSadm,
             'is_super_admin'      => $isSadm,
             'role_name'           => $isSadm ? 'Super Admin' : ($row['role_name'] ?? 'Member'),
         ];

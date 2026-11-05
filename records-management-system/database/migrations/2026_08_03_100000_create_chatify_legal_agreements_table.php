@@ -5,18 +5,18 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Chatify Legal Agreements Migration
+ * Messify Legal Agreements Migration
  * ============================================================
- * Tracks which accounts have accepted the Chatify legal/usage
+ * Tracks which accounts have accepted the Messify legal/usage
  * authorization. One record per account (upsert on re-accept).
  *
- * Table: chatify_legal_agreements
+ * Table: messify_chat_legal_agreements
  */
 return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('chatify_legal_agreements', function (Blueprint $table) {
+        Schema::create('messify_chat_legal_agreements', function (Blueprint $table) {
             $table->increments('id');
 
             // The user who accepted
@@ -37,9 +37,9 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('chatify_legal_agreements', function (Blueprint $table) {
+        Schema::table('messify_chat_legal_agreements', function (Blueprint $table) {
             $table->dropForeign('fk_cla_account');
         });
-        Schema::dropIfExists('chatify_legal_agreements');
+        Schema::dropIfExists('messify_chat_legal_agreements');
     }
 };

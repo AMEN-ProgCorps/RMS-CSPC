@@ -18,8 +18,8 @@ return new class extends Migration
             if (!Schema::hasColumn('personal_settings', 'notification_toggle_key')) {
                 $table->string('notification_toggle_key', 50)->nullable()->default(null)->after('action_toggle_key');
             }
-            if (!Schema::hasColumn('personal_settings', 'chatify_toggle_key')) {
-                $table->string('chatify_toggle_key', 50)->nullable()->default(null)->after('notification_toggle_key');
+            if (!Schema::hasColumn('personal_settings', 'messify_toggle_key')) {
+                $table->string('messify_toggle_key', 50)->nullable()->default(null)->after('notification_toggle_key');
             }
         });
     }
@@ -36,8 +36,8 @@ return new class extends Migration
             if (Schema::hasColumn('personal_settings', 'notification_toggle_key')) {
                 $table->dropColumn('notification_toggle_key');
             }
-            if (Schema::hasColumn('personal_settings', 'chatify_toggle_key')) {
-                $table->dropColumn('chatify_toggle_key');
+            if (Schema::hasColumn('personal_settings', 'messify_toggle_key')) {
+                $table->dropColumn('messify_toggle_key');
             }
         });
     }

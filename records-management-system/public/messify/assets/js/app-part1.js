@@ -126,16 +126,16 @@
     const EYE_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
 
     // Notify parent window on user interaction to unlock parent AudioContext
-    const chatifyIframeUnlockEvents = ['click', 'touchstart', 'keydown', 'pointerdown'];
+    const messifyIframeUnlockEvents = ['click', 'touchstart', 'keydown', 'pointerdown'];
     function notifyParentIframeInteraction() {
       if (window.parent && window.parent !== window) {
         try {
-          window.parent.postMessage({ type: 'CHATIFY_USER_INTERACTION' }, '*');
+          window.parent.postMessage({ type: 'MESSIFY_USER_INTERACTION' }, '*');
         } catch (e) {}
       }
-      chatifyIframeUnlockEvents.forEach(evt => document.removeEventListener(evt, notifyParentIframeInteraction));
+      messifyIframeUnlockEvents.forEach(evt => document.removeEventListener(evt, notifyParentIframeInteraction));
     }
-    chatifyIframeUnlockEvents.forEach(evt => document.addEventListener(evt, notifyParentIframeInteraction, { passive: true }));
+    messifyIframeUnlockEvents.forEach(evt => document.addEventListener(evt, notifyParentIframeInteraction, { passive: true }));
 
     // DM Sidebar state
     let activeDM = null;
@@ -768,7 +768,7 @@
             if (Number(data.recipient_id) === wsConfig.accountId && Number(data.sender_id) !== wsConfig.accountId) {
               if (window.parent && window.parent !== window) {
                 try {
-                  window.parent.postMessage({ type: 'CHATIFY_NEW_MESSAGE', sender_id: data.sender_id }, '*');
+                  window.parent.postMessage({ type: 'MESSIFY_NEW_MESSAGE', sender_id: data.sender_id }, '*');
                 } catch (e) {}
               }
               const otherUser = allUsersData.find(u => Number(u.account_id) === Number(data.sender_id));
@@ -1052,7 +1052,7 @@
           console.log('Received WebSocket real-time update notice:', data);
           if (window.parent && window.parent !== window) {
             try {
-              window.parent.postMessage({ type: 'CHATIFY_NEW_MESSAGE', notify_id: data.id }, '*');
+              window.parent.postMessage({ type: 'MESSIFY_NEW_MESSAGE', notify_id: data.id }, '*');
             } catch (e) {}
           }
           showNotifyToast(data);
@@ -1472,7 +1472,7 @@
             if (Array.isArray(allUsersData)) {
               const userObj = allUsersData.find(u => Number(u.account_id) === changedId);
               if (userObj) {
-                userObj.is_chatify_verified = nowVerified;
+                userObj.is_messify_verified = nowVerified;
               }
             }
             // Re-render sidebar badges
@@ -1589,7 +1589,7 @@
             return true;
           }
           if (window.parent && window.parent.document) {
-            const card = window.parent.document.getElementById('messify-widget-card') || window.parent.document.getElementById('chatify-widget-card');
+            const card = window.parent.document.getElementById('messify-widget-card') || window.parent.document.getElementById('messify-widget-card');
             if (card) {
               const style = window.parent.getComputedStyle(card);
               if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
@@ -1881,10 +1881,10 @@
         if (backButton) backButton.style.display = 'none';
       }
     }
-    let lastChatifyWindowWidth = window.innerWidth;
+    let lastMessifyWindowWidth = window.innerWidth;
     function handleResizeSetupMobileLayout() {
-      if (window.innerWidth !== lastChatifyWindowWidth) {
-        lastChatifyWindowWidth = window.innerWidth;
+      if (window.innerWidth !== lastMessifyWindowWidth) {
+        lastMessifyWindowWidth = window.innerWidth;
         setupMobileLayout();
       }
     }
@@ -2356,7 +2356,7 @@
       if (window.parent && window.parent !== window) {
         try {
           window.parent.postMessage({
-            type: 'CHATIFY_REFRESH_BADGE',
+            type: 'MESSIFY_REFRESH_BADGE',
             unread_count: latestTotalUnread
           }, '*');
         } catch (e) {}
@@ -2508,7 +2508,7 @@
         }
 
         const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
-        const targetIsVerified = !u.is_office_gc && !u.is_custom_gc && ((vSet && vSet.has(Number(u.account_id))) || Boolean(u.is_chatify_verified));
+        const targetIsVerified = !u.is_office_gc && !u.is_custom_gc && ((vSet && vSet.has(Number(u.account_id))) || Boolean(u.is_messify_verified));
 
         const sidebarBadge = nameRow.querySelector('.verified-badge');
         if (targetIsVerified) {
@@ -3983,7 +3983,7 @@
             lastTimestamp: Number(group.lastTimestamp) || Math.floor(Date.now() / 1000),
             unreadCount: 0,
             is_newly_added: false,
-            is_chatify_verified: false,
+            is_messify_verified: false,
             avatar_url: 'cspc.webp'
           });
         }
@@ -4400,7 +4400,7 @@
     //
     // On send (app-part3.js), every mention still present in the final
     // text is sent to send.php as mentioned_ids, which persists each one
-    // to chat_message_mentions and notifies the mentioned user — see
+    // to messify_chat_message_mentions and notifies the mentioned user — see
     // GlobalChatManager::addTextMessage()/recordMentions() and
     // core/ChatNotifier.php.
     const messageInputHighlight = document.getElementById('messageInputHighlight');
@@ -5299,13 +5299,13 @@
             account_id: u1Id,
             full_name: conv?.name1 || ('User #' + u1Id),
             role_name: conv?.u1_office || '',
-            is_chatify_verified: true,
+            is_messify_verified: true,
           },
           {
             account_id: u2Id,
             full_name: conv?.name2 || ('User #' + u2Id),
             role_name: conv?.u2_office || '',
-            is_chatify_verified: true,
+            is_messify_verified: true,
           }
         ];
         renderOfficeMembersList(dmMbrs, silent, null);
@@ -5414,11 +5414,11 @@
       const targetId = Number(accountId);
       if (Array.isArray(window.currentOfficeMembers)) {
         const m = window.currentOfficeMembers.find(x => Number(x.account_id) === targetId);
-        if (m) m.is_chatify_verified = !!isVerified;
+        if (m) m.is_messify_verified = !!isVerified;
       }
       if (Array.isArray(window.activeCustomGcMembers)) {
         const m = window.activeCustomGcMembers.find(x => Number(x.account_id) === targetId);
-        if (m) m.is_chatify_verified = !!isVerified;
+        if (m) m.is_messify_verified = !!isVerified;
       }
       const row = document.querySelector(`#officeMembersList [data-account-id="${targetId}"]`);
       if (!row) return;
@@ -5846,8 +5846,8 @@
       }
 
       const existingRows = listEl.querySelectorAll('.mention-user-row');
-      const oldKeys = ((isGc ? window.activeCustomGcMembers : window.currentOfficeMembers) || []).map(m => `${m.account_id}_${m.is_chatify_verified ? 1 : 0}_${m.is_admin ? 1 : 0}_${m.role_name || ''}`).join('|');
-      const newKeys = (members || []).map(m => `${m.account_id}_${m.is_chatify_verified ? 1 : 0}_${m.is_admin ? 1 : 0}_${m.role_name || ''}`).join('|');
+      const oldKeys = ((isGc ? window.activeCustomGcMembers : window.currentOfficeMembers) || []).map(m => `${m.account_id}_${m.is_messify_verified ? 1 : 0}_${m.is_admin ? 1 : 0}_${m.role_name || ''}`).join('|');
+      const newKeys = (members || []).map(m => `${m.account_id}_${m.is_messify_verified ? 1 : 0}_${m.is_admin ? 1 : 0}_${m.role_name || ''}`).join('|');
 
       // Only skip re-render during background silent sync if the list already contains all rows and keys didn't change
       if (isSilent && existingRows.length === members.length && oldKeys === newKeys) {
@@ -5888,7 +5888,7 @@
         nameEl.textContent = m.full_name + (Number(m.account_id) === myId ? ' (You)' : '');
         nameRow.appendChild(nameEl);
 
-        if (m.is_chatify_verified) {
+        if (m.is_messify_verified) {
           const vBadge = document.createElement('span');
           vBadge.className = 'verified-badge';
           vBadge.style.cssText = 'flex-shrink:0;';

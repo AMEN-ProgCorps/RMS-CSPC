@@ -20,7 +20,7 @@ try {
     $pdo = Database::getConnection();
 
     $stmt = $pdo->prepare(
-        'UPDATE chat_message_mentions
+        'UPDATE messify_chat_message_mentions
          SET is_seen = TRUE
          WHERE mentioned_account_id = :account_id
            AND is_seen = FALSE'

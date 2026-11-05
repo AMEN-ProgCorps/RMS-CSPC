@@ -1,14 +1,14 @@
 <?php
 /**
- * Admin Console - Chatify Audit Trail
+ * Admin Console - Messify Audit Trail
  *
  * Two tabs:
- *   1. Audit Log  — paginated log of all user actions inside Chatify
+ *   1. Audit Log  — paginated log of all user actions inside Messify
  *   2. Chat Backups — list of archived backup sessions with download
  *
  * Data sources:
- *   - chatify_audit_logs        (Audit Log tab)
- *   - chatify_chat_backup       (Chat Backups tab)
+ *   - messify_chat_audit_logs        (Audit Log tab)
+ *   - messify_chat_backup       (Chat Backups tab)
  */
 
 use Livewire\Attributes\Layout;
@@ -72,7 +72,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
     public function with(): array
     {
         // ── Audit Log tab ────────────────────────────────────────────────────
-        $query = \DB::table('chatify_audit_logs as cal')
+        $query = \DB::table('messify_chat_audit_logs as cal')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as a', 'cal.account_id', '=', 'a.id')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as ad', 'a.id', '=', 'ad.account_id')
             ->select([
@@ -102,7 +102,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
         $logs = $query->orderBy('cal.created_at', 'desc')->paginate(20);
 
         // Stats
-        $sb    = \DB::table('chatify_audit_logs');
+        $sb    = \DB::table('messify_chat_audit_logs');
         $stats = [
             'total'    => (clone $sb)->count(),
             'messages' => (clone $sb)->whereIn('action', ['send_message', 'send_dm'])->count(),
@@ -110,7 +110,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
             'clears'   => (clone $sb)->whereIn('action', ['clear_chat', 'clear_all_chat', 'delete_message'])->count(),
         ];
 
-        $actionTypes = \DB::table('chatify_audit_logs')
+        $actionTypes = \DB::table('messify_chat_audit_logs')
             ->select('action')->distinct()->orderBy('action')->pluck('action');
 
         // ── Chat Backups tab ─────────────────────────────────────────────────
@@ -118,7 +118,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
         // so each admin "clear" session appears as one row with a download button
         $backupSessions = collect();
         try {
-            $backupSessions = \DB::table('chatify_chat_backup as b')
+            $backupSessions = \DB::table('messify_chat_backup as b')
                 ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as ad', 'b.archived_by', '=', 'ad.account_id')
                 ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as acc', 'b.archived_by', '=', 'acc.id')
                 ->selectRaw("

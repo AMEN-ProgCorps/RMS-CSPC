@@ -2,8 +2,8 @@
 // =============================================================================
 // core/Reactions.php — Emoji Reactions: allowed set + shared render helper
 // =============================================================================
-// Reactions are stored in chat_reactions (see
-// migrations/2026_07_14_000001_create_chatify_tables.php) and toggled
+// Reactions are stored in messify_chat_reactions (see
+// migrations/2026_07_14_000001_create_messify_tables.php) and toggled
 // through the shared GlobalChatManager::upsertReaction(), called from both
 // GlobalChatManager::toggleReaction() (global chat) and
 // ConversationManager::toggleReaction() (private DMs). react.php is the one

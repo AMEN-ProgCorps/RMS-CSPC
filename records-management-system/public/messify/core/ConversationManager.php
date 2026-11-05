@@ -2,7 +2,7 @@
 // =============================================================================
 // core/ConversationManager.php — Private Chat (DM) Storage: PostgreSQL backend
 // =============================================================================
-// Uses a dedicated `chat_conversations` metadata table for instant sub-5ms
+// Uses a dedicated `messify_chat_conversations` metadata table for instant sub-5ms
 // sidebar loads at 20M+ message scale.
 // =============================================================================
 
@@ -26,7 +26,7 @@ class ConversationManager
     // -------------------------------------------------------------------------
 
     /**
-     * Ensure chat_conversations table and indexes exist on the fly.
+     * Ensure messify_chat_conversations table and indexes exist on the fly.
      * Called as a safety net in case the migration hasn't been run yet.
      */
     private static function ensureConversationsTable(PDO $pdo): void
@@ -39,11 +39,11 @@ class ConversationManager
     private static function doEnsureConversationsTable(PDO $pdo): void
     {
         try {
-            $pdo->query("SELECT 1 FROM chat_conversations LIMIT 1");
+            $pdo->query("SELECT 1 FROM messify_chat_conversations LIMIT 1");
         } catch (PDOException $e) {
             try {
                 $pdo->exec("
-                    CREATE TABLE IF NOT EXISTS chat_conversations (
+                    CREATE TABLE IF NOT EXISTS messify_chat_conversations (
                         conv_id           VARCHAR(30) PRIMARY KEY,
                         user_1            INTEGER NOT NULL,
                         user_2            INTEGER NOT NULL,
@@ -62,13 +62,13 @@ class ConversationManager
                 ");
 
                 try {
-                    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_conv_user1 ON chat_conversations (user_1, last_message_time DESC)");
-                    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_conv_user2 ON chat_conversations (user_2, last_message_time DESC)");
+                    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_conv_user1 ON messify_chat_conversations (user_1, last_message_time DESC)");
+                    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_conv_user2 ON messify_chat_conversations (user_2, last_message_time DESC)");
                 } catch (Throwable $t) {}
 
-                // Backfill metadata from existing chat_messages
+                // Backfill metadata from existing messify_chat_messages
                 $pdo->exec("
-                    INSERT INTO chat_conversations (
+                    INSERT INTO messify_chat_conversations (
                         conv_id, user_1, user_2, last_message, last_msg_type, last_msg_uuid, last_message_time, unread_user_1, unread_user_2, created_at, updated_at
                     )
                     SELECT DISTINCT ON (conv_id)
@@ -83,7 +83,7 @@ class ConversationManager
                         0 AS unread_user_2,
                         created_at,
                         created_at AS updated_at
-                    FROM chat_messages
+                    FROM messify_chat_messages
                     WHERE conv_id != 'global' AND receiver_id IS NOT NULL
                     ORDER BY conv_id, created_at DESC, id DESC
                     ON CONFLICT (conv_id) DO NOTHING
@@ -93,27 +93,27 @@ class ConversationManager
             }
         }
 
-        // Self-heal schema drift: chat_conversations can already exist from an
+        // Self-heal schema drift: messify_chat_conversations can already exist from an
         // older version of the table (as it does in production) that predates
         // the msg_count column. That ALTER used to live only inside the
         // "table didn't exist yet" branch above, so on a pre-existing table it
         // never ran. Every insertMessage() upsert then silently failed with
         // "column msg_count does not exist" (caught as non-fatal and logged),
-        // so chat_conversations was NEVER inserted/updated — meaning nobody's
+        // so messify_chat_conversations was NEVER inserted/updated — meaning nobody's
         // sidebar ever reflected new or existing conversations. Run this
         // unconditionally so it self-heals no matter which branch above ran.
         try {
-            $pdo->exec("ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS msg_count INTEGER NOT NULL DEFAULT 1");
+            $pdo->exec("ALTER TABLE messify_chat_conversations ADD COLUMN IF NOT EXISTS msg_count INTEGER NOT NULL DEFAULT 1");
         } catch (Throwable $t) {
             error_log('ConversationManager::ensureConversationsTable() msg_count backfill fail — ' . $t->getMessage());
         }
 
-        // Self-heal schema drift: chat_conversations may pre-date the soft-delete
+        // Self-heal schema drift: messify_chat_conversations may pre-date the soft-delete
         // "clear chat" columns. Run unconditionally so existing tables pick them
         // up regardless of which branch above ran.
         try {
-            $pdo->exec("ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true");
-            $pdo->exec("ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS cleared_at TIMESTAMPTZ(6)");
+            $pdo->exec("ALTER TABLE messify_chat_conversations ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true");
+            $pdo->exec("ALTER TABLE messify_chat_conversations ADD COLUMN IF NOT EXISTS cleared_at TIMESTAMPTZ(6)");
         } catch (Throwable $t) {
             error_log('ConversationManager::ensureConversationsTable() is_active/cleared_at backfill fail — ' . $t->getMessage());
         }
@@ -124,7 +124,7 @@ class ConversationManager
     // -------------------------------------------------------------------------
 
     /**
-     * Ensure chat_messages.status exists (safety net if the migration hasn't
+     * Ensure messify_chat_messages.status exists (safety net if the migration hasn't
      * run yet — mirrors the ensureConversationsTable() self-heal pattern
      * used elsewhere in this class).
      *
@@ -135,11 +135,11 @@ class ConversationManager
      * WHERE + ORDER BY shape used there lets it walk the index in cursor
      * order and stop at LIMIT — no sort, no wasted scanning. It's partial
      * (WHERE status = 'active') so it stays small as deleted/cleared rows
-     * accumulate. We also index chat_messages.msg_uuid (every "load older"
+     * accumulate. We also index messify_chat_messages.msg_uuid (every "load older"
      * page does an msg_uuid point-lookup for the cursor, plus the
-     * reply-preview LEFT JOIN needs it) and chat_reactions.msg_uuid (the
+     * reply-preview LEFT JOIN needs it) and messify_chat_reactions.msg_uuid (the
      * per-page reactions IN(...) lookup). CONCURRENTLY avoids locking
-     * chat_messages against writers while the index builds.
+     * messify_chat_messages against writers while the index builds.
      */
     private static function ensureMessageStatusColumn(PDO $pdo): void
     {
@@ -151,9 +151,9 @@ class ConversationManager
         // actually re-runs once per hour.
         SelfHealCache::once('message_status_column', function () use ($pdo) {
             try {
-                $pdo->exec("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'active'");
-                $pdo->exec("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS edit_count INT NOT NULL DEFAULT 0");
-                $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON chat_messages (conv_id, status)");
+                $pdo->exec("ALTER TABLE messify_chat_messages ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'active'");
+                $pdo->exec("ALTER TABLE messify_chat_messages ADD COLUMN IF NOT EXISTS edit_count INT NOT NULL DEFAULT 0");
+                $pdo->exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_status ON messify_chat_messages (conv_id, status)");
             } catch (Throwable $t) {
                 error_log('ConversationManager::ensureMessageStatusColumn() — ' . $t->getMessage());
             }
@@ -164,16 +164,16 @@ class ConversationManager
             // the others from being created.
             self::ensureIndexConcurrently($pdo, 'idx_chat_messages_conv_active_created',
                 "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_conv_active_created
-                 ON chat_messages (conv_id, created_at DESC, id DESC)
+                 ON messify_chat_messages (conv_id, created_at DESC, id DESC)
                  WHERE status = 'active'");
 
             self::ensureIndexConcurrently($pdo, 'idx_chat_messages_msg_uuid',
                 "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_msg_uuid
-                 ON chat_messages (msg_uuid)");
+                 ON messify_chat_messages (msg_uuid)");
 
             self::ensureIndexConcurrently($pdo, 'idx_chat_reactions_msg_uuid',
                 "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_reactions_msg_uuid
-                 ON chat_reactions (msg_uuid)");
+                 ON messify_chat_reactions (msg_uuid)");
         });
     }
 
@@ -222,8 +222,8 @@ class ConversationManager
                             r.message AS reply_message,
                             r.msg_type AS reply_msg_type,
                             to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                     FROM chat_messages m
-                     LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
+                     FROM messify_chat_messages m
+                     LEFT JOIN messify_chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                      WHERE m.conv_id = :conv_id
                        AND m.status = \'active\'
                      ORDER BY m.created_at DESC, m.id DESC
@@ -233,7 +233,7 @@ class ConversationManager
                 $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
             } else {
                 $cur = $pdo->prepare(
-                    'SELECT created_at, id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1'
+                    'SELECT created_at, id FROM messify_chat_messages WHERE msg_uuid = :uuid LIMIT 1'
                 );
                 $cur->execute([':uuid' => $beforeUuid]);
                 $curRow = $cur->fetch();
@@ -254,8 +254,8 @@ class ConversationManager
                             r.message AS reply_message,
                             r.msg_type AS reply_msg_type,
                             to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                     FROM chat_messages m
-                     LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
+                     FROM messify_chat_messages m
+                     LEFT JOIN messify_chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                      WHERE m.conv_id = :conv_id
                        AND (m.created_at, m.id) < (:cur_ts, :cur_id)
                        AND m.status = \'active\'
@@ -294,7 +294,7 @@ class ConversationManager
 
             // Resolve anchor row
             $cur = $pdo->prepare(
-                'SELECT created_at, id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1'
+                'SELECT created_at, id FROM messify_chat_messages WHERE msg_uuid = :uuid LIMIT 1'
             );
             $cur->execute([':uuid' => $aroundUuid]);
             $curRow = $cur->fetch();
@@ -320,8 +320,8 @@ class ConversationManager
                         r.message AS reply_message,
                         r.msg_type AS reply_msg_type,
                         to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                 FROM chat_messages m
-                 LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
+                 FROM messify_chat_messages m
+                 LEFT JOIN messify_chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                  WHERE m.conv_id = :conv_id
                    AND (m.created_at, m.id) <= (:cur_ts, :cur_id)
                    AND m.status = \'active\'
@@ -361,7 +361,7 @@ class ConversationManager
             self::ensureMessageStatusColumn($pdo);
 
             $cur = $pdo->prepare(
-                'SELECT created_at, id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1'
+                'SELECT created_at, id FROM messify_chat_messages WHERE msg_uuid = :uuid LIMIT 1'
             );
             $cur->execute([':uuid' => $sinceUuid]);
             $curRow = $cur->fetch();
@@ -379,7 +379,7 @@ class ConversationManager
                         m.is_edited,
                         m.edit_count,
                         to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
-                 FROM chat_messages m
+                 FROM messify_chat_messages m
                  WHERE m.conv_id = :conv_id
                    AND (m.created_at, m.id) > (:cur_ts, :cur_id)
                    AND m.status = \'active\'
@@ -403,7 +403,7 @@ class ConversationManager
      * Edit a message's text content.
      * Enforces that only the sender can edit, only active text messages can be edited,
      * message cannot be edited after 2 minutes, and message can be edited at most 3 times.
-     * Also updates chat_conversations if the edited message is the latest.
+     * Also updates messify_chat_conversations if the edited message is the latest.
      */
     public static function editMessage(string $msgUuid, int $senderId, string $newContent): array
     {
@@ -419,7 +419,7 @@ class ConversationManager
             $chk = $pdo->prepare(
                 'SELECT msg_uuid, sender_id, msg_type, status, edit_count,
                         EXTRACT(EPOCH FROM (NOW() - created_at)) AS age_seconds
-                 FROM chat_messages
+                 FROM messify_chat_messages
                  WHERE msg_uuid = :uuid
                  LIMIT 1'
             );
@@ -463,7 +463,7 @@ class ConversationManager
             }
 
             $stmt = $pdo->prepare(
-                'UPDATE chat_messages
+                'UPDATE messify_chat_messages
                  SET message = :message, is_edited = true, edit_count = edit_count + 1, updated_at = NOW()
                  WHERE msg_uuid = :uuid AND sender_id = :sender_id'
             );
@@ -473,16 +473,16 @@ class ConversationManager
                 ':sender_id' => $senderId,
             ]);
 
-            // Update chat_conversations if this edited message is the latest message
+            // Update messify_chat_conversations if this edited message is the latest message
             try {
                 self::ensureConversationsTable($pdo);
-                $cChk = $pdo->prepare('SELECT conv_id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1');
+                $cChk = $pdo->prepare('SELECT conv_id FROM messify_chat_messages WHERE msg_uuid = :uuid LIMIT 1');
                 $cChk->execute([':uuid' => $msgUuid]);
                 $convRow = $cChk->fetch();
                 if ($convRow) {
                     $convId = $convRow['conv_id'];
                     $pdo->prepare(
-                        'UPDATE chat_conversations
+                        'UPDATE messify_chat_conversations
                          SET last_message = :message, updated_at = NOW()
                          WHERE conv_id = :conv_id AND last_msg_uuid = :uuid'
                     )->execute([
@@ -535,7 +535,7 @@ class ConversationManager
             $pdo  = Database::getConnection();
             self::ensureMessageStatusColumn($pdo);
             $stmt = $pdo->prepare(
-                'SELECT message, msg_type FROM chat_messages
+                'SELECT message, msg_type FROM messify_chat_messages
                  WHERE msg_uuid = :uuid AND conv_id = :conv_id AND status = \'active\'
                  LIMIT 1'
             );
@@ -569,7 +569,7 @@ class ConversationManager
 
     /**
      * Delete a conversation (admin: full delete; user: own messages only).
-     * Also removes/updates the chat_conversations metadata row.
+     * Also removes/updates the messify_chat_conversations metadata row.
      */
     public static function deleteConversation(
         string $convId,
@@ -580,7 +580,7 @@ class ConversationManager
             $pdo = Database::getConnection();
 
             $check = $pdo->prepare(
-                'SELECT 1 FROM chat_messages WHERE conv_id = :conv_id LIMIT 1'
+                'SELECT 1 FROM messify_chat_messages WHERE conv_id = :conv_id LIMIT 1'
             );
             $check->execute([':conv_id' => $convId]);
             if (!$check->fetch()) {
@@ -589,26 +589,26 @@ class ConversationManager
 
             if ($isAdmin) {
                 // Row-level clear: flip every currently-active message in this
-                // conversation to 'inactive'. Rows stay in chat_messages —
+                // conversation to 'inactive'. Rows stay in messify_chat_messages —
                 // this is the ONLY place their status ever changes to
                 // 'inactive', and it's the thing loadRaw()/loadIncrementalRaw()
-                // now filter on directly (no more chat_conversations cutoff-
+                // now filter on directly (no more messify_chat_conversations cutoff-
                 // timestamp indirection).
                 self::ensureMessageStatusColumn($pdo);
                 $pdo->prepare(
-                    "UPDATE chat_messages
+                    "UPDATE messify_chat_messages
                      SET status = 'inactive', updated_at = NOW()
                      WHERE conv_id = :conv_id AND status = 'active'"
                 )->execute([':conv_id' => $convId]);
 
-                // Soft-delete metadata bookkeeping: chat_conversations rows are
+                // Soft-delete metadata bookkeeping: messify_chat_conversations rows are
                 // also flagged inactive/cleared so the sidebar/last-message
                 // summary hides this conversation. This is separate from the
                 // per-message status above — it's about the conversation-list
                 // entry, not individual message visibility.
                 self::ensureConversationsTable($pdo);
                 $stmt = $pdo->prepare(
-                    'UPDATE chat_conversations
+                    'UPDATE messify_chat_conversations
                      SET is_active     = false,
                          cleared_at    = NOW(),
                          msg_count     = 0,
@@ -623,7 +623,7 @@ class ConversationManager
                     // No metadata row existed yet (edge case) — create one so the
                     // clear still "sticks" even though there's nothing to hide.
                     $pdo->prepare(
-                        'INSERT INTO chat_conversations
+                        'INSERT INTO messify_chat_conversations
                             (conv_id, user_1, user_2, last_message, last_msg_type, last_message_time,
                              is_active, cleared_at, msg_count, unread_user_1, unread_user_2, created_at, updated_at)
                          SELECT :conv_id,
@@ -631,7 +631,7 @@ class ConversationManager
                                 GREATEST(sender_id, receiver_id),
                                 \'\', \'text\', NOW(),
                                 false, NOW(), 0, 0, 0, NOW(), NOW()
-                         FROM chat_messages
+                         FROM messify_chat_messages
                          WHERE conv_id = :conv_id2
                          LIMIT 1
                          ON CONFLICT (conv_id) DO UPDATE SET
@@ -644,10 +644,10 @@ class ConversationManager
                     )->execute([':conv_id' => $convId, ':conv_id2' => $convId]);
                 }
             } else {
-                $stmt = $pdo->prepare('DELETE FROM chat_messages WHERE conv_id = :conv_id AND sender_id = :sender_id');
+                $stmt = $pdo->prepare('DELETE FROM messify_chat_messages WHERE conv_id = :conv_id AND sender_id = :sender_id');
                 $stmt->execute([':conv_id' => $convId, ':sender_id' => $accountId]);
 
-                $mrk = $pdo->prepare('DELETE FROM chat_read_markers WHERE conv_id = :conv_id AND account_id = :account_id');
+                $mrk = $pdo->prepare('DELETE FROM messify_chat_read_markers WHERE conv_id = :conv_id AND account_id = :account_id');
                 $mrk->execute([':conv_id' => $convId, ':account_id' => $accountId]);
 
                 // Recalculate latest message for metadata after partial delete
@@ -655,7 +655,7 @@ class ConversationManager
                     self::ensureConversationsTable($pdo);
                     $latest = $pdo->prepare(
                         'SELECT message, msg_type, msg_uuid, created_at
-                         FROM chat_messages
+                         FROM messify_chat_messages
                          WHERE conv_id = :conv_id
                          ORDER BY created_at DESC, id DESC
                          LIMIT 1'
@@ -665,7 +665,7 @@ class ConversationManager
 
                     if ($lastRow) {
                         $pdo->prepare(
-                            'UPDATE chat_conversations
+                            'UPDATE messify_chat_conversations
                              SET last_message = :msg, last_msg_type = :type, last_msg_uuid = :uuid,
                                  last_message_time = :ts, updated_at = NOW()
                              WHERE conv_id = :conv_id'
@@ -677,7 +677,7 @@ class ConversationManager
                             ':conv_id' => $convId,
                         ]);
                     } else {
-                        $pdo->prepare('DELETE FROM chat_conversations WHERE conv_id = :conv_id')
+                        $pdo->prepare('DELETE FROM messify_chat_conversations WHERE conv_id = :conv_id')
                             ->execute([':conv_id' => $convId]);
                     }
                 } catch (Throwable $t) {}
@@ -692,7 +692,7 @@ class ConversationManager
 
     /**
      * Clear all DM conversations for all users.
-     * Also wipes chat_conversations metadata.
+     * Also wipes messify_chat_conversations metadata.
      */
     public static function clearAllDms(int $archivedBy, bool $isAdmin = false): bool
     {
@@ -702,7 +702,7 @@ class ConversationManager
         try {
             $pdo = Database::getConnection();
             self::backupAll($pdo, $archivedBy);
-            $pdo->exec("TRUNCATE TABLE chat_messages, chat_read_markers, chat_conversations CASCADE;");
+            $pdo->exec("TRUNCATE TABLE messify_chat_messages, messify_chat_read_markers, messify_chat_conversations CASCADE;");
             return true;
         } catch (PDOException $e) {
             error_log('ConversationManager::clearAllDms() — ' . $e->getMessage());
@@ -723,7 +723,7 @@ class ConversationManager
                 $placeholders = implode(',', array_fill(0, count($msgUuids), '?'));
                 $stmt = $pdo->prepare(
                     "SELECT r.msg_uuid, r.emoji, r.account_id
-                     FROM chat_reactions r
+                     FROM messify_chat_reactions r
                      WHERE r.msg_uuid IN ($placeholders)
                      ORDER BY r.reacted_at ASC"
                 );
@@ -731,8 +731,8 @@ class ConversationManager
             } else {
                 $stmt = $pdo->prepare(
                     'SELECT r.msg_uuid, r.emoji, r.account_id
-                     FROM chat_reactions r
-                     JOIN chat_messages m ON m.msg_uuid = r.msg_uuid
+                     FROM messify_chat_reactions r
+                     JOIN messify_chat_messages m ON m.msg_uuid = r.msg_uuid
                      WHERE m.conv_id = :conv_id
                      ORDER BY r.reacted_at ASC'
                 );
@@ -772,7 +772,7 @@ class ConversationManager
 
             // Verify message belongs to this conversation
             $check = $pdo->prepare(
-                'SELECT msg_uuid FROM chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id LIMIT 1'
+                'SELECT msg_uuid FROM messify_chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id LIMIT 1'
             );
             $check->execute([':uuid' => $msgId, ':conv_id' => $convId]);
             if (!$check->fetch()) {
@@ -802,10 +802,10 @@ class ConversationManager
             $pdo = Database::getConnection();
 
             $stmt = $pdo->prepare(
-                'INSERT INTO chat_read_markers (conv_id, account_id, last_msg_uuid, updated_at)
+                'INSERT INTO messify_chat_read_markers (conv_id, account_id, last_msg_uuid, updated_at)
                  SELECT :conv_id,
                         :account_id,
-                        (SELECT msg_uuid FROM chat_messages
+                        (SELECT msg_uuid FROM messify_chat_messages
                          WHERE conv_id = :conv_id2
                          ORDER BY created_at DESC, id DESC
                          LIMIT 1),
@@ -823,11 +823,11 @@ class ConversationManager
             $lastMsgUuid = $stmt->fetchColumn();
             $lastMsgUuid = ($lastMsgUuid !== false && $lastMsgUuid !== null) ? (string) $lastMsgUuid : null;
 
-            // Zero out unread counter in chat_conversations metadata
+            // Zero out unread counter in messify_chat_conversations metadata
             try {
                 self::ensureConversationsTable($pdo);
                 $pdo->prepare(
-                    'UPDATE chat_conversations
+                    'UPDATE messify_chat_conversations
                      SET unread_user_1 = CASE WHEN user_1 = :acc1 THEN 0 ELSE unread_user_1 END,
                          unread_user_2 = CASE WHEN user_2 = :acc2 THEN 0 ELSE unread_user_2 END,
                          updated_at    = NOW()
@@ -856,7 +856,7 @@ class ConversationManager
         try {
             $pdo  = Database::getConnection();
             $stmt = $pdo->prepare(
-                'SELECT last_msg_uuid FROM chat_read_markers
+                'SELECT last_msg_uuid FROM messify_chat_read_markers
                  WHERE conv_id = :conv_id AND account_id = :account_id'
             );
             $stmt->execute([
@@ -878,7 +878,7 @@ class ConversationManager
             self::ensureConversationsTable($pdo);
             $stmt = $pdo->prepare(
                 'SELECT CASE WHEN user_1 = :acc1 THEN unread_user_1 ELSE unread_user_2 END
-                 FROM chat_conversations
+                 FROM messify_chat_conversations
                  WHERE conv_id = :conv_id'
             );
             $stmt->execute([
@@ -900,7 +900,7 @@ class ConversationManager
             self::ensureConversationsTable($pdo);
             $stmt = $pdo->prepare(
                 'SELECT last_message AS message, last_msg_type AS type, last_message_time AS timestamp, is_active
-                 FROM chat_conversations
+                 FROM messify_chat_conversations
                  WHERE conv_id = :conv_id'
             );
             $stmt->execute([':conv_id' => $convId]);
@@ -930,7 +930,7 @@ class ConversationManager
     }
 
     // -------------------------------------------------------------------------
-    // High Performance Sidebar Queries (Querying ONLY chat_conversations)
+    // High Performance Sidebar Queries (Querying ONLY messify_chat_conversations)
     // -------------------------------------------------------------------------
 
     public static function getActiveConversations(int $myId): array
@@ -954,7 +954,7 @@ class ConversationManager
                          WHEN c.user_1 = :my_id2 THEN c.unread_user_1
                          ELSE c.unread_user_2
                      END AS unread_count
-                 FROM chat_conversations c
+                 FROM messify_chat_conversations c
                  WHERE (c.user_1 = :my_id3 OR c.user_2 = :my_id4)
                    AND c.is_active = true
                  ORDER BY c.last_message_time DESC"
@@ -1025,7 +1025,7 @@ class ConversationManager
                      ad2.email AS u2_email,
                      o2.office_name AS u2_office_name,
                      o2.office_code AS u2_office_code
-                 FROM chat_conversations c
+                 FROM messify_chat_conversations c
                  LEFT JOIN " . Database::t('account_details') . " ad1 ON ad1.account_id = c.user_1
                  LEFT JOIN " . Database::t('office') . " o1 ON o1.id = ad1.office_id
                  LEFT JOIN " . Database::t('account_details') . " ad2 ON ad2.account_id = c.user_2
@@ -1129,7 +1129,7 @@ class ConversationManager
                      ad2.email AS u2_email,
                      o2.office_name AS u2_office_name,
                      o2.office_code AS u2_office_code
-                 FROM chat_conversations c
+                 FROM messify_chat_conversations c
                  LEFT JOIN " . Database::t('account_details') . " ad1 ON ad1.account_id = c.user_1
                  LEFT JOIN " . Database::t('office') . " o1 ON o1.id = ad1.office_id
                  LEFT JOIN " . Database::t('account_details') . " ad2 ON ad2.account_id = c.user_2
@@ -1207,7 +1207,7 @@ class ConversationManager
         try {
             $pdo  = Database::getConnection();
             self::ensureConversationsTable($pdo);
-            $stmt = $pdo->prepare('SELECT 1 FROM chat_conversations WHERE conv_id = :conv_id LIMIT 1');
+            $stmt = $pdo->prepare('SELECT 1 FROM messify_chat_conversations WHERE conv_id = :conv_id LIMIT 1');
             $stmt->execute([':conv_id' => $convId]);
             return (bool) $stmt->fetch();
         } catch (PDOException $e) {
@@ -1297,14 +1297,14 @@ class ConversationManager
     // -------------------------------------------------------------------------
 
     /**
-     * Snapshot ONE conversation into chatify_chat_backup. NOT called by
+     * Snapshot ONE conversation into messify_chat_backup. NOT called by
      * /clear anymore — kept available for a possible future "backup this
      * conversation only" admin action, but currently only reachable via
      * code, not any HTTP endpoint.
      */
     /**
      * Snapshot ONE conversation's INACTIVE (cleared) messages into
-     * chatify_chat_backup, then remove them from chat_messages — i.e. this
+     * messify_chat_backup, then remove them from messify_chat_messages — i.e. this
      * moves rows rather than cloning them, so running backup twice with
      * nothing newly cleared in between finds nothing left to move. NOT
      * called by /clear anymore — kept available for a possible future
@@ -1319,11 +1319,11 @@ class ConversationManager
 
             $stmt = $pdo->prepare(
                 "WITH moved AS (
-                    DELETE FROM chat_messages
+                    DELETE FROM messify_chat_messages
                     WHERE conv_id = :conv_id AND status = 'inactive'
                     RETURNING conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid, reply_to_msg_uuid
                  )
-                 INSERT INTO chatify_chat_backup
+                 INSERT INTO messify_chat_backup
                     (conv_id, sender_id, receiver_id, message, msg_type,
                      created_at, updated_at, msg_uuid, reply_to_msg_uuid,
                      status, is_active, archived_at, archived_by)
@@ -1343,7 +1343,7 @@ class ConversationManager
 
     /**
      * Snapshot every DM conversation's INACTIVE (cleared) messages into
-     * chatify_chat_backup and remove them from chat_messages. Conversations
+     * messify_chat_backup and remove them from messify_chat_messages. Conversations
      * (or messages within a conversation) that haven't been cleared are
      * never touched — only rows a /clear already flagged 'inactive' are
      * eligible. Only ever called explicitly via the /backup command
@@ -1357,11 +1357,11 @@ class ConversationManager
 
             $stmt = $pdo->prepare(
                 "WITH moved AS (
-                    DELETE FROM chat_messages
+                    DELETE FROM messify_chat_messages
                     WHERE conv_id != 'global' AND status = 'inactive'
                     RETURNING conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid, reply_to_msg_uuid
                  )
-                 INSERT INTO chatify_chat_backup
+                 INSERT INTO messify_chat_backup
                     (conv_id, sender_id, receiver_id, message, msg_type,
                      created_at, updated_at, msg_uuid, reply_to_msg_uuid,
                      status, is_active, archived_at, archived_by)
@@ -1387,11 +1387,11 @@ class ConversationManager
 
             $stmt = $pdo->prepare(
                 "WITH moved AS (
-                    DELETE FROM chat_messages
+                    DELETE FROM messify_chat_messages
                     WHERE conv_id = 'global' AND status = 'inactive'
                     RETURNING conv_id, sender_id, receiver_id, message, msg_type, created_at, updated_at, msg_uuid, reply_to_msg_uuid
                  )
-                 INSERT INTO chatify_chat_backup
+                 INSERT INTO messify_chat_backup
                     (conv_id, sender_id, receiver_id, message, msg_type,
                      created_at, updated_at, msg_uuid, reply_to_msg_uuid,
                      status, is_active, archived_at, archived_by)
@@ -1420,7 +1420,7 @@ class ConversationManager
         try {
             $pdo = Database::getConnection();
             self::ensureMessageStatusColumn($pdo);
-            $stmt = $pdo->query("SELECT COUNT(*) AS c FROM chat_messages WHERE status = 'inactive'");
+            $stmt = $pdo->query("SELECT COUNT(*) AS c FROM messify_chat_messages WHERE status = 'inactive'");
             $row = $stmt->fetch();
             return $row ? (int) $row['c'] : 0;
         } catch (Throwable $e) {
@@ -1436,10 +1436,10 @@ class ConversationManager
         $checked = true;
 
         try {
-            $pdo->query("SELECT 1 FROM chatify_chat_backup LIMIT 1");
+            $pdo->query("SELECT 1 FROM messify_chat_backup LIMIT 1");
         } catch (PDOException $e) {
             $pdo->exec("
-                CREATE TABLE IF NOT EXISTS chatify_chat_backup (
+                CREATE TABLE IF NOT EXISTS messify_chat_backup (
                     id          BIGSERIAL PRIMARY KEY,
                     conv_id     VARCHAR(30)  NOT NULL,
                     sender_id   INTEGER,
@@ -1471,10 +1471,10 @@ class ConversationManager
         $checked = true;
 
         try {
-            $pdo->query("SELECT 1 FROM chatify_backup_jobs LIMIT 1");
+            $pdo->query("SELECT 1 FROM messify_chat_backup_jobs LIMIT 1");
         } catch (PDOException $e) {
             $pdo->exec("
-                CREATE TABLE IF NOT EXISTS chatify_backup_jobs (
+                CREATE TABLE IF NOT EXISTS messify_chat_backup_jobs (
                     id              BIGSERIAL PRIMARY KEY,
                     status          VARCHAR(20)  NOT NULL DEFAULT 'running',
                     triggered_by    INTEGER,
@@ -1499,7 +1499,7 @@ class ConversationManager
             $pdo = Database::getConnection();
             self::ensureBackupJobsTable($pdo);
             $stmt = $pdo->prepare(
-                "INSERT INTO chatify_backup_jobs (status, triggered_by, started_at)
+                "INSERT INTO messify_chat_backup_jobs (status, triggered_by, started_at)
                  VALUES ('running', :by, NOW()) RETURNING id"
             );
             $stmt->execute([':by' => $triggeredBy]);
@@ -1526,7 +1526,7 @@ class ConversationManager
 
             self::ensureBackupJobsTable($pdo);
             $pdo->prepare(
-                "UPDATE chatify_backup_jobs
+                "UPDATE messify_chat_backup_jobs
                  SET status = 'completed', rows_backed_up = :rows, finished_at = NOW()
                  WHERE id = :id"
             )->execute([':rows' => $rows, ':id' => $jobId]);
@@ -1536,7 +1536,7 @@ class ConversationManager
                 $pdo = Database::getConnection();
                 self::ensureBackupJobsTable($pdo);
                 $pdo->prepare(
-                    "UPDATE chatify_backup_jobs
+                    "UPDATE messify_chat_backup_jobs
                      SET status = 'failed', error_message = :err, finished_at = NOW()
                      WHERE id = :id"
                 )->execute([':err' => substr($e->getMessage(), 0, 500), ':id' => $jobId]);
@@ -1549,7 +1549,7 @@ class ConversationManager
         try {
             $pdo = Database::getConnection();
             self::ensureBackupJobsTable($pdo);
-            $stmt = $pdo->prepare('SELECT * FROM chatify_backup_jobs WHERE id = :id LIMIT 1');
+            $stmt = $pdo->prepare('SELECT * FROM messify_chat_backup_jobs WHERE id = :id LIMIT 1');
             $stmt->execute([':id' => $jobId]);
             $row = $stmt->fetch();
             return $row ?: null;
@@ -1599,7 +1599,7 @@ class ConversationManager
             // message from a different conversation).
             if ($replyToUuid !== null) {
                 $chk = $pdo->prepare(
-                    'SELECT 1 FROM chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id AND status = \'active\' LIMIT 1'
+                    'SELECT 1 FROM messify_chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id AND status = \'active\' LIMIT 1'
                 );
                 $chk->execute([':uuid' => $replyToUuid, ':conv_id' => $convId]);
                 if (!$chk->fetchColumn()) {
@@ -1607,9 +1607,9 @@ class ConversationManager
                 }
             }
 
-            // 1. Insert message record into chat_messages (Primary source of truth)
+            // 1. Insert message record into messify_chat_messages (Primary source of truth)
             $stmt = $pdo->prepare(
-                'INSERT INTO chat_messages (conv_id, sender_id, receiver_id, message, msg_type, status, created_at, updated_at, msg_uuid, reply_to_msg_uuid)
+                'INSERT INTO messify_chat_messages (conv_id, sender_id, receiver_id, message, msg_type, status, created_at, updated_at, msg_uuid, reply_to_msg_uuid)
                  VALUES (:conv_id, :sender_id, :receiver_id, :message, :msg_type, \'active\', :created_at, :created_at, :msg_uuid, :reply_to)'
             );
             $stmt->execute([
@@ -1623,7 +1623,7 @@ class ConversationManager
                 ':reply_to'    => $replyToUuid,
             ]);
 
-            // 2. Best-effort metadata upsert into chat_conversations
+            // 2. Best-effort metadata upsert into messify_chat_conversations
             try {
                 self::ensureConversationsTable($pdo);
                 $u1     = min($senderId, $receiverId);
@@ -1633,7 +1633,7 @@ class ConversationManager
                 $un2Inc = ($senderId === $u1) ? 1 : 0; // sender is u1 → receiver is u2 → u2 unread++
 
                 $upsert = $pdo->prepare(
-                    'INSERT INTO chat_conversations
+                    'INSERT INTO messify_chat_conversations
                         (conv_id, user_1, user_2, last_message, last_msg_type, last_msg_uuid, last_message_time, unread_user_1, unread_user_2, created_at, updated_at, msg_count, is_active)
                      VALUES
                         (:conv_id, :u1, :u2, :last_msg, :msg_type, :last_uuid, :ts, :un1, :un2, :ts2, :ts3, 1, true)
@@ -1642,9 +1642,9 @@ class ConversationManager
                         last_msg_type     = EXCLUDED.last_msg_type,
                         last_msg_uuid     = EXCLUDED.last_msg_uuid,
                         last_message_time = EXCLUDED.last_message_time,
-                        unread_user_1     = chat_conversations.unread_user_1 + EXCLUDED.unread_user_1,
-                        unread_user_2     = chat_conversations.unread_user_2 + EXCLUDED.unread_user_2,
-                        msg_count         = COALESCE(chat_conversations.msg_count, 0) + 1,
+                        unread_user_1     = messify_chat_conversations.unread_user_1 + EXCLUDED.unread_user_1,
+                        unread_user_2     = messify_chat_conversations.unread_user_2 + EXCLUDED.unread_user_2,
+                        msg_count         = COALESCE(messify_chat_conversations.msg_count, 0) + 1,
                         updated_at        = EXCLUDED.updated_at,
                         is_active         = true'
                 );

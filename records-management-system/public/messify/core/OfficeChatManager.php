@@ -119,7 +119,7 @@ class OfficeChatManager
         if (self::$_readTableEnsured) return;
         try {
             $pdo->exec(
-                'CREATE TABLE IF NOT EXISTS chat_office_gc_reads (
+                'CREATE TABLE IF NOT EXISTS messify_chat_office_gc_reads (
                     account_id  INT    NOT NULL,
                     office_id   INT    NOT NULL,
                     last_read_msg_id BIGINT DEFAULT 0,
@@ -143,9 +143,9 @@ class OfficeChatManager
             self::ensureReadTable($pdo);
             $convId = self::convId($officeId);
             $pdo->prepare(
-                'INSERT INTO chat_office_gc_reads (account_id, office_id, last_read_msg_id)
+                'INSERT INTO messify_chat_office_gc_reads (account_id, office_id, last_read_msg_id)
                  VALUES (:aid, :oid,
-                     COALESCE((SELECT MAX(id) FROM chat_messages WHERE conv_id = :cid AND status = \'active\'), 0)
+                     COALESCE((SELECT MAX(id) FROM messify_chat_messages WHERE conv_id = :cid AND status = \'active\'), 0)
                  )
                  ON CONFLICT (account_id, office_id)
                  DO UPDATE SET last_read_msg_id = EXCLUDED.last_read_msg_id'
@@ -167,7 +167,7 @@ class OfficeChatManager
             $convId = self::convId($officeId);
 
             $rStmt = $pdo->prepare(
-                'SELECT last_read_msg_id FROM chat_office_gc_reads
+                'SELECT last_read_msg_id FROM messify_chat_office_gc_reads
                  WHERE account_id = :aid AND office_id = :oid LIMIT 1'
             );
             $rStmt->execute([':aid' => $accountId, ':oid' => $officeId]);
@@ -180,7 +180,7 @@ class OfficeChatManager
             }
 
             $stmt = $pdo->prepare(
-                "SELECT COUNT(*) FROM chat_messages
+                "SELECT COUNT(*) FROM messify_chat_messages
                  WHERE conv_id = :cid
                    AND status = 'active'
                    AND sender_id != :aid

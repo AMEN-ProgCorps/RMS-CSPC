@@ -124,7 +124,7 @@ $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 // ── Build a name cache for all senders in this batch ────────────────────────
 $nameMap = UserResolver::buildNameMap();
 
-// ── Build a verification cache: account_id => is_chatify_verified ────────────
+// ── Build a verification cache: account_id => is_messify_verified ────────────
 // Loaded lazily per-sender using UserResolver::getUserInfo() which caches rows.
 // We resolve once here to avoid N+1 DB calls inside the loop.
 $verifiedIds     = []; // will be populated on demand
@@ -262,10 +262,10 @@ for ($i = 0; $i < $msgCount; $i++) {
     }
     $senderInfo = $senderInfoCache[$senderId];
 
-    // Verified badge markup — driven by is_chatify_verified from DB
+    // Verified badge markup — driven by is_messify_verified from DB
     // (also doubles as the avatar_url lookup below, via UserResolver's cache)
     if (!isset($verifiedIds[$senderId])) {
-        $verifiedIds[$senderId] = (bool) ($senderInfo['is_chatify_verified'] ?? false);
+        $verifiedIds[$senderId] = (bool) ($senderInfo['is_messify_verified'] ?? false);
     }
     $avatarInner = UserResolver::avatarInner($senderId, $initials);
     $adminBadge = '';

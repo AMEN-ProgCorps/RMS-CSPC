@@ -5,8 +5,8 @@
 // Handles all DB operations for custom group chats (conv_id prefix: 'gc_').
 //
 // Tables created on first use (self-heal):
-//   chat_custom_groups         — group metadata (name, creator_id)
-//   chat_custom_group_members  — membership list
+//   messify_chat_custom_groups         — group metadata (name, creator_id)
+//   messify_chat_custom_group_members  — membership list
 // =============================================================================
 
 class CustomGroupManager
@@ -24,25 +24,25 @@ class CustomGroupManager
 
         try {
             $pdo->exec("
-                CREATE TABLE IF NOT EXISTS chat_custom_groups (
+                CREATE TABLE IF NOT EXISTS messify_chat_custom_groups (
                     id BIGSERIAL PRIMARY KEY,
                     name VARCHAR(100) NOT NULL,
                     creator_id INT NOT NULL,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 );
-                CREATE TABLE IF NOT EXISTS chat_custom_group_members (
+                CREATE TABLE IF NOT EXISTS messify_chat_custom_group_members (
                     id BIGSERIAL PRIMARY KEY,
-                    group_id BIGINT NOT NULL REFERENCES chat_custom_groups(id) ON DELETE CASCADE,
+                    group_id BIGINT NOT NULL REFERENCES messify_chat_custom_groups(id) ON DELETE CASCADE,
                     account_id INT NOT NULL,
                     joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                     UNIQUE(group_id, account_id)
                 );
-                CREATE INDEX IF NOT EXISTS idx_ccgm_account ON chat_custom_group_members(account_id);
-                CREATE INDEX IF NOT EXISTS idx_ccgm_group ON chat_custom_group_members(group_id);
-                ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS last_read_msg_id BIGINT DEFAULT 0;
-                ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS last_opened_at TIMESTAMP WITH TIME ZONE;
-                ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS new_member_seen BOOLEAN NOT NULL DEFAULT FALSE;
-                ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+                CREATE INDEX IF NOT EXISTS idx_ccgm_account ON messify_chat_custom_group_members(account_id);
+                CREATE INDEX IF NOT EXISTS idx_ccgm_group ON messify_chat_custom_group_members(group_id);
+                ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS last_read_msg_id BIGINT DEFAULT 0;
+                ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS last_opened_at TIMESTAMP WITH TIME ZONE;
+                ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS new_member_seen BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
             ");
         } catch (Throwable $t) {
             error_log('CustomGroupManager::ensureTables() — ' . $t->getMessage());
@@ -77,7 +77,7 @@ class CustomGroupManager
 
             // Insert group row
             $stmt = $pdo->prepare(
-                'INSERT INTO chat_custom_groups (name, creator_id, created_at)
+                'INSERT INTO messify_chat_custom_groups (name, creator_id, created_at)
                  VALUES (:name, :creator_id, NOW())
                  RETURNING id, name, creator_id, created_at'
             );
@@ -98,7 +98,7 @@ class CustomGroupManager
 
             // Insert members
             $insStmt = $pdo->prepare(
-                'INSERT INTO chat_custom_group_members (group_id, account_id, joined_at)
+                'INSERT INTO messify_chat_custom_group_members (group_id, account_id, joined_at)
                  VALUES (:group_id, :account_id, NOW())
                  ON CONFLICT (group_id, account_id) DO NOTHING'
             );
@@ -132,7 +132,7 @@ class CustomGroupManager
             self::ensureTables($pdo);
 
             $stmt = $pdo->prepare(
-                'SELECT id, name, creator_id, created_at FROM chat_custom_groups WHERE id = :id LIMIT 1'
+                'SELECT id, name, creator_id, created_at FROM messify_chat_custom_groups WHERE id = :id LIMIT 1'
             );
             $stmt->execute([':id' => $groupId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -162,13 +162,13 @@ class CustomGroupManager
                 'SELECT g.id, g.name, g.creator_id, g.created_at,
                         EXTRACT(EPOCH FROM g.created_at)::BIGINT AS created_ts,
                         EXTRACT(EPOCH FROM m.joined_at)::BIGINT AS joined_ts,
-                        (SELECT COUNT(*) FROM chat_custom_group_members WHERE group_id = g.id) AS member_count,
+                        (SELECT COUNT(*) FROM messify_chat_custom_group_members WHERE group_id = g.id) AS member_count,
                         COALESCE(m.last_read_msg_id, 0) AS last_read_msg_id,
                         m.joined_at,
                         m.last_opened_at,
                         COALESCE(m.new_member_seen, FALSE) AS new_member_seen
-                 FROM chat_custom_groups g
-                 JOIN chat_custom_group_members m ON m.group_id = g.id
+                 FROM messify_chat_custom_groups g
+                 JOIN messify_chat_custom_group_members m ON m.group_id = g.id
                  WHERE m.account_id = :account_id
                  ORDER BY g.id DESC'
             );
@@ -188,7 +188,7 @@ class CustomGroupManager
                     if ($lastReadId <= 0 && $joinedAt) {
                         // If user has never opened the chat, only count messages created AFTER they joined
                         $uStmt = $pdo->prepare(
-                            "SELECT COUNT(*) FROM chat_messages
+                            "SELECT COUNT(*) FROM messify_chat_messages
                              WHERE conv_id = :conv_id
                                AND status = 'active'
                                AND sender_id != :account_id
@@ -201,7 +201,7 @@ class CustomGroupManager
                         ]);
                     } else {
                         $uStmt = $pdo->prepare(
-                            "SELECT COUNT(*) FROM chat_messages
+                            "SELECT COUNT(*) FROM messify_chat_messages
                              WHERE conv_id = :conv_id
                                AND status = 'active'
                                AND sender_id != :account_id
@@ -222,7 +222,7 @@ class CustomGroupManager
                 try {
                     $lStmt = $pdo->prepare(
                         "SELECT message, msg_type, EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
-                         FROM chat_messages
+                         FROM messify_chat_messages
                          WHERE conv_id = :conv_id AND status = 'active'
                          ORDER BY created_at DESC, id DESC
                          LIMIT 1"
@@ -274,9 +274,9 @@ class CustomGroupManager
             self::ensureTables($pdo);
             $convId = 'gc_' . $groupId;
             $stmt = $pdo->prepare(
-                "UPDATE chat_custom_group_members
+                "UPDATE messify_chat_custom_group_members
                  SET last_read_msg_id = COALESCE((
-                     SELECT MAX(id) FROM chat_messages WHERE conv_id = :conv_id AND status = 'active'
+                     SELECT MAX(id) FROM messify_chat_messages WHERE conv_id = :conv_id AND status = 'active'
                  ), 0),
                  last_opened_at = NOW()
                  WHERE group_id = :group_id AND account_id = :account_id"
@@ -301,7 +301,7 @@ class CustomGroupManager
             $pdo = Database::getConnection();
             self::ensureTables($pdo);
             $stmt = $pdo->prepare(
-                'UPDATE chat_custom_group_members
+                'UPDATE messify_chat_custom_group_members
                  SET new_member_seen = TRUE
                  WHERE group_id = :group_id AND account_id = :account_id'
             );
@@ -314,7 +314,7 @@ class CustomGroupManager
     /**
      * Get all members of a group.
      *
-     * @return array  Each entry has account_id, full_name, avatar_url, is_chatify_verified, is_online
+     * @return array  Each entry has account_id, full_name, avatar_url, is_messify_verified, is_online
      */
     public static function getMembers(int $groupId): array
     {
@@ -330,9 +330,9 @@ class CustomGroupManager
                         ad.first_name,
                         ad.last_name,
                         ad.avatar_url,
-                        COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified,
+                        COALESCE(ad.is_messify_verified, FALSE) AS is_messify_verified,
                         COALESCE(ad.is_currently_online, FALSE) AS is_currently_online
-                 FROM chat_custom_group_members m
+                 FROM messify_chat_custom_group_members m
                  LEFT JOIN {$tbl} ad ON ad.account_id = m.account_id
                  WHERE m.group_id = :group_id
                  ORDER BY m.joined_at ASC"
@@ -350,7 +350,7 @@ class CustomGroupManager
                     'account_id'          => (int) $row['account_id'],
                     'full_name'           => $fullName,
                     'avatar_url'          => $row['avatar_url'] ?? null,
-                    'is_chatify_verified' => in_array($row['is_chatify_verified'] ?? false, [true, 1, '1', 't', 'true', 'TRUE'], true),
+                    'is_messify_verified' => in_array($row['is_messify_verified'] ?? false, [true, 1, '1', 't', 'true', 'TRUE'], true),
                     'is_online'           => in_array($row['is_currently_online'] ?? false, [true, 1, '1', 't', 'true', 'TRUE'], true),
                     'is_admin'            => in_array($row['is_admin'] ?? false, [true, 1, '1', 't', 'true', 'TRUE'], true),
                 ];
@@ -391,7 +391,7 @@ class CustomGroupManager
 
             $convId = 'gc_' . $groupId;
             $stmt = $pdo->prepare(
-                'INSERT INTO chat_custom_group_members (group_id, account_id, joined_at, last_read_msg_id, last_opened_at, new_member_seen)
+                'INSERT INTO messify_chat_custom_group_members (group_id, account_id, joined_at, last_read_msg_id, last_opened_at, new_member_seen)
                  VALUES (:group_id, :account_id, NOW(), 0, NULL, FALSE)
                  ON CONFLICT (group_id, account_id) DO UPDATE
                    SET joined_at        = NOW(),
@@ -432,7 +432,7 @@ class CustomGroupManager
             self::ensureTables($pdo);
 
             $stmt = $pdo->prepare(
-                'DELETE FROM chat_custom_group_members WHERE group_id = :group_id AND account_id = :account_id'
+                'DELETE FROM messify_chat_custom_group_members WHERE group_id = :group_id AND account_id = :account_id'
             );
             $stmt->execute([':group_id' => $groupId, ':account_id' => $memberId]);
             return true;
@@ -452,14 +452,14 @@ class CustomGroupManager
             $pdo = Database::getConnection();
             self::ensureTables($pdo);
 
-            $stmt = $pdo->prepare('SELECT creator_id FROM chat_custom_groups WHERE id = :id');
+            $stmt = $pdo->prepare('SELECT creator_id FROM messify_chat_custom_groups WHERE id = :id');
             $stmt->execute([':id' => $groupId]);
             $creatorId = $stmt->fetchColumn();
             if ($creatorId !== false && (int)$creatorId === $accountId) {
                 return true;
             }
 
-            $mStmt = $pdo->prepare('SELECT is_admin FROM chat_custom_group_members WHERE group_id = :gid AND account_id = :aid');
+            $mStmt = $pdo->prepare('SELECT is_admin FROM messify_chat_custom_group_members WHERE group_id = :gid AND account_id = :aid');
             $mStmt->execute([':gid' => $groupId, ':aid' => $accountId]);
             $val = $mStmt->fetchColumn();
             return in_array($val, [true, 1, '1', 't', 'true', 'TRUE'], true);
@@ -496,7 +496,7 @@ class CustomGroupManager
                 return false;
             }
 
-            $stmt = $pdo->prepare('UPDATE chat_custom_groups SET name = :name WHERE id = :id');
+            $stmt = $pdo->prepare('UPDATE messify_chat_custom_groups SET name = :name WHERE id = :id');
             return $stmt->execute([
                 ':name' => $newName,
                 ':id'   => $groupId,
@@ -540,7 +540,7 @@ class CustomGroupManager
             }
 
             $stmt = $pdo->prepare(
-                'UPDATE chat_custom_group_members SET is_admin = :is_admin WHERE group_id = :gid AND account_id = :aid'
+                'UPDATE messify_chat_custom_group_members SET is_admin = :is_admin WHERE group_id = :gid AND account_id = :aid'
             );
             return $stmt->execute([
                 ':is_admin' => $isAdmin ? 'true' : 'false',
@@ -563,7 +563,7 @@ class CustomGroupManager
             self::ensureTables($pdo);
 
             $stmt = $pdo->prepare(
-                'SELECT 1 FROM chat_custom_group_members WHERE group_id = :group_id AND account_id = :account_id LIMIT 1'
+                'SELECT 1 FROM messify_chat_custom_group_members WHERE group_id = :group_id AND account_id = :account_id LIMIT 1'
             );
             $stmt->execute([':group_id' => $groupId, ':account_id' => $accountId]);
             return (bool) $stmt->fetchColumn();

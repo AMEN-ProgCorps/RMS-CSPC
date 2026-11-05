@@ -1,12 +1,12 @@
 @auth
 @php
-    // Hide the widget entirely while the Chatify subsystem is deactivated
+    // Hide the widget entirely while the Messify subsystem is deactivated
     // (Admin > Subsystems > Activate/Deactivate) — same flag the portal uses.
-    $chatifySubsystemActive = \Illuminate\Support\Facades\DB::table(
+    $messifySubsystemActive = \Illuminate\Support\Facades\DB::table(
         \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems'
-    )->whereIn('subsystem_name', ['Chatify', 'Messify'])->where('is_active', true)->exists();
+    )->whereIn('subsystem_name', ['Messify', 'Messify'])->where('is_active', true)->exists();
 @endphp
-@if($chatifySubsystemActive)
+@if($messifySubsystemActive)
 @unless(request()->routeIs('login', 'track-document', 'tracked') || request()->is('/', 'track-document', 'tracked'))
 @php
     $user = auth()->user();
@@ -26,9 +26,9 @@
 }
 </script>
 
-<div id="messify-global-widget" class="messify-floating-widget chatify-floating-widget" style="position: fixed; bottom: 24px; right: 24px; z-index: 999999; font-family: 'Inter', system-ui, -apple-system, sans-serif; transition: bottom 0.35s cubic-bezier(0.34, 1.25, 0.64, 1);">
+<div id="messify-global-widget" class="messify-floating-widget messify-floating-widget" style="position: fixed; bottom: 24px; right: 24px; z-index: 999999; font-family: 'Inter', system-ui, -apple-system, sans-serif; transition: bottom 0.35s cubic-bezier(0.34, 1.25, 0.64, 1);">
     <!-- Chat Window Container -->
-    <div id="chatify-widget-card" 
+    <div id="messify-widget-card" 
          style="display: none; opacity: 0; transform: translateY(16px) scale(0.96); transition: opacity 0.25s ease, transform 0.25s ease; position: absolute; bottom: 72px; right: 0; width: 420px; height: 620px; max-width: calc(100vw - 32px); max-height: calc(100vh - 100px); border-radius: 16px; box-shadow: 0 20px 40px -8px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(148, 163, 184, 0.2); background: #ffffff; overflow: hidden; flex-direction: column;">
         
         <!-- Header Bar -->
@@ -41,11 +41,11 @@
 
             <div style="display: flex; align-items: center; gap: 8px;">
                 <!-- Refresh Button -->
-                <button type="button" onclick="reloadChatifyIframe()" title="Reload Messify" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
+                <button type="button" onclick="reloadMessifyIframe()" title="Reload Messify" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
                     <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 </button>
                 <!-- Minimize Button -->
-                <button type="button" onclick="toggleChatifyWidget()" title="Minimize" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
+                <button type="button" onclick="toggleMessifyWidget()" title="Minimize" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
                     <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </button>
             </div>
@@ -53,46 +53,46 @@
 
         <!-- iFrame Container -->
         <div style="flex: 1; position: relative; background: #0f172a;">
-            <div id="chatify-iframe-loader" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0f172a; color: #94a3b8; font-size: 13px; font-weight: 500; gap: 10px; z-index: 2;">
-                <div style="width: 28px; height: 28px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #3b82f6; border-radius: 50%; animation: chatify-spin 0.8s linear infinite;"></div>
+            <div id="messify-iframe-loader" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0f172a; color: #94a3b8; font-size: 13px; font-weight: 500; gap: 10px; z-index: 2;">
+                <div style="width: 28px; height: 28px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #3b82f6; border-radius: 50%; animation: messify-spin 0.8s linear infinite;"></div>
                 <span>Connecting to Messify...</span>
             </div>
-            <iframe id="chatify-iframe" data-src="{{ route('open-chat') }}" style="width: 100%; height: 100%; border: none; display: block;" onload="typeof hideChatifyLoader === 'function' && hideChatifyLoader()" allow="autoplay; clipboard-write"></iframe>
+            <iframe id="messify-iframe" data-src="{{ route('open-chat') }}" style="width: 100%; height: 100%; border: none; display: block;" onload="typeof hideMessifyLoader === 'function' && hideMessifyLoader()" allow="autoplay; clipboard-write"></iframe>
         </div>
     </div>
 
     <!-- Floating Trigger Button Container -->
     <div style="position: relative;">
         <!-- Unread Red Badge Pop-Up -->
-        <span id="chatify-unread-badge" 
-              style="display: none; position: absolute; top: -4px; right: -4px; background: #ef4444; color: #ffffff; font-size: 11px; font-weight: 700; min-width: 22px; height: 22px; border-radius: 11px; padding: 0 6px; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.5), 0 0 0 2px #ffffff; align-items: center; justify-content: center; z-index: 10; pointer-events: none; animation: chatify-badge-pop 0.3s ease-out;">
+        <span id="messify-unread-badge" 
+              style="display: none; position: absolute; top: -4px; right: -4px; background: #ef4444; color: #ffffff; font-size: 11px; font-weight: 700; min-width: 22px; height: 22px; border-radius: 11px; padding: 0 6px; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.5), 0 0 0 2px #ffffff; align-items: center; justify-content: center; z-index: 10; pointer-events: none; animation: messify-badge-pop 0.3s ease-out;">
             0
         </span>
-        <button id="chatify-widget-btn" 
+        <button id="messify-widget-btn" 
                 type="button" 
-                onclick="toggleChatifyWidget()" 
+                onclick="toggleMessifyWidget()" 
                 title="Messify Messages"
-                class="rms-chatify-fab">
+                class="rms-messify-fab">
             
-            <span class="rms-chatify-fab-icon">
+            <span class="rms-messify-fab-icon">
                 <!-- Chat Icon -->
-                <svg id="chatify-icon-chat" width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg id="messify-icon-chat" width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                 </svg>
 
                 <!-- Close Icon -->
-                <svg id="chatify-icon-close" width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
+                <svg id="messify-icon-close" width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
             </span>
 
-            <span id="chatify-widget-btn-label" class="rms-chatify-fab-label">Messify</span>
+            <span id="messify-widget-btn-label" class="rms-messify-fab-label">Messify</span>
         </button>
     </div>
 </div>
 
 <style>
-.rms-chatify-fab {
+.rms-messify-fab {
     height: 56px;
     min-width: 56px;
     width: 56px;
@@ -117,14 +117,14 @@
                 box-shadow 0.2s ease;
 }
 
-.rms-chatify-fab:hover {
+.rms-messify-fab:hover {
     width: 134px;
     padding: 0 16px 0 15px;
     transform: translateY(-1px);
     box-shadow: 0 12px 28px -4px rgba(37, 99, 235, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.3);
 }
 
-.rms-chatify-fab-icon {
+.rms-messify-fab-icon {
     width: 26px;
     height: 26px;
     display: flex;
@@ -133,7 +133,7 @@
     flex-shrink: 0;
 }
 
-.rms-chatify-fab-label {
+.rms-messify-fab-label {
     max-width: 0;
     opacity: 0;
     overflow: hidden;
@@ -147,33 +147,33 @@
                 margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.rms-chatify-fab:hover .rms-chatify-fab-label {
+.rms-messify-fab:hover .rms-messify-fab-label {
     max-width: 75px;
     opacity: 1;
     margin-left: 8px;
 }
 
-/* When Chatify is open, close hover shows "Close" cleanly */
-body.chatify-widget-open .rms-chatify-fab:hover {
+/* When Messify is open, close hover shows "Close" cleanly */
+body.messify-widget-open .rms-messify-fab:hover {
     width: 120px;
 }
 
 /* When Report Problem widget is opened, Messify moves UP above the Report Card */
 body.report-widget-open #messify-global-widget,
-body.report-widget-open #chatify-global-widget {
+body.report-widget-open #messify-global-widget {
     bottom: calc(min(580px, calc(100vh - 100px)) + 104px) !important;
     z-index: 1000000 !important;
 }
 
 @media print {
     #messify-global-widget,
-    #chatify-global-widget,
-    #chatify-widget-card,
-    #chatify-widget-btn,
-    .chatify-widget,
+    #messify-global-widget,
+    #messify-widget-card,
+    #messify-widget-btn,
+    .messify-widget,
     .messify-widget,
     [id^="messify"],
-    [id^="chatify"] {
+    [id^="messify"] {
         display: none !important;
         visibility: hidden !important;
         opacity: 0 !important;
@@ -181,15 +181,15 @@ body.report-widget-open #chatify-global-widget {
 }
 @media (max-width: 767px) {
     #messify-global-widget,
-    #chatify-global-widget {
+    #messify-global-widget {
         display: none !important;
     }
 }
-@keyframes chatify-spin {
+@keyframes messify-spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
-@keyframes chatify-badge-pop {
+@keyframes messify-badge-pop {
     0% { transform: scale(0); opacity: 0; }
     80% { transform: scale(1.15); }
     100% { transform: scale(1); opacity: 1; }
@@ -441,14 +441,14 @@ body.report-widget-open #chatify-global-widget {
         return window.innerWidth >= 768;
     }
 
-    let chatifyLoadedOnce = false;
+    let messifyLoadedOnce = false;
 
-    function speculatePreloadChatifyIframe() {
+    function speculatePreloadMessifyIframe() {
         if (!isTabletOrDesktop()) return;
-        const iframe = document.getElementById('chatify-iframe');
+        const iframe = document.getElementById('messify-iframe');
         if (iframe && (!iframe.src || iframe.src.includes('about:blank') || iframe.src === '')) {
-            const loader = document.getElementById('chatify-iframe-loader');
-            if (loader && !chatifyLoadedOnce) loader.style.display = 'flex';
+            const loader = document.getElementById('messify-iframe-loader');
+            if (loader && !messifyLoadedOnce) loader.style.display = 'flex';
             iframe.src = iframe.getAttribute('data-src');
         }
     }
@@ -456,10 +456,10 @@ body.report-widget-open #chatify-global-widget {
     function attachSpeculativeListeners() {
         // Feature detection check for Speculation Rules API
         if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
-            if (!document.getElementById('chatify-speculation-rules-dynamic')) {
+            if (!document.getElementById('messify-speculation-rules-dynamic')) {
                 try {
                     const specScript = document.createElement('script');
-                    specScript.id = 'chatify-speculation-rules-dynamic';
+                    specScript.id = 'messify-speculation-rules-dynamic';
                     specScript.type = 'speculationrules';
                     specScript.textContent = JSON.stringify({
                         prerender: [{
@@ -473,15 +473,15 @@ body.report-widget-open #chatify-global-widget {
             }
         }
 
-        const btn = document.getElementById('chatify-widget-btn');
+        const btn = document.getElementById('messify-widget-btn');
         if (btn) {
-            btn.addEventListener('mouseenter', speculatePreloadChatifyIframe, { passive: true });
-            btn.addEventListener('pointerdown', speculatePreloadChatifyIframe, { passive: true });
+            btn.addEventListener('mouseenter', speculatePreloadMessifyIframe, { passive: true });
+            btn.addEventListener('pointerdown', speculatePreloadMessifyIframe, { passive: true });
         }
-        const dropdownBadge = document.getElementById('chatify-dropdown-unread-badge');
+        const dropdownBadge = document.getElementById('messify-dropdown-unread-badge');
         if (dropdownBadge && dropdownBadge.parentElement) {
-            dropdownBadge.parentElement.addEventListener('mouseenter', speculatePreloadChatifyIframe, { passive: true });
-            dropdownBadge.parentElement.addEventListener('pointerdown', speculatePreloadChatifyIframe, { passive: true });
+            dropdownBadge.parentElement.addEventListener('mouseenter', speculatePreloadMessifyIframe, { passive: true });
+            dropdownBadge.parentElement.addEventListener('pointerdown', speculatePreloadMessifyIframe, { passive: true });
         }
     }
 
@@ -493,7 +493,7 @@ body.report-widget-open #chatify-global-widget {
             return;
         }
 
-        const storedState = sessionStorage.getItem('chatify_widget_open');
+        const storedState = sessionStorage.getItem('messify_widget_open');
         if (storedState !== null) {
             isOpen = storedState === 'true';
         } else {
@@ -501,10 +501,10 @@ body.report-widget-open #chatify-global-widget {
         }
 
         if (isOpen) {
-            document.body.classList.add('chatify-widget-open');
+            document.body.classList.add('messify-widget-open');
             setWidgetVisibility(true, false);
         } else {
-            document.body.classList.remove('chatify-widget-open');
+            document.body.classList.remove('messify-widget-open');
         }
 
         updateUnreadBadge();
@@ -596,8 +596,8 @@ body.report-widget-open #chatify-global-widget {
         lastSystemUnread = systemCount;
         const totalCount = chatCount + systemCount;
 
-        // 1. Update Chatify Floating Widget Button Badge
-        const badge = document.getElementById('chatify-unread-badge');
+        // 1. Update Messify Floating Widget Button Badge
+        const badge = document.getElementById('messify-unread-badge');
         if (badge) {
             if (chatCount > 0) {
                 badge.textContent = chatCount > 99 ? '99+' : chatCount;
@@ -607,8 +607,8 @@ body.report-widget-open #chatify-global-widget {
             }
         }
 
-        // 2. Update Chatify Dropdown Badge
-        const dropdownBadge = document.getElementById('chatify-dropdown-unread-badge');
+        // 2. Update Messify Dropdown Badge
+        const dropdownBadge = document.getElementById('messify-dropdown-unread-badge');
         if (dropdownBadge) {
             if (chatCount > 0) {
                 dropdownBadge.textContent = chatCount > 99 ? '99+' : chatCount;
@@ -630,23 +630,23 @@ body.report-widget-open #chatify-global-widget {
     }
 
     // Expose via scheduleUnreadPoll so external callers also go through the inflight guard.
-    window.updateChatifyUnreadBadge = () => scheduleUnreadPoll(0);
+    window.updateMessifyUnreadBadge = () => scheduleUnreadPoll(0);
 
     window.addEventListener('message', function(event) {
         if (!event.data) return;
 
-        if (event.data.type === 'CHATIFY_NEW_MESSAGE' || event.data.type === 'MESSIFY_NEW_MESSAGE') {
+        if (event.data.type === 'MESSIFY_NEW_MESSAGE' || event.data.type === 'MESSIFY_NEW_MESSAGE') {
             if (typeof event.data.unread_count === 'number') {
                 applyUnreadCounts(event.data.unread_count, lastSystemUnread);
             }
             playNotificationSound();
             // Single debounced refresh — AbortController cancels any in-flight request.
             scheduleUnreadPoll(300);
-        } else if (event.data.type === 'CHATIFY_PLAY_SOUND' || event.data.type === 'MESSIFY_PLAY_SOUND') {
+        } else if (event.data.type === 'MESSIFY_PLAY_SOUND' || event.data.type === 'MESSIFY_PLAY_SOUND') {
             playNotificationSound();
-        } else if (event.data.type === 'CHATIFY_USER_INTERACTION' || event.data.type === 'MESSIFY_USER_INTERACTION') {
+        } else if (event.data.type === 'MESSIFY_USER_INTERACTION' || event.data.type === 'MESSIFY_USER_INTERACTION') {
             initAudioContext();
-        } else if (event.data.type === 'CHATIFY_MARK_READ' || event.data.type === 'MESSIFY_MARK_READ' || event.data.type === 'CHATIFY_REFRESH_BADGE' || event.data.type === 'MESSIFY_REFRESH_BADGE') {
+        } else if (event.data.type === 'MESSIFY_MARK_READ' || event.data.type === 'MESSIFY_MARK_READ' || event.data.type === 'MESSIFY_REFRESH_BADGE' || event.data.type === 'MESSIFY_REFRESH_BADGE') {
             if (typeof event.data.unread_count === 'number') {
                 applyUnreadCounts(event.data.unread_count, lastSystemUnread);
             }
@@ -672,29 +672,29 @@ body.report-widget-open #chatify-global-widget {
     });
 
     window.addEventListener('rms-widget-opened', function(e) {
-        if (e.detail && e.detail.widget !== 'chatify' && isOpen) {
+        if (e.detail && e.detail.widget !== 'messify' && isOpen) {
             isOpen = false;
-            sessionStorage.setItem('chatify_widget_open', false);
+            sessionStorage.setItem('messify_widget_open', false);
             setWidgetVisibility(false, true);
         }
     });
 
-    window.toggleChatifyWidget = function() {
+    window.toggleMessifyWidget = function() {
         if (!isTabletOrDesktop()) {
             return;
         }
         isOpen = !isOpen;
-        sessionStorage.setItem('chatify_widget_open', isOpen);
+        sessionStorage.setItem('messify_widget_open', isOpen);
         setWidgetVisibility(isOpen, true);
         // Single refresh — no need for multiple setTimeouts.
         scheduleUnreadPoll(200);
     };
 
-    window.reloadChatifyIframe = function() {
-        const iframe = document.getElementById('chatify-iframe');
-        const loader = document.getElementById('chatify-iframe-loader');
+    window.reloadMessifyIframe = function() {
+        const iframe = document.getElementById('messify-iframe');
+        const loader = document.getElementById('messify-iframe-loader');
         if (iframe) {
-            chatifyLoadedOnce = false;
+            messifyLoadedOnce = false;
             if (loader) loader.style.display = 'flex';
             iframe.src = iframe.getAttribute('data-src') + '?t=' + new Date().getTime();
         }
@@ -702,8 +702,8 @@ body.report-widget-open #chatify-global-widget {
         scheduleUnreadPoll(500);
     };
 
-    function disableChatifySearchAutoInput() {
-        const iframe = document.getElementById('chatify-iframe');
+    function disableMessifySearchAutoInput() {
+        const iframe = document.getElementById('messify-iframe');
         if (!iframe) return;
 
         try {
@@ -761,23 +761,23 @@ body.report-widget-open #chatify-global-widget {
         }
     }
 
-    window.hideChatifyLoader = function() {
-        chatifyLoadedOnce = true;
-        const loader = document.getElementById('chatify-iframe-loader');
+    window.hideMessifyLoader = function() {
+        messifyLoadedOnce = true;
+        const loader = document.getElementById('messify-iframe-loader');
         if (loader) {
             loader.style.display = 'none';
         }
-        disableChatifySearchAutoInput();
+        disableMessifySearchAutoInput();
         updateUnreadBadge();
         setTimeout(updateUnreadBadge, 600);
     };
 
     function setWidgetVisibility(show, animate) {
-        const card = document.getElementById('chatify-widget-card');
-        const btn = document.getElementById('chatify-widget-btn');
-        const iconChat = document.getElementById('chatify-icon-chat');
-        const iconClose = document.getElementById('chatify-icon-close');
-        const iframe = document.getElementById('chatify-iframe');
+        const card = document.getElementById('messify-widget-card');
+        const btn = document.getElementById('messify-widget-btn');
+        const iconChat = document.getElementById('messify-icon-chat');
+        const iconClose = document.getElementById('messify-icon-close');
+        const iframe = document.getElementById('messify-iframe');
 
         if (!card || !btn) return;
 
@@ -787,18 +787,18 @@ body.report-widget-open #chatify-global-widget {
         }
 
         if (show) {
-            document.body.classList.add('chatify-widget-open');
-            window.dispatchEvent(new CustomEvent('rms-widget-opened', { detail: { widget: 'chatify' } }));
-            const labelEl = document.getElementById('chatify-widget-btn-label');
+            document.body.classList.add('messify-widget-open');
+            window.dispatchEvent(new CustomEvent('rms-widget-opened', { detail: { widget: 'messify' } }));
+            const labelEl = document.getElementById('messify-widget-btn-label');
             if (labelEl) labelEl.textContent = 'Close';
 
             if (iframe && (!iframe.src || iframe.src.includes('about:blank') || iframe.src === '')) {
-                const loader = document.getElementById('chatify-iframe-loader');
-                if (loader && !chatifyLoadedOnce) loader.style.display = 'flex';
+                const loader = document.getElementById('messify-iframe-loader');
+                if (loader && !messifyLoadedOnce) loader.style.display = 'flex';
                 iframe.src = iframe.getAttribute('data-src');
-            } else if (chatifyLoadedOnce) {
+            } else if (messifyLoadedOnce) {
                 // Already loaded and cached in DOM — keep loader hidden
-                const loader = document.getElementById('chatify-iframe-loader');
+                const loader = document.getElementById('messify-iframe-loader');
                 if (loader) loader.style.display = 'none';
             }
 
@@ -814,9 +814,9 @@ body.report-widget-open #chatify-global-widget {
             }
             btn.setAttribute('title', 'Minimize Messify');
         } else {
-            document.body.classList.remove('chatify-widget-open');
-            window.dispatchEvent(new CustomEvent('rms-widget-closed', { detail: { widget: 'chatify' } }));
-            const labelEl = document.getElementById('chatify-widget-btn-label');
+            document.body.classList.remove('messify-widget-open');
+            window.dispatchEvent(new CustomEvent('rms-widget-closed', { detail: { widget: 'messify' } }));
+            const labelEl = document.getElementById('messify-widget-btn-label');
             if (labelEl) labelEl.textContent = 'Messify';
 
             if (animate) {
@@ -853,9 +853,9 @@ body.report-widget-open #chatify-global-widget {
     });
 
     function attachIframeLoadListeners() {
-        const iframe = document.getElementById('chatify-iframe');
+        const iframe = document.getElementById('messify-iframe');
         if (iframe) {
-            iframe.addEventListener('load', disableChatifySearchAutoInput);
+            iframe.addEventListener('load', disableMessifySearchAutoInput);
         }
     }
 

@@ -3646,14 +3646,9 @@
       flex-shrink: 0;
     }
 
-    /* ── Mobile long-press: Copy button inside the fixed reaction picker ── */
+    /* ── Copy text button inside the floating reaction picker capsule ── */
     .reaction-picker .rp-divider {
-      width: 1px;
-      height: 24px;
-      background: var(--border-color);
-      margin: 0 4px;
-      flex-shrink: 0;
-      align-self: center;
+      display: none !important;
     }
     .reaction-picker .rp-copy {
       font-size: 12px;
@@ -3662,24 +3657,42 @@
       cursor: pointer;
       border: none;
       background: transparent;
-      padding: 0 8px;
-      height: 40px;
+      padding: 0 10px;
+      height: 32px;
       display: flex;
       align-items: center;
-      border-radius: 8px;
-      transition: color 0.12s, background 0.12s;
+      gap: 5px;
+      border-radius: 16px;
+      transition: color 0.15s ease, background 0.15s ease, transform 0.12s ease;
       white-space: nowrap;
       font-family: 'Inter', sans-serif;
       flex-shrink: 0;
+      outline: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    .reaction-picker .rp-copy svg {
+      width: 13px;
+      height: 13px;
+      flex-shrink: 0;
+      display: block;
+      transition: transform 0.12s ease, stroke 0.15s ease;
     }
     @media (max-width: 360px) {
       .reaction-picker .rp-copy {
-        padding: 0 6px;
+        padding: 0 7px;
         font-size: 11px;
-        height: 34px;
+        height: 28px;
+        gap: 3px;
+      }
+      .reaction-picker .rp-copy svg {
+        width: 12px;
+        height: 12px;
       }
       .reaction-picker .rp-divider {
         margin: 0 2px;
+        height: 18px;
       }
     }
     .reaction-picker .rp-copy:hover,
@@ -3890,6 +3903,37 @@
     }
 
     .admin-key-header-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* ── User Verification Header Reset All Badges Button (Circle Trash Icon) ── */
+    .reset-badges-circle-btn {
+      width: 34px;
+      height: 34px;
+      min-width: 34px;
+      max-width: 34px;
+      border-radius: 50%;
+      border: none;
+      background: #ef4444;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease, background-color 0.15s ease;
+      outline: none;
+      padding: 0;
+      flex-shrink: 0;
+      margin-left: auto;
+    }
+
+    .reset-badges-circle-btn:hover {
+      opacity: 0.92;
+      background: #dc2626;
+      transform: scale(1.08);
+    }
+
+    .reset-badges-circle-btn:active {
       transform: scale(0.95);
     }
 

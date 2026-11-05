@@ -106,7 +106,7 @@ class UserResolver
             'allow_see_typing_preview' => (isset($row['allow_see_typing_preview']) && $row['allow_see_typing_preview'] !== null)
                 ? (!in_array($row['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
                 : true,
-            'is_chatify_verified' => (bool) ($row['is_chatify_verified'] ?? false),
+            'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false),
             'avatar_url'          => $row['avatar_url'] ?? null,
         ];
     }
@@ -174,7 +174,7 @@ class UserResolver
                 'allow_see_typing_preview' => (isset($row['allow_see_typing_preview']) && $row['allow_see_typing_preview'] !== null)
                     ? (!in_array($row['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
                     : true,
-                'is_chatify_verified' => (bool) ($row['is_chatify_verified'] ?? false),
+                'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false),
                 'avatar_url'          => $row['avatar_url'] ?? null,
             ];
         }
@@ -235,7 +235,7 @@ class UserResolver
                         ad.is_currently_online, ad.last_online_time, ad.avatar_url,
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
                         COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
-                        COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
+                        COALESCE(ad.is_messify_verified, FALSE) AS is_messify_verified
                  FROM " . Database::t('account_details') . " ad
                  LEFT JOIN " . Database::t('office') . " o ON o.id = ad.office_id
                  WHERE ad.account_id IN ($placeholders)"
@@ -320,7 +320,7 @@ class UserResolver
             $pdo  = Database::getConnection();
             $like = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $q) . '%';
             $officeCondition = ($officeId !== null && $officeId > 0)
-                ? " AND (ad.office_id = :office_id OR ((ad.account_id = 1 OR cd.is_sadm = TRUE OR LOWER(ck.key_name) = 'super admin') AND EXISTS (SELECT 1 FROM chat_messages cm WHERE cm.conv_id = :office_conv_id AND cm.sender_id = ad.account_id)))"
+                ? " AND (ad.office_id = :office_id OR ((ad.account_id = 1 OR cd.is_sadm = TRUE OR LOWER(ck.key_name) = 'super admin') AND EXISTS (SELECT 1 FROM messify_chat_messages cm WHERE cm.conv_id = :office_conv_id AND cm.sender_id = ad.account_id)))"
                 : "";
 
             $stmt = $pdo->prepare(
@@ -334,7 +334,7 @@ class UserResolver
                         ad.is_currently_online,
                         ad.last_online_time,
                         ad.avatar_url,
-                        COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
+                        COALESCE(ad.is_messify_verified, FALSE) AS is_messify_verified
                  FROM " . Database::t('account_details') . " ad
                  LEFT JOIN " . Database::t('office') . " o ON o.id = ad.office_id
                  LEFT JOIN " . Database::t('account') . " a ON a.id = ad.account_id
@@ -415,7 +415,7 @@ class UserResolver
                     'office_code'         => $row['office_code'] ?? null,
                     'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
                     'last_online_time'    => $row['last_online_time'] ?? null,
-                    'is_chatify_verified' => (bool) ($row['is_chatify_verified'] ?? false),
+                    'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false),
                     'avatar_url'          => $row['avatar_url'] ?? null,
                 ];
             }
@@ -561,7 +561,7 @@ class UserResolver
                         ad.avatar_url,
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
                         COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
-                        COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
+                        COALESCE(ad.is_messify_verified, FALSE) AS is_messify_verified
                  FROM ' . Database::t('account_details') . ' ad
                  LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
                  WHERE ad.account_id = :id
@@ -595,7 +595,7 @@ class UserResolver
                         ad.avatar_url,
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
                         COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
-                        COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
+                        COALESCE(ad.is_messify_verified, FALSE) AS is_messify_verified
                  FROM ' . Database::t('account_details') . ' ad
                  LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
                  ORDER BY ad.last_name, ad.first_name'

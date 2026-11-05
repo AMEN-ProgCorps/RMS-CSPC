@@ -355,8 +355,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                         'account_id' => $this->selectedUserId,
                         'office_id'  => $this->officeId,
                     ]);
-                } elseif (file_exists(public_path('chatify/core/WsPush.php'))) {
-                    require_once public_path('chatify/bootstrap.php');
+                } elseif (file_exists(public_path('messify/core/WsPush.php'))) {
+                    require_once public_path('messify/bootstrap.php');
                     \WsPush::broadcast('users_changed', [
                         'account_id' => $this->selectedUserId,
                         'office_id'  => $this->officeId,
@@ -415,8 +415,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                 if (file_exists(public_path('messify/core/WsPush.php'))) {
                     require_once public_path('messify/bootstrap.php');
                     \WsPush::broadcast('users_changed', ['account_id' => $this->selectedUserId]);
-                } elseif (file_exists(public_path('chatify/core/WsPush.php'))) {
-                    require_once public_path('chatify/bootstrap.php');
+                } elseif (file_exists(public_path('messify/core/WsPush.php'))) {
+                    require_once public_path('messify/bootstrap.php');
                     \WsPush::broadcast('users_changed', ['account_id' => $this->selectedUserId]);
                 }
             } catch (\Throwable) {}
@@ -485,8 +485,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                         'account_id' => $userId,
                         'office_id'  => $officeId,
                     ]);
-                } elseif (file_exists(public_path('chatify/core/WsPush.php'))) {
-                    require_once public_path('chatify/bootstrap.php');
+                } elseif (file_exists(public_path('messify/core/WsPush.php'))) {
+                    require_once public_path('messify/bootstrap.php');
                     \WsPush::broadcast('users_changed', [
                         'account_id' => $userId,
                         'office_id'  => $officeId,

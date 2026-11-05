@@ -74,7 +74,7 @@ if ($chatType === 'private') {
     if (empty($channelConvId)) {
         try {
             $pdo = Database::getConnection();
-            $st = $pdo->prepare('SELECT conv_id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1');
+            $st = $pdo->prepare('SELECT conv_id FROM messify_chat_messages WHERE msg_uuid = :uuid LIMIT 1');
             $st->execute([':uuid' => $msgUuid]);
             $channelConvId = $st->fetchColumn() ?: ($chatType === 'office_gc' ? 'office_1' : 'global');
         } catch (Throwable $e) {

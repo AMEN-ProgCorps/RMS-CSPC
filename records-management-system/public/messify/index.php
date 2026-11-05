@@ -33,15 +33,15 @@ session_start();
 // ─────────────────────────────────────────────────────────────────────────
 // SERVER-SIDE RMS SESSION GATE — must run before ANY output (HTML/JS/CSS).
 // This is the ONLY authentication decision for this page. There is no
-// client-side/JS fallback, and Chatify never mints or reuses a session of
+// client-side/JS fallback, and Messify never mints or reuses a session of
 // its own: Auth::check() must validate the request against the live RMS
 // server-side session record (DB-backed), not merely the presence of a
-// PHP $_SESSION array Chatify itself could have populated.
+// PHP $_SESSION array Messify itself could have populated.
 // ─────────────────────────────────────────────────────────────────────────
 if (!Auth::check()) {
-    // Defense-in-depth: if any Chatify-local session keys survived (e.g. a
+    // Defense-in-depth: if any Messify-local session keys survived (e.g. a
     // stale session file from a previous request), wipe them so nothing
-    // downstream can ever be reconstructed from them. Chatify must never
+    // downstream can ever be reconstructed from them. Messify must never
     // recreate or resurrect a session on its own once RMS says it's gone.
     $_SESSION = [];
     if (session_id() !== '') {
@@ -71,12 +71,12 @@ $_current_account_id = (int) ($_SESSION['account_id'] ?? 0);
 $is_admin = Auth::checkIsAdmin($_current_account_id);
 $_SESSION['is_admin'] = $is_admin;
 
-// Load the list of account_ids with is_chatify_verified = TRUE for real-time badge injection.
+// Load the list of account_ids with is_messify_verified = TRUE for real-time badge injection.
 // The Super Admin manages this list via the User Verification modal.
 $verified_account_ids = [];
 try {
     $pdo  = Database::getConnection();
-    $stmt = $pdo->query('SELECT account_id FROM ' . Database::t('account_details') . ' WHERE is_chatify_verified = TRUE');
+    $stmt = $pdo->query('SELECT account_id FROM ' . Database::t('account_details') . ' WHERE is_messify_verified = TRUE');
     $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
     $verified_account_ids = array_map('intval', $rows);
     $adminIds = Auth::getAllSuperAdminIds();
@@ -156,7 +156,7 @@ $hasAgreedToLegal = false;
 try {
     $pdo  = Database::getConnection();
     $stmt = $pdo->prepare(
-        'SELECT id FROM chatify_legal_agreements WHERE account_id = :id LIMIT 1'
+        'SELECT id FROM messify_chat_legal_agreements WHERE account_id = :id LIMIT 1'
     );
     $stmt->execute([':id' => $_current_account_id]);
     $hasAgreedToLegal = (bool) $stmt->fetch();
@@ -179,7 +179,7 @@ try {
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"></noscript>
   <script>
     window.currentUserCommSettings = <?php echo json_encode($user_comm_settings); ?>;
-    window._chatifyHasAgreedToLegal = window._messifyHasAgreedToLegal = <?php echo json_encode($hasAgreedToLegal); ?>;
+    window._messifyHasAgreedToLegal = window._messifyHasAgreedToLegal = <?php echo json_encode($hasAgreedToLegal); ?>;
     window.verifiedAccountIds = <?php echo json_encode($verified_account_ids); ?>;
     const verifiedAccountIds = new Set((window.verifiedAccountIds || []).map(Number));
     window.verifiedAccountIdsSet = verifiedAccountIds;
@@ -516,7 +516,7 @@ try {
   </div>
 
   <!-- Notification bell modal — lists every @mention that hasn't been
-       opened yet (is_seen = 0 in chat_message_mentions). Clicking an entry
+       opened yet (is_seen = 0 in messify_chat_message_mentions). Clicking an entry
        opens the same #notifyContentModal a toast click would, which marks
        it seen and removes it from this list. -->
   <div class="modal" id="notificationBellModal" aria-hidden="true">
@@ -715,9 +715,8 @@ try {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
           <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);white-space:nowrap;">User Verification</h3>
         </div>
-        <button type="button" id="resetAllBadgesBtn" onclick="openResetAllBadgesConfirmModal()" title="Remove All Verified Badges" style="margin-left:auto;flex-shrink:0;white-space:nowrap;background:none;border:1px solid #ef4444;color:#ef4444;padding:4px 9px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all 0.15s;outline:none;" onmouseover="this.style.background='#ef4444';this.style.color='#fff';" onmouseout="this.style.background='none';this.style.color='#ef4444';">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-          <span style="white-space:nowrap;">Reset All</span>
+        <button type="button" id="resetAllBadgesBtn" onclick="openResetAllBadgesConfirmModal()" title="Remove All Verified Badges" class="reset-badges-circle-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
         </button>
       </div>
       <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;text-align:left;">
@@ -1062,8 +1061,8 @@ try {
   <script src="assets/js/app-part3.js?v=<?php echo filemtime(__DIR__ . '/assets/js/app-part3.js'); ?>"></script>
   <!-- ═══════════════════════════════════════════════════════════════════════
        LEGAL AUTHORIZATION MODAL
-       Uses the existing Chatify .modal / .modal.active pattern.
-       Shown only once per account — tracked in chatify_legal_agreements.
+       Uses the existing Messify .modal / .modal.active pattern.
+       Shown only once per account — tracked in messify_chat_legal_agreements.
        ═══════════════════════════════════════════════════════════════════════ -->
   
   <!-- Add CSS for backdrop blur -->

@@ -78,13 +78,13 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         );
 
         // Map to subsystem keys.
-        // Exceptions per specification: Admin Console, Chatify, and Profile do NOT show notification badges on the portal page.
+        // Exceptions per specification: Admin Console, Messify, and Profile do NOT show notification badges on the portal page.
         $this->subsystemUnreadCounts = [
             'dts' => (int) ($rawCounts['Document Tracking System'] ?? 0),
             'rdp' => (int) ($rawCounts['Records Disposition Program'] ?? 0),
             'dcs' => (int) ($rawCounts['Document Control System'] ?? 0),
             'profile' => 0, // Exception: Profile does not show badge on portal
-            'chatify' => 0,
+            'messify' => 0,
             'admin' => 0,
         ];
 
@@ -159,7 +159,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         $rdpActive = in_array('Records Disposition Program', $activeSubsystems);
         $dcsActive = in_array('Document Control System', $activeSubsystems);
         $adminActive = in_array('Admin Console', $activeSubsystems);
-        $chatifyActive = in_array('Chatify', $activeSubsystems) || in_array('Messify', $activeSubsystems);
+        $messifyActive = in_array('Messify', $activeSubsystems) || in_array('Messify', $activeSubsystems);
 
         // Personal / Left-side subsystems
         $personalItems = [];
@@ -171,14 +171,14 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             'is_desktop_only' => true,
             'unread_count' => 0, // Exception: Profile does not show badge on portal
         ];
-        if ($chatifyActive) {
+        if ($messifyActive) {
             $personalItems[] = [
-                'id' => 'chatify',
+                'id' => 'messify',
                 'route' => route('open-chat'),
                 'label' => 'Messify',
                 'target' => '_blank',
                 'is_desktop_only' => false,
-                'unread_count' => 0, // Exception: Chatify has its own floating widget
+                'unread_count' => 0, // Exception: Messify has its own floating widget
             ];
         }
         if ($perms?->is_sadm && $adminActive) {
@@ -226,7 +226,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         }
 
         // Dynamic subsystems in DB
-        $knownNames = ['Document Tracking System', 'Records Disposition Program', 'Document Control System', 'Admin Console', 'Chatify', 'Messify', 'Profile Manager'];
+        $knownNames = ['Document Tracking System', 'Records Disposition Program', 'Document Control System', 'Admin Console', 'Messify', 'Messify', 'Profile Manager'];
         $extraSubsystems = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
             ->where('is_active', true)
             ->whereNotIn('subsystem_name', $knownNames)

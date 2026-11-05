@@ -7,7 +7,7 @@
 // Requires: Authentication + membership
 // Returns JSON:
 //   { success, group: {id, name, creator_id}, members: [{account_id, full_name,
-//     avatar_url, is_chatify_verified, is_online}] }
+//     avatar_url, is_messify_verified, is_online}] }
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';

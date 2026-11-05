@@ -50,7 +50,7 @@ class BackupRevertTest extends TestCase
                         'account_role' => 3,
                         'account_status' => 1,
                         'account_active' => 1,
-                        'is_chatify_verified' => 1, // Obsolete column present in backup file
+                        'is_messify_verified' => 1, // Obsolete column present in backup file
                         'date_created' => '2026-08-10 03:05:11',
                         'date_updated' => '2026-08-10 04:05:30',
                     ]

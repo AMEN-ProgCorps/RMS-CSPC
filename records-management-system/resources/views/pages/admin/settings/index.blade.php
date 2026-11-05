@@ -1191,8 +1191,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 'sys_system_settings', 'sys_account', 'sys_account_details', 'sys_condition_key', 'sys_condition_details',
                 'sys_office', 'sys_cluster', 'sys_folder_data', 'sys_subsystems', 'sys_document_data', 'dts_transaction_flow',
                 'dts_action_options', 'dts_transaction_details', 'dts_transaction_logs', 'rdp_record',
-                'rdp_record_series', 'sys_admin_logs', 'sys_security_logs', 'sys_notifications', 'chat_messages',
-                'chat_conversations', 'sys_personal_settings'
+                'rdp_record_series', 'sys_admin_logs', 'sys_security_logs', 'sys_notifications', 'messify_chat_messages',
+                'messify_chat_conversations', 'sys_personal_settings'
             ];
         }
 

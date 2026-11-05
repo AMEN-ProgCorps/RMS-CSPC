@@ -1,6 +1,6 @@
 <?php
 // =============================================================================
-// reset_all_verifications.php — Reset all Chatify user verification badges
+// reset_all_verifications.php — Reset all Messify user verification badges
 // =============================================================================
 // POST: No parameters needed.
 // Requires: Super Admin authentication (account_id = 1)
@@ -24,7 +24,7 @@ if (!Auth::isAdmin()) {
 try {
     $pdo = Database::getConnection();
     $stmt = $pdo->prepare(
-        'UPDATE ' . Database::t('account_details') . ' SET is_chatify_verified = FALSE WHERE is_chatify_verified = TRUE'
+        'UPDATE ' . Database::t('account_details') . ' SET is_messify_verified = FALSE WHERE is_messify_verified = TRUE'
     );
     $stmt->execute();
     $count = $stmt->rowCount();

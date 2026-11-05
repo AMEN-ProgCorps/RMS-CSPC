@@ -260,7 +260,7 @@ Route::middleware(['auth'])
     ->group(function () {
     Route::get('/open-chat', [ChatController::class, 'openChat'])->name('open-chat');
     Route::get('/messify/open-chat', [ChatController::class, 'openChat'])->name('messify.open-chat');
-    Route::get('/chatify/open-chat', [ChatController::class, 'openChat'])->name('chatify.open-chat');
+    Route::get('/messify/open-chat', [ChatController::class, 'openChat'])->name('messify.open-chat');
     Route::get('/chat/unread-count', function () {
         $user = Auth::user();
         if (!$user) {
@@ -274,13 +274,13 @@ Route::middleware(['auth'])
 
         $userId = $user->id;
 
-        // 1. Chatify unread count (directly based on active conversations in Chatify)
+        // 1. Messify unread count (directly based on active conversations in Messify)
         $chatUnread = 0;
         try {
-            if (\Illuminate\Support\Facades\Cache::remember('tbl_has_chat_conversations', 3600, fn () =>
-                \Illuminate\Support\Facades\Schema::hasTable('chat_conversations')
+            if (\Illuminate\Support\Facades\Cache::remember('tbl_has_messify_chat_conversations', 3600, fn () =>
+                \Illuminate\Support\Facades\Schema::hasTable('messify_chat_conversations')
             )) {
-                $totalUnread = \Illuminate\Support\Facades\DB::table('chat_conversations')
+                $totalUnread = \Illuminate\Support\Facades\DB::table('messify_chat_conversations')
                     ->where('is_active', true)
                     ->where(function ($q) use ($userId) {
                         $q->where('user_1', $userId)

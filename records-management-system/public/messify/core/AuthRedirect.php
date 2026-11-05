@@ -3,16 +3,16 @@
 // core/AuthRedirect.php — Shared "not authenticated" redirect
 // =============================================================================
 // Single source of truth for what happens when Auth::check() fails on a
-// full-page (non-AJAX) Chatify entry point. Every such entry point
+// full-page (non-AJAX) Messify entry point. Every such entry point
 // (index.php, auth_entry.php, ...) calls AuthRedirect::toLogin() instead of
 // keeping its own copy of this logic — one file to edit, every entry point
 // stays behaviorally identical automatically.
 //
 // This replaces the old core/AccessDeniedView.php, which rendered a static
-// "Access Denied" page. Per product decision, Chatify no longer shows its
+// "Access Denied" page. Per product decision, Messify no longer shows its
 // own denied/error page for authentication failures of any kind (no
 // session, expired session, destroyed session, invalid/expired SSO token,
-// or a direct hit on a Chatify URL with no RMS session at all) — it sends
+// or a direct hit on a Messify URL with no RMS session at all) — it sends
 // the user straight to the main RMS login page instead, exactly as
 // logout.php already does.
 //

@@ -16,11 +16,11 @@ return new class extends Migration
                 u.account_id,
                 COALESCE(SUM(CASE WHEN cc.user_1 = u.account_id THEN cc.unread_user_1 ELSE cc.unread_user_2 END), 0)::BIGINT AS total_unread
             FROM (
-                SELECT user_1 AS account_id FROM chat_conversations WHERE is_active = true
+                SELECT user_1 AS account_id FROM messify_chat_conversations WHERE is_active = true
                 UNION
-                SELECT user_2 AS account_id FROM chat_conversations WHERE is_active = true
+                SELECT user_2 AS account_id FROM messify_chat_conversations WHERE is_active = true
             ) u
-            JOIN chat_conversations cc 
+            JOIN messify_chat_conversations cc 
                 ON (cc.user_1 = u.account_id OR cc.user_2 = u.account_id)
                AND cc.is_active = true
             GROUP BY u.account_id;

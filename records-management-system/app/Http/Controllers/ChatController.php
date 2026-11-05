@@ -19,12 +19,12 @@ class ChatController extends Controller
             return redirect()->route('login');
         }
 
-        // Messify/Chatify subsystem deactivated in Admin > Subsystems: no SSO handoff.
-        $chatifyActive = \Illuminate\Support\Facades\DB::table(
+        // Messify/Messify subsystem deactivated in Admin > Subsystems: no SSO handoff.
+        $messifyActive = \Illuminate\Support\Facades\DB::table(
             \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems'
-        )->whereIn('subsystem_name', ['Chatify', 'Messify'])->where('is_active', true)->exists();
+        )->whereIn('subsystem_name', ['Messify', 'Messify'])->where('is_active', true)->exists();
 
-        if (!$chatifyActive) {
+        if (!$messifyActive) {
             return redirect()->route('portal');
         }
 

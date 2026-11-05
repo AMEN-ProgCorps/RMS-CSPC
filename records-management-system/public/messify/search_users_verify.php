@@ -6,7 +6,7 @@
 //   q (string, required) — partial first or last name to search for
 // Requires: Super Admin authentication
 // Returns JSON: { users: array }
-//   Each user: { account_id, full_name, is_chatify_verified }
+//   Each user: { account_id, full_name, is_messify_verified }
 // Returns empty users array if q is empty (no fetch-all behavior).
 // =============================================================================
 
@@ -42,7 +42,7 @@ if (!empty($matched)) {
     $users[] = [
         'account_id'          => (int) $user['account_id'],
         'full_name'           => $user['full_name'],
-        'is_chatify_verified' => filter_var($user['is_chatify_verified'] ?? false, FILTER_VALIDATE_BOOLEAN),
+        'is_messify_verified' => filter_var($user['is_messify_verified'] ?? false, FILTER_VALIDATE_BOOLEAN),
     ];
 }
 

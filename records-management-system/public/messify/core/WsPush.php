@@ -2,7 +2,7 @@
 // =============================================================================
 // core/WsPush.php - Server-to-server push to the ws-server's /internal/push
 // =============================================================================
-// Use this whenever an account's RMS/Chatify session is invalidated
+// Use this whenever an account's RMS/Messify session is invalidated
 // (logout, admin-forced logout, RMS session killed) so any open WebSocket
 // for that account is actually torn down — not just informed. Without this,
 // a live socket keeps working until its own token happens to lapse.

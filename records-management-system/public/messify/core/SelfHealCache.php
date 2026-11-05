@@ -37,7 +37,7 @@ class SelfHealCache
      */
     public static function once(string $key, callable $work): bool
     {
-        $cacheKey = 'chatify_selfheal_' . $key;
+        $cacheKey = 'messify_selfheal_' . $key;
 
         if (function_exists('apcu_fetch')) {
             if (apcu_fetch($cacheKey) !== false) {

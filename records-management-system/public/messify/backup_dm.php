@@ -2,16 +2,16 @@
 // =============================================================================
 // backup_dm.php — Explicit "/backup" admin command
 // =============================================================================
-// This is the ONLY place chatify_chat_backup gets written to now. Clearing a
+// This is the ONLY place messify_chat_backup gets written to now. Clearing a
 // conversation (/clear → delete_dm.php) no longer touches this table at all —
-// it just flips affected chat_messages rows to status='inactive'. Backing up
+// it just flips affected messify_chat_messages rows to status='inactive'. Backing up
 // is a separate, admin-initiated action that MOVES every 'inactive' message
-// (all DMs + global) out of chat_messages and into chatify_chat_backup —
+// (all DMs + global) out of messify_chat_messages and into messify_chat_backup —
 // messages that haven't been cleared are never touched by this endpoint.
 //
-// Because this can be a large INSERT ... SELECT over chat_messages, we don't
+// Because this can be a large INSERT ... SELECT over messify_chat_messages, we don't
 // make the browser wait for it to finish:
-//   1. Create a `chatify_backup_jobs` row (status=running) and hand back its
+//   1. Create a `messify_chat_backup_jobs` row (status=running) and hand back its
 //      id immediately.
 //   2. If the PHP SAPI supports it (PHP-FPM), flush the response to the
 //      client via fastcgi_finish_request() and keep executing the actual

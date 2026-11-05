@@ -1,10 +1,10 @@
 <?php
 // =============================================================================
 // log_chat_action.php — Shared fire-and-forget helper used by other endpoints
-//                        to record user actions in chatify_audit_logs.
+//                        to record user actions in messify_chat_audit_logs.
 // =============================================================================
 // This file is NOT a standalone HTTP endpoint. It is included by other
-// Chatify endpoints AFTER they have called Auth::require() and closed the
+// Messify endpoints AFTER they have called Auth::require() and closed the
 // session lock. Call like:
 //
 //   ChatAuditLogger::log($senderId, 'send_message', $msgUuid, ['chat_type' => 'global']);
@@ -16,7 +16,7 @@
 class ChatAuditLogger
 {
     /**
-     * Record an action in chatify_audit_logs.
+     * Record an action in messify_chat_audit_logs.
      *
      * @param int         $accountId  The acting user's account ID.
      * @param string      $action     Action slug (send_message, edit_message, …).
@@ -40,7 +40,7 @@ class ChatAuditLogger
 
             $pdo  = Database::getConnection();
             $stmt = $pdo->prepare(
-                'INSERT INTO chatify_audit_logs
+                'INSERT INTO messify_chat_audit_logs
                     (account_id, action, target_id, meta, ip_address, created_at)
                  VALUES
                     (:account_id, :action, :target_id, :meta, :ip, NOW())'

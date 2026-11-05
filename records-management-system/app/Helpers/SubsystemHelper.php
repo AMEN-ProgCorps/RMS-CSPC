@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Subsystem activation helpers shared by the Chatify gating checks and the
+ * Subsystem activation helpers shared by the Messify gating checks and the
  * force soft-refresh mechanism (see /api/systems/refresh-token).
  */
 class SubsystemHelper

@@ -72,7 +72,7 @@ class Database
         }
 
         $clean = strtolower($name);
-        $isDomainPrefixed = str_starts_with($clean, 'sys_') || str_starts_with($clean, 'chat_') || str_starts_with($clean, 'chatify_') || str_starts_with($clean, 'dts_') || str_starts_with($clean, 'rdp_') || str_starts_with($clean, 'dcs_');
+        $isDomainPrefixed = str_starts_with($clean, 'sys_') || str_starts_with($clean, 'chat_') || str_starts_with($clean, 'messify_') || str_starts_with($clean, 'dts_') || str_starts_with($clean, 'rdp_') || str_starts_with($clean, 'dcs_');
         $sysName = $isDomainPrefixed ? $clean : 'sys_' . $clean;
 
         // If sys_ prefixed table exists in database, use it

@@ -1405,7 +1405,7 @@
     // ── Emoji Reactions ──────────────────────────────────────────────────
     // Long-press (mobile) or right-click (desktop) a message bubble/media to
     // open a small floating picker with the 3 allowed emoji. Tapping one
-    // saves the reaction (chat_reactions table, via react.php) and renders
+    // saves the reaction (messify_chat_reactions table, via react.php) and renders
     // it as a badge under the bubble. Tapping an existing badge is a
     // shortcut for the same emoji (re-tap removes it, same "one reaction
     // per user per message" rule as the picker). Keep this list in sync
@@ -1419,8 +1419,31 @@
     reactionPicker.id = 'reactionPicker';
     reactionPicker.innerHTML = REACTION_EMOJIS.map(function(e) {
       return '<button type="button" class="reaction-picker-btn" data-emoji="' + e + '">' + e + '</button>';
-    }).join('');
+    }).join('')
+    + '<button type="button" class="rp-copy" aria-label="Copy message">'
+    + '<svg class="rp-copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+    + '<span class="rp-copy-label">Copy</span>'
+    + '</button>';
     document.body.appendChild(reactionPicker);
+
+    let copyFeedbackTimeout = null;
+
+    function resetRpCopyBtn() {
+      if (copyFeedbackTimeout) {
+        clearTimeout(copyFeedbackTimeout);
+        copyFeedbackTimeout = null;
+      }
+      const copyBtn = reactionPicker.querySelector('.rp-copy');
+      if (!copyBtn) return;
+      const label = copyBtn.querySelector('.rp-copy-label');
+      const icon = copyBtn.querySelector('.rp-copy-icon');
+      if (label) label.textContent = 'Copy';
+      copyBtn.style.color = '';
+      if (icon) {
+        icon.innerHTML = '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
+        icon.style.stroke = '';
+      }
+    }
 
     let reactionPickerContainer = null; // the .message-container currently targeted
     let longPressTimer = null;
@@ -1594,13 +1617,16 @@
         longPressAnchorEl.classList.remove('longpress-active');
         longPressAnchorEl = null;
       }
+      resetRpCopyBtn();
     }
 
     // Cached picker size — measured once on first open, reused forever.
-    // The picker always has the same 5 emoji buttons so its dimensions are
-    // stable. Caching eliminates the forced-reflow on every long-press that
+    // Caching eliminates the forced-reflow on every long-press that
     // was causing the compositing-layer flicker on mobile.
     let pickerDims = null;
+    window.addEventListener('resize', function() {
+      pickerDims = null;
+    }, { passive: true });
 
     function openReactionPicker(container, x, y) {
       reactionPickerContainer = container;
@@ -1874,11 +1900,70 @@
       longPressJustFired = false;
     }, { passive: true });
 
-    // ── Picker emoji tap ───────────────────────────────────────────────────
+    function getMessageTextToCopy(container) {
+      if (!container) return '';
+      const contentEl = container.querySelector('.message-bubble .message-content');
+      if (contentEl) {
+        if (contentEl.dataset && contentEl.dataset.fullText) {
+          return contentEl.dataset.fullText;
+        }
+        const clone = contentEl.cloneNode(true);
+        const rm = clone.querySelector('.read-more-link');
+        if (rm) rm.remove();
+        return (clone.innerText || clone.textContent || '').trim();
+      }
+      const link = container.querySelector('a.chat-attachment-link, a.file-link, .message-media a');
+      if (link && link.href) return link.href;
+      const img = container.querySelector('.message-media img, img.chat-viewable-image');
+      if (img && img.src) return img.src;
+      return '';
+    }
+
+    function copyChatText(text) {
+      if (!text) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function() {
+          fallbackChatCopy(text);
+        });
+      } else {
+        fallbackChatCopy(text);
+      }
+    }
+
+    function fallbackChatCopy(text) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.top = '-9999px';
+        ta.style.left = '-9999px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      } catch (err) {
+        console.error('Fallback copy failed', err);
+      }
+    }
+
+    // ── Picker emoji tap & Copy button tap ─────────────────────────────────
     // Secondary guard: ignore clicks that arrive within PICKER_GUARD_MS of
     // the picker opening — those are the synthetic post-long-press clicks.
     reactionPicker.addEventListener('click', function(e) {
       if (Date.now() - longPressPickerOpenTime < PICKER_GUARD_MS) return;
+
+      const copyBtn = e.target.closest('.rp-copy');
+      if (copyBtn && reactionPickerContainer) {
+        const textToCopy = getMessageTextToCopy(reactionPickerContainer);
+        if (textToCopy) {
+          copyChatText(textToCopy);
+        }
+        closeReactionPicker();
+        return;
+      }
+
       const btn = e.target.closest('.reaction-picker-btn');
       if (!btn || !reactionPickerContainer) return;
       sendReaction(reactionPickerContainer, btn.getAttribute('data-emoji'));
@@ -3590,7 +3675,7 @@
       // of gluing fake "Replying to: ..." text onto the message body. Never
       // while editing an existing message — edit and reply are mutually
       // exclusive. This is what actually gets sent to the server as
-      // reply_to= and persisted in chat_messages.reply_to_msg_uuid.
+      // reply_to= and persisted in messify_chat_messages.reply_to_msg_uuid.
       const activeReply = (replyState && !editingMsgId) ? replyState : null;
       hideReplyBanner();
 
@@ -4444,7 +4529,7 @@
                 nameTextSpan.title = u.full_name;
                 nameSpan.appendChild(nameTextSpan);
 
-                if (u.is_chatify_verified) {
+                if (u.is_messify_verified) {
                   const b = document.createElement('span');
                   b.className = 'verified-badge';
                   b.style.cssText = 'flex-shrink:0;';
@@ -4457,7 +4542,7 @@
                 label.style.cssText = 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;';
                 const chk = document.createElement('input');
                 chk.type = 'checkbox';
-                chk.checked = !!u.is_chatify_verified;
+                chk.checked = !!u.is_messify_verified;
                 chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
                 const slider = document.createElement('span');
                 slider.className = 'slider-bg';
@@ -4503,7 +4588,7 @@
                   if (Array.isArray(allUsersData)) {
                     const userObj = allUsersData.find(x => Number(x.account_id) === targetId);
                     if (userObj) {
-                      userObj.is_chatify_verified = newVal;
+                      userObj.is_messify_verified = newVal;
                     }
                   }
                   if (typeof renderSidebarUsers === 'function') {
@@ -4556,7 +4641,7 @@
                       if (Array.isArray(allUsersData)) {
                         const userObj = allUsersData.find(x => Number(x.account_id) === targetId);
                         if (userObj) {
-                          userObj.is_chatify_verified = !newVal;
+                          userObj.is_messify_verified = !newVal;
                         }
                       }
                       if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
@@ -4596,7 +4681,7 @@
                     if (Array.isArray(allUsersData)) {
                       const userObj = allUsersData.find(x => Number(x.account_id) === targetId);
                       if (userObj) {
-                        userObj.is_chatify_verified = !newVal;
+                        userObj.is_messify_verified = !newVal;
                       }
                     }
                     if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
@@ -6128,7 +6213,7 @@
     // Custom Group Chat (GC) Modals & Interactions
     // =========================================================================
 
-    window._gcSelectedMembers = new Map(); // account_id -> { account_id, full_name, avatar_url, is_chatify_verified }
+    window._gcSelectedMembers = new Map(); // account_id -> { account_id, full_name, avatar_url, is_messify_verified }
     let _gcSearchTimer = null;
     let _addGcSearchTimer = null;
 
@@ -6236,7 +6321,7 @@
                 nameTextSpan.title = u.full_name;
                 nameSpan.appendChild(nameTextSpan);
 
-                if (u.is_chatify_verified) {
+                if (u.is_messify_verified) {
                   const b = document.createElement('span');
                   b.className = 'verified-badge';
                   b.style.cssText = 'flex-shrink:0;';
@@ -6349,7 +6434,7 @@
             lastTimestamp: nowTs,
             unreadCount: 0,
             is_newly_added: false,
-            is_chatify_verified: false,
+            is_messify_verified: false,
             avatar_url: 'cspc.webp'
           };
           if (Array.isArray(allUsersData)) {
@@ -6494,7 +6579,7 @@
                 nameTextSpan.title = u.full_name;
                 nameSpan.appendChild(nameTextSpan);
 
-                if (u.is_chatify_verified) {
+                if (u.is_messify_verified) {
                   const b = document.createElement('span');
                   b.className = 'verified-badge';
                   b.style.cssText = 'flex-shrink:0;';
@@ -6573,7 +6658,7 @@
                             account_id: u.account_id,
                             full_name: u.full_name,
                             avatar_url: u.avatar_url,
-                            is_chatify_verified: u.is_chatify_verified
+                            is_messify_verified: u.is_messify_verified
                           });
                         }
                         if (typeof reloadOfficeMembersList === 'function') {
@@ -6642,7 +6727,7 @@
       if (typeof allUsersData !== 'undefined' && Array.isArray(allUsersData)) {
         allUsersData.forEach(u => {
           if (!u.is_office_gc && !u.is_custom_gc) {
-            u.is_chatify_verified = false;
+            u.is_messify_verified = false;
           }
         });
       }

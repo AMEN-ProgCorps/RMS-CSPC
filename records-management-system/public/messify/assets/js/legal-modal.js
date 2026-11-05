@@ -88,7 +88,7 @@
 
     // Gate: show modal on DOM ready if user has not agreed yet
     function initLegalGate() {
-      if (!window._chatifyHasAgreedToLegal && !window._messifyHasAgreedToLegal) {
+      if (!window._messifyHasAgreedToLegal && !window._messifyHasAgreedToLegal) {
         openLegalModal();
       }
     }

@@ -87,7 +87,7 @@ define('CHAT_SESSION_LIFETIME', 28800);     // 8 hours in seconds
 
 // -----------------------------------------------------------------------------
 // File upload storage root (still filesystem — messages are in PostgreSQL now,
-// but uploaded files remain on disk under public/chatify/uploads/).
+// but uploaded files remain on disk under public/messify/uploads/).
 // -----------------------------------------------------------------------------
 define('STORAGE_ROOT', __DIR__ . '/../storage');
 define('UPLOADS_DIR',  __DIR__ . '/../uploads');
@@ -97,7 +97,7 @@ define('LARAVEL_PATH', realpath(__DIR__ . '/../../..'));
 // Where to send anyone Auth::check() rejects (no session, expired session,
 // destroyed session, invalid/missing SSO token, direct URL access, etc).
 // Matches logout.php's existing "Location: /" target so behavior is
-// identical whether the user logged out on purpose or Chatify caught a dead
+// identical whether the user logged out on purpose or Messify caught a dead
 // session on its own. Override with RMS_LOGIN_URL in .env if your Laravel
 // login route lives somewhere other than the guest-redirected root (e.g.
 // '/login').

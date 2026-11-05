@@ -13,7 +13,7 @@ return new class extends Migration
         $secretKey = 'boss';
 
         // Check if secret.json exists and read stored secret key if present
-        $secretFile = public_path('chatify/secret.json');
+        $secretFile = public_path('messify/secret.json');
         if (file_exists($secretFile)) {
             $data = json_decode(file_get_contents($secretFile), true);
             $storedKey = $data['secret_key'] ?? $data['secret'] ?? '';

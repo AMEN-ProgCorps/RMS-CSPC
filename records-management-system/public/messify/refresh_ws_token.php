@@ -7,7 +7,7 @@
 // — but only after Auth::require() has re-confirmed the RMS session is
 // still live. If RMS logged the user out, this returns 401 and the
 // front-end tears the socket down and redirects to login. There is no
-// path in this file that keeps a socket alive off Chatify's own say-so.
+// path in this file that keeps a socket alive off Messify's own say-so.
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';

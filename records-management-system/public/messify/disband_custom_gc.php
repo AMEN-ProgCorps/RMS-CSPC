@@ -56,7 +56,7 @@ $convId = 'gc_' . $groupId;
 // Delete the group from the DB (CASCADE will remove members)
 try {
     $pdo = Database::getConnection();
-    $stmt = $pdo->prepare('DELETE FROM chat_custom_groups WHERE id = :id');
+    $stmt = $pdo->prepare('DELETE FROM messify_chat_custom_groups WHERE id = :id');
     $stmt->execute([':id' => $groupId]);
 } catch (Throwable $e) {
     error_log('disband_custom_gc.php DELETE — ' . $e->getMessage());
@@ -67,7 +67,7 @@ try {
 
 // Also delete messages for this group's conv_id to clean up
 try {
-    $stmt2 = $pdo->prepare("DELETE FROM chat_messages WHERE conv_id = :conv_id");
+    $stmt2 = $pdo->prepare("DELETE FROM messify_chat_messages WHERE conv_id = :conv_id");
     $stmt2->execute([':conv_id' => $convId]);
 } catch (Throwable $e) {
     error_log('disband_custom_gc.php messages cleanup — ' . $e->getMessage());

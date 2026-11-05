@@ -50,7 +50,7 @@ if ($isCustomGc || ($isGlobal && str_starts_with($convId, 'gc_'))) {
 
     try {
         $pdo  = Database::getConnection();
-        $stmt = $pdo->prepare('SELECT account_id FROM chat_custom_group_members WHERE group_id = :gid');
+        $stmt = $pdo->prepare('SELECT account_id FROM messify_chat_custom_group_members WHERE group_id = :gid');
         $stmt->execute([':gid' => $gcId]);
         $memberRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $memberIds  = array_map(fn($r) => (int) $r['account_id'], $memberRows);
@@ -161,9 +161,9 @@ if (!ConversationManager::verifySecretKey($secret)) {
 }
 
 // ── Perform deletion via ConversationManager (PostgreSQL) ─────────────────────
-// NOTE: /clear no longer writes to chatify_chat_backup. It ONLY flags the
-// conversation inactive in chat_conversations (see deleteConversation()'s
-// admin branch) — chat_messages stays the single source of truth and is
+// NOTE: /clear no longer writes to messify_chat_backup. It ONLY flags the
+// conversation inactive in messify_chat_conversations (see deleteConversation()'s
+// admin branch) — messify_chat_messages stays the single source of truth and is
 // never touched or cloned here. Backups are now a separate, explicit admin
 // action (/backup — see backup_dm.php) so the two operations can't be
 // silently coupled again.

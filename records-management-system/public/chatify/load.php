@@ -254,6 +254,7 @@ for ($i = 0; $i < $msgCount; $i++) {
     $senderName  = $nameMap[$senderId] ?? 'Unknown User';
     $initials    = gcInitials($senderName);
     $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
+    $senderDisplayNameEsc = htmlspecialchars($senderName, ENT_QUOTES);
 
     // Resolve sender user info
     if (!isset($senderInfoCache[$senderId])) {
@@ -334,7 +335,7 @@ for ($i = 0; $i < $msgCount; $i++) {
         $rawTimestamp = htmlspecialchars($msg['timestamp'] ?? '', ENT_QUOTES);
         $replyToAttr  = !empty($msg['reply_to_msg_uuid']) ? " data-reply-to='" . htmlspecialchars($msg['reply_to_msg_uuid'], ENT_QUOTES) . "'" : '';
         $html .= "<div class='message-container {$msgClass} user-moved' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}'{$replyToAttr}>";
-        $html .= "<div class='message-avatar'>{$avatarInner}</div>";
+        $html .= "<div class='message-avatar' data-sender-name='{$senderDisplayNameEsc}'>{$avatarInner}</div>";
         $html .= "<div class='bubble-wrapper'>";
         $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
         $html .= $replyQuoteHtml;
@@ -353,7 +354,7 @@ for ($i = 0; $i < $msgCount; $i++) {
         $replyToAttr = !empty($msg['reply_to_msg_uuid']) ? " data-reply-to='" . htmlspecialchars($msg['reply_to_msg_uuid'], ENT_QUOTES) . "'" : '';
         $editCount = (int)($msg['edit_count'] ?? 0);
         $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}' data-edit-count='{$editCount}'{$replyToAttr}>";
-        $html .= "<div class='message-avatar'>{$avatarInner}</div>";
+        $html .= "<div class='message-avatar' data-sender-name='{$senderDisplayNameEsc}'>{$avatarInner}</div>";
 
         // Decrypt message content
         $content = safeDecrypt($msg['message'] ?? '');
@@ -497,7 +498,7 @@ for ($i = 0; $i < $msgCount; $i++) {
         $replyToAttr = !empty($msg['reply_to_msg_uuid']) ? " data-reply-to='" . htmlspecialchars($msg['reply_to_msg_uuid'], ENT_QUOTES) . "'" : '';
         $editCount = (int)($msg['edit_count'] ?? 0);
         $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}' data-edit-count='{$editCount}'{$replyToAttr}>";
-        $html .= "<div class='message-avatar'>{$avatarInner}</div>";
+        $html .= "<div class='message-avatar' data-sender-name='{$senderDisplayNameEsc}'>{$avatarInner}</div>";
         $html .= "<div class='bubble-wrapper'>";
         $html .= "<div class='message-click-timestamp show-timestamp'>{$fullTimeDisplay}</div>";
         $html .= $uploadBodyHtml;

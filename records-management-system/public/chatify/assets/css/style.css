@@ -3958,3 +3958,35 @@
       background: transparent !important;
       box-shadow: none !important;
     }
+
+    /* ── Avatar hover/click name tooltip ── */
+    .avatar-name-tooltip {
+      position: fixed;
+      background: rgba(18, 22, 31, 0.94);
+      color: #ffffff;
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: 6px;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 999999;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+      opacity: 0;
+      transform: translate(-50%, -4px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      line-height: 1.4;
+      letter-spacing: 0.01em;
+    }
+    .avatar-name-tooltip.visible {
+      opacity: 1;
+      transform: translate(-50%, -100%);
+    }
+
+    /* ── Read More Modal copy button styling ── */
+    #readMoreCopyBtn:hover {
+      background: var(--bg-drop-overlay, rgba(0, 0, 0, 0.05));
+    }
+    #readMoreCopyBtn:active {
+      transform: scale(0.96);
+    }

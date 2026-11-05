@@ -70,7 +70,7 @@ if ($searchQuery !== '') {
                 'lastMessage'         => '',
                 'lastTimestamp'       => 0,
                 'unreadCount'         => $officeGcUnreadCount,
-                'is_chatify_verified' => true,
+                'is_chatify_verified' => false,
                 'avatar_url'          => 'cspc.webp',
             ];
         }
@@ -93,7 +93,7 @@ if ($searchQuery !== '') {
                 'lastTimestamp'       => (int) ($cg['last_timestamp'] ?? 0),
                 'unreadCount'         => (int) ($cg['unread_count'] ?? 0),
                 'is_newly_added'      => !empty($cg['is_newly_added']),
-                'is_chatify_verified' => true,
+                'is_chatify_verified' => false,
                 'avatar_url'          => 'cspc.webp',
             ];
         }
@@ -250,7 +250,7 @@ if ($searchQuery !== '') {
             'lastMessage'         => $officeLastMsg,
             'lastTimestamp'       => $officeLastTs,
             'unreadCount'         => $officeGcUnreadCount,
-            'is_chatify_verified' => true,
+            'is_chatify_verified' => false,
             'avatar_url'          => 'cspc.webp',
         ];
     }
@@ -271,7 +271,7 @@ if ($searchQuery !== '') {
             'lastTimestamp'       => (int) ($cg['last_timestamp'] ?? 0),
             'unreadCount'         => (int) ($cg['unread_count'] ?? 0),
             'is_newly_added'      => !empty($cg['is_newly_added']),
-            'is_chatify_verified' => true,
+            'is_chatify_verified' => false,
             'avatar_url'          => 'cspc.webp',
         ];
     }
@@ -444,7 +444,7 @@ if ($isAdmin) {
                         'office_name'         => $name,
                         'office_code'         => $code,
                         'avatar_url'          => 'cspc.webp',
-                        'is_chatify_verified' => true,
+                        'is_chatify_verified' => false,
                     ];
                 }
             } catch (Throwable $e) {
@@ -473,7 +473,7 @@ if ($isAdmin) {
                         'office_name'         => null,
                         'office_code'         => null,
                         'avatar_url'          => 'cspc.webp',
-                        'is_chatify_verified' => true,
+                        'is_chatify_verified' => false,
                     ];
                 }
             } catch (Throwable $e) {

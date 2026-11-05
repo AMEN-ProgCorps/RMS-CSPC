@@ -315,7 +315,7 @@
       const senderLabel = escapeHtml(displayName.toLowerCase());
 
       container.innerHTML = `
-        <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
+        <div class="message-avatar" data-sender-name="${escapeHtml(displayName)}">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
         <div class="bubble-wrapper">
           <div class="message-click-timestamp">${escapeHtml(timeDisplay)}</div>
           ${replyQuoteHtml}
@@ -444,7 +444,7 @@
         : `<div class="message-content">${escapeHtml(msgText)}</div>`;
 
       container.innerHTML = `
-        <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
+        <div class="message-avatar" data-sender-name="${escapeHtml(displayName)}">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
         <div class="bubble-wrapper">
           <div class="message-click-timestamp">${escapeHtml(timeDisplay)}</div>
           ${replyQuoteHtml}
@@ -1447,48 +1447,54 @@
             }
           }
         } else if (data.type === 'verification_update') {
-          // Broadcast from set_verification.php when Super Admin toggles a user's badge
-          const changedId = Number(data.account_id);
-          const nowVerified = !!data.is_verified;
-          if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.add) {
-            if (nowVerified) {
-              verifiedAccountIds.add(changedId);
-            } else {
-              verifiedAccountIds.delete(changedId);
+          // Broadcast from set_verification.php or reset_all_verifications.php
+          if (data.reset_all) {
+            if (typeof window.applyAllBadgesResetLocally === 'function') {
+              window.applyAllBadgesResetLocally();
             }
-          }
-          if (Array.isArray(window.verifiedAccountIds)) {
-            if (nowVerified && !window.verifiedAccountIds.includes(changedId)) {
-              window.verifiedAccountIds.push(changedId);
-            } else if (!nowVerified) {
-              window.verifiedAccountIds = window.verifiedAccountIds.filter(id => Number(id) !== changedId);
+          } else {
+            const changedId = Number(data.account_id);
+            const nowVerified = !!data.is_verified;
+            if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.add) {
+              if (nowVerified) {
+                verifiedAccountIds.add(changedId);
+              } else {
+                verifiedAccountIds.delete(changedId);
+              }
             }
-          }
-          if (Array.isArray(allUsersData)) {
-            const userObj = allUsersData.find(u => Number(u.account_id) === changedId);
-            if (userObj) {
-              userObj.is_chatify_verified = nowVerified;
+            if (Array.isArray(window.verifiedAccountIds)) {
+              if (nowVerified && !window.verifiedAccountIds.includes(changedId)) {
+                window.verifiedAccountIds.push(changedId);
+              } else if (!nowVerified) {
+                window.verifiedAccountIds = window.verifiedAccountIds.filter(id => Number(id) !== changedId);
+              }
             }
-          }
-          // Re-render sidebar badges
-          if (typeof renderSidebarUsers === 'function') {
-            renderSidebarUsers();
-          }
-          // Re-apply header badge for current DM if it's the changed user
-          if (Number(activeDMAccountId) === changedId) {
-            const fnHeader = (typeof applyHeaderAdminBadge === 'function') ? applyHeaderAdminBadge : window.applyHeaderAdminBadge;
-            if (typeof fnHeader === 'function') fnHeader();
-          }
-          // Re-apply badges on all visible message-sender elements
-          const fnBadges = (typeof applyAdminBadges === 'function') ? applyAdminBadges : window.applyAdminBadges;
-          if (typeof fnBadges === 'function') fnBadges();
-          // If the User Verification modal is open, sync toggle rows in real-time
-          if (typeof window._syncVerifyModalRow === 'function') {
-            window._syncVerifyModalRow(changedId, nowVerified);
-          }
-          // If the Members modal (Office GC / Custom GC / DM) is open, sync verification badge in real-time
-          if (typeof window.syncOfficeMembersModalVerification === 'function') {
-            window.syncOfficeMembersModalVerification(changedId, nowVerified);
+            if (Array.isArray(allUsersData)) {
+              const userObj = allUsersData.find(u => Number(u.account_id) === changedId);
+              if (userObj) {
+                userObj.is_chatify_verified = nowVerified;
+              }
+            }
+            // Re-render sidebar badges
+            if (typeof renderSidebarUsers === 'function') {
+              renderSidebarUsers();
+            }
+            // Re-apply header badge for current DM if it's the changed user
+            if (Number(activeDMAccountId) === changedId) {
+              const fnHeader = (typeof applyHeaderAdminBadge === 'function') ? applyHeaderAdminBadge : window.applyHeaderAdminBadge;
+              if (typeof fnHeader === 'function') fnHeader();
+            }
+            // Re-apply badges on all visible message-sender elements
+            const fnBadges = (typeof applyAdminBadges === 'function') ? applyAdminBadges : window.applyAdminBadges;
+            if (typeof fnBadges === 'function') fnBadges();
+            // If the User Verification modal is open, sync toggle rows in real-time
+            if (typeof window._syncVerifyModalRow === 'function') {
+              window._syncVerifyModalRow(changedId, nowVerified);
+            }
+            // If the Members modal (Office GC / Custom GC / DM) is open, sync verification badge in real-time
+            if (typeof window.syncOfficeMembersModalVerification === 'function') {
+              window.syncOfficeMembersModalVerification(changedId, nowVerified);
+            }
           }
         }
       };
@@ -2502,13 +2508,31 @@
         }
 
         const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
-        const targetIsVerified = u.is_office_gc || u.is_custom_gc || (vSet && vSet.has(Number(u.account_id))) || Boolean(u.is_chatify_verified);
+        const targetIsVerified = !u.is_office_gc && !u.is_custom_gc && ((vSet && vSet.has(Number(u.account_id))) || Boolean(u.is_chatify_verified));
 
         const sidebarBadge = nameRow.querySelector('.verified-badge');
         if (targetIsVerified) {
           if (!sidebarBadge) injectBadge(nameRow);
         } else if (sidebarBadge) {
           sidebarBadge.remove();
+        }
+
+        // Pill badge for Group Chats (OFFICE GC / CUSTOM GC)
+        const existingGcPill = nameRow.querySelector('.gc-pill-badge');
+        if (u.is_office_gc || u.is_custom_gc) {
+          const pillText = u.is_office_gc ? 'OFFICE GC' : 'CUSTOM GC';
+          if (!existingGcPill) {
+            const gcPill = document.createElement('span');
+            gcPill.className = 'gc-pill-badge';
+            gcPill.style.cssText = 'font-size:10px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 5px;border-radius:4px;text-transform:uppercase;flex-shrink:0;margin-left:4px;';
+            gcPill.textContent = pillText;
+            nameRow.appendChild(gcPill);
+          } else {
+            existingGcPill.textContent = pillText;
+            existingGcPill.style.display = 'inline-block';
+          }
+        } else if (existingGcPill) {
+          existingGcPill.remove();
         }
 
         // "NEW" badge for newly added Custom GCs
@@ -2527,21 +2551,30 @@
         if (officeEl) {
           let newOffice = '';
           if (u.is_custom_gc) {
-            newOffice = 'Custom GC';
+            newOffice = 'Custom Group Chat';
           } else if (u.is_office_gc) {
-            newOffice = 'OFFICE GC';
+            newOffice = (u.office_name && u.office_name !== u.name) ? u.office_name : ((window.currentOfficeInfo && window.currentOfficeInfo.office_name) ? window.currentOfficeInfo.office_name : (u.office_name || 'College of Computer Studies'));
           } else {
             newOffice = u.office_name ? u.office_name : 'No office assigned';
           }
           if (officeEl.textContent !== newOffice) {
             officeEl.textContent = newOffice;
           }
-          if (u.is_custom_gc || u.is_office_gc || u.office_name) {
-            officeEl.style.color = '#1b74e4';
+          if (u.is_custom_gc || u.is_office_gc) {
+            officeEl.style.color = 'var(--text-secondary)';
+            officeEl.style.fontSize = '12px';
             officeEl.style.fontStyle = 'normal';
+            officeEl.style.fontWeight = '400';
+          } else if (u.office_name) {
+            officeEl.style.color = '#1b74e4';
+            officeEl.style.fontSize = '11px';
+            officeEl.style.fontStyle = 'normal';
+            officeEl.style.fontWeight = '500';
           } else {
             officeEl.style.color = 'var(--text-secondary)';
+            officeEl.style.fontSize = '11px';
             officeEl.style.fontStyle = 'italic';
+            officeEl.style.fontWeight = '400';
           }
           officeEl.style.display = 'block';
         }
@@ -3144,9 +3177,26 @@
     // ── Modal shown when tapping "Read more..." on a long chat message ──
     // Renders the complete message (with clickable links) — used for both
     // Global Chat and Private (DM) chat, since both feed the same bubbles.
+    let _currentReadMoreFullText = '';
+
+    function resetReadMoreCopyBtn() {
+      const copyBtn = document.getElementById('readMoreCopyBtn');
+      if (!copyBtn) return;
+      const label = copyBtn.querySelector('.copy-label');
+      const icon = copyBtn.querySelector('.copy-icon');
+      if (label) label.textContent = 'Copy';
+      copyBtn.style.borderColor = 'var(--border-color)';
+      copyBtn.style.color = 'var(--text-primary)';
+      if (icon) {
+        icon.innerHTML = '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
+      }
+    }
+
     function openReadMoreModal(fullText) {
       if (!readMoreModal || !readMoreModalBody) return;
       const prevST = chatBox ? chatBox.scrollTop : null;
+      _currentReadMoreFullText = fullText || '';
+      resetReadMoreCopyBtn();
       readMoreModalBody.textContent = fullText || '';
       delete readMoreModalBody.dataset.linkified; // allow re-linkifying on every open
       linkifyContent(readMoreModalBody);
@@ -3163,10 +3213,61 @@
       readMoreModal.classList.remove('active');
       readMoreModal.setAttribute('aria-hidden', 'true');
       document.body.style.overflow = '';
+      resetReadMoreCopyBtn();
     }
 
     if (readMoreModalClose) {
       readMoreModalClose.addEventListener('click', closeReadMoreModal);
+    }
+
+    // Copy button on top right of Full Message Modal
+    const readMoreCopyBtn = document.getElementById('readMoreCopyBtn');
+    if (readMoreCopyBtn) {
+      readMoreCopyBtn.addEventListener('click', function() {
+        const textToCopy = _currentReadMoreFullText || (readMoreModalBody ? readMoreModalBody.innerText : '');
+        if (!textToCopy) return;
+
+        const showCopiedState = () => {
+          const label = readMoreCopyBtn.querySelector('.copy-label');
+          const icon = readMoreCopyBtn.querySelector('.copy-icon');
+          if (label) label.textContent = 'Copied!';
+          readMoreCopyBtn.style.borderColor = '#10b981';
+          readMoreCopyBtn.style.color = '#10b981';
+          if (icon) {
+            icon.innerHTML = '<polyline points="20 6 9 17 4 12"/>';
+          }
+          setTimeout(() => {
+            resetReadMoreCopyBtn();
+          }, 2000);
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(textToCopy).then(showCopiedState).catch(() => {
+            fallbackCopy(textToCopy, showCopiedState);
+          });
+        } else {
+          fallbackCopy(textToCopy, showCopiedState);
+        }
+      });
+    }
+
+    function fallbackCopy(text, cb) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.top = '-9999px';
+        ta.style.left = '-9999px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        if (typeof cb === 'function') cb();
+      } catch (err) {
+        console.error('Fallback copy failed', err);
+      }
     }
 
     // ── "Read more" truncation for long messages ──────────────────────────
@@ -3882,7 +3983,7 @@
             lastTimestamp: Number(group.lastTimestamp) || Math.floor(Date.now() / 1000),
             unreadCount: 0,
             is_newly_added: false,
-            is_chatify_verified: true,
+            is_chatify_verified: false,
             avatar_url: 'cspc.webp'
           });
         }
@@ -4760,14 +4861,17 @@
               nameEl.style.fontSize = '13px';
               nameRow.appendChild(nameEl);
 
-              const checkBadge = document.createElement('span');
-              checkBadge.className = 'verified-badge';
-              checkBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-              nameRow.appendChild(checkBadge);
+              const isGroupChat = (ch.channel_type === 'custom_gc' || ch.channel_type === 'office_gc');
+              if (!isGroupChat) {
+                const checkBadge = document.createElement('span');
+                checkBadge.className = 'verified-badge';
+                checkBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                nameRow.appendChild(checkBadge);
+              }
 
               const badge = document.createElement('span');
               badge.style.cssText = 'font-size:10px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 5px;border-radius:4px;text-transform:uppercase;flex-shrink:0;margin-left:4px;';
-              badge.textContent = ch.channel_type === 'global' ? 'Global' : (ch.channel_type === 'custom_gc' ? 'Custom GC' : 'Office GC');
+              badge.textContent = ch.channel_type === 'global' ? 'Global' : (ch.channel_type === 'custom_gc' ? 'CUSTOM GC' : 'OFFICE GC');
               nameRow.appendChild(badge);
 
               msgEl = document.createElement('div');
@@ -4919,17 +5023,10 @@
             nameEl.style.fontSize = '13px';
             nameRow.appendChild(nameEl);
 
-            if (c.isCustomGc) {
-              const vBadge = document.createElement('span');
-              vBadge.className = 'verified-badge';
-              vBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-              nameRow.appendChild(vBadge);
-            }
-
             const badge = document.createElement('span');
             badge.className = 'custom-gc-badge';
             badge.style.cssText = 'font-size:10px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 5px;border-radius:4px;text-transform:uppercase;flex-shrink:0;margin-left:4px;';
-            badge.textContent = 'Custom GC';
+            badge.textContent = 'CUSTOM GC';
             badge.style.display = c.isCustomGc ? 'inline-block' : 'none';
             nameRow.appendChild(badge);
 

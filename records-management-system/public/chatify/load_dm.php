@@ -236,6 +236,7 @@ for ($i = 0; $i < $msgCount; $i++) {
     $type        = $msg['type'] ?? 'text';
 
     $senderName  = $nameMap[$senderId] ?? 'Unknown User';
+    $senderDisplayNameEsc = htmlspecialchars($senderName, ENT_QUOTES);
     $initials    = dmInitials2($senderName);
     $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
 
@@ -413,7 +414,7 @@ for ($i = 0; $i < $msgCount; $i++) {
     $replyToAttr = !empty($msg['reply_to_msg_uuid']) ? " data-reply-to='" . htmlspecialchars($msg['reply_to_msg_uuid'], ENT_QUOTES) . "'" : '';
     $editCount = (int)($msg['edit_count'] ?? 0);
     $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}' data-edit-count='{$editCount}'{$replyToAttr}>";
-    $html .= "<div class='message-avatar'>{$avatarInner}</div>";
+    $html .= "<div class='message-avatar' data-sender-name='{$senderDisplayNameEsc}'>{$avatarInner}</div>";
     $html .= $msgBodyHtml;
     $html .= "</div>"; // .message-container
 }

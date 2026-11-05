@@ -95,8 +95,9 @@
       if (!headerBadgeParent) return;
       const existing = headerBadgeParent.querySelector('.verified-badge');
       const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
-      const isChannelInSpy = !!(activeAdminConv && (activeAdminConv === 'global' || activeAdminConv.startsWith('office_')));
-      const shouldHave = !!(isGlobalChat || isChannelInSpy || (activeDMAccountId && vSet && vSet.has(Number(activeDMAccountId))));
+      const isTrueGlobalChat = (isGlobalChat && (window.activeChannel === 'global' || !window.activeChannel)) || (activeAdminConv === 'global');
+      const isVerifiedUserDm = Boolean(activeDMAccountId && vSet && vSet.has(Number(activeDMAccountId)));
+      const shouldHave = isTrueGlobalChat || isVerifiedUserDm;
       if (shouldHave) {
         if (!existing) injectBadge(headerBadgeParent);
       } else if (existing) {
@@ -3642,7 +3643,7 @@
           <div class="message-bubble sending-bubble">
             <div class="message-content sending-dots"><span></span><span></span><span></span></div>
           </div>
-          <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
+          <div class="message-avatar" data-sender-name="${escapeHtml(name)}">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
         `;
         sendingBubble.addEventListener('animationend', () => sendingBubble.classList.remove('msg-animate-sent'), { once: true });
         // Append optimistic sending bubble into floating overlay so it doesn't reflow chat
@@ -3877,7 +3878,7 @@
                     return `<div class="reply-quote" data-reply-to="${escapeHtml(replyUuid)}"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
                   })();
                   sendingBubble.innerHTML = `
-                    <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
+                    <div class="message-avatar" data-sender-name="${escapeHtml(name)}">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
                     <div class="bubble-wrapper">
                       <div class="message-click-timestamp">${fullTimeDisplay}</div>
                       ${replyQuoteHtml}
@@ -6348,7 +6349,7 @@
             lastTimestamp: nowTs,
             unreadCount: 0,
             is_newly_added: false,
-            is_chatify_verified: true,
+            is_chatify_verified: false,
             avatar_url: 'cspc.webp'
           };
           if (Array.isArray(allUsersData)) {
@@ -6610,3 +6611,240 @@
         }, 300);
       });
     }
+
+    // ── Reset All Verified Badges (Super Admin only) ──────────────────────────
+    window.openResetAllBadgesConfirmModal = function() {
+      const m = document.getElementById('resetAllBadgesModal');
+      if (!m) return;
+      m.style.display = 'flex';
+      m.classList.add('active');
+      m.setAttribute('aria-hidden', 'false');
+    };
+
+    window.closeResetAllBadgesConfirmModal = function() {
+      const m = document.getElementById('resetAllBadgesModal');
+      if (!m) return;
+      m.style.display = 'none';
+      m.classList.remove('active');
+      m.setAttribute('aria-hidden', 'true');
+    };
+
+    window.applyAllBadgesResetLocally = function() {
+      if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.clear) {
+        verifiedAccountIds.clear();
+      }
+      if (Array.isArray(window.verifiedAccountIds)) {
+        window.verifiedAccountIds = [];
+      }
+      if (window.verifiedAccountIdsSet && window.verifiedAccountIdsSet.clear) {
+        window.verifiedAccountIdsSet.clear();
+      }
+      if (typeof allUsersData !== 'undefined' && Array.isArray(allUsersData)) {
+        allUsersData.forEach(u => {
+          if (!u.is_office_gc && !u.is_custom_gc) {
+            u.is_chatify_verified = false;
+          }
+        });
+      }
+
+      // Remove verified check badges from user messages in the chat box
+      document.querySelectorAll('.message-sender .verified-badge').forEach(b => b.remove());
+
+      // Remove verified badges from user items in the sidebar (never remove from #globalChatItem or group chats)
+      document.querySelectorAll('.user-item:not(#globalChatItem):not(.office-gc-item):not(.custom-gc-item) .user-name-row .verified-badge').forEach(b => b.remove());
+
+      // Remove verified badges in office members list or custom GC members list
+      document.querySelectorAll('#officeMembersList .verified-badge, #addGcMembersList .verified-badge').forEach(b => b.remove());
+
+      // Update toggles in search results if the modal is currently open
+      const searchResults = document.getElementById('verifySearchResults');
+      if (searchResults) {
+        searchResults.querySelectorAll('input[type="checkbox"]').forEach(chk => {
+          chk.checked = false;
+          const slider = chk.parentElement?.querySelector('.slider-bg');
+          const knob = chk.parentElement?.querySelector('.slider-knob');
+          if (slider) slider.style.background = 'var(--border-color)';
+          if (knob) knob.style.left = '3px';
+        });
+        searchResults.querySelectorAll('.verify-name-span .verified-badge').forEach(b => b.remove());
+      }
+
+      if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
+      if (typeof applyHeaderAdminBadge === 'function') applyHeaderAdminBadge();
+      if (typeof applyAdminBadges === 'function') applyAdminBadges();
+    };
+
+    window.confirmResetAllBadges = function() {
+      const btn = document.getElementById('confirmResetAllBadgesBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Resetting...';
+      }
+
+      fetch('reset_all_verifications.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+        .then(r => r.json())
+        .then(res => {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Reset';
+          }
+          window.closeResetAllBadgesConfirmModal();
+          if (res && res.ok) {
+            window.applyAllBadgesResetLocally();
+            if (typeof showActionFeedbackToast === 'function') {
+              showActionFeedbackToast('All verified badges have been reset.');
+            } else if (typeof showToastNotification === 'function') {
+              showToastNotification('All verified badges have been reset.');
+            }
+          } else {
+            alert(res?.error || 'Failed to reset badges.');
+          }
+        })
+        .catch(err => {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Reset';
+          }
+          window.closeResetAllBadgesConfirmModal();
+          console.error('Reset all badges network error:', err);
+        });
+    };
+
+    // ── Avatar Name Tooltip (Custom GC, Office GC, and Super Admin Spy Mode) ──
+    (function initAvatarNameTooltip() {
+      let _avatarTipEl = null;
+      let _currentTipAvatar = null;
+      let _avatarHoverTimer = null;
+
+      function shouldShowAvatarTooltip() {
+        // 1. Super Admin Spy Mode
+        if (typeof activeAdminConv !== 'undefined' && activeAdminConv) {
+          return true;
+        }
+        // 2. Custom GC or Office GC
+        if (typeof isGlobalChat !== 'undefined' && isGlobalChat) {
+          if (window.activeChannel === 'office' || window.activeChannel === 'gc') {
+            return true;
+          }
+          if (window.activeOfficeId || window.activeCustomGcId || window.activeCustomGc) {
+            return true;
+          }
+          return true; // Any group chat view in isGlobalChat
+        }
+        // Direct message (DM) between 2 users -> do not show
+        return false;
+      }
+
+      function resolveSenderName(avatarEl) {
+        if (!avatarEl) return '';
+        const direct = avatarEl.getAttribute('data-sender-name') || avatarEl.dataset?.senderName;
+        if (direct && direct.trim()) return direct.trim();
+
+        const container = avatarEl.closest('.message-container');
+        if (!container) return '';
+        const sId = container.getAttribute('data-sender-id') || container.dataset?.senderId;
+        if (!sId) return '';
+        const senderNum = Number(sId);
+
+        if (typeof wsConfig !== 'undefined' && senderNum === Number(wsConfig.accountId)) {
+          return wsConfig.name || 'You';
+        }
+        if (typeof allUsersData !== 'undefined' && Array.isArray(allUsersData)) {
+          const u = allUsersData.find(x => Number(x.account_id) === senderNum);
+          if (u) return u.full_name || u.name || u.username;
+        }
+        return '';
+      }
+
+      function showAvatarTooltip(avatarEl, name) {
+        hideAvatarTooltip();
+        if (!avatarEl || !name) return;
+
+        const tip = document.createElement('div');
+        tip.className = 'avatar-name-tooltip';
+        tip.textContent = name;
+        document.body.appendChild(tip);
+        _avatarTipEl = tip;
+        _currentTipAvatar = avatarEl;
+
+        const rect = avatarEl.getBoundingClientRect();
+        const top = Math.max(10, rect.top - 6);
+        let left = rect.left + rect.width / 2;
+
+        tip.style.top = top + 'px';
+        tip.style.left = left + 'px';
+
+        // Force layout then make visible
+        tip.offsetHeight;
+        tip.classList.add('visible');
+
+        // Keep within viewport horizontally
+        const tipRect = tip.getBoundingClientRect();
+        const pad = 10;
+        if (tipRect.left < pad) {
+          tip.style.left = (pad + tipRect.width / 2) + 'px';
+        } else if (tipRect.right > window.innerWidth - pad) {
+          tip.style.left = (window.innerWidth - pad - tipRect.width / 2) + 'px';
+        }
+      }
+
+      function hideAvatarTooltip() {
+        if (_avatarHoverTimer) {
+          clearTimeout(_avatarHoverTimer);
+          _avatarHoverTimer = null;
+        }
+        if (_avatarTipEl) {
+          _avatarTipEl.remove();
+          _avatarTipEl = null;
+          _currentTipAvatar = null;
+        }
+      }
+
+      // Desktop Hover: 350ms delay
+      document.addEventListener('mouseover', function(e) {
+        const avatar = e.target.closest('.message-avatar');
+        if (!avatar) return;
+        if (!shouldShowAvatarTooltip()) return;
+        const name = resolveSenderName(avatar);
+        if (!name) return;
+        clearTimeout(_avatarHoverTimer);
+        _avatarHoverTimer = setTimeout(() => {
+          showAvatarTooltip(avatar, name);
+        }, 350);
+      });
+
+      document.addEventListener('mouseout', function(e) {
+        const avatar = e.target.closest('.message-avatar');
+        if (!avatar) return;
+        if (e.relatedTarget && avatar.contains(e.relatedTarget)) return;
+        hideAvatarTooltip();
+      });
+
+      // Mobile Tap / Desktop Click: immediate toggle
+      document.addEventListener('click', function(e) {
+        const avatar = e.target.closest('.message-avatar');
+        if (avatar && shouldShowAvatarTooltip()) {
+          const name = resolveSenderName(avatar);
+          if (name) {
+            if (_currentTipAvatar === avatar) {
+              hideAvatarTooltip();
+            } else {
+              clearTimeout(_avatarHoverTimer);
+              showAvatarTooltip(avatar, name);
+            }
+            return;
+          }
+        }
+        hideAvatarTooltip();
+      });
+
+      // Hide tooltip on scroll in chatBox or window
+      const chatBox = document.getElementById('chatBox');
+      if (chatBox) {
+        chatBox.addEventListener('scroll', hideAvatarTooltip, { passive: true });
+      }
+      window.addEventListener('scroll', hideAvatarTooltip, { passive: true });
+    })();

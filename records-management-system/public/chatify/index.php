@@ -247,7 +247,7 @@ try {
     <!-- Sidebar -->
     <div class="sidebar no-anim" id="sidebar">
       <div class="sidebar-header">
-        <span style="flex-grow:1;">Chatify</span>
+        <span style="flex-grow:1;">Messify</span>
         <div class="sidebar-header-actions">
           <button id="notificationBellBtn" class="clear-button sidebar-action-btn" title="Notifications" style="position:relative;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
@@ -579,9 +579,13 @@ try {
        Same markup renders full messages from Global Chat and from Private
        (DM) chat — both funnel through the same #chatBox message bubbles. -->
   <div class="modal" id="readMoreModal" aria-hidden="true">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Full Message</h3>
+    <div class="modal-content" style="max-width:540px;">
+      <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border-color);">
+        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Full Message</h3>
+        <button type="button" id="readMoreCopyBtn" title="Copy full message" style="background:none;border:1px solid var(--border-color);border-radius:6px;padding:5px 10px;cursor:pointer;color:var(--text-primary);display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;transition:all 0.15s;outline:none;" onmouseover="this.style.background='var(--bg-drop-overlay)'" onmouseout="this.style.background='none'">
+          <svg class="copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <span class="copy-label">Copy</span>
+        </button>
       </div>
       <div class="modal-body" id="readMoreModalBody"></div>
       <div class="modal-footer">
@@ -709,6 +713,10 @@ try {
       <div class="modal-header" style="padding:16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:10px;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
         <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">User Verification</h3>
+        <button type="button" id="resetAllBadgesBtn" onclick="openResetAllBadgesConfirmModal()" title="Remove All Verified Badges" style="margin-left:auto;background:none;border:1px solid #ef4444;color:#ef4444;padding:4px 9px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all 0.15s;outline:none;" onmouseover="this.style.background='#ef4444';this.style.color='#fff';" onmouseout="this.style.background='none';this.style.color='#ef4444';">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          <span>Reset All</span>
+        </button>
       </div>
       <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;text-align:left;">
         <p style="margin:0;font-size:13px;color:var(--text-secondary);line-height:1.5;">Search for a user by name and toggle their blue verification badge.</p>
@@ -882,6 +890,22 @@ try {
       </div>
       <div class="modal-footer">
         <button type="button" class="modal-button confirm-button" id="editExpiredCloseBtn" style="border-right:none;" onclick="closeEditExpiredModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset All Badges Confirmation Modal (Exact replica of editExpiredModal structure) -->
+  <div class="modal" id="resetAllBadgesModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content" style="max-width:320px;min-height:0;">
+      <div class="modal-header">
+        <h3 id="resetAllBadgesTitle" style="color:#c0392b;">Reset All Badges</h3>
+      </div>
+      <div class="modal-body" id="resetAllBadgesBody">
+        Are you sure you want to remove the verified badge from all users?
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" onclick="closeResetAllBadgesConfirmModal()">Cancel</button>
+        <button type="button" class="modal-button confirm-button" id="confirmResetAllBadgesBtn" style="color:#c0392b;font-weight:700;border-right:none;" onclick="confirmResetAllBadges()">Reset</button>
       </div>
     </div>
   </div>

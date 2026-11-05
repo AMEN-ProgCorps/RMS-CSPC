@@ -238,6 +238,7 @@ for ($i = 0; $i < $msgCount; $i++) {
     }
 
     $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
+    $senderDisplayNameEsc = htmlspecialchars($senderName, ENT_QUOTES);
     $bodyHtml    = '';
 
     // Check if sender has been moved to another office or has no office assigned
@@ -405,7 +406,7 @@ for ($i = 0; $i < $msgCount; $i++) {
     $editCount = (int)($msg['edit_count'] ?? 0);
     $userMovedClass = $isUserMoved ? ' user-moved' : '';
     $html .= "<div class='message-container received{$userMovedClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}' data-edit-count='{$editCount}'{$replyToAttr}>";
-    $html .= "<div class='message-avatar'>{$avatarInner}</div>";
+    $html .= "<div class='message-avatar' data-sender-name='{$senderDisplayNameEsc}'>{$avatarInner}</div>";
     $html .= "<div class='bubble-wrapper'>";
     $tsClass = ($type !== 'text') ? 'message-click-timestamp show-timestamp' : 'message-click-timestamp';
     $html .= "<div class='{$tsClass}'>{$fullTimeDisplay}</div>";

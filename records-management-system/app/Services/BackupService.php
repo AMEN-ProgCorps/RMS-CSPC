@@ -412,6 +412,8 @@ class BackupService
 
                     foreach ($chunks as $chunk) {
                         $filteredChunk = [];
+                        $allChunkKeys = [];
+
                         foreach ($chunk as $row) {
                             $rowArr = (array) $row;
                             // Backward compatibility: map legacy column names from older backups
@@ -427,11 +429,39 @@ class BackupService
 
                             $filteredRow = array_intersect_key($rowArr, $dbColumns);
                             if (!empty($filteredRow)) {
+                                foreach (array_keys($filteredRow) as $k) {
+                                    $allChunkKeys[$k] = true;
+                                }
                                 $filteredChunk[] = $filteredRow;
                             }
                         }
+
                         if (!empty($filteredChunk)) {
-                            DB::table($tableName)->insert($filteredChunk);
+                            // Normalize every row so all rows in the batch have identical keys in identical order
+                            $targetCols = array_keys($allChunkKeys);
+                            sort($targetCols);
+
+                            $normalizedChunk = [];
+                            foreach ($filteredChunk as $r) {
+                                $normalizedRow = [];
+                                foreach ($targetCols as $col) {
+                                    $normalizedRow[$col] = array_key_exists($col, $r) ? $r[$col] : null;
+                                }
+                                $normalizedChunk[] = $normalizedRow;
+                            }
+
+                            try {
+                                DB::table($tableName)->insert($normalizedChunk);
+                            } catch (\Throwable $chunkError) {
+                                // Fallback: insert row-by-row if a batch fails so individual rows don't abort restoration
+                                foreach ($normalizedChunk as $singleRow) {
+                                    try {
+                                        DB::table($tableName)->insert($singleRow);
+                                    } catch (\Throwable $singleErr) {
+                                        Log::warning("Row restore fallback failed on [{$tableName}]: " . $singleErr->getMessage());
+                                    }
+                                }
+                            }
                         }
                     }
                 }

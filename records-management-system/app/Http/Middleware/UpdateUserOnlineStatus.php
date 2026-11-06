@@ -50,6 +50,8 @@ class UpdateUserOnlineStatus
         $secStatusTbl   = $tables['sys_security_status'];
 
         // 1. Determine configured session inactivity / tab-close timeout (Default: 15 minutes, cached 5 min)
+        // Client shows a warning after $timeoutMinutes of idle, then allows +1 minute grace
+        // before logout — keep the server threshold aligned so polls don't kick mid-warning.
         $timeoutMinutes = \Illuminate\Support\Facades\Cache::remember('tab_close_idle_timeout_minutes', 300, function () use ($sysSettingsTbl) {
             try {
                 $settingVal = DB::table($sysSettingsTbl)->where('key', 'tab_close_idle_timeout_minutes')->value('value');
@@ -59,12 +61,13 @@ class UpdateUserOnlineStatus
             } catch (\Throwable) {}
             return 15;
         });
+        $logoutMinutes = $timeoutMinutes + 1;
 
         $isBackgroundPoll = $this->isAutomatedBackgroundPoll($request);
         $clientActiveMs = (int) ($_COOKIE['rms_client_active'] ?? 0);
         $clientAgeMs = $clientActiveMs > 0 ? ((int) round(microtime(true) * 1000) - $clientActiveMs) : PHP_INT_MAX;
         $clientFresh = $clientActiveMs > 0
-            && $clientAgeMs < ($timeoutMinutes * 60 * 1000)
+            && $clientAgeMs < ($logoutMinutes * 60 * 1000)
             && $clientAgeMs > -120000;
 
         if ($user) {
@@ -139,7 +142,7 @@ class UpdateUserOnlineStatus
             // even though the user is actively chatting — the poll should observe, not enforce.
             if (! $isBackgroundPoll && ! $clientFresh && $details && $details->last_online_time !== null) {
                 $lastOnline = \Carbon\Carbon::parse($details->last_online_time);
-                if ($lastOnline->diffInMinutes($now) >= $timeoutMinutes) {
+                if ($lastOnline->diffInMinutes($now) >= $logoutMinutes) {
                     $statusId = 3;
                     try {
                         if (DB::table($secStatusTbl)->where('status_id', 8)->exists()) {
@@ -180,12 +183,12 @@ class UpdateUserOnlineStatus
             }
         }
 
-        // 2. Mark users who haven't made a request in $timeoutMinutes as offline (throttled to once per minute)
+        // 2. Mark users who haven't made a request in $logoutMinutes as offline (throttled to once per minute)
         if (\Illuminate\Support\Facades\Cache::add('rms_offline_cleanup_lock', true, 60)) {
             try {
                 DB::table($accDetailsTbl)
                     ->where('is_currently_online', true)
-                    ->where('last_online_time', '<', now()->subMinutes($timeoutMinutes))
+                    ->where('last_online_time', '<', now()->subMinutes($logoutMinutes))
                     ->update(['is_currently_online' => false]);
             } catch (\Throwable) {}
         }

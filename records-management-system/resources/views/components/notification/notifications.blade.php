@@ -190,7 +190,7 @@ new class extends Component {
                 );
             });
             if ($latest) {
-                $this->dispatch('rms-notification-overlay-show', [
+                $this->dispatchBrowserOverlay([
                     'id' => (int) $latest->id,
                     'subsystem_name' => (string) ($latest->subsystem_name ?? 'RMS Notification'),
                     'content' => (string) ($latest->content ?? ''),
@@ -200,6 +200,30 @@ new class extends Component {
             }
         }
         $this->hasMounted = true;
+    }
+
+    /**
+     * Fire the popout via window CustomEvent (same shape as Messify unread-count).
+     * Livewire's $this->dispatch(name, [array]) wraps the payload so Alpine
+     * receives detail as [{...}] and the overlay never opens.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function dispatchBrowserOverlay(array $payload): void
+    {
+        if (empty($payload['content'])) {
+            return;
+        }
+
+        $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+        if ($json === false) {
+            return;
+        }
+
+        // Sound is played by the Alpine overlay handler (triggerOverlay).
+        $this->js(
+            'window.dispatchEvent(new CustomEvent("rms-notification-overlay-show", { detail: '.$json.' }));'
+        );
     }
 
     /**
@@ -232,7 +256,13 @@ new class extends Component {
                 $mutedMap,
                 $notification['created_at'] ?? now()
             )) {
-                $this->dispatch('rms-notification-overlay-show', $notification);
+                $this->dispatchBrowserOverlay([
+                    'id' => (int) ($notification['id'] ?? 0),
+                    'subsystem_name' => (string) ($notification['subsystem_name'] ?? 'RMS Notification'),
+                    'content' => (string) ($notification['content'] ?? ''),
+                    'redirect_url' => ! empty($notification['redirect_url']) ? (string) $notification['redirect_url'] : null,
+                    'time' => (string) ($notification['time'] ?? 'Just now'),
+                ]);
             }
         } else {
             $latest = $this->notifications->first(function ($n) use ($mutedMap) {
@@ -244,7 +274,7 @@ new class extends Component {
                 );
             });
             if ($latest) {
-                $this->dispatch('rms-notification-overlay-show', [
+                $this->dispatchBrowserOverlay([
                     'id' => (int) $latest->id,
                     'subsystem_name' => (string) ($latest->subsystem_name ?? 'RMS Notification'),
                     'content' => (string) ($latest->content ?? ''),
@@ -618,6 +648,7 @@ new class extends Component {
 <div
     class="notif-wrapper"
     wire:poll.15s.keep-alive="loadNotifications"
+    data-notif-sound-url="{{ asset('sfx/ping-message.mp3') }}"
     x-data="{
         open: @entangle('showDropdown'),
         popoutEnabled: @entangle('popoutNotificationsEnabled'),
@@ -625,7 +656,12 @@ new class extends Component {
         overlayData: null,
         overlayTimer: null,
         unseenQueueCount: 0,
+        lastSoundAt: 0,
         triggerOverlay(data) {
+            // Livewire used to dispatch params as [{...}]; unwrap if needed.
+            if (Array.isArray(data)) {
+                data = data.length === 1 ? data[0] : (data[0] || null);
+            }
             if (!this.popoutEnabled || !data || !data.content) return;
             if (this.overlayVisible) {
                 this.unseenQueueCount++;
@@ -635,6 +671,31 @@ new class extends Component {
             this.overlayData = data;
             this.overlayVisible = true;
             this.startOverlayTimer();
+            // Play sound with the popout (skip offline catch-up welcome banner).
+            if (!data.is_catchup) {
+                this.playOverlaySound();
+            }
+        },
+        playOverlaySound() {
+            const now = Date.now();
+            if (now - this.lastSoundAt < 800) return;
+            this.lastSoundAt = now;
+            try {
+                if (typeof window.playRMSNotificationSound === 'function') {
+                    window.playRMSNotificationSound();
+                    return;
+                }
+                // Fallback when Messify widget (sound helper) is not on the page.
+                if (!window.__rmsNotifFallbackAudio) {
+                    const url = $el.getAttribute('data-notif-sound-url') || '';
+                    if (!url) return;
+                    window.__rmsNotifFallbackAudio = new Audio(url);
+                    window.__rmsNotifFallbackAudio.preload = 'auto';
+                    window.__rmsNotifFallbackAudio.volume = 0.8;
+                }
+                window.__rmsNotifFallbackAudio.currentTime = 0;
+                window.__rmsNotifFallbackAudio.play().catch(() => {});
+            } catch (e) {}
         },
         startOverlayTimer() {
             clearTimeout(this.overlayTimer);

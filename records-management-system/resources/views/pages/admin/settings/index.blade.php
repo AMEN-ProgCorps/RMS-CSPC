@@ -2265,7 +2265,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     <div class="setting-item" style="flex-direction: column; align-items: flex-start; gap: 8px;">
                         <div class="setting-details">
                             <span class="setting-title">Tab-Close & Inactivity Auto-Logout Timeout</span>
-                            <span class="setting-desc">Applies system-wide (Portal, DTS, RDP, DCS, Admin). Logs out users when idle or after tab close for the configured duration.</span>
+                            <span class="setting-desc">Applies system-wide (Portal, DTS, RDP, DCS, Admin). After this much idle time a stay-logged-in warning appears; users then have 60 seconds to respond before logout.</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 4px;">
                             <select wire:model="tabCloseIdleTimeoutMinutes" class="form-input" style="max-width: 220px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; cursor: pointer; background: #ffffff;">
@@ -2278,7 +2278,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                                 <option value="30">30 Minutes</option>
                                 <option value="60">60 Minutes (1 Hour)</option>
                             </select>
-                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Minutes until auto-logout</span>
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Minutes of idle before warning</span>
                         </div>
                     </div>
 

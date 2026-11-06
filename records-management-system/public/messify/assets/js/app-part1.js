@@ -1102,6 +1102,24 @@
             updateBellBadge();
             renderBellList();
           }
+        } else if (data.type === 'rms_system_notification') {
+          // Laravel DCS/system bell notice (e.g. controlled document distribution).
+          // Forward to the parent RMS shell so the popout + sound fire immediately.
+          console.log('Received WebSocket system notification:', data);
+          if (window.parent && window.parent !== window) {
+            try {
+              window.parent.postMessage({
+                type: 'MESSIFY_SYSTEM_NOTIFICATION',
+                notification: {
+                  id: data.id || null,
+                  subsystem_name: data.subsystem_name || 'RMS Notification',
+                  content: data.content || '',
+                  redirect_url: data.redirect_url || null,
+                  time: data.time || 'Just now'
+                }
+              }, '*');
+            } catch (e) {}
+          }
         } else if (data.type === 'office_admin_status_changed') {
           console.log('Received WebSocket real-time update notice:', data);
           if (window.currentOfficeInfo && Number(window.currentOfficeInfo.office_id) === Number(data.office_id)) {

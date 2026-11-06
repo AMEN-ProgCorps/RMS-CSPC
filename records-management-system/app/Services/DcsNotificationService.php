@@ -6,6 +6,7 @@
 
 namespace App\Services;
 
+use App\Helpers\RealtimePushHelper;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -68,10 +69,11 @@ class DcsNotificationService
                 'created_at'   => now(),
             ]);
 
+            $createdAt = now();
             $notificationId = DB::table($notifTbl)->insertGetId([
                 'office'     => $canonical,
                 'contents'   => $contentId,
-                'created_at' => now(),
+                'created_at' => $createdAt,
             ]);
 
             // Office broadcasts would otherwise notify the actor of their own action.
@@ -86,6 +88,22 @@ class DcsNotificationService
                         'status' => 'read',
                         'processed_on' => now(),
                     ]
+                );
+            }
+
+            // Live popout/sound for recipients — DB insert alone only fills the bell list.
+            if ($notificationId) {
+                RealtimePushHelper::pushSystemNotificationToOffice(
+                    $canonical,
+                    [
+                        'id' => (int) $notificationId,
+                        'subsystem_name' => 'Document Control System',
+                        'content' => $message,
+                        'redirect_url' => $redirectUrl ?: '/dcs',
+                        'time' => 'Just now',
+                        'created_at' => $createdAt->toIso8601String(),
+                    ],
+                    $excludeAccountId && $excludeAccountId > 0 ? $excludeAccountId : null
                 );
             }
 

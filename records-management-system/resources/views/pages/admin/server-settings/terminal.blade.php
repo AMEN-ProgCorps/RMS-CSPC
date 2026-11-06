@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\BackupService;
 use App\Services\ServerManagementService;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -14,6 +15,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
     public string $serverLabel = '';
     public string $hostname = '';
     public bool $isDocker = false;
+
+    // Safety Backup Soft Protection
+    public bool $hasSafetyBackup = false;
+    public ?array $latestBackup = null;
+    public bool $isCreatingBackup = false;
+    public string $safetyBackupMessage = '';
 
     public function boot(): void
     {
@@ -32,15 +39,48 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
         $this->hostname = $metrics['host']['hostname'] ?? gethostname();
         $this->isDocker = file_exists('/.dockerenv');
 
+        $this->latestBackup = BackupService::getLatestBackup();
+        $this->hasSafetyBackup = session()->get('terminal_safety_backup_done', false);
+
         // Initial welcome log
         $this->history[] = [
             'command' => 'system --status',
             'target' => 'system',
-            'output' => "=== RMS-CSPC Web Operations Terminal Initialized ===\nNode: {$this->serverLabel} ({$this->hostname})\nAuthenticated as: " . (auth()->user()?->name ?? 'Super Admin') . " [Role: Super Admin]\nAvailable targets: App (PHP/Artisan), Node (Vite/npm), DB (PostgreSQL), Host (Server Shell).\nType a command below or click any quick action preset to execute.",
+            'output' => "=== RMS-CSPC Web Operations Terminal Initialized ===\nNode: {$this->serverLabel} ({$this->hostname})\nAuthenticated as: " . (auth()->user()?->name ?? 'Super Admin') . " [Role: Super Admin]\nAvailable targets: App (PHP/Artisan), Node (Vite/npm), DB (PostgreSQL), Host (Server Shell).\nSoft protection: " . ($this->hasSafetyBackup ? "Safety Backup Verified [Active]" : "Backup Required before executing commands."),
             'success' => true,
             'exit_code' => 0,
             'time' => now()->format('H:i:s'),
         ];
+    }
+
+    public function generateSafetyBackup(BackupService $backupService): void
+    {
+        $this->isCreatingBackup = true;
+        $this->isBusy = true;
+
+        $res = $backupService->createFullBackup('Pre_Terminal_Safety');
+
+        if ($res['success']) {
+            session()->put('terminal_safety_backup_done', true);
+            $this->hasSafetyBackup = true;
+            $this->latestBackup = BackupService::getLatestBackup();
+            $this->safetyBackupMessage = $res['message'];
+
+            $this->history[] = [
+                'command' => 'system --safety-backup',
+                'target' => 'system',
+                'output' => "[Safety Guard Passed] Mandatory pre-terminal backup created:\nFile: {$res['filename']}\nPreserved: {$res['total_records']} records across {$res['tables_count']} tables.\nTimestamp: {$res['created_at']}\nTerminal console access is now unlocked.",
+                'success' => true,
+                'exit_code' => 0,
+                'time' => now()->format('H:i:s'),
+            ];
+        } else {
+            $this->safetyBackupMessage = "Safety backup failed: " . ($res['message'] ?? 'Unknown error');
+        }
+
+        $this->isCreatingBackup = false;
+        $this->isBusy = false;
+        $this->dispatch('terminal-output-updated');
     }
 
     public function executeCommand(ServerManagementService $service, ?string $manualCmd = null, ?string $manualTarget = null): void
@@ -49,6 +89,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
         $targetToUse = $manualTarget ?? $this->target;
 
         if ($cmdToRun === '') {
+            return;
+        }
+
+        if (!$this->hasSafetyBackup) {
+            $this->history[] = [
+                'command' => $cmdToRun,
+                'target' => $targetToUse,
+                'output' => "Command Blocked: Mandatory pre-terminal safety backup must be generated before executing terminal commands.",
+                'success' => false,
+                'exit_code' => 126,
+                'time' => now()->format('H:i:s'),
+            ];
+            $this->command = '';
+            $this->isBusy = false;
+            $this->dispatch('terminal-output-updated');
             return;
         }
 
@@ -78,6 +133,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
 
     public function runQuick(string $cmd, string $target, ServerManagementService $service): void
     {
+        if (!$this->hasSafetyBackup) {
+            return;
+        }
         $this->target = $target;
         $this->executeCommand($service, $cmd, $target);
     }
@@ -121,6 +179,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
             border-color: #1e293b !important;
         }
 
+        [data-theme="dark"] div[style*="background: #fffbeb"] {
+            background-color: #1c1917 !important;
+            border-color: #78350f !important;
+        }
+
+        [data-theme="dark"] div[style*="background: #ecfdf5"] {
+            background-color: #062419 !important;
+            border-color: #065f46 !important;
+        }
+
         [data-theme="dark"] h1[style*="color: #0f172a"],
         [data-theme="dark"] h2[style*="color: #0f172a"],
         [data-theme="dark"] h3[style*="color: #0f172a"],
@@ -145,6 +213,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            position: relative;
         }
 
         .terminal-header {
@@ -267,6 +336,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
             transform: translateY(-1px);
         }
 
+        .quick-action-pill.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
         [data-theme="dark"] .quick-action-pill {
             background: #131c2e !important;
             border-color: #1e293b !important;
@@ -316,7 +391,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
     $wire.on('terminal-output-updated', () => {
         setTimeout(scrollBottom, 50);
         const inp = document.getElementById('term-cmd-input');
-        if (inp) inp.focus();
+        if (inp && !inp.disabled) inp.focus();
     });
 ">
 
@@ -327,10 +402,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
                 <i class="fa-solid fa-terminal"></i>
             </div>
             <div>
-                <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                     <h1 style="font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.02em;">Server Operations Terminal</h1>
                     <span style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca;">
                         <i class="fa-solid fa-shield-halved" style="margin-right: 4px;"></i> Super Admin Only
+                    </span>
+                    <span style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; background: {{ $hasSafetyBackup ? '#ecfdf5' : '#fffbeb' }}; color: {{ $hasSafetyBackup ? '#059669' : '#b45309' }}; border: 1px solid {{ $hasSafetyBackup ? '#a7f3d0' : '#fcd34d' }};">
+                        <i class="fa-solid {{ $hasSafetyBackup ? 'fa-circle-check' : 'fa-triangle-exclamation' }}" style="margin-right: 4px;"></i>
+                        {{ $hasSafetyBackup ? 'Backup Verified' : 'Backup Required' }}
                     </span>
                     <span style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;">
                         Node: {{ $serverLabel }}
@@ -353,6 +432,72 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
             </button>
         </div>
     </div>
+
+    <!-- Mandatory Safety Backup Soft-Protection Gate -->
+    @if(!$hasSafetyBackup)
+        <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 14px; padding: 22px 26px; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.1); display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+                <div style="display: flex; gap: 16px;">
+                    <div style="width: 48px; height: 48px; border-radius: 12px; background: #fef3c7; color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; box-shadow: 0 2px 6px rgba(217, 119, 6, 0.2);">
+                        <i class="fa-solid fa-shield-halved"></i>
+                    </div>
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <h3 style="font-size: 16.5px; font-weight: 800; color: #92400e; margin: 0;">Mandatory Safety Notice: System Backup Required</h3>
+                            <span style="font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; text-transform: uppercase; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca;">
+                                Access Restricted
+                            </span>
+                        </div>
+                        <p style="font-size: 13.5px; color: #78350f; margin: 6px 0 0 0; line-height: 1.5; max-width: 760px;">
+                            Low-level terminal commands can directly modify database schemas, application assets, and system configurations. As a <strong>soft protection requirement</strong>, an automated database backup must be created before accessing this terminal. This ensures that whatever happens, your system state can be completely restored.
+                        </p>
+                        @if($latestBackup)
+                            <div style="margin-top: 8px; font-size: 12px; color: #b45309; display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-clock-rotate-left"></i>
+                                <span>Latest snapshot in storage: <strong>{{ $latestBackup['filename'] }}</strong> ({{ $latestBackup['size_human'] }}, {{ $latestBackup['age_minutes'] }} mins ago)</span>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+
+                <div>
+                    <button 
+                        type="button" 
+                        wire:click="generateSafetyBackup" 
+                        wire:loading.attr="disabled" 
+                        wire:target="generateSafetyBackup"
+                        style="background: #d97706; color: white; border: none; padding: 12px 22px; border-radius: 10px; font-weight: 800; font-size: 13.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(217, 119, 6, 0.35); transition: all 0.15s ease;"
+                    >
+                        <i class="fa-solid fa-cloud-arrow-up" wire:loading.remove wire:target="generateSafetyBackup"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="generateSafetyBackup"></i>
+                        <span wire:loading.remove wire:target="generateSafetyBackup">Generate Safety Backup & Unlock Terminal</span>
+                        <span wire:loading wire:target="generateSafetyBackup">Generating Backup... Please Wait</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    @else
+        <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <i class="fa-solid fa-circle-check" style="color: #059669; font-size: 18px;"></i>
+                <div>
+                    <span style="font-size: 13px; font-weight: 700; color: #065f46;">Pre-Terminal Safety Protection: ACTIVE</span>
+                    <span style="font-size: 12px; color: #047857; margin-left: 8px;">A verified database snapshot is active for this session.</span>
+                </div>
+            </div>
+            <button 
+                type="button" 
+                wire:click="generateSafetyBackup" 
+                wire:loading.attr="disabled" 
+                wire:target="generateSafetyBackup"
+                style="background: #ffffff; color: #059669; border: 1px solid #a7f3d0; padding: 6px 12px; border-radius: 6px; font-weight: 700; font-size: 11.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;"
+            >
+                <i class="fa-solid fa-arrows-rotate" wire:loading.remove wire:target="generateSafetyBackup"></i>
+                <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="generateSafetyBackup"></i>
+                <span>Create Fresh Snapshot</span>
+            </button>
+        </div>
+    @endif
 
     <!-- Target Environment Selector -->
     <div style="background: #ffffff; padding: 16px 20px; border-radius: 14px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 14px;">
@@ -385,66 +530,73 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
 
         <!-- Quick Command Presets -->
         <div style="border-top: 1px solid #f1f5f9; padding-top: 12px; display: flex; flex-direction: column; gap: 8px;">
-            <div style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #64748b; letter-spacing: 0.04em;">
-                Quick Action Presets (Click to run):
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #64748b; letter-spacing: 0.04em;">
+                    Quick Action Presets (Click to run):
+                </span>
+                @if(!$hasSafetyBackup)
+                    <span style="font-size: 11px; color: #d97706; font-weight: 600;">
+                        <i class="fa-solid fa-lock" style="margin-right: 4px;"></i> Presets locked until backup generated
+                    </span>
+                @endif
             </div>
             <div style="display: flex; flex-wrap: wrap; gap: 8px;">
                 @if($target === 'app')
-                    <span class="quick-action-pill" wire:click="runQuick('php artisan migrate --force', 'app')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('php artisan migrate --force', 'app')">
                         <i class="fa-solid fa-database" style="color: #2563eb;"></i> php artisan migrate --force
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('php artisan optimize:clear', 'app')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('php artisan optimize:clear', 'app')">
                         <i class="fa-solid fa-broom" style="color: #d97706;"></i> php artisan optimize:clear
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('php artisan route:clear && php artisan config:clear', 'app')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('php artisan route:clear && php artisan config:clear', 'app')">
                         <i class="fa-solid fa-arrows-rotate" style="color: #059669;"></i> clear routes & config
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('php artisan queue:restart', 'app')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('php artisan queue:restart', 'app')">
                         <i class="fa-solid fa-bolt" style="color: #7c3aed;"></i> queue:restart
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('composer dump-autoload', 'app')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('composer dump-autoload', 'app')">
                         <i class="fa-solid fa-box" style="color: #4b5563;"></i> composer dump-autoload
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('php artisan about', 'app')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('php artisan about', 'app')">
                         <i class="fa-solid fa-circle-info" style="color: #0284c7;"></i> php artisan about
                     </span>
                 @elseif($target === 'node')
-                    <span class="quick-action-pill" wire:click="runQuick('npm run build', 'node')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('npm run build', 'node')">
                         <i class="fa-solid fa-hammer" style="color: #16a34a;"></i> npm run build
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('npm list --depth=0', 'node')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('npm list --depth=0', 'node')">
                         <i class="fa-solid fa-list-check" style="color: #2563eb;"></i> npm list --depth=0
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('node -v && npm -v', 'node')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('node -v && npm -v', 'node')">
                         <i class="fa-brands fa-node-js" style="color: #16a34a;"></i> check node & npm version
                     </span>
                 @elseif($target === 'db')
-                    <span class="quick-action-pill" wire:click="runQuick('pg_isready -U adminrms -d rms', 'db')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('pg_isready -U adminrms -d rms', 'db')">
                         <i class="fa-solid fa-heart-pulse" style="color: #059669;"></i> pg_isready
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('psql -U adminrms -d rms -c &quot;SELECT version();&quot;', 'db')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('psql -U adminrms -d rms -c &quot;SELECT version();&quot;', 'db')">
                         <i class="fa-solid fa-database" style="color: #0891b2;"></i> check postgres version
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('psql -U adminrms -d rms -c &quot;\\dt&quot;', 'db')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('psql -U adminrms -d rms -c &quot;\\dt&quot;', 'db')">
                         <i class="fa-solid fa-table-list" style="color: #7c3aed;"></i> list tables (\dt)
                     </span>
                 @else
-                    <span class="quick-action-pill" wire:click="runQuick('git status', 'host')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('git status', 'host')">
                         <i class="fa-brands fa-git-alt" style="color: #ea580c;"></i> git status
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('git log -n 5 --oneline', 'host')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('git log -n 5 --oneline', 'host')">
                         <i class="fa-solid fa-code-commit" style="color: #2563eb;"></i> git log -n 5
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('docker compose ps', 'host')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('docker compose ps', 'host')">
                         <i class="fa-brands fa-docker" style="color: #0284c7;"></i> docker compose ps
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('uptime', 'host')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('uptime', 'host')">
                         <i class="fa-solid fa-clock" style="color: #059669;"></i> uptime
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('df -h', 'host')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('df -h', 'host')">
                         <i class="fa-solid fa-hard-drive" style="color: #4b5563;"></i> disk usage (df -h)
                     </span>
-                    <span class="quick-action-pill" wire:click="runQuick('free -m', 'host')">
+                    <span class="quick-action-pill {{ !$hasSafetyBackup ? 'disabled' : '' }}" wire:click="runQuick('free -m', 'host')">
                         <i class="fa-solid fa-memory" style="color: #9333ea;"></i> memory info (free -m)
                     </span>
                 @endif
@@ -468,8 +620,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
                 <span style="font-size: 10px; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); padding: 2px 7px; border-radius: 4px; text-transform: uppercase;">
                     Target: {{ $target }}
                 </span>
-                <span style="font-size: 10px; font-weight: 700; color: #10b981; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); padding: 2px 7px; border-radius: 4px;">
-                    ONLINE
+                <span style="font-size: 10px; font-weight: 700; color: {{ $hasSafetyBackup ? '#10b981' : '#f59e0b' }}; background: {{ $hasSafetyBackup ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)' }}; border: 1px solid {{ $hasSafetyBackup ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)' }}; padding: 2px 7px; border-radius: 4px;">
+                    {{ $hasSafetyBackup ? 'UNLOCKED' : 'LOCKED' }}
                 </span>
             </div>
         </div>
@@ -505,9 +657,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
             @endforeach
 
             <!-- Busy Execution Spinner Indicator -->
-            <div wire:loading wire:target="executeCommand, runQuick" style="display: flex; align-items: center; gap: 10px; color: #38bdf8; font-weight: 600; font-size: 12.5px; padding: 6px 0;">
+            <div wire:loading wire:target="executeCommand, runQuick, generateSafetyBackup" style="display: flex; align-items: center; gap: 10px; color: #38bdf8; font-weight: 600; font-size: 12.5px; padding: 6px 0;">
                 <i class="fa-solid fa-spinner fa-spin"></i>
-                <span>Executing command on [{{ $target }}] environment...</span>
+                <span>Processing operation... please wait</span>
             </div>
         </div>
 
@@ -522,24 +674,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
                 type="text" 
                 id="term-cmd-input"
                 wire:model="command" 
+                @if(!$hasSafetyBackup) disabled placeholder="Terminal Locked: Click 'Generate Safety Backup' above to unlock console..." @else placeholder="Type command here (e.g. php artisan migrate, git status, npm run build)..." @endif
                 wire:loading.attr="disabled"
-                wire:target="executeCommand, runQuick"
+                wire:target="executeCommand, runQuick, generateSafetyBackup"
                 @keydown.up.prevent="navigateHistory('up')"
                 @keydown.down.prevent="navigateHistory('down')"
                 autocomplete="off"
-                autofocus
-                placeholder="Type command here (e.g. php artisan migrate, git status, npm run build)..." 
                 class="terminal-input-field" 
             />
 
             <button 
                 type="submit" 
+                @if(!$hasSafetyBackup) disabled style="background: #475569; opacity: 0.6; color: #ffffff; border: none; padding: 6px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: not-allowed; display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;" @else style="background: #2563eb; color: #ffffff; border: none; padding: 6px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; transition: background 0.15s ease;" @endif
                 wire:loading.attr="disabled"
-                wire:target="executeCommand, runQuick"
-                style="background: #2563eb; color: #ffffff; border: none; padding: 6px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; transition: background 0.15s ease;"
+                wire:target="executeCommand, runQuick, generateSafetyBackup"
             >
-                <i class="fa-solid fa-play" wire:loading.remove wire:target="executeCommand, runQuick"></i>
-                <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="executeCommand, runQuick"></i>
+                <i class="fa-solid fa-play" wire:loading.remove wire:target="executeCommand, runQuick, generateSafetyBackup"></i>
+                <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="executeCommand, runQuick, generateSafetyBackup"></i>
                 <span>Execute</span>
             </button>
         </form>
@@ -552,6 +703,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
             <span>Terminal Usage Guide & Operational Notes</span>
         </div>
         <div style="font-size: 12.5px; color: #64748b; line-height: 1.6; display: flex; flex-direction: column; gap: 6px;">
+            <div>&bull; <strong>Soft Protection Requirement:</strong> A complete database snapshot is created before terminal access is granted to ensure absolute data safety.</div>
             <div>&bull; <strong>Up / Down Arrow Keys:</strong> Cycle through previously submitted commands in this session.</div>
             <div>&bull; <strong>Target Selection:</strong> Select the corresponding target container (e.g. <code>App</code> for Artisan & Composer, <code>Node</code> for npm/Vite, <code>DB</code> for PostgreSQL, or <code>Host</code> for server system & git).</div>
             <div>&bull; <strong>Non-Interactive Commands Only:</strong> Interactive screen programs like <code>nano</code>, <code>vim</code>, <code>htop</code>, or indefinite streams like <code>tail -f</code> are blocked to prevent process hanging. Use batch parameters (e.g., <code>top -b -n 1</code> or <code>cat</code>).</div>

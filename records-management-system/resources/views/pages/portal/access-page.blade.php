@@ -159,7 +159,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         $rdpActive = in_array('Records Disposition Program', $activeSubsystems);
         $dcsActive = in_array('Document Control System', $activeSubsystems);
         $adminActive = in_array('Admin Console', $activeSubsystems);
-        $messifyActive = in_array('Messify', $activeSubsystems) || in_array('Messify', $activeSubsystems);
+        $messifyActive = in_array('Messify', $activeSubsystems);
 
         // Personal / Left-side subsystems
         $personalItems = [];
@@ -226,7 +226,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         }
 
         // Dynamic subsystems in DB
-        $knownNames = ['Document Tracking System', 'Records Disposition Program', 'Document Control System', 'Admin Console', 'Messify', 'Messify', 'Profile Manager'];
+        $knownNames = ['Document Tracking System', 'Records Disposition Program', 'Document Control System', 'Admin Console', 'Messify', 'Profile Manager'];
         $extraSubsystems = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
             ->where('is_active', true)
             ->whereNotIn('subsystem_name', $knownNames)

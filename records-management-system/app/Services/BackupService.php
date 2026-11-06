@@ -206,6 +206,20 @@ class BackupService
             'sub_document_tracking_system_logs_types' => 'dts_transaction_log_types',
             'main_pending_id' => 'rdp_main_pending_id',
 
+            // Legacy chat tables -> Messify tables (for backward compatibility with old backups)
+            'chat_conversations' => 'messify_chat_conversations',
+            'chat_messages' => 'messify_chat_messages',
+            'chat_reactions' => 'messify_chat_reactions',
+            'chat_read_markers' => 'messify_chat_read_markers',
+            'chatify_chat_backup' => 'messify_chat_backup',
+            'chatify_legal_agreements' => 'messify_chat_legal_agreements',
+            'chatify_audit_logs' => 'messify_chat_audit_logs',
+            'chat_message_mentions' => 'messify_chat_message_mentions',
+            'chat_custom_groups' => 'messify_chat_custom_groups',
+            'chat_custom_group_members' => 'messify_chat_custom_group_members',
+            'chatify_backup_jobs' => 'messify_chat_backup_jobs',
+            'chat_office_gc_reads' => 'messify_chat_office_gc_reads',
+
             // Uniform -> Legacy (for reverse compatibility)
             'sys_account' => 'account',
             'sys_account_details' => 'account_details',
@@ -399,7 +413,19 @@ class BackupService
                     foreach ($chunks as $chunk) {
                         $filteredChunk = [];
                         foreach ($chunk as $row) {
-                            $filteredRow = array_intersect_key((array) $row, $dbColumns);
+                            $rowArr = (array) $row;
+                            // Backward compatibility: map legacy column names from older backups
+                            if (isset($rowArr['is_chatify_verified']) && !isset($rowArr['is_messify_verified'])) {
+                                $rowArr['is_messify_verified'] = $rowArr['is_chatify_verified'];
+                            }
+                            if (isset($rowArr['chatify_toggle_key']) && !isset($rowArr['messify_toggle_key'])) {
+                                $rowArr['messify_toggle_key'] = $rowArr['chatify_toggle_key'];
+                            }
+                            if (isset($rowArr['subsystem_name']) && $rowArr['subsystem_name'] === 'Chatify') {
+                                $rowArr['subsystem_name'] = 'Messify';
+                            }
+
+                            $filteredRow = array_intersect_key($rowArr, $dbColumns);
                             if (!empty($filteredRow)) {
                                 $filteredChunk[] = $filteredRow;
                             }
@@ -581,6 +607,203 @@ class BackupService
                     } catch (\Throwable) {}
                 }
             }
+
+            // Ensure any restored legacy 'Chatify' records from older backups are converted to 'Messify'
+            try {
+                if (Schema::hasColumn($subsystemsTbl, 'subsystem_name')) {
+                    DB::table($subsystemsTbl)
+                        ->where('subsystem_name', 'Chatify')
+                        ->update(['subsystem_name' => 'Messify', 'update_at' => now()]);
+                }
+            } catch (\Throwable) {}
+        }
+    }
+
+    /**
+     * Create a complete system database backup.
+     *
+     * @param string|null $customLabel Optional label tag for the backup filename
+     * @return array ['success' => bool, 'filename' => string, 'total_records' => int, 'tables_count' => int, 'created_at' => string, 'message' => string]
+     */
+    public function createFullBackup(?string $customLabel = null): array
+    {
+        @set_time_limit(300);
+        @ini_set('max_execution_time', '300');
+
+        try {
+            $driver = DB::getDriverName();
+            $tablesToBackup = [];
+
+            if ($driver === 'pgsql') {
+                $results = DB::select("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'");
+                foreach ($results as $row) {
+                    $tablesToBackup[] = $row->table_name;
+                }
+            } elseif ($driver === 'sqlite') {
+                $results = DB::select("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
+                foreach ($results as $row) {
+                    $tablesToBackup[] = $row->name;
+                }
+            } else {
+                $results = DB::select('SHOW TABLES');
+                foreach ($results as $row) {
+                    $val = array_values((array) $row);
+                    $tablesToBackup[] = $val[0] ?? '';
+                }
+            }
+
+            $tablesToBackup = array_values(array_filter($tablesToBackup));
+
+            $label = trim((string) $customLabel);
+            $cleanLabel = preg_replace('/[\/\\\:\*\?"<>\|]/', '', $label);
+            $cleanLabel = trim($cleanLabel);
+
+            $backupData = [
+                'app_name' => config('app.name', 'RMS CSPC'),
+                'version' => '1.0',
+                'custom_label' => !empty($cleanLabel) ? $cleanLabel : 'Automated_Safety_Backup',
+                'backup_mode' => 'full',
+                'created_at' => now()->toIso8601String(),
+                'created_by' => auth()->user()?->email ?: 'Server System',
+                'tables_count' => count($tablesToBackup),
+                'total_records' => 0,
+                'tables' => [],
+            ];
+
+            $totalRecords = 0;
+            foreach ($tablesToBackup as $table) {
+                try {
+                    $rows = DB::table($table)->get()->map(fn($item) => (array) $item)->toArray();
+                    $backupData['tables'][$table] = $rows;
+                    $totalRecords += count($rows);
+                } catch (\Throwable $e) {
+                    Log::warning("Failed backing up table {$table}: " . $e->getMessage());
+                }
+            }
+
+            $backupData['total_records'] = $totalRecords;
+
+            $jsonContent = json_encode($backupData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $filename = static::generateBackupFilename($cleanLabel);
+
+            if (!Storage::disk('local')->exists('backups')) {
+                Storage::disk('local')->makeDirectory('backups');
+            }
+
+            Storage::disk('local')->put("backups/{$filename}", $jsonContent);
+
+            // Optional Google Drive sync
+            try {
+                Storage::disk('google')->put("backup/{$filename}", $jsonContent);
+            } catch (\Throwable) {}
+
+            // Admin log if available
+            $adminId = auth()->id();
+            if ($adminId) {
+                $adminLogsTbl = Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : (Schema::hasTable('admin_logs') ? 'admin_logs' : null);
+                if ($adminLogsTbl) {
+                    try {
+                        DB::table($adminLogsTbl)->insert([
+                            'changes' => "Safety backup generated: [{$filename}] ({$totalRecords} records across " . count($tablesToBackup) . " tables)",
+                            'admin_id' => $adminId,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    } catch (\Throwable) {}
+                }
+            }
+
+            return [
+                'success' => true,
+                'filename' => $filename,
+                'total_records' => $totalRecords,
+                'tables_count' => count($tablesToBackup),
+                'created_at' => now()->format('Y-m-d H:i:s'),
+                'message' => "Safety backup generated successfully: {$filename} ({$totalRecords} records preserved across " . count($tablesToBackup) . " tables).",
+            ];
+        } catch (\Throwable $e) {
+            Log::error("createFullBackup error: " . $e->getMessage(), ['exception' => $e]);
+            return [
+                'success' => false,
+                'filename' => '',
+                'total_records' => 0,
+                'tables_count' => 0,
+                'created_at' => now()->format('Y-m-d H:i:s'),
+                'message' => "Backup failed: " . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Generate standard backup filename in the format:
+     * [ this backup is for? ]<backupdefaultname>.json
+     * where backupdefaultname = <month>-<day>-<year>-<24 style current time>
+     * e.g. [Accessing Server Settings - Terminal]06-11-2026-2115.json
+     * or 06-11-2026-2115.json (if no label)
+     *
+     * @param string|null $label Optional explanation or key for what the backup is for
+     * @return string
+     */
+    public static function generateBackupFilename(?string $label = null): string
+    {
+        // <month/day>-<month/day>-<year>-<24 style current time> (e.g. 06-11-2026-2115)
+        $backupDefaultName = date('d-m-Y-Hi');
+        $cleanLabel = trim(preg_replace('/[\/\\\:\*\?"<>\|]/', '', (string) $label));
+
+        if (!empty($cleanLabel)) {
+            $filename = "[{$cleanLabel}]{$backupDefaultName}.json";
+        } else {
+            $filename = "{$backupDefaultName}.json";
+        }
+
+        // Avoid collision if multiple backups are generated within the same minute
+        if (Storage::disk('local')->exists("backups/{$filename}")) {
+            $uniqueSuffix = date('-s');
+            if (!empty($cleanLabel)) {
+                $filename = "[{$cleanLabel}]{$backupDefaultName}{$uniqueSuffix}.json";
+            } else {
+                $filename = "{$backupDefaultName}{$uniqueSuffix}.json";
+            }
+        }
+
+        return $filename;
+    }
+
+    /**
+     * Get information about the most recent backup in storage.
+     */
+    public static function getLatestBackup(): ?array
+    {
+        try {
+            if (!Storage::disk('local')->exists('backups')) {
+                return null;
+            }
+
+            $files = Storage::disk('local')->files('backups');
+            $jsonFiles = array_filter($files, fn($f) => str_ends_with(strtolower($f), '.json'));
+
+            if (empty($jsonFiles)) {
+                return null;
+            }
+
+            // Sort by modified time descending
+            usort($jsonFiles, function ($a, $b) {
+                return Storage::disk('local')->lastModified($b) <=> Storage::disk('local')->lastModified($a);
+            });
+
+            $latest = $jsonFiles[0];
+            $timestamp = Storage::disk('local')->lastModified($latest);
+            $size = Storage::disk('local')->size($latest);
+
+            return [
+                'filename' => basename($latest),
+                'timestamp' => $timestamp,
+                'datetime' => date('Y-m-d H:i:s', $timestamp),
+                'size_human' => round($size / 1024, 1) . ' KB',
+                'age_minutes' => round((time() - $timestamp) / 60, 0),
+            ];
+        } catch (\Throwable) {
+            return null;
         }
     }
 }

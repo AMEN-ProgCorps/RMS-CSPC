@@ -330,9 +330,9 @@ class CustomGroupManager
                         ad.first_name,
                         ad.last_name,
                         ad.avatar_url,
-                        COALESCE(ad.is_messify_verified, FALSE) AS is_messify_verified,
+                        COALESCE(ad." . Database::verifiedColumn() . ", FALSE) AS is_messify_verified,
                         COALESCE(ad.is_currently_online, FALSE) AS is_currently_online
-                 FROM messify_chat_custom_group_members m
+                 FROM " . Database::t('messify_chat_custom_group_members') . " m
                  LEFT JOIN {$tbl} ad ON ad.account_id = m.account_id
                  WHERE m.group_id = :group_id
                  ORDER BY m.joined_at ASC"

@@ -229,13 +229,14 @@ class UserResolver
         try {
             $pdo          = Database::getConnection();
             $placeholders = implode(',', array_fill(0, count($missing), '?'));
+            $verCol       = Database::verifiedColumn();
             $stmt = $pdo->prepare(
                 "SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
                         ad.office_id, o.office_name, o.office_code, ad.email,
                         ad.is_currently_online, ad.last_online_time, ad.avatar_url,
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
                         COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
-                        COALESCE(ad.is_messify_verified, FALSE) AS is_messify_verified
+                        COALESCE(ad.{$verCol}, FALSE) AS is_messify_verified
                  FROM " . Database::t('account_details') . " ad
                  LEFT JOIN " . Database::t('office') . " o ON o.id = ad.office_id
                  WHERE ad.account_id IN ($placeholders)"
@@ -334,7 +335,7 @@ class UserResolver
                         ad.is_currently_online,
                         ad.last_online_time,
                         ad.avatar_url,
-                        COALESCE(ad.is_messify_verified, FALSE) AS is_messify_verified
+                        COALESCE(ad." . Database::verifiedColumn() . ", FALSE) AS is_messify_verified
                  FROM " . Database::t('account_details') . " ad
                  LEFT JOIN " . Database::t('office') . " o ON o.id = ad.office_id
                  LEFT JOIN " . Database::t('account') . " a ON a.id = ad.account_id
@@ -561,7 +562,7 @@ class UserResolver
                         ad.avatar_url,
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
                         COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
-                        COALESCE(ad.is_messify_verified, FALSE) AS is_messify_verified
+                        COALESCE(ad." . Database::verifiedColumn() . ", FALSE) AS is_messify_verified
                  FROM ' . Database::t('account_details') . ' ad
                  LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
                  WHERE ad.account_id = :id
@@ -595,7 +596,7 @@ class UserResolver
                         ad.avatar_url,
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
                         COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
-                        COALESCE(ad.is_messify_verified, FALSE) AS is_messify_verified
+                        COALESCE(ad." . Database::verifiedColumn() . ", FALSE) AS is_messify_verified
                  FROM ' . Database::t('account_details') . ' ad
                  LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
                  ORDER BY ad.last_name, ad.first_name'

@@ -769,6 +769,13 @@
                     'active' => request()->routeIs('admin.server-settings.diagnostic'),
                 ],
             ];
+            if ($isSadm) {
+                $tabs[] = [
+                    'label' => 'Terminal',
+                    'url' => route('admin.server-settings.terminal'),
+                    'active' => request()->routeIs('admin.server-settings.terminal'),
+                ];
+            }
         }
     }
 @endphp

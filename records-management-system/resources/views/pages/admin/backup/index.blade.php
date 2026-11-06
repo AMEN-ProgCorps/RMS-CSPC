@@ -562,9 +562,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             $backupData['total_records'] = $totalRecords;
 
             $jsonContent = json_encode($backupData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            $modePrefix = ($this->backupMode === 'selective') ? 'rms_backup_custom_' : 'rms_backup_full_';
-            $baseFilename = $modePrefix . date('Y-m-d_His') . '.json';
-            $filename = !empty($cleanLabel) ? "[{$cleanLabel}]{$baseFilename}" : $baseFilename;
+            $filename = \App\Services\BackupService::generateBackupFilename($cleanLabel);
 
             // 1. Save to local storage
             \Illuminate\Support\Facades\Storage::disk('local')->put("backups/{$filename}", $jsonContent);
@@ -1549,9 +1547,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     >
                     <div style="font-size: 11px; color: #64748b; margin-top: 5px;">
                         @if(trim($customBackupLabel))
-                            File name preview: <code style="font-family: monospace; font-weight: 700; color: #2563eb; background: #eff6ff; padding: 2px 6px; border-radius: 4px;">[{{ preg_replace('/[\/\\\:\*\?"<>\|]/', '', trim($customBackupLabel)) }}]{{ $backupMode === 'selective' ? 'rms_backup_custom_' : 'rms_backup_full_' }}{{ date('Y-m-d_His') }}.json</code>
+                            File name preview: <code style="font-family: monospace; font-weight: 700; color: #2563eb; background: #eff6ff; padding: 2px 6px; border-radius: 4px;">[{{ preg_replace('/[\/\\\:\*\?"<>\|]/', '', trim($customBackupLabel)) }}]{{ date('d-m-Y-Hi') }}.json</code>
                         @else
-                            File name preview: <code style="font-family: monospace; color: #64748b; background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">{{ $backupMode === 'selective' ? 'rms_backup_custom_' : 'rms_backup_full_' }}{{ date('Y-m-d_His') }}.json</code>
+                            File name preview: <code style="font-family: monospace; color: #64748b; background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">{{ date('d-m-Y-Hi') }}.json</code>
                         @endif
                     </div>
                 </div>

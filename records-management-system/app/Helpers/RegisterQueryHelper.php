@@ -7488,6 +7488,27 @@ class RegisterQueryHelper
         $size = Schema::hasColumn('dcs_masterlist_registration', 'file_size')
             ? (int) ($ml->file_size ?? 0)
             : 0;
+        // Older registrations (and some revises) store the scan path but never
+        // filled file_size. Resolve from disk so Documented Information is truthful.
+        if ($size <= 0 && $path !== '') {
+            $size = DocumentStorageService::dcsPathFileSize($path);
+            if (
+                $size > 0
+                && Schema::hasColumn('dcs_masterlist_registration', 'file_size')
+                && ! empty($ml->id)
+            ) {
+                try {
+                    DB::table('dcs_masterlist_registration')
+                        ->where('id', (int) $ml->id)
+                        ->where(function ($q) {
+                            $q->whereNull('file_size')->orWhere('file_size', 0);
+                        })
+                        ->update(['file_size' => $size]);
+                } catch (\Throwable) {
+                    // Display still works even if backfill fails.
+                }
+            }
+        }
         $mime = Schema::hasColumn('dcs_masterlist_registration', 'file_mime')
             ? trim((string) ($ml->file_mime ?? ''))
             : '';
@@ -8130,7 +8151,7 @@ class RegisterQueryHelper
                 'revise_no' => 0,
                 'taken_revs' => [],
                 'next_rev' => 0,
-                'message' => 'This document type always uses Rev 0 and may stack the same document number.',
+                'message' => '',
             ];
         }
 
@@ -8484,6 +8505,7 @@ class RegisterQueryHelper
             }
 
             return [
+                'course_id' => (int) ($syl->course_id ?? 0) ?: null,
                 'course_name' => $syl->course_name ?? '',
                 'course_code' => $syl->course_code ?? '',
                 'year_level' => $syl->year_level ?? '',

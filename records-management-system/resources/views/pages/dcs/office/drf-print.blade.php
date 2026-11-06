@@ -1,5 +1,5 @@
 {{--
-DCS file: CSPC-F-DCC-06 print. The title uses at most two underlined lines: line 1 is filled with whole words, and both lines shrink together only when line 2 still overflows. Originator stays one 11pt comma-separated line.
+DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if it still overflows, a second underlined line is added. Originator stays one 11pt comma-separated line.
 --}}
 <!DOCTYPE html>
 <html lang="en">
@@ -1179,6 +1179,8 @@ function ofiFitDocTitles() {
     var canvas = document.createElement('canvas');
     var ctx = canvas.getContext('2d');
     if (!ctx) return;
+    var minPt = 8;
+    var maxPt = 11;
     document.querySelectorAll('.doc-title-block[data-doc-title]').forEach(function (block) {
         var title = (block.getAttribute('data-doc-title') || '').replace(/\s+/g, ' ').trim();
         var host = block.querySelector('.doc-title-lines');
@@ -1187,6 +1189,10 @@ function ofiFitDocTitles() {
         if (width < 40) width = 560;
         var limit = width - 8;
         var words = title === '' ? [] : title.split(' ');
+        function measureOneLine(pt) {
+            ctx.font = (pt * 96 / 72) + 'px Arial';
+            return title === '' ? 0 : ctx.measureText(title).width;
+        }
         function packedAt(pt) {
             ctx.font = (pt * 96 / 72) + 'px Arial';
             var packed = ofiPackTwoLines(words, ctx, limit);
@@ -1194,28 +1200,42 @@ function ofiFitDocTitles() {
             var line2 = packed[1] === '' ? 0 : ctx.measureText(packed[1]).width;
             return { ok: line1 <= limit && line2 <= limit, lines: packed };
         }
-        var size = 11;
-        var fit = packedAt(11);
-        var lines = fit.lines;
-        if (!fit.ok) {
-            var lo = 7;
-            var hi = 11;
-            size = 7;
-            lines = packedAt(7).lines;
+        var size = maxPt;
+        var lines = [title, ''];
+
+        // Prefer a single line: shrink from 11pt down to 8pt minimum.
+        if (measureOneLine(maxPt) <= limit) {
+            size = maxPt;
+            lines = [title, ''];
+        } else {
+            var lo = minPt;
+            var hi = maxPt;
+            var oneLineSize = minPt;
+            var oneLineOk = measureOneLine(minPt) <= limit;
             for (var step = 0; step < 24; step++) {
                 var mid = (lo + hi) / 2;
-                var trial = packedAt(mid);
-                if (trial.ok) {
-                    size = mid;
-                    lines = trial.lines;
+                if (measureOneLine(mid) <= limit) {
+                    oneLineSize = mid;
+                    oneLineOk = true;
                     lo = mid;
                 } else {
                     hi = mid;
                 }
             }
-            size = Math.floor(size * 100) / 100;
-            if (size < 7) size = 7;
-            lines = packedAt(size).lines;
+            if (oneLineOk) {
+                size = Math.floor(oneLineSize * 100) / 100;
+                if (size < minPt) size = minPt;
+                lines = [title, ''];
+            } else {
+                // Still overflows at 8pt on one line — add a second line, keep min 8pt.
+                size = minPt;
+                var two = packedAt(minPt);
+                lines = two.lines;
+                if (!two.ok) {
+                    // Extremely long tokens: stay at 8pt; overflow is clipped by CSS.
+                    lines = ofiPackTwoLines(words, ctx, limit);
+                }
+            }
         }
         host.innerHTML = ofiTitleLine(lines[0]) + (lines[1] !== '' ? ofiTitleLine(lines[1]) : '');
         host.querySelectorAll('.fline-val').forEach(function (value) {

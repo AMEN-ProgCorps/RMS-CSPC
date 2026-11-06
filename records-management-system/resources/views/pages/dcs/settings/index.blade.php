@@ -60,6 +60,8 @@ new #[Layout('layouts.dcs')] class extends Component {
     public string $sigDocTypeKind = 'internal';
     public string $sigParentTypeId = '';
     public string $sigSubTypeId = '';
+    /** College scope for Syllabi / TOS signatories (empty = All campuses default). */
+    public string $sigCollegeId = '';
     public string $sigEffectiveFrom = '';
     public string $sigEffectiveUntil = '';
     public string $sigPreparedByName = '';
@@ -100,14 +102,44 @@ new #[Layout('layouts.dcs')] class extends Component {
     public function updatedSigParentTypeId(): void
     {
         $this->sigSubTypeId = '';
+        $this->sigCollegeId = '';
         $this->syncSigDocTypeKindFromCatalog();
         $this->loadSignatoryTemplateFields();
     }
 
     public function updatedSigSubTypeId(): void
     {
+        if (! $this->sigScopeNeedsCollege()) {
+            $this->sigCollegeId = '';
+        }
         $this->syncSigDocTypeKindFromCatalog();
         $this->loadSignatoryTemplateFields();
+    }
+
+    public function updatedSigCollegeId(): void
+    {
+        $this->loadSignatoryTemplateFields();
+    }
+
+    /** Syllabi / TOS sub-types require a college (or All campuses) scope. */
+    private function sigScopeNeedsCollege(): bool
+    {
+        $sub = (int) $this->sigSubTypeId;
+        if ($sub > 0) {
+            return OfficeIntakeHelper::isOfficeDrfSyllabiLike($sub);
+        }
+
+        return false;
+    }
+
+    private function resolvedSigCollegeId(): ?int
+    {
+        if (! $this->sigScopeNeedsCollege()) {
+            return null;
+        }
+        $id = (int) $this->sigCollegeId;
+
+        return $id > 0 ? $id : null;
     }
 
     /** Align kind with catalog names so Internal/External types don't fight the Kind field. */
@@ -138,14 +170,29 @@ new #[Layout('layouts.dcs')] class extends Component {
         // Editor shows only this exact scope — not parent/kind inheritance
         // (inheritance still applies in office intake when this scope is empty).
         $docTypeId = $this->resolvedSigDocTypeId();
+        $collegeId = $this->resolvedSigCollegeId();
         $payload = OfficeIntakeHelper::signatoryTemplate(
             $this->sigFormKind,
             $this->sigDocTypeKind,
             $docTypeId,
             null,
             false,
-            false
+            false,
+            $collegeId
         ) ?? [];
+        // Exact college scope: ignore All-campuses fallback while editing a specific college.
+        if ($collegeId && $collegeId > 0) {
+            $hitCollege = (int) data_get($payload, '_meta.college_id', 0);
+            if ($hitCollege !== $collegeId) {
+                $payload = [];
+            }
+        } elseif ($this->sigScopeNeedsCollege()) {
+            // All campuses editor: only show NULL-college rows.
+            $hitCollege = (int) data_get($payload, '_meta.college_id', 0);
+            if ($hitCollege > 0) {
+                $payload = [];
+            }
+        }
 
         $meta = is_array($payload['_meta'] ?? null) ? $payload['_meta'] : [];
         $this->sigEffectiveUntil = ! empty($meta['effective_until']) ? (string) $meta['effective_until'] : '';
@@ -269,6 +316,11 @@ new #[Layout('layouts.dcs')] class extends Component {
 
                 return;
             }
+            if ($this->sigScopeNeedsCollege() && (int) $this->sigCollegeId < 1) {
+                $this->fail('Select a college for Syllabi / TOS signatories.');
+
+                return;
+            }
             $this->syncSigDocTypeKindFromCatalog();
             $from = trim($this->sigEffectiveFrom) !== '' ? trim($this->sigEffectiveFrom) : now()->toDateString();
             $until = trim($this->sigEffectiveUntil) !== '' ? trim($this->sigEffectiveUntil) : null;
@@ -279,7 +331,8 @@ new #[Layout('layouts.dcs')] class extends Component {
                 auth()->id(),
                 $docTypeId,
                 $from,
-                $until
+                $until,
+                $this->resolvedSigCollegeId()
             );
             $this->flashToast('Signatory assignment saved for this scope and date window.', 'success');
             $this->loadSignatoryTemplateFields();
@@ -433,7 +486,9 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->courseName = '';
         $this->courseCode = '';
         if ($id) {
-            $row = DB::table('dcs_program_courses')->where('id', $id)->first();
+            $rowQ = DB::table('dcs_program_courses')->where('id', $id);
+            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($rowQ, 'dcs_program_courses');
+            $row = $rowQ->first();
             abort_unless($row, 404);
             $this->programId = (string) $row->program_id;
             $this->semesterId = (string) $row->semester_id;
@@ -1084,23 +1139,44 @@ new #[Layout('layouts.dcs')] class extends Component {
         }
         $this->validate($rules);
 
+        $editingId = (int) $this->editingId;
+        if ($editingId < 1) {
+            $this->fail('Could not update course. Reload and try again.');
+            return;
+        }
+
+        $existing = DB::table('dcs_program_courses')->where('id', $editingId);
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($existing, 'dcs_program_courses');
+        if (! $existing->exists()) {
+            $this->fail('That course is no longer available. It may have been moved to the Recycle Bin.');
+            $this->bumpCourseList();
+            $this->closeModal();
+
+            return;
+        }
+
         $yearLevel = $hasYearLevel ? $this->courseYearLevel : null;
         $courseType = $hasCourseType ? $this->courseType : null;
+        $programId = (int) $this->programId;
+        $semesterId = (int) $this->semesterId;
+        $courseName = trim($this->courseName);
+        $courseCode = $hasCourseCode ? trim($this->courseCode) : null;
 
-        if ($this->programCourseNameTaken((int) $this->programId, (int) $this->semesterId, $this->courseName, $yearLevel, $hasYearLevel, $courseType, $hasCourseType, (int) $this->editingId)) {
+        if ($this->programCourseNameTaken($programId, $semesterId, $courseName, $yearLevel, $hasYearLevel, $courseType, $hasCourseType, $editingId)) {
             $this->fail('This course is already listed for the selected program, semester, year level, and course type.');
             return;
         }
 
-        if ($hasCourseCode && $this->programCourseCodeTaken((int) $this->programId, (int) $this->semesterId, $this->courseCode, $yearLevel, $hasYearLevel, $courseType, $hasCourseType, (int) $this->editingId)) {
+        if ($hasCourseCode && $this->programCourseCodeTaken($programId, $semesterId, (string) $courseCode, $yearLevel, $hasYearLevel, $courseType, $hasCourseType, $editingId)) {
             $this->fail('This course code is already used for the selected program, semester, year level, and course type.');
             return;
         }
 
         $payload = [
-            'program_id' => (int) $this->programId,
-            'semester_id' => (int) $this->semesterId,
-            'course_name' => $this->courseName,
+            'program_id' => $programId,
+            'semester_id' => $semesterId,
+            'course_name' => $courseName,
+            'updated_at' => now(),
         ];
         if ($hasYearLevel) {
             $payload['year_level'] = $yearLevel;
@@ -1109,10 +1185,20 @@ new #[Layout('layouts.dcs')] class extends Component {
             $payload['course_type'] = $courseType;
         }
         if ($hasCourseCode) {
-            $payload['course_code'] = $this->courseCode;
+            $payload['course_code'] = $courseCode;
         }
 
-        DB::table('dcs_program_courses')->where('id', (int) $this->editingId)->update($payload);
+        try {
+            DB::table('dcs_program_courses')->where('id', $editingId)->update($payload);
+        } catch (\Throwable $e) {
+            report($e);
+            $this->fail('Could not update course. Check for a duplicate name/code (including items in the Recycle Bin).');
+
+            return;
+        }
+
+        // Force a clean table remount so year-group morphing does not blank the list.
+        $this->bumpCourseList();
         $this->done('Course updated.');
     }
 
@@ -1481,8 +1567,16 @@ new #[Layout('layouts.dcs')] class extends Component {
             ->where('program_id', $programId)
             ->where('semester_id', $semesterId)
             ->where('course_name', $courseName)
-            ->when($hasYearLevel, fn ($query) => $query->where('year_level', $yearLevel))
-            ->when($hasCourseType, fn ($query) => $query->where('course_type', $courseType))
+            ->when($hasYearLevel, function ($query) use ($yearLevel) {
+                return $yearLevel === null || $yearLevel === ''
+                    ? $query->where(fn ($inner) => $inner->whereNull('year_level')->orWhere('year_level', ''))
+                    : $query->where('year_level', $yearLevel);
+            })
+            ->when($hasCourseType, function ($query) use ($courseType) {
+                return $courseType === null || $courseType === ''
+                    ? $query->where(fn ($inner) => $inner->whereNull('course_type')->orWhere('course_type', ''))
+                    : $query->where('course_type', $courseType);
+            })
             ->when($exceptId, fn ($query) => $query->where('id', '!=', $exceptId));
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($q, 'dcs_program_courses');
 
@@ -1503,8 +1597,16 @@ new #[Layout('layouts.dcs')] class extends Component {
             ->where('program_id', $programId)
             ->where('semester_id', $semesterId)
             ->where('course_code', $courseCode)
-            ->when($hasYearLevel, fn ($query) => $query->where('year_level', $yearLevel))
-            ->when($hasCourseType, fn ($query) => $query->where('course_type', $courseType))
+            ->when($hasYearLevel, function ($query) use ($yearLevel) {
+                return $yearLevel === null || $yearLevel === ''
+                    ? $query->where(fn ($inner) => $inner->whereNull('year_level')->orWhere('year_level', ''))
+                    : $query->where('year_level', $yearLevel);
+            })
+            ->when($hasCourseType, function ($query) use ($courseType) {
+                return $courseType === null || $courseType === ''
+                    ? $query->where(fn ($inner) => $inner->whereNull('course_type')->orWhere('course_type', ''))
+                    : $query->where('course_type', $courseType);
+            })
             ->when($exceptId, fn ($query) => $query->where('id', '!=', $exceptId));
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($q, 'dcs_program_courses');
 
@@ -1851,15 +1953,19 @@ new #[Layout('layouts.dcs')] class extends Component {
             'sigSubOptions' => ($this->sigParentTypeId !== '' && isset($docTypeSubs[(string) $this->sigParentTypeId]))
                 ? $docTypeSubs[(string) $this->sigParentTypeId]
                 : collect(),
+            'sigNeedsCollege' => $this->sigScopeNeedsCollege(),
+            'sigCollegeOptions' => $colleges,
             'sigHasActiveAssignment' => OfficeIntakeHelper::hasActiveSignatoryAssignment(
                 $this->sigFormKind,
                 $this->sigDocTypeKind,
-                $this->resolvedSigDocTypeId()
+                $this->resolvedSigDocTypeId(),
+                $this->resolvedSigCollegeId()
             ),
             'sigInheritanceHint' => OfficeIntakeHelper::signatoryInheritanceHint(
                 $this->sigFormKind,
                 $this->sigDocTypeKind,
-                $this->resolvedSigDocTypeId()
+                $this->resolvedSigDocTypeId(),
+                $this->resolvedSigCollegeId()
             ),
         ];
     }
@@ -2024,7 +2130,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         <div class="panel-toolbar">
             <div>
                 <h2 class="sig-panel-title">Signatory assignments</h2>
-                <p class="panel-subtitle">Assign prepared / reviewed / approved names per Document Type (and sub-type). Saving a new assignment for the same type ends the previous one and applies the new names immediately.</p>
+                <p class="panel-subtitle">Assign prepared / reviewed / approved names per Document Type (and sub-type). Syllabi and TOS/Rubrics are separated by college. Saving a new assignment for the same scope ends the previous one and applies the new names immediately.</p>
             </div>
         </div>
         @if(!($signatoryTemplatesReady ?? false))
@@ -2074,6 +2180,18 @@ new #[Layout('layouts.dcs')] class extends Component {
                                     <span class="sig-field-note">Office intake can pick a sub-type — assign here when you can, or leave Whole type for the rest.</span>
                                 @endif
                             </div>
+                            @if($sigNeedsCollege ?? false)
+                                <div class="st-field sig-field">
+                                    <label class="st-label">College <span class="st-optional">required</span></label>
+                                    <select class="st-input" wire:model.live="sigCollegeId">
+                                        <option value="" disabled {{ $sigCollegeId === '' ? 'selected' : '' }}>Select college…</option>
+                                        @foreach(($sigCollegeOptions ?? collect()) as $college)
+                                            <option value="{{ $college->id }}">{{ $college->college_name }}</option>
+                                        @endforeach
+                                    </select>
+                                    <span class="sig-field-note">Syllabi and TOS/Rubrics signatories are per college (e.g. Buhi Campus vs CCS).</span>
+                                </div>
+                            @endif
                             <div class="st-field sig-field">
                                 <label class="st-label">From</label>
                                 <input class="st-input" type="date" wire:model="sigEffectiveFrom">
@@ -2158,6 +2276,8 @@ new #[Layout('layouts.dcs')] class extends Component {
                     <div class="sig-actions">
                         @if($sigParentTypeId === '')
                             <p class="sig-actions-hint">Select a Document type from the catalog to assign signatories.</p>
+                        @elseif(($sigNeedsCollege ?? false) && $sigCollegeId === '')
+                            <p class="sig-actions-hint">Select a college to assign Syllabi / TOS signatories for that campus.</p>
                         @elseif($sigHasActiveAssignment ?? false)
                             <div class="sig-replace-banner" role="status">
                                 <strong>Active assignment exists for this exact scope</strong>
@@ -2586,7 +2706,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         </div>
     </section>
 
-    <section class="tab-panel" wire:key="settings-tab-coursenames-{{ $courseListEpoch }}" x-show="tab === 'coursenames'" x-cloak>
+    <section class="tab-panel" wire:key="settings-tab-coursenames" x-show="tab === 'coursenames'" x-cloak>
         <div>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Curriculum course list per program, semester, year level, and course type — used to auto-fill Syllabi/TOS-Rubrics registration. Faculty is assigned during registration.</span>
@@ -2630,12 +2750,13 @@ new #[Layout('layouts.dcs')] class extends Component {
                 </div>
             @endif
         @endif
-        <div class="table-wrap" wire:key="course-names-{{ $courseListEpoch }}-{{ $courseListCollegeId }}-{{ $courseListProgramId }}-{{ $programCourses->count() }}">
+        {{-- Epoch remounts the table after save so year-group row morphing cannot blank the list. --}}
+        <div class="table-wrap" wire:key="course-names-{{ $courseListEpoch }}-{{ $courseListCollegeId }}-{{ $courseListProgramId }}">
             <table class="settings-table">
                 <thead><tr><th>College</th><th>Program</th><th>Semester</th><th>Year Level</th><th>Course Type</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
                 <tbody>
                     @if($programCourses->isEmpty())
-                        <tr><td colspan="8" class="empty-cell">No courses yet.</td></tr>
+                        <tr wire:key="course-names-empty"><td colspan="8" class="empty-cell">No courses yet.</td></tr>
                     @else
                     @php
                         $knownYears = \App\Helpers\SyllabiMonitoringHelper::YEAR_LEVELS;
@@ -2659,8 +2780,9 @@ new #[Layout('layouts.dcs')] class extends Component {
                         @php
                             $yearLabel = $yearKey !== '' ? $yearKey : 'No year level';
                             $yearCount = $yearCourses->count();
+                            $yearKeySlug = $yearKey !== '' ? \Illuminate\Support\Str::slug($yearKey) : 'none';
                         @endphp
-                        <tr class="st-year-header" wire:key="year-header-{{ $yearKey !== '' ? $yearKey : 'none' }}">
+                        <tr class="st-year-header" wire:key="year-header-{{ $yearKeySlug }}">
                             <td colspan="8">
                                 <span>Year Level · {{ $yearLabel }}</span>
                                 <span class="st-year-count">{{ $yearCount }} {{ $yearCount === 1 ? 'course' : 'courses' }}</span>
@@ -2850,12 +2972,34 @@ new #[Layout('layouts.dcs')] class extends Component {
                         @error('schoolYear') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
                 @elseif($modalKind === 'programCourse')
+                    @php
+                        $programOptions = $programs;
+                        $semesterOptions = $semesters;
+                        // Keep the current program/semester selectable even if it was soft-filtered out of the catalog.
+                        if ($editingId && $programId !== '' && ! $programOptions->contains(fn ($p) => (string) $p->id === (string) $programId)) {
+                            $orphanProgram = \Illuminate\Support\Facades\DB::table('dcs_programs as p')
+                                ->leftJoin('dcs_colleges as c', 'c.id', '=', 'p.college_id')
+                                ->where('p.id', (int) $programId)
+                                ->first(['p.id', 'p.program_name', 'p.program_code', 'p.college_id', 'c.college_name']);
+                            if ($orphanProgram) {
+                                $programOptions = $programOptions->prepend($orphanProgram)->values();
+                            }
+                        }
+                        if ($editingId && $semesterId !== '' && ! $semesterOptions->contains(fn ($s) => (string) $s->id === (string) $semesterId)) {
+                            $orphanSemester = \Illuminate\Support\Facades\DB::table('dcs_semesters')
+                                ->where('id', (int) $semesterId)
+                                ->first(['id', 'semester_name']);
+                            if ($orphanSemester) {
+                                $semesterOptions = $semesterOptions->prepend($orphanSemester)->values();
+                            }
+                        }
+                    @endphp
                     <div class="st-field">
                         <label class="st-label">Program</label>
                         <select class="st-input @error('programId') error @enderror" wire:model="programId">
                             <option value="">Select program</option>
-                            @foreach($programs as $prog)
-                                <option value="{{ $prog->id }}">{{ $prog->college_name }} — {{ $prog->program_name }}</option>
+                            @foreach($programOptions as $prog)
+                                <option value="{{ $prog->id }}">{{ $prog->college_name ?? '—' }} — {{ $prog->program_name }}</option>
                             @endforeach
                         </select>
                         @error('programId') <div class="field-error">{{ $message }}</div> @enderror
@@ -2864,7 +3008,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                         <label class="st-label">Semester</label>
                         <select class="st-input @error('semesterId') error @enderror" wire:model="semesterId">
                             <option value="">Select semester</option>
-                            @foreach($semesters as $sem)
+                            @foreach($semesterOptions as $sem)
                                 <option value="{{ $sem->id }}">{{ $sem->semester_name }}</option>
                             @endforeach
                         </select>

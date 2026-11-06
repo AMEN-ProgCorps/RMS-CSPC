@@ -2013,6 +2013,11 @@ class RegisterPersistHelper
                 $revisedFrom = trim((string) ($savedMl->revised_from_doc_no ?? ''));
             }
             $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
+            $explicit = OfficeIntakeHelper::explicitRegisterIntake($request);
+            $explicitMatch = $explicit
+                && $pending
+                && $explicit['type'] === $pending['type']
+                && (int) $explicit['id'] === (int) $pending['id'];
 
             // Notify the office that created this My DRF / My DCN form when this
             // save is that form (Proceed to Registration). A document the admin
@@ -2028,7 +2033,8 @@ class RegisterPersistHelper
                         (int) $requestId
                     );
                 } else {
-                    // Always notify the creating office when the form is registered.
+                    // Explicit office_intake_id skips title/doc-no identity match —
+                    // syllabi pack titles differ from the office request title.
                     $submitterOfficeCodes = OfficeIntakeHelper::closePendingIntakeForRegistration(
                         $pending['type'],
                         (int) $pending['id'],
@@ -2036,7 +2042,8 @@ class RegisterPersistHelper
                         $docNo,
                         $docTitle !== '' ? $docTitle : null,
                         $revisedFrom !== '' ? $revisedFrom : null,
-                        false
+                        false,
+                        ! $explicitMatch
                     );
                 }
             }
@@ -2888,23 +2895,31 @@ class RegisterPersistHelper
             return null;
         }
 
-        $query = DB::table('dcs_program_courses')
-            ->where('program_id', $request->program_id)
-            ->where('semester_id', $request->semester_id)
-            ->whereRaw('LOWER(TRIM(course_name)) = ?', [mb_strtolower($courseName)]);
+        $build = function (?string $year, bool $withType) use ($request, $courseName) {
+            $query = DB::table('dcs_program_courses')
+                ->where('program_id', $request->program_id)
+                ->where('semester_id', $request->semester_id)
+                ->whereRaw('LOWER(TRIM(course_name)) = ?', [mb_strtolower($courseName)]);
 
-        if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
-            $courseType = trim((string) $request->input('course_type', ''));
-            if ($courseType !== '') {
-                $query->where('course_type', $courseType);
+            if ($withType && Schema::hasColumn('dcs_program_courses', 'course_type')) {
+                $courseType = trim((string) $request->input('course_type', ''));
+                if ($courseType !== '') {
+                    $query->where('course_type', $courseType);
+                }
             }
-        }
 
-        if ($yearLevel !== null && Schema::hasColumn('dcs_program_courses', 'year_level')) {
-            $query->where('year_level', $yearLevel);
-        }
+            if ($year !== null && $year !== '' && Schema::hasColumn('dcs_program_courses', 'year_level')) {
+                $query->where('year_level', $year);
+            }
 
-        return $query->first();
+            return $query->first();
+        };
+
+        // Prefer exact year + course type, then relax so office-intake rows still save.
+        return $build($yearLevel, true)
+            ?: $build(null, true)
+            ?: $build($yearLevel, false)
+            ?: $build(null, false);
     }
 
     public static function saveSyllabiRowsFromRequest(
@@ -3002,15 +3017,34 @@ class RegisterPersistHelper
                 foreach ($facultyNames as $facultyName) {
                     $facultyId = null;
                     if ($facultyName !== '') {
-                        $faculty = DB::table('dcs_faculties')->where('faculty_name', $facultyName)->first();
-                        if (!$faculty) {
+                        $faculty = DB::table('dcs_faculties')
+                            ->whereRaw('LOWER(TRIM(faculty_name)) = ?', [mb_strtolower(trim($facultyName))])
+                            ->first();
+                        if (! $faculty) {
                             $facultyId = DB::table('dcs_faculties')->insertGetId([
                                 'faculty_name' => $facultyName,
                                 'created_at' => $now,
                                 'updated_at' => $now,
                             ]);
                         } else {
-                            $facultyId = $faculty->id;
+                            $facultyId = (int) $faculty->id;
+                            $facultyName = trim((string) ($faculty->faculty_name ?? $facultyName));
+                        }
+                        // Link office-originator faculty to the syllabi college so GE/Major filters keep them.
+                        $collegeId = (int) $request->input('college_id', 0);
+                        if ($facultyId > 0 && $collegeId > 0 && Schema::hasTable('dcs_faculty_colleges')) {
+                            $exists = DB::table('dcs_faculty_colleges')
+                                ->where('faculty_id', $facultyId)
+                                ->where('college_id', $collegeId)
+                                ->exists();
+                            if (! $exists) {
+                                DB::table('dcs_faculty_colleges')->insert([
+                                    'faculty_id' => $facultyId,
+                                    'college_id' => $collegeId,
+                                    'created_at' => $now,
+                                    'updated_at' => $now,
+                                ]);
+                            }
                         }
                     }
 

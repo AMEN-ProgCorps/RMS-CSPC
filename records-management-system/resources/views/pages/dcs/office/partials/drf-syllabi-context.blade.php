@@ -15,38 +15,35 @@ DCS file: Syllabi/TOS context fields on office DRF. Shown after Internal Forms +
     data-sub-name="{{ $subTypeName ?? '' }}"
     @if(! $sylVisible) hidden @endif
 >
-    <p class="ofi-hint" style="margin:0 0 10px;">
-        Syllabi / TOS requests need college context. RFIO will finish faculty, scans, and the syllabi DRF pack in Register.
-    </p>
     <div class="reg-grid-3 ofi-syllabi-grid">
         <div class="reg-field" style="margin:0;">
             <label for="ofiDrfCollegeId">College <span class="ofi-req">*</span></label>
             <select id="ofiDrfCollegeId" name="collegeId" @disabled(! $sylVisible) @required($sylVisible)>
-                <option value="">Select college…</option>
+                <option value="" disabled selected hidden>Select college…</option>
             </select>
         </div>
         <div class="reg-field" style="margin:0;">
             <label for="ofiDrfProgramId">Program <span class="ofi-req">*</span></label>
             <select id="ofiDrfProgramId" name="programId" @disabled(! $sylVisible || $sylOldCollege === '') @required($sylVisible)>
-                <option value="">Select program…</option>
+                <option value="" disabled selected hidden>Select program…</option>
             </select>
         </div>
         <div class="reg-field" style="margin:0;">
             <label for="ofiDrfSemesterId">Semester <span class="ofi-req">*</span></label>
             <select id="ofiDrfSemesterId" name="semesterId" @disabled(! $sylVisible || $sylOldProgram === '') @required($sylVisible)>
-                <option value="">Select semester…</option>
+                <option value="" disabled selected hidden>Select semester…</option>
             </select>
         </div>
         <div class="reg-field" style="margin:0;">
             <label for="ofiDrfCourseId">Course name <span class="ofi-req">*</span></label>
             <select id="ofiDrfCourseId" name="courseId" @disabled(! $sylVisible || $sylOldSemester === '') @required($sylVisible)>
-                <option value="">Select course…</option>
+                <option value="" disabled selected hidden>Select course…</option>
             </select>
         </div>
         <div class="reg-field" style="margin:0;">
             <label for="ofiDrfSchoolYearId">School year <span class="ofi-req">*</span></label>
             <select id="ofiDrfSchoolYearId" name="schoolYearId" @disabled(! $sylVisible || $sylOldCourse === '') @required($sylVisible)>
-                <option value="">Select school year…</option>
+                <option value="" disabled selected hidden>Select school year…</option>
             </select>
         </div>
     </div>

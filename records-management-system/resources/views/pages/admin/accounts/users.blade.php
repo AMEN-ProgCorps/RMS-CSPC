@@ -215,6 +215,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         $this->showOfficeDropdown = false;
     }
 
+    public function updatedOfficeSearch(): void
+    {
+        $this->showOfficeDropdown = true;
+    }
+
+    public function updatedRoleSearch(): void
+    {
+        $this->showRoleDropdown = true;
+    }
+
     public function saveUserChanges(): void
     {
         if (!$this->selectedUserId) return;
@@ -712,6 +722,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
         $offices = $officeQuery->orderBy('office_name', 'asc')->get();
 
+        // Inspector Assigned Office picker — filter by name/code independently of miller column search.
+        $assignableOfficesQuery = \App\Models\office::query()
+            ->where('is_active', true)
+            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', 'HUB']);
+        $officePickerTerm = trim($this->officeSearch);
+        if ($officePickerTerm !== '') {
+            $pickerSearch = '%' . $officePickerTerm . '%';
+            $assignableOfficesQuery->where(function ($q) use ($pickerSearch) {
+                $q->where('office_name', 'ilike', $pickerSearch)
+                    ->orWhere('office_code', 'ilike', $pickerSearch);
+            });
+        }
+        $assignableOffices = $assignableOfficesQuery->orderBy('office_name', 'asc')->limit(150)->get();
+
+        $rolePickerTerm = trim($this->roleSearch);
+        $rolePickerOptions = $rolePickerTerm === ''
+            ? $roles
+            : $roles->filter(function ($r) use ($rolePickerTerm) {
+                return stripos((string) ($r->key_name ?? ''), $rolePickerTerm) !== false;
+            })->values();
+
         // Staff counts per office
         $officeStaffCounts = [];
         try {
@@ -797,15 +828,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
 
         return [
-            'clusters'          => $clusters,
-            'roles'             => $roles,
-            'roleUserCounts'    => $roleUserCounts,
-            'totalUsersCount'   => $totalUsersCount,
-            'offices'           => $offices,
-            'officeStaffCounts' => $officeStaffCounts,
-            'users'             => $users,
-            'requestors'        => $requestors,
-            'reqTransactions'   => $reqTransactions,
+            'clusters'            => $clusters,
+            'roles'               => $roles,
+            'rolePickerOptions'   => $rolePickerOptions,
+            'roleUserCounts'      => $roleUserCounts,
+            'totalUsersCount'     => $totalUsersCount,
+            'offices'             => $offices,
+            'assignableOffices'   => $assignableOffices,
+            'officeStaffCounts'   => $officeStaffCounts,
+            'users'               => $users,
+            'requestors'          => $requestors,
+            'reqTransactions'     => $reqTransactions,
         ];
     }
 };
@@ -1610,17 +1643,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                         {{-- Office Assignment Picker --}}
                         <div class="m-field-group" style="position: relative;">
                             <label class="m-field-label">Assigned Office / Station</label>
-                            <input type="text" class="m-field-input" placeholder="Search and assign office..." wire:model.live="officeSearch" wire:focus="$set('showOfficeDropdown', true)">
+                            <input type="text" class="m-field-input" placeholder="Search name or abbreviation…" wire:model.live.debounce.150ms="officeSearch" wire:focus="$set('showOfficeDropdown', true)" autocomplete="off">
                             @if($showOfficeDropdown)
                                 <div style="position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); z-index: 50; max-height: 180px; overflow-y: auto; margin-top: 2px;">
                                     <div wire:click="selectOffice(null, 'No Assigned Office')" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #64748b;">
                                         None (Unassigned)
                                     </div>
-                                    @foreach($offices as $o)
-                                        <div wire:click="selectOffice({{ $o->id }}, '{{ $o->office_name }}')" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #0f172a;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+                                    @forelse($assignableOffices as $o)
+                                        <div wire:click="selectOffice({{ $o->id }}, @js($o->office_name))" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #0f172a;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
                                             <strong>{{ $o->office_name }}</strong> ({{ $o->office_code }})
                                         </div>
-                                    @endforeach
+                                    @empty
+                                        <div style="padding: 10px; font-size: 12px; color: #64748b;">No office matches “{{ $officeSearch }}”.</div>
+                                    @endforelse
                                 </div>
                             @endif
                             @error('officeId') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror
@@ -1629,14 +1664,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                         {{-- Role Assignment Picker --}}
                         <div class="m-field-group" style="position: relative;">
                             <label class="m-field-label">System Role & Clearance Level</label>
-                            <input type="text" class="m-field-input" placeholder="Search and assign role..." wire:model.live="roleSearch" wire:focus="$set('showRoleDropdown', true)">
+                            <input type="text" class="m-field-input" placeholder="Search and assign role…" wire:model.live.debounce.150ms="roleSearch" wire:focus="$set('showRoleDropdown', true)" autocomplete="off">
                             @if($showRoleDropdown)
                                 <div style="position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); z-index: 50; max-height: 180px; overflow-y: auto; margin-top: 2px;">
-                                    @foreach($roles as $r)
-                                        <div wire:click="selectRole({{ $r->id }}, '{{ $r->key_name }}')" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #0f172a;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+                                    @forelse($rolePickerOptions as $r)
+                                        <div wire:click="selectRole({{ $r->id }}, @js($r->key_name))" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #0f172a;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
                                             <strong>{{ $r->key_name }}</strong>
                                         </div>
-                                    @endforeach
+                                    @empty
+                                        <div style="padding: 10px; font-size: 12px; color: #64748b;">No role matches “{{ $roleSearch }}”.</div>
+                                    @endforelse
                                 </div>
                             @endif
                             @error('roleId') <span style="color:#ef4444; font-size:11px;">{{ $message }}</span> @enderror

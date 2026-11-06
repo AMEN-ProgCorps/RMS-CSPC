@@ -140,17 +140,20 @@ DCS file: DCS toast. Same look on every DCS screen.
             var count = Math.max(0, parseInt((data && data.count != null) ? data.count : (data ?? 0), 10) || 0);
             var badge = document.getElementById('ofiIncomingBadge')
                 || document.querySelector('[data-ofi-incoming-badge]');
-            if (!badge) {
-                return;
+            if (badge) {
+                badge.textContent = String(count);
+                if (count > 0) {
+                    badge.hidden = false;
+                    badge.style.display = '';
+                } else {
+                    badge.hidden = true;
+                    badge.style.display = 'none';
+                }
             }
-            badge.textContent = String(count);
-            if (count > 0) {
-                badge.hidden = false;
-                badge.style.display = '';
-            } else {
-                badge.hidden = true;
-                badge.style.display = 'none';
-            }
+            // Dashboard Incoming tile — update without remorphing .ofi-page.
+            document.querySelectorAll('[data-ofi-incoming-stat]').forEach(function (el) {
+                el.textContent = String(count);
+            });
         });
         Livewire.on('office-request-count', function (payload) {
             var data = Array.isArray(payload) ? payload[0] : payload;

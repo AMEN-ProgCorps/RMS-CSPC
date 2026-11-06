@@ -37,8 +37,8 @@ DCS file: Office DRF syllabi context cascade + auto title.
 
     function connectorForSub() {
         const n = selectedSubName().toLowerCase();
-        if (n.indexOf('tos') !== -1 || n.indexOf('rubric') !== -1) return 'TOS/Rubrics for';
-        return 'Syllabus for';
+        if (n.indexOf('tos') !== -1 || n.indexOf('rubric') !== -1) return 'TOS/Rubrics,';
+        return 'Syllabus,';
     }
 
     function fillSelect(select, items, valueKey, labelKey, placeholder, keepValue) {
@@ -48,6 +48,8 @@ DCS file: Office DRF syllabi context cascade + auto title.
         const ph = document.createElement('option');
         ph.value = '';
         ph.textContent = placeholder;
+        ph.disabled = true;
+        ph.hidden = true;
         select.appendChild(ph);
         (items || []).forEach(function (item) {
             const opt = document.createElement('option');
@@ -57,8 +59,10 @@ DCS file: Office DRF syllabi context cascade + auto title.
             if (item.year_level) opt.dataset.yearLevel = item.year_level;
             select.appendChild(opt);
         });
-        if (previous && [...select.options].some(function (o) { return o.value === previous; })) {
+        if (previous && [...select.options].some(function (o) { return o.value === previous && !o.disabled; })) {
             select.value = previous;
+        } else {
+            ph.selected = true;
         }
     }
 
@@ -85,16 +89,61 @@ DCS file: Office DRF syllabi context cascade + auto title.
     function rebuildCourses(keep) {
         const programId = programSel ? String(programSel.value || '') : '';
         const semesterId = semesterSel ? String(semesterSel.value || '') : '';
+        // Settings → Course Names for this program + this semester only.
+        // Skip rows missing year level or course type (incomplete Settings data).
         const key = programId && semesterId ? (programId + ':' + semesterId) : '';
-        const courses = key ? ((catalog.coursesByProgramSemester || {})[key] || []) : [];
-        fillSelect(courseSel, courses, 'id', 'course_name', 'Select course…', keep);
+        const raw = key ? ((catalog.coursesByProgramSemester || {})[key] || []) : [];
+        const courses = raw.filter(function (c) {
+            const year = String(c.year_level || '').trim();
+            const type = String(c.course_type || '').trim();
+            return year !== '' && type !== '';
+        });
+        let placeholder = 'Select course…';
+        if (!programId || !semesterId) {
+            placeholder = 'Select program and semester first…';
+        } else if (!courses.length) {
+            placeholder = 'No complete courses in Settings for this semester…';
+        }
+        fillSelect(courseSel, courses, 'id', 'course_name', placeholder, keep);
         setEnabled(courseSel, !!(programId && semesterId), true);
+    }
+
+    function selectedSubTypeId() {
+        if (!subSelect) return '';
+        return String(subSelect.value || '').trim();
+    }
+
+    function takenSchoolYearIdsForCourse() {
+        const collegeId = collegeSel ? String(collegeSel.value || '') : '';
+        const programId = programSel ? String(programSel.value || '') : '';
+        const semesterId = semesterSel ? String(semesterSel.value || '') : '';
+        const courseId = courseSel ? String(courseSel.value || '') : '';
+        const subTypeId = selectedSubTypeId();
+        // Taken years are scoped by sub-type (Syllabi registration does not block TOS).
+        if (!collegeId || !programId || !semesterId || !courseId || !subTypeId) return [];
+        const key = collegeId + ':' + programId + ':' + semesterId + ':' + courseId + ':' + subTypeId;
+        const raw = (catalog.takenSchoolYearsByCourse || {})[key] || [];
+        return raw.map(function (id) { return String(id); });
     }
 
     function rebuildSchoolYears(keep) {
         const courseOn = !!(courseSel && courseSel.value);
-        fillSelect(schoolYearSel, catalog.schoolYears || [], 'school_year_id', 'school_year', 'Select school year…', keep);
-        setEnabled(schoolYearSel, courseOn, true);
+        const taken = takenSchoolYearIdsForCourse();
+        const takenSet = {};
+        taken.forEach(function (id) { takenSet[id] = true; });
+        const available = (catalog.schoolYears || []).filter(function (sy) {
+            return !takenSet[String(sy.school_year_id)];
+        });
+        let placeholder = 'Select school year…';
+        if (!courseOn) {
+            placeholder = 'Select course first…';
+        } else if (!available.length) {
+            placeholder = taken.length
+                ? 'Already registered for every school year…'
+                : 'No school years in Settings…';
+        }
+        fillSelect(schoolYearSel, available, 'school_year_id', 'school_year', placeholder, keep);
+        setEnabled(schoolYearSel, courseOn && available.length > 0, true);
     }
 
     function selectText(select) {
@@ -104,6 +153,7 @@ DCS file: Office DRF syllabi context cascade + auto title.
     }
 
     function buildTitle() {
+        // Department Syllabus, Semester S/Y SchoolYear for Program in Course
         const college = selectText(collegeSel);
         const program = selectText(programSel);
         const course = selectText(courseSel);
@@ -111,7 +161,8 @@ DCS file: Office DRF syllabi context cascade + auto title.
         let schoolYear = selectText(schoolYearSel);
         if (!college || !program || !course || !semester || !schoolYear) return '';
         schoolYear = schoolYear.replace(/^\s*s\/?y\s*/i, '');
-        return college + ' ' + connectorForSub() + ' ' + program + ' in ' + course + ', ' + semester + ' S/Y ' + schoolYear;
+        return college + ' ' + connectorForSub() + ' ' + semester + ' S/Y ' + schoolYear
+            + ' for ' + program + ' in ' + course;
     }
 
     function syncTitle() {
@@ -146,7 +197,11 @@ DCS file: Office DRF syllabi context cascade + auto title.
         const kind = kindRadio ? String(kindRadio.value || '') : (kindHidden ? String(kindHidden.value || '') : '');
         const show = kind === 'internal' && isSyllabiLikeName(selectedSubName());
         showContext(show);
-        if (show) syncTitle();
+        if (show) {
+            // Sub-type change (Syllabi ↔ TOS) must re-filter taken school years.
+            rebuildSchoolYears(true);
+            syncTitle();
+        }
     };
 
     function applySeed() {
@@ -172,6 +227,9 @@ DCS file: Office DRF syllabi context cascade + auto title.
         if (schoolYearSel) schoolYearSel.value = schoolYearId;
         seeding = false;
         syncTitle();
+        if (typeof window.__ofiRefreshDrfSignatories === 'function') {
+            window.__ofiRefreshDrfSignatories();
+        }
     }
 
     if (titleInput) {
@@ -187,6 +245,9 @@ DCS file: Office DRF syllabi context cascade + auto title.
         rebuildCourses(false);
         rebuildSchoolYears(false);
         syncTitle();
+        if (typeof window.__ofiRefreshDrfSignatories === 'function') {
+            window.__ofiRefreshDrfSignatories();
+        }
     });
     if (programSel) programSel.addEventListener('change', function () {
         rebuildSemesters(false);

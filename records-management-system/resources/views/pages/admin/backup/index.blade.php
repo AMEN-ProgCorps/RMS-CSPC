@@ -795,17 +795,38 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 }
 
                 $this->revertProgress = 100;
-                $this->successMessage = $result['message'];
                 $this->isReverting = false;
                 $this->selectedTargetBackup = '';
                 $this->backupConfirmInput = '';
 
-                // Refresh backups safely without letting any Google Drive check timeout affect revert success
                 try {
-                    $this->checkBackups();
+                    if (class_exists(\App\Helpers\OfficeIntakeHelper::class)) {
+                        \App\Helpers\OfficeIntakeHelper::bumpOfficeInventoryCache();
+                    }
+                    \Illuminate\Support\Facades\Cache::flush();
                 } catch (\Throwable $e) {
-                    logger()->warning("Post-revert checkBackups warning: " . $e->getMessage());
+                    logger()->warning('Post-revert cache clear warning: '.$e->getMessage());
                 }
+
+                // Restore already wiped the sessions table; also end this Livewire request
+                // and force a hard navigation so office-intake tabs cannot keep a stale cookie.
+                try {
+                    \Illuminate\Support\Facades\Auth::logout();
+                } catch (\Throwable) {
+                }
+                try {
+                    request()->session()->invalidate();
+                    request()->session()->regenerateToken();
+                } catch (\Throwable) {
+                    // Sessions table may already be empty after restore.
+                }
+
+                $loginUrl = route('login', absolute: false);
+                $this->js(
+                    'window.location.replace('.json_encode($loginUrl.'?restored=1').');'
+                );
+
+                return;
             } else {
                 $this->isReverting = false;
                 $this->errorMessage = $result['message'];

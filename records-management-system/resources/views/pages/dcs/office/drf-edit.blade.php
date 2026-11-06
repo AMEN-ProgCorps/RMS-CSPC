@@ -72,7 +72,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             'lockDocType' => $lockDocType,
             'lockedTypeLabel' => $lockedTypeLabel,
             'optInTypeRadios' => OfficeIntakeHelper::enabledOfficeDrfTypeRadios(),
-            'syllabiCatalog' => OfficeIntakeHelper::officeDrfSyllabiCatalog(),
+            'syllabiCatalog' => OfficeIntakeHelper::officeDrfSyllabiCatalog((int) ($drf->id ?? 0)),
             'isSyllabiLikeEdit' => RegisterQueryHelper::isSyllabiLikeName($subTypeName),
             'subTypeName' => $subTypeName,
             'userOfficeId' => $office['id'],
@@ -315,14 +315,27 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             </div>
 
             <div class="reg-form-actions ofi-reg-actions">
-                <button type="submit" id="ofiDrfPreviewBtn" class="reg-btn reg-btn-cancel" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.drf.preview', absolute: false) }}">
-                    Preview form
+                <button type="submit" id="ofiDrfPreviewBtn" class="reg-btn ofi-btn-preview" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.drf.preview', absolute: false) }}">
+                    <i class="fa-solid fa-eye" aria-hidden="true"></i> Preview form
                 </button>
                 <button type="submit" id="ofiDrfSaveBtn" class="reg-btn reg-btn-save" disabled>
                     <i class="fa-solid fa-paper-plane"></i> Save &amp; resubmit to RFIO
                 </button>
             </div>
         </form>
+    </div>
+
+    <div class="ofi-confirm-dialog-overlay" id="ofiAlertDialog" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="ofiAlertDialogTitle">
+        <div class="ofi-confirm-dialog">
+            <div class="ofi-confirm-dialog-header">
+                <span class="ofi-confirm-dialog-icon" aria-hidden="true"><i class="fa-solid fa-triangle-exclamation"></i></span>
+                <h3 id="ofiAlertDialogTitle">Cannot save</h3>
+            </div>
+            <div class="ofi-confirm-dialog-body" id="ofiAlertDialogMessage"></div>
+            <div class="ofi-confirm-dialog-footer">
+                <button type="button" class="ofi-confirm-dialog-btn ofi-confirm-dialog-btn-ok" data-ofi-alert-ok>OK</button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -354,6 +367,40 @@ window.__ofiSourceConfigs = [
     const saveBtn = document.getElementById('ofiDrfSaveBtn');
     if (!form || !confirmBox || !saveBtn) return;
 
+    function showOfiAlert(message, title) {
+        const overlay = document.getElementById('ofiAlertDialog');
+        if (!overlay) {
+            window.alert(message);
+            return;
+        }
+        if (overlay.parentElement !== document.body) {
+            document.body.appendChild(overlay);
+        }
+        const titleEl = overlay.querySelector('#ofiAlertDialogTitle');
+        const messageEl = overlay.querySelector('#ofiAlertDialogMessage');
+        const okBtn = overlay.querySelector('[data-ofi-alert-ok]');
+        if (titleEl) titleEl.textContent = title || 'Cannot save';
+        if (messageEl) messageEl.textContent = message;
+        function close() {
+            overlay.classList.remove('is-open');
+            overlay.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('ofi-modal-open');
+            document.removeEventListener('keydown', onKey);
+            overlay.removeEventListener('click', onBackdrop);
+            if (okBtn) okBtn.removeEventListener('click', onOk);
+        }
+        function onOk() { close(); }
+        function onBackdrop(e) { if (e.target === overlay) close(); }
+        function onKey(e) { if (e.key === 'Escape' || e.key === 'Enter') close(); }
+        overlay.addEventListener('click', onBackdrop);
+        document.addEventListener('keydown', onKey);
+        if (okBtn) okBtn.addEventListener('click', onOk);
+        overlay.classList.add('is-open');
+        overlay.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('ofi-modal-open');
+        if (okBtn) okBtn.focus();
+    }
+
     function syncConfirm() {
         saveBtn.disabled = !confirmBox.checked;
         saveBtn.setAttribute('aria-disabled', confirmBox.checked ? 'false' : 'true');
@@ -377,14 +424,14 @@ window.__ofiSourceConfigs = [
         if (e.submitter && e.submitter.id === 'ofiDrfPreviewBtn') return;
         if (!confirmBox.checked) {
             e.preventDefault();
-            alert('Please confirm that all the inputted data are correct before saving.');
+            showOfiAlert('Please confirm that all the inputted data are correct before saving.');
             return;
         }
 
         const selected = form.querySelectorAll('input[name="distributeToOffice[]"]');
         if (!selected.length) {
             e.preventDefault();
-            alert('Select at least one office to distribute the document to.');
+            showOfiAlert('Select at least one office to distribute the document to.');
             return;
         }
     });

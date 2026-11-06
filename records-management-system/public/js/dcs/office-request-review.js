@@ -327,6 +327,10 @@
                 if (e.key === 'Enter') close(true);
             }
 
+            if (overlay.parentElement !== document.body) {
+                document.body.appendChild(overlay);
+            }
+
             overlay.addEventListener('click', onBackdrop);
             document.addEventListener('keydown', onKey);
             if (okBtn) okBtn.addEventListener('click', onOk);

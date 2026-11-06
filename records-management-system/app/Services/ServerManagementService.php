@@ -413,6 +413,7 @@ class ServerManagementService
                 // Try apk or apt-get silently
                 @shell_exec('apk add --no-cache git 2>&1 || (apt-get update -qq && apt-get install -y -qq git 2>&1)');
             }
+            @shell_exec('git config --system --add safe.directory "*" 2>&1');
             @shell_exec('git config --global --add safe.directory "*" 2>&1');
         }
     }
@@ -432,7 +433,7 @@ class ServerManagementService
             $this->ensureGitReady();
             $repoPath = $this->getGitRepoPath();
             $nullRedirect = (PHP_OS_FAMILY === 'Windows') ? '2>NUL' : '2>/dev/null';
-            $gitCmd = 'git -C ' . escapeshellarg($repoPath);
+            $gitCmd = 'git -c safe.directory=* -C ' . escapeshellarg($repoPath);
 
             $commit = trim(@shell_exec("{$gitCmd} rev-parse --short HEAD {$nullRedirect}") ?: 'dev');
             $branch = trim(@shell_exec("{$gitCmd} rev-parse --abbrev-ref HEAD {$nullRedirect}") ?: 'main');
@@ -469,7 +470,7 @@ class ServerManagementService
         $branch = $gitInfo['branch'] !== 'unknown' ? $gitInfo['branch'] : 'New-Changes';
 
         $envPrefix = (PHP_OS_FAMILY === 'Windows') ? '' : 'GIT_TERMINAL_PROMPT=0 GIT_MERGE_AUTOEDIT=no ';
-        $gitCmd = "{$envPrefix}git -c gc.auto=0 -c maintenance.auto=0 -c fetch.autoMaintenance=0 -C " . escapeshellarg($repoPath);
+        $gitCmd = "{$envPrefix}git -c safe.directory=* -c gc.auto=0 -c maintenance.auto=0 -c fetch.autoMaintenance=0 -C " . escapeshellarg($repoPath);
 
         $cmd = "{$gitCmd} fetch origin {$branch} 2>&1 && {$gitCmd} pull --no-edit origin {$branch} 2>&1";
         $output = @shell_exec($cmd);

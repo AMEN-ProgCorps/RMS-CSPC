@@ -125,6 +125,44 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         $this->refreshData($service);
     }
 
+    public function updateDatabase(ServerManagementService $service): void
+    {
+        $this->isBusy = true;
+        $this->modalTitle = 'Database Migrations Update';
+
+        $res = $service->updateDatabase();
+        $this->consoleOutput = ($res['message'] ?? '') . "\n\n" . ($res['output'] ?? '');
+        $this->showOutputModal = true;
+        $this->isBusy = false;
+
+        if ($res['success']) {
+            $this->successMessage = $res['message'];
+        } else {
+            $this->errorMessage = $res['message'];
+        }
+
+        $this->refreshData($service);
+    }
+
+    public function renderNode(ServerManagementService $service): void
+    {
+        $this->isBusy = true;
+        $this->modalTitle = 'Render Node & Frontend Build';
+
+        $res = $service->renderNode();
+        $this->consoleOutput = ($res['message'] ?? '') . "\n\n" . ($res['output'] ?? '');
+        $this->showOutputModal = true;
+        $this->isBusy = false;
+
+        if ($res['success']) {
+            $this->successMessage = $res['message'];
+        } else {
+            $this->errorMessage = $res['message'];
+        }
+
+        $this->refreshData($service);
+    }
+
     public function stopLocalDb(ServerManagementService $service): void
     {
         $res = $service->stopLocalDatabaseContainers();
@@ -513,6 +551,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
                         <i class="fa-solid fa-bolt" wire:loading.remove wire:target="optimizeCaches"></i>
                         <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="optimizeCaches"></i>
                         <span>Optimize & Cache App</span>
+                    </button>
+                </div>
+
+                <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                    <button type="button" wire:click="updateDatabase" wire:loading.attr="disabled" style="flex: 1; min-width: 160px; background: #0284c7; color: white; border: none; padding: 12px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 10px rgba(2, 132, 199, 0.2);">
+                        <i class="fa-solid fa-database" wire:loading.remove wire:target="updateDatabase"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="updateDatabase"></i>
+                        <span>Update Database</span>
+                    </button>
+
+                    <button type="button" wire:click="renderNode" wire:loading.attr="disabled" style="flex: 1; min-width: 160px; background: #16a34a; color: white; border: none; padding: 12px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 10px rgba(22, 163, 74, 0.2);">
+                        <i class="fa-brands fa-node-js" wire:loading.remove wire:target="renderNode"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="renderNode"></i>
+                        <span>Render Node</span>
                     </button>
                 </div>
 

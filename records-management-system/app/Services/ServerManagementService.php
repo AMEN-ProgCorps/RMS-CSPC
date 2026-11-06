@@ -789,25 +789,211 @@ class ServerManagementService
     }
 
     /**
-     * Run database migrations (useful when switching to a fresh Neon database).
+     * Run database migrations (update database schema).
+     */
+    public function updateDatabase(): array
+    {
+        $output = '';
+        $success = false;
+
+        // 1. Direct Artisan migrate (standard, robust, captures full trace and output)
+        try {
+            \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
+            $artisanOutput = trim(\Illuminate\Support\Facades\Artisan::output());
+            $output .= ($artisanOutput ?: 'Database already up to date (nothing to migrate).') . "\n";
+            $success = true;
+        } catch (\Throwable $e) {
+            $output .= 'Artisan migrate error: ' . $e->getMessage() . "\n";
+        }
+
+        // 2. Fallback via docker compose / docker exec if shell_exec is available
+        if (!$success && function_exists('shell_exec')) {
+            $repoPath = $this->getGitRepoPath();
+            $commands = [
+                "docker compose -f " . escapeshellarg($repoPath . '/docker-compose.yml') . " exec -T app php artisan migrate --force 2>&1",
+                "docker compose exec -T app php artisan migrate --force 2>&1",
+                "docker exec rms_app php artisan migrate --force 2>&1",
+            ];
+            foreach ($commands as $cmd) {
+                $res = @shell_exec($cmd);
+                if ($res) {
+                    $output .= "\n[{$cmd}]:\n" . trim($res);
+                    if (str_contains($res, 'Migrated:') || str_contains($res, 'Nothing to migrate') || str_contains($res, 'DONE')) {
+                        $success = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return [
+            'success' => $success,
+            'message' => $success ? 'Database updated successfully.' : 'Database migration failed.',
+            'output' => trim($output),
+        ];
+    }
+
+    /**
+     * Run database migrations (alias for backward compatibility).
      */
     public function runDatabaseMigrations(): array
     {
+        return $this->updateDatabase();
+    }
+
+    /**
+     * Clear Vite hot file and trigger Node build (compile frontend assets).
+     */
+    public function renderNode(): array
+    {
+        $output = [];
+        $success = false;
+
+        // 1. Remove public/hot file / directory
+        $hotPath = public_path('hot');
+        if (file_exists($hotPath)) {
+            if (is_dir($hotPath)) {
+                $this->recursiveDeleteDirectory($hotPath);
+                $output[] = "Deleted directory: public/hot";
+            } else {
+                @unlink($hotPath);
+                $output[] = "Deleted file: public/hot";
+            }
+        } else {
+            $output[] = "public/hot is not present (clean).";
+        }
+
+        if (function_exists('shell_exec')) {
+            if (PHP_OS_FAMILY !== 'Windows') {
+                @shell_exec('rm -rf ' . escapeshellarg($hotPath) . ' 2>&1');
+            } else {
+                @shell_exec('if exist ' . escapeshellarg($hotPath) . ' del /f /q ' . escapeshellarg($hotPath) . ' 2>&1');
+            }
+        }
+
+        // 2. Execute npm run build in node container
+        $repoPath = $this->getGitRepoPath();
+
+        // Method A: Docker CLI via shell_exec
+        if (function_exists('shell_exec')) {
+            $commands = [
+                "docker compose -f " . escapeshellarg($repoPath . '/docker-compose.yml') . " exec -T node npm run build 2>&1",
+                "docker compose exec -T node npm run build 2>&1",
+                "docker exec -w /app rms_node npm run build 2>&1",
+                "docker exec rms_node npm run build 2>&1",
+            ];
+
+            foreach ($commands as $cmd) {
+                $res = @shell_exec($cmd);
+                if ($res && (str_contains($res, 'built in') || str_contains($res, 'vite build') || str_contains($res, '✓') || str_contains($res, 'modules transformed') || str_contains($res, 'dist/') || str_contains($res, 'manifest.json'))) {
+                    $output[] = "[Command: {$cmd}]\n" . trim($res);
+                    $success = true;
+                    break;
+                } elseif ($res && !str_contains($res, 'not found') && !str_contains($res, 'No such container')) {
+                    $output[] = "[Command: {$cmd}]\n" . trim($res);
+                }
+            }
+        }
+
+        // Method B: Docker Socket API execution (rms_node)
+        if (!$success && file_exists('/var/run/docker.sock') && function_exists('curl_init')) {
+            $socketRes = $this->execViaDockerSocket('rms_node', ['npm', 'run', 'build']);
+            if ($socketRes['success']) {
+                $output[] = "[Docker Socket: rms_node]\n" . $socketRes['output'];
+                $success = true;
+            } else {
+                $output[] = "[Docker Socket Error]\n" . $socketRes['output'];
+            }
+        }
+
+        // Method C: Host / bare-metal fallback if npm exists locally
+        if (!$success && function_exists('shell_exec')) {
+            $localCmd = "cd " . escapeshellarg($repoPath) . " && npm run build 2>&1";
+            $res = @shell_exec($localCmd);
+            if ($res) {
+                $output[] = "[Local Shell: {$localCmd}]\n" . trim($res);
+                if (str_contains($res, 'built in') || str_contains($res, 'vite build') || str_contains($res, '✓') || str_contains($res, 'modules transformed')) {
+                    $success = true;
+                }
+            }
+        }
+
+        return [
+            'success' => $success,
+            'message' => $success ? 'Node frontend assets rendered and built successfully.' : 'Node render completed (see output details).',
+            'output' => implode("\n\n", $output),
+        ];
+    }
+
+    /**
+     * Execute a command inside a running Docker container via /var/run/docker.sock.
+     */
+    public function execViaDockerSocket(string $container, array $cmd): array
+    {
+        if (!file_exists('/var/run/docker.sock') || !function_exists('curl_init')) {
+            return ['success' => false, 'output' => 'Docker socket /var/run/docker.sock not available.'];
+        }
+
         try {
-            \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
-            $output = \Illuminate\Support\Facades\Artisan::output();
+            // Step 1: Create exec instance
+            $ch = curl_init("http://localhost/containers/{$container}/exec");
+            curl_setopt($ch, CURLOPT_UNIX_SOCKET_PATH, '/var/run/docker.sock');
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+                'AttachStdout' => true,
+                'AttachStderr' => true,
+                'Cmd' => $cmd,
+            ]));
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            $createResp = curl_exec($ch);
+            curl_close($ch);
+
+            $createData = json_decode($createResp, true);
+            $execId = $createData['Id'] ?? null;
+            if (!$execId) {
+                return ['success' => false, 'output' => 'Failed to create exec instance in container: ' . ($createResp ?: 'empty response')];
+            }
+
+            // Step 2: Start exec instance
+            $ch = curl_init("http://localhost/exec/{$execId}/start");
+            curl_setopt($ch, CURLOPT_UNIX_SOCKET_PATH, '/var/run/docker.sock');
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+                'Detach' => false,
+                'Tty' => false,
+            ]));
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+            $startResp = curl_exec($ch);
+            curl_close($ch);
+
+            // Clean Docker stream headers (first 8 bytes of each multiplexed frame)
+            $cleanOutput = preg_replace('/^[\x00-\x02]\x00\x00\x00.../m', '', (string)$startResp);
+
             return [
                 'success' => true,
-                'message' => 'Database migrations executed successfully.',
-                'output' => $output,
+                'output' => trim($cleanOutput) ?: 'Exec completed with no output.',
             ];
         } catch (\Throwable $e) {
-            return [
-                'success' => false,
-                'message' => 'Migration failed: ' . $e->getMessage(),
-                'output' => $e->getTraceAsString(),
-            ];
+            return ['success' => false, 'output' => 'Docker socket exec error: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Recursively delete a directory and its contents.
+     */
+    private function recursiveDeleteDirectory(string $dir): void
+    {
+        if (!file_exists($dir)) return;
+        $files = array_diff(scandir($dir), ['.', '..']);
+        foreach ($files as $file) {
+            $path = "$dir/$file";
+            is_dir($path) ? $this->recursiveDeleteDirectory($path) : @unlink($path);
+        }
+        @rmdir($dir);
     }
 
     /**

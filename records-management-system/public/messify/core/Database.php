@@ -72,7 +72,7 @@ class Database
         }
 
         $clean = strtolower($name);
-        $isDomainPrefixed = str_starts_with($clean, 'sys_') || str_starts_with($clean, 'chat_') || str_starts_with($clean, 'messify_') || str_starts_with($clean, 'dts_') || str_starts_with($clean, 'rdp_') || str_starts_with($clean, 'dcs_');
+        $isDomainPrefixed = str_starts_with($clean, 'sys_') || str_starts_with($clean, 'messify_') || str_starts_with($clean, 'dts_') || str_starts_with($clean, 'rdp_') || str_starts_with($clean, 'dcs_');
         $sysName = $isDomainPrefixed ? $clean : 'sys_' . $clean;
 
         // If sys_ prefixed table exists in database, use it
@@ -80,13 +80,21 @@ class Database
             return $sysName;
         }
 
-        // If legacy table exists in database, use it
+        // If table exists in database, use it
         if (isset(self::$tableCache[$clean])) {
             return $clean;
         }
 
         // Default to sysName
         return $sysName;
+    }
+
+    /**
+     * Verification column name in account_details.
+     */
+    public static function verifiedColumn(): string
+    {
+        return 'is_messify_verified';
     }
 
     /**

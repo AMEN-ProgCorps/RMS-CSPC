@@ -206,6 +206,20 @@ class BackupService
             'sub_document_tracking_system_logs_types' => 'dts_transaction_log_types',
             'main_pending_id' => 'rdp_main_pending_id',
 
+            // Legacy chat tables -> Messify tables (for backward compatibility with old backups)
+            'chat_conversations' => 'messify_chat_conversations',
+            'chat_messages' => 'messify_chat_messages',
+            'chat_reactions' => 'messify_chat_reactions',
+            'chat_read_markers' => 'messify_chat_read_markers',
+            'chatify_chat_backup' => 'messify_chat_backup',
+            'chatify_legal_agreements' => 'messify_chat_legal_agreements',
+            'chatify_audit_logs' => 'messify_chat_audit_logs',
+            'chat_message_mentions' => 'messify_chat_message_mentions',
+            'chat_custom_groups' => 'messify_chat_custom_groups',
+            'chat_custom_group_members' => 'messify_chat_custom_group_members',
+            'chatify_backup_jobs' => 'messify_chat_backup_jobs',
+            'chat_office_gc_reads' => 'messify_chat_office_gc_reads',
+
             // Uniform -> Legacy (for reverse compatibility)
             'sys_account' => 'account',
             'sys_account_details' => 'account_details',
@@ -399,7 +413,19 @@ class BackupService
                     foreach ($chunks as $chunk) {
                         $filteredChunk = [];
                         foreach ($chunk as $row) {
-                            $filteredRow = array_intersect_key((array) $row, $dbColumns);
+                            $rowArr = (array) $row;
+                            // Backward compatibility: map legacy column names from older backups
+                            if (isset($rowArr['is_chatify_verified']) && !isset($rowArr['is_messify_verified'])) {
+                                $rowArr['is_messify_verified'] = $rowArr['is_chatify_verified'];
+                            }
+                            if (isset($rowArr['chatify_toggle_key']) && !isset($rowArr['messify_toggle_key'])) {
+                                $rowArr['messify_toggle_key'] = $rowArr['chatify_toggle_key'];
+                            }
+                            if (isset($rowArr['subsystem_name']) && $rowArr['subsystem_name'] === 'Chatify') {
+                                $rowArr['subsystem_name'] = 'Messify';
+                            }
+
+                            $filteredRow = array_intersect_key($rowArr, $dbColumns);
                             if (!empty($filteredRow)) {
                                 $filteredChunk[] = $filteredRow;
                             }
@@ -581,6 +607,15 @@ class BackupService
                     } catch (\Throwable) {}
                 }
             }
+
+            // Ensure any restored legacy 'Chatify' records from older backups are converted to 'Messify'
+            try {
+                if (Schema::hasColumn($subsystemsTbl, 'subsystem_name')) {
+                    DB::table($subsystemsTbl)
+                        ->where('subsystem_name', 'Chatify')
+                        ->update(['subsystem_name' => 'Messify', 'update_at' => now()]);
+                }
+            } catch (\Throwable) {}
         }
     }
 }

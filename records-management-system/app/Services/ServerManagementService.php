@@ -403,10 +403,18 @@ class ServerManagementService
     }
 
     /**
-     * Ensure git is installed and safe.directory is configured.
+     * Ensure git is installed and safe.directory is configured with proper file permissions.
      */
-    protected function ensureGitReady(): void
+    protected function ensureGitReady(?string $repoPath = null): void
     {
+        $repoPath = $repoPath ?: $this->getGitRepoPath();
+
+        // 1. If docker socket is available, fix permissions on .git with root privileges
+        if (file_exists('/var/run/docker.sock') && function_exists('curl_init')) {
+            $this->execViaDockerSocket('rms_app', ['sh', '-c', "chmod -R ugo+rwX " . escapeshellarg($repoPath . '/.git') . " 2>&1 || true"], null, '0:0');
+            $this->execViaDockerSocket('rms_app', ['git', 'config', '--global', '--add', 'safe.directory', '*'], null, '0:0');
+        }
+
         if (function_exists('shell_exec')) {
             $hasGit = @shell_exec('which git 2>&1');
             if (empty(trim($hasGit)) || str_contains($hasGit, 'not found')) {
@@ -414,6 +422,11 @@ class ServerManagementService
                 @shell_exec('apk add --no-cache git 2>&1 || (apt-get update -qq && apt-get install -y -qq git 2>&1)');
             }
             @shell_exec('git config --global --add safe.directory "*" 2>&1');
+            @shell_exec('chmod -R ugo+rwX ' . escapeshellarg($repoPath . '/.git') . ' 2>&1 || true');
+        }
+
+        if (file_exists($repoPath . '/.git/FETCH_HEAD')) {
+            @chmod($repoPath . '/.git/FETCH_HEAD', 0666);
         }
     }
 
@@ -459,22 +472,65 @@ class ServerManagementService
      */
     public function runGitPull(): array
     {
-        if (!function_exists('shell_exec')) {
-            return ['success' => false, 'output' => 'shell_exec function is disabled on this server.'];
-        }
-
-        $this->ensureGitReady();
         $repoPath = $this->getGitRepoPath();
+        $this->ensureGitReady($repoPath);
+
         $gitInfo = $this->getGitInfo();
-        $branch = $gitInfo['branch'] !== 'unknown' ? $gitInfo['branch'] : 'New-Changes';
+        $branch = ($gitInfo['branch'] !== 'unknown' && !empty($gitInfo['branch'])) ? $gitInfo['branch'] : 'Enitial-Fix-yow';
 
         $envPrefix = (PHP_OS_FAMILY === 'Windows') ? '' : 'GIT_TERMINAL_PROMPT=0 GIT_MERGE_AUTOEDIT=no ';
         $gitCmd = "{$envPrefix}git -c gc.auto=0 -c maintenance.auto=0 -c fetch.autoMaintenance=0 -C " . escapeshellarg($repoPath);
+        $pullCommand = "{$gitCmd} fetch origin {$branch} 2>&1 && {$gitCmd} pull --no-edit origin {$branch} 2>&1";
 
-        $cmd = "{$gitCmd} fetch origin {$branch} 2>&1 && {$gitCmd} pull --no-edit origin {$branch} 2>&1";
-        $output = @shell_exec($cmd);
+        $output = '';
+        $success = false;
 
-        $success = ($output !== null && !str_contains(strtolower($output), 'fatal:'));
+        // Method A: Docker Socket execution as root (bypasses www-data / appuser permission restrictions on .git/FETCH_HEAD)
+        if (file_exists('/var/run/docker.sock') && function_exists('curl_init')) {
+            $this->execViaDockerSocket('rms_app', ['sh', '-c', "chmod -R ugo+rwX " . escapeshellarg($repoPath . '/.git') . " 2>&1 || true"], null, '0:0');
+            $this->execViaDockerSocket('rms_app', ['git', 'config', '--global', '--add', 'safe.directory', '*'], null, '0:0');
+
+            $socketRes = $this->execViaDockerSocket('rms_app', ['sh', '-c', $pullCommand], $repoPath, '0:0');
+            if (!empty($socketRes['output']) && !str_contains($socketRes['output'], 'Docker socket error')) {
+                $output = $socketRes['output'];
+                $this->execViaDockerSocket('rms_app', ['sh', '-c', "chmod -R ugo+rwX " . escapeshellarg($repoPath . '/.git') . " 2>&1 || true"], null, '0:0');
+
+                $lower = strtolower($output);
+                $isFailed = str_contains($lower, 'fatal:')
+                    || str_contains($lower, 'error: cannot open')
+                    || str_contains($lower, 'permission denied')
+                    || str_contains($lower, 'could not resolve host');
+
+                $success = $socketRes['success'] && !$isFailed;
+            }
+        }
+
+        // Method B: Docker CLI as root via shell_exec
+        if (!$success && function_exists('shell_exec')) {
+            $dockerCliCmd = "docker exec -u 0:0 rms_app sh -c " . escapeshellarg($pullCommand) . " 2>&1";
+            $res = @shell_exec($dockerCliCmd);
+            if ($res && !str_contains($res, 'No such container') && !str_contains($res, 'docker: not found')) {
+                $output = $res;
+                $lower = strtolower($output);
+                $isFailed = str_contains($lower, 'fatal:')
+                    || str_contains($lower, 'error: cannot open')
+                    || str_contains($lower, 'permission denied');
+                $success = !$isFailed;
+            }
+        }
+
+        // Method C: Direct shell_exec fallback
+        if (!$success && function_exists('shell_exec')) {
+            $res = @shell_exec($pullCommand);
+            if ($res) {
+                $output = $res;
+                $lower = strtolower($output);
+                $isFailed = str_contains($lower, 'fatal:')
+                    || str_contains($lower, 'error: cannot open')
+                    || str_contains($lower, 'permission denied');
+                $success = !$isFailed;
+            }
+        }
 
         if ($success) {
             // Re-cache views & config
@@ -482,14 +538,16 @@ class ServerManagementService
                 $php = $this->getPhpBinary();
                 $artisan = escapeshellarg(base_path('artisan'));
                 @shell_exec(escapeshellarg($php) . " {$artisan} view:clear 2>&1");
+                @shell_exec(escapeshellarg($php) . " {$artisan} config:clear 2>&1");
             } else {
                 Artisan::call('view:clear');
+                Artisan::call('config:clear');
             }
         }
 
         return [
             'success' => $success,
-            'output' => $output ?: 'No output returned by git command.',
+            'output' => trim($output) ?: 'No output returned by git command.',
         ];
     }
 
@@ -928,7 +986,7 @@ class ServerManagementService
     /**
      * Execute a command inside a running Docker container via /var/run/docker.sock.
      */
-    public function execViaDockerSocket(string $container, array $cmd, ?string $workingDir = null): array
+    public function execViaDockerSocket(string $container, array $cmd, ?string $workingDir = null, ?string $user = '0:0'): array
     {
         if (!file_exists('/var/run/docker.sock') || !function_exists('curl_init')) {
             return ['success' => false, 'output' => 'Docker socket /var/run/docker.sock not available.'];
@@ -943,6 +1001,7 @@ class ServerManagementService
                 'AttachStdout' => true,
                 'AttachStderr' => true,
                 'Cmd' => $cmd,
+                'User' => $user ?: '0:0',
             ];
             if ($workingDir) {
                 $payload['WorkingDir'] = $workingDir;

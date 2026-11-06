@@ -540,12 +540,14 @@ Route::middleware(['auth'])
         Volt::route('/admin/server-settings/current-server', 'pages.admin.server-settings.current-server')->name('admin.server-settings.current');
         Volt::route('/admin/server-settings/multi-server', 'pages.admin.server-settings.multi-server')->name('admin.server-settings.multi-server');
         Volt::route('/admin/server-settings/site-diagnostic', 'pages.admin.server-settings.site-diagnostic')->name('admin.server-settings.diagnostic');
+        Volt::route('/admin/server-settings/terminal', 'pages.admin.server-settings.terminal')->name('admin.server-settings.terminal');
 
         // Backward compatibility redirects
         Route::redirect('/server-settings/current-server', '/admin/server-settings/current-server');
         Route::redirect('/server-settings/adds-on-servers', '/admin/server-settings/multi-server');
         Route::redirect('/server-settings/multi-server', '/admin/server-settings/multi-server');
         Route::redirect('/server-settings/site-diagnostic', '/admin/server-settings/site-diagnostic');
+        Route::redirect('/server-settings/terminal', '/admin/server-settings/terminal');
         Route::redirect('/admin/server-settings/adds-on-servers', '/admin/server-settings/multi-server')->name('admin.server-settings.addons');
     });
 

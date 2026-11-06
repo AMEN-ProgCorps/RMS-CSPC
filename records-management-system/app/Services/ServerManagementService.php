@@ -928,7 +928,7 @@ class ServerManagementService
     /**
      * Execute a command inside a running Docker container via /var/run/docker.sock.
      */
-    public function execViaDockerSocket(string $container, array $cmd): array
+    public function execViaDockerSocket(string $container, array $cmd, ?string $workingDir = null): array
     {
         if (!file_exists('/var/run/docker.sock') || !function_exists('curl_init')) {
             return ['success' => false, 'output' => 'Docker socket /var/run/docker.sock not available.'];
@@ -939,11 +939,15 @@ class ServerManagementService
             $ch = curl_init("http://localhost/containers/{$container}/exec");
             curl_setopt($ch, CURLOPT_UNIX_SOCKET_PATH, '/var/run/docker.sock');
             curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+            $payload = [
                 'AttachStdout' => true,
                 'AttachStderr' => true,
                 'Cmd' => $cmd,
-            ]));
+            ];
+            if ($workingDir) {
+                $payload['WorkingDir'] = $workingDir;
+            }
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
             curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_TIMEOUT, 10);
@@ -980,6 +984,250 @@ class ServerManagementService
         } catch (\Throwable $e) {
             return ['success' => false, 'output' => 'Docker socket exec error: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Run terminal command in the requested environment container or host.
+     *
+     * @param string $command Command string
+     * @param string $target 'app' | 'node' | 'db' | 'host'
+     * @param string|null $workingDir Optional working directory
+     * @return array ['success' => bool, 'output' => string, 'exit_code' => int, 'command' => string, 'target' => string, 'timestamp' => string]
+     */
+    public function runTerminalCommand(string $command, string $target = 'app', ?string $workingDir = null): array
+    {
+        $rawCommand = trim($command);
+        if ($rawCommand === '') {
+            return [
+                'success' => false,
+                'output' => 'Error: Command cannot be empty.',
+                'exit_code' => 1,
+                'command' => '',
+                'target' => $target,
+                'timestamp' => now()->format('H:i:s'),
+            ];
+        }
+
+        // Prevent blocking interactive applications
+        $interactivePatterns = [
+            '/^\s*nano(\s+.*)?$/i' => 'nano is an interactive editor. In a web terminal, consider using cat, echo, or sed.',
+            '/^\s*vi(m)?(\s+.*)?$/i' => 'vim is an interactive editor. In a web terminal, consider using cat, echo, or sed.',
+            '/^\s*htop(\s+.*)?$/i' => 'htop is an interactive viewer. Use "top -b -n 1" or Server Settings metrics instead.',
+            '/^\s*top(\s*)$/i' => 'Interactive top will block. Use "top -b -n 1" for batch output.',
+            '/^\s*tail\s+-f\b/i' => 'tail -f will run indefinitely. Use "tail -n 100 <file>" instead.',
+            '/^\s*watch\b/i' => 'watch will run indefinitely. Run the target command once instead.',
+            '/^\s*less(\s+.*)?$/i' => 'less is an interactive pager. Use "cat <file>" or "head -n 50 <file>" instead.',
+            '/^\s*ssh\b/i' => 'Interactive ssh is not supported in this console.',
+        ];
+
+        foreach ($interactivePatterns as $pattern => $message) {
+            if (preg_match($pattern, $rawCommand)) {
+                return [
+                    'success' => false,
+                    'output' => "Command Blocked: {$message}",
+                    'exit_code' => 126,
+                    'command' => $rawCommand,
+                    'target' => $target,
+                    'timestamp' => now()->format('H:i:s'),
+                ];
+            }
+        }
+
+        $repoPath = $this->getGitRepoPath();
+        $basePath = base_path();
+        $isInsideDocker = file_exists('/.dockerenv');
+        $hasDockerSocket = file_exists('/var/run/docker.sock');
+
+        $output = '';
+        $exitCode = 0;
+        $success = false;
+
+        $runProcess = function (string $cmd, string $cwd, int $timeout = 60) {
+            $descriptors = [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ];
+
+            $process = @proc_open($cmd, $descriptors, $pipes, $cwd);
+            if (!is_resource($process)) {
+                return ['success' => false, 'output' => "Failed to spawn process for command: {$cmd}", 'exit_code' => -1];
+            }
+
+            fclose($pipes[0]);
+
+            // Set stdout and stderr to non-blocking
+            stream_set_blocking($pipes[1], false);
+            stream_set_blocking($pipes[2], false);
+
+            $stdout = '';
+            $stderr = '';
+            $startTime = time();
+
+            while (true) {
+                $read = [$pipes[1], $pipes[2]];
+                $write = null;
+                $except = null;
+
+                if (@stream_select($read, $write, $except, 0, 200000) > 0) {
+                    foreach ($read as $stream) {
+                        $chunk = fread($stream, 8192);
+                        if ($chunk !== false && $chunk !== '') {
+                            if ($stream === $pipes[1]) {
+                                $stdout .= $chunk;
+                            } else {
+                                $stderr .= $chunk;
+                            }
+                        }
+                    }
+                }
+
+                $status = proc_get_status($process);
+                if (!$status['running']) {
+                    // Collect remaining data
+                    $stdout .= stream_get_contents($pipes[1]);
+                    $stderr .= stream_get_contents($pipes[2]);
+                    break;
+                }
+
+                if (time() - $startTime > $timeout) {
+                    @proc_terminate($process, 9);
+                    $stderr .= "\n[Execution timed out after {$timeout} seconds]";
+                    break;
+                }
+            }
+
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $code = proc_close($process);
+
+            $combined = trim($stdout . ($stderr !== '' ? ($stdout !== '' ? "\n" : "") . $stderr : ''));
+
+            return [
+                'success' => ($code === 0),
+                'output' => $combined !== '' ? $combined : '(Command finished with no output)',
+                'exit_code' => $code,
+            ];
+        };
+
+        switch ($target) {
+            case 'node':
+                // Check if we can execute inside rms_node
+                $executed = false;
+                if ($hasDockerSocket && function_exists('curl_init')) {
+                    $res = $this->execViaDockerSocket('rms_node', ['sh', '-c', $rawCommand], $workingDir ?: '/app');
+                    if ($res['success'] || !str_contains($res['output'], 'Docker socket error')) {
+                        $output = $res['output'];
+                        $success = $res['success'];
+                        $exitCode = $success ? 0 : 1;
+                        $executed = true;
+                    }
+                }
+
+                if (!$executed && function_exists('shell_exec')) {
+                    $dockerCmd = "docker compose -f " . escapeshellarg($repoPath . '/docker-compose.yml') . " exec -T node sh -c " . escapeshellarg($rawCommand) . " 2>&1";
+                    $procRes = $runProcess($dockerCmd, $repoPath);
+                    if (!str_contains($procRes['output'], 'No such service') && !str_contains($procRes['output'], 'command not found') && !str_contains($procRes['output'], 'docker: not found')) {
+                        $output = $procRes['output'];
+                        $exitCode = $procRes['exit_code'];
+                        $success = $procRes['success'];
+                        $executed = true;
+                    }
+                }
+
+                if (!$executed) {
+                    // Fallback to local host execution in repoPath
+                    $procRes = $runProcess($rawCommand, $workingDir ?: $repoPath);
+                    $output = $procRes['output'];
+                    $exitCode = $procRes['exit_code'];
+                    $success = $procRes['success'];
+                }
+                break;
+
+            case 'db':
+                $executed = false;
+                if ($hasDockerSocket && function_exists('curl_init')) {
+                    $res = $this->execViaDockerSocket('rms_db', ['sh', '-c', $rawCommand], $workingDir ?: '/');
+                    if ($res['success'] || !str_contains($res['output'], 'Docker socket error')) {
+                        $output = $res['output'];
+                        $success = $res['success'];
+                        $exitCode = $success ? 0 : 1;
+                        $executed = true;
+                    }
+                }
+
+                if (!$executed && function_exists('shell_exec')) {
+                    $dockerCmd = "docker compose -f " . escapeshellarg($repoPath . '/docker-compose.yml') . " exec -T db sh -c " . escapeshellarg($rawCommand) . " 2>&1";
+                    $procRes = $runProcess($dockerCmd, $repoPath);
+                    $output = $procRes['output'];
+                    $exitCode = $procRes['exit_code'];
+                    $success = $procRes['success'];
+                }
+                break;
+
+            case 'host':
+                $dir = $workingDir ?: $repoPath;
+                if (!is_dir($dir)) {
+                    $dir = $basePath;
+                }
+                $procRes = $runProcess($rawCommand, $dir);
+                $output = $procRes['output'];
+                $exitCode = $procRes['exit_code'];
+                $success = $procRes['success'];
+                break;
+
+            case 'app':
+            default:
+                if ($isInsideDocker) {
+                    // When running inside the app container, execute directly
+                    $dir = $workingDir ?: $basePath;
+                    $procRes = $runProcess($rawCommand, $dir);
+                    $output = $procRes['output'];
+                    $exitCode = $procRes['exit_code'];
+                    $success = $procRes['success'];
+                } else {
+                    // Running on host where docker might be running rms_app
+                    $executed = false;
+                    if (function_exists('shell_exec')) {
+                        $dockerCmd = "docker compose -f " . escapeshellarg($repoPath . '/docker-compose.yml') . " exec -T app sh -c " . escapeshellarg($rawCommand) . " 2>&1";
+                        $procRes = $runProcess($dockerCmd, $repoPath);
+                        if (!str_contains($procRes['output'], 'Cannot connect to the Docker daemon') && !str_contains($procRes['output'], 'docker: not found')) {
+                            $output = $procRes['output'];
+                            $exitCode = $procRes['exit_code'];
+                            $success = $procRes['success'];
+                            $executed = true;
+                        }
+                    }
+
+                    if (!$executed && $hasDockerSocket && function_exists('curl_init')) {
+                        $res = $this->execViaDockerSocket('rms_app', ['sh', '-c', $rawCommand], $workingDir ?: '/var/www/html');
+                        if ($res['success']) {
+                            $output = $res['output'];
+                            $success = true;
+                            $exitCode = 0;
+                            $executed = true;
+                        }
+                    }
+
+                    if (!$executed) {
+                        $dir = $workingDir ?: $basePath;
+                        $procRes = $runProcess($rawCommand, $dir);
+                        $output = $procRes['output'];
+                        $exitCode = $procRes['exit_code'];
+                        $success = $procRes['success'];
+                    }
+                }
+                break;
+        }
+
+        return [
+            'success' => $success,
+            'output' => $output,
+            'exit_code' => $exitCode,
+            'command' => $rawCommand,
+            'target' => $target,
+            'timestamp' => now()->format('H:i:s'),
+        ];
     }
 
     /**

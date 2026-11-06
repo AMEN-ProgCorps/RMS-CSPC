@@ -59,6 +59,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public string $driveFolderId = '';
     public bool $driveVerifySsl = true;
 
+    // On-Premise NAS / S3 Storage (Pigsty) Diagnostics & Management
+    public string $nasTestResult = '';
+    public bool $isTestingNas = false;
+    public string $nasStatus = 'unknown';
+    public bool $showNasEditForm = false;
+    public string $nasEndpoint = '';
+    public string $nasBucket = '';
+    public string $nasAccessKey = '';
+    public string $nasSecretKey = '';
+    public string $nasRegion = 'us-east-1';
+    public bool $nasUsePathStyle = true;
+
     // Google SSO Credential Manager (Internal Staff Login)
     public string $ssoTestResult = '';
     public string $ssoStatus = 'unknown';
@@ -155,6 +167,143 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         } catch (\Throwable $e) {
             $this->errorMessage = 'Failed to save Google Drive credentials: ' . $e->getMessage();
         }
+    }
+
+    public function toggleNasEditForm(): void
+    {
+        $this->showNasEditForm = !$this->showNasEditForm;
+        if ($this->showNasEditForm) {
+            $this->loadNasCredentials();
+        }
+    }
+
+    public function loadNasCredentials(): void
+    {
+        $this->nasEndpoint = \DB::table('sys_system_settings')->where('key', 's3_endpoint')->value('value')
+            ?: env('AWS_ENDPOINT', 'http://s3_storage:9000');
+
+        $this->nasBucket = \DB::table('sys_system_settings')->where('key', 's3_bucket')->value('value')
+            ?: env('AWS_BUCKET', 'rms-storage');
+
+        $this->nasAccessKey = \DB::table('sys_system_settings')->where('key', 's3_access_key')->value('value')
+            ?: env('AWS_ACCESS_KEY_ID', 'pigsty_admin');
+
+        $this->nasSecretKey = \DB::table('sys_system_settings')->where('key', 's3_secret_key')->value('value')
+            ?: env('AWS_SECRET_ACCESS_KEY', 'pigsty_secret_key_123');
+
+        $this->nasRegion = \DB::table('sys_system_settings')->where('key', 's3_region')->value('value')
+            ?: env('AWS_DEFAULT_REGION', 'us-east-1');
+
+        $pathStyleVal = \DB::table('sys_system_settings')->where('key', 's3_use_path_style')->value('value');
+        if ($pathStyleVal !== null) {
+            $this->nasUsePathStyle = ($pathStyleVal === 'true');
+        } else {
+            $this->nasUsePathStyle = filter_var(env('AWS_USE_PATH_STYLE_ENDPOINT', true), FILTER_VALIDATE_BOOLEAN);
+        }
+    }
+
+    public function saveNasCredentials(): void
+    {
+        try {
+            $credentials = [
+                's3_endpoint'       => trim($this->nasEndpoint),
+                's3_bucket'         => trim($this->nasBucket),
+                's3_access_key'     => trim($this->nasAccessKey),
+                's3_secret_key'     => trim($this->nasSecretKey),
+                's3_region'         => trim($this->nasRegion),
+                's3_use_path_style' => $this->nasUsePathStyle ? 'true' : 'false',
+            ];
+
+            foreach ($credentials as $key => $value) {
+                \DB::table('sys_system_settings')->updateOrInsert(
+                    ['key' => $key],
+                    ['value' => $value, 'updated_at' => now()]
+                );
+            }
+
+            $this->updateEnvFile([
+                'AWS_ACCESS_KEY_ID'           => trim($this->nasAccessKey),
+                'AWS_SECRET_ACCESS_KEY'       => trim($this->nasSecretKey),
+                'AWS_DEFAULT_REGION'          => trim($this->nasRegion),
+                'AWS_BUCKET'                  => trim($this->nasBucket),
+                'AWS_ENDPOINT'                => trim($this->nasEndpoint),
+                'AWS_USE_PATH_STYLE_ENDPOINT' => $this->nasUsePathStyle ? 'true' : 'false',
+            ]);
+
+            config([
+                'filesystems.disks.s3.key'                    => trim($this->nasAccessKey),
+                'filesystems.disks.s3.secret'                 => trim($this->nasSecretKey),
+                'filesystems.disks.s3.region'                 => trim($this->nasRegion),
+                'filesystems.disks.s3.bucket'                 => trim($this->nasBucket),
+                'filesystems.disks.s3.endpoint'               => trim($this->nasEndpoint),
+                'filesystems.disks.s3.use_path_style_endpoint'=> $this->nasUsePathStyle,
+            ]);
+
+            \DB::table('sys_admin_logs')->insert([
+                'changes'      => 'Updated On-Premise NAS / S3 Storage (Pigsty) credentials via Admin Console',
+                'admin_id'     => auth()->id(),
+                'what_system'  => 3,
+                'when_changes' => now(),
+            ]);
+
+            $this->showNasEditForm = false;
+            $this->successMessage = 'On-Premise NAS / S3 Storage (Pigsty) configuration updated successfully!';
+            $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'NAS / S3 storage settings updated by administrator.');
+
+            try {
+                \Illuminate\Support\Facades\Storage::forgetDisk('s3');
+            } catch (\Throwable) {}
+
+            $this->testNasConnection();
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Failed to save NAS / S3 storage credentials: ' . $e->getMessage();
+        }
+    }
+
+    public function testNasConnection(): void
+    {
+        $this->isTestingNas = true;
+        $this->nasTestResult = '';
+
+        try {
+            config([
+                'filesystems.disks.s3.key'                    => trim($this->nasAccessKey ?: env('AWS_ACCESS_KEY_ID', 'pigsty_admin')),
+                'filesystems.disks.s3.secret'                 => trim($this->nasSecretKey ?: env('AWS_SECRET_ACCESS_KEY', 'pigsty_secret_key_123')),
+                'filesystems.disks.s3.region'                 => trim($this->nasRegion ?: env('AWS_DEFAULT_REGION', 'us-east-1')),
+                'filesystems.disks.s3.bucket'                 => trim($this->nasBucket ?: env('AWS_BUCKET', 'rms-storage')),
+                'filesystems.disks.s3.endpoint'               => trim($this->nasEndpoint ?: env('AWS_ENDPOINT', 'http://s3_storage:9000')),
+                'filesystems.disks.s3.use_path_style_endpoint'=> $this->nasUsePathStyle,
+            ]);
+
+            \Illuminate\Support\Facades\Storage::forgetDisk('s3');
+
+            $testFileName = 'nas_health_check_' . time() . '.txt';
+            $testContent = 'RMS-CSPC On-Premise NAS / S3 Storage (Pigsty) Health Check - ' . now();
+
+            $written = \Illuminate\Support\Facades\Storage::disk('s3')->put($testFileName, $testContent);
+
+            if ($written && \Illuminate\Support\Facades\Storage::disk('s3')->exists($testFileName)) {
+                \Illuminate\Support\Facades\Storage::disk('s3')->delete($testFileName);
+
+                $this->nasStatus = 'connected';
+                $this->nasTestResult = '✅ NAS / S3 Storage (Pigsty) Connection Healthy! Successfully verified read/write capability to bucket "' . ($this->nasBucket ?: env('AWS_BUCKET', 'rms-storage')) . '".';
+
+                \DB::table('sys_admin_logs')->insert([
+                    'changes'      => 'Executed On-Premise NAS / S3 Storage (Pigsty) Health Check (Status: HEALTHY)',
+                    'admin_id'     => auth()->id(),
+                    'what_system'  => 3,
+                    'when_changes' => now(),
+                ]);
+            } else {
+                $this->nasStatus = 'error';
+                $this->nasTestResult = '❌ Failed to verify file write on NAS / S3 storage.';
+            }
+        } catch (\Throwable $e) {
+            $this->nasStatus = 'error';
+            $this->nasTestResult = '❌ NAS / S3 Storage Connection Error: ' . $e->getMessage();
+        }
+
+        $this->isTestingNas = false;
     }
 
     public function toggleSsoEditForm(): void
@@ -402,6 +551,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $this->dcsOfficeDrfFormsEnabled = \App\Helpers\OfficeIntakeHelper::isOfficeDrfParentEnabled('Forms');
         $this->dcsOfficeDrfLogbooksEnabled = \App\Helpers\OfficeIntakeHelper::isOfficeDrfParentEnabled('Logbooks');
+
+        $this->loadNasCredentials();
     }
 
     // ---- SERVER DEFAULT RECORD SERIES PICKER (DTS CONTINUITY) ----
@@ -1040,8 +1191,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 'sys_system_settings', 'sys_account', 'sys_account_details', 'sys_condition_key', 'sys_condition_details',
                 'sys_office', 'sys_cluster', 'sys_folder_data', 'sys_subsystems', 'sys_document_data', 'dts_transaction_flow',
                 'dts_action_options', 'dts_transaction_details', 'dts_transaction_logs', 'rdp_record',
-                'rdp_record_series', 'sys_admin_logs', 'sys_security_logs', 'sys_notifications', 'chat_messages',
-                'chat_conversations', 'sys_personal_settings'
+                'rdp_record_series', 'sys_admin_logs', 'sys_security_logs', 'sys_notifications', 'messify_chat_messages',
+                'messify_chat_conversations', 'sys_personal_settings'
             ];
         }
 
@@ -1615,6 +1766,128 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <i class="fa-solid fa-floppy-disk"></i> Save Credentials
                         </button>
                         <button type="button" wire:click="toggleDriveEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            @endif
+        </div>
+
+        <!-- On-Premise NAS / S3 Storage (Pigsty) Manager Card (Full Width Banner) -->
+        <div class="settings-card" style="border-top: 4px solid #0284c7; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <i class="fa-solid fa-server" style="font-size: 24px; color: #0284c7;"></i>
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">On-Premise NAS / S3 Storage Manager</h3>
+                            <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 9999px; letter-spacing: 0.05em; border: 1px solid #bae6fd;">S3 Storage (Pigsty)</span>
+                        </div>
+                        <span style="font-size: 12px; color: #64748b;">Local network-attached storage (NAS) simulation container for high-throughput archival</span>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 14px; border: 1px solid #e2e8f0;">
+                <div>
+                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Active S3 Bucket</span>
+                    <div style="font-size: 12px; font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
+                        {{ config('filesystems.disks.s3.bucket') ?: 'rms-storage' }}
+                    </div>
+                </div>
+                <div>
+                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">NAS Endpoint (S3 API)</span>
+                    <div style="font-size: 12px; font-weight: 700; color: #0284c7; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
+                        {{ config('filesystems.disks.s3.endpoint') ?: 'http://s3_storage:9000' }}
+                    </div>
+                </div>
+                <div>
+                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Addressing Style</span>
+                    <div style="font-size: 12px; font-weight: 700; color: #059669;">
+                        {{ config('filesystems.disks.s3.use_path_style_endpoint', true) ? 'Path-Style (S3 API Compliant)' : 'Virtual-Hosted' }}
+                    </div>
+                </div>
+                <div>
+                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Pigsty Silo Container</span>
+                    <div style="font-size: 12px; font-weight: 700; color: #475569;">
+                        s3_storage:9000 (API) / 9001 (Web GUI)
+                    </div>
+                </div>
+            </div>
+
+            @if ($nasTestResult)
+                <div style="padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-bottom: 14px; background: {{ str_contains($nasTestResult, '✅') ? '#f0fdf4' : '#fef2f2' }}; color: {{ str_contains($nasTestResult, '✅') ? '#166534' : '#991b1b' }}; border: 1px solid {{ str_contains($nasTestResult, '✅') ? '#bbf7d0' : '#fecaca' }};">
+                    {{ $nasTestResult }}
+                </div>
+            @endif
+
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button type="button" wire:click="testNasConnection" wire:loading.attr="disabled" style="background: #0284c7; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-plug" wire:loading.remove wire:target="testNasConnection"></i>
+                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testNasConnection"></i>
+                    <span>Test Connection & Health Check</span>
+                </button>
+
+                <button type="button" wire:click="toggleNasEditForm" style="background: #475569; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-gear"></i>
+                    <span>{{ $showNasEditForm ? 'Close Editor' : 'Edit NAS Configuration' }}</span>
+                </button>
+
+                <a href="http://localhost:9001" target="_blank" rel="noopener noreferrer" style="background: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-arrow-up-right-from-square" style="color: #64748b;"></i>
+                    <span>Open Pigsty S3 Console (Port 9001)</span>
+                </a>
+            </div>
+
+            @if ($showNasEditForm)
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 2px dashed #e2e8f0; background: #f8fafc; padding: 16px; border-radius: 8px;">
+                    <h4 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-sliders" style="color: #0284c7;"></i> Update On-Premise NAS / S3 Storage Configuration
+                    </h4>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">S3 Endpoint URL (AWS_ENDPOINT)</label>
+                            <input type="text" wire:model="nasEndpoint" placeholder="e.g. http://s3_storage:9000 or http://localhost:9000" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Default Bucket (AWS_BUCKET)</label>
+                            <input type="text" wire:model="nasBucket" placeholder="e.g. rms-storage" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Access Key ID (AWS_ACCESS_KEY_ID)</label>
+                            <input type="text" wire:model="nasAccessKey" placeholder="e.g. pigsty_admin" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Secret Access Key (AWS_SECRET_ACCESS_KEY)</label>
+                            <input type="password" wire:model="nasSecretKey" placeholder="e.g. pigsty_secret_key_123" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">S3 Default Region (AWS_DEFAULT_REGION)</label>
+                            <input type="text" wire:model="nasRegion" placeholder="e.g. us-east-1" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 0; margin-top: 8px;">
+                        <div>
+                            <span style="font-size: 12px; font-weight: 700; color: #334155; display: block;">Use Path-Style Endpoint (AWS_USE_PATH_STYLE_ENDPOINT)</span>
+                            <span style="font-size: 11px; color: #64748b;">Must be ON for MinIO / Pigsty Silo / Local NAS S3 servers.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="nasUsePathStyle">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-top: 10px;">
+                        <button type="button" wire:click="saveNasCredentials" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-floppy-disk"></i> Save NAS Configuration
+                        </button>
+                        <button type="button" wire:click="toggleNasEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
                             Cancel
                         </button>
                     </div>

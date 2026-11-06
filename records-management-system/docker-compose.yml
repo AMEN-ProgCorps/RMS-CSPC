@@ -35,7 +35,7 @@ services:
 
   # ── Node / Vite ─────────────────────────────────────────────────────────────
   node:
-    image: node:20-alpine
+    image: node:24-alpine
     container_name: rms_node
     working_dir: /app
     environment:
@@ -46,7 +46,7 @@ services:
     ports:
       - "5173:5173"
     command: >
-      sh -c "npm install && npm run dev"
+      sh -c "npm install -g npm@12.2.1 && npm install && npm run dev"
     networks:
       - rms_net
 
@@ -83,9 +83,9 @@ services:
 
   # ── WebSocket Server (Node) ──────────────────────────────────────────────────
   websocket:
-    image: node:20-alpine
+    image: node:24-alpine
     container_name: rms_websocket
-    working_dir: /app/public/chatify/ws-server
+    working_dir: /app/public/messify/ws-server
     restart: unless-stopped
     environment:
       PORT: "${WS_PORT:-8080}"
@@ -94,7 +94,24 @@ services:
       - .:/app
     env_file:
       - .env.docker
-    command: sh -c "npm install && node server.js"
+    command: sh -c "npm install -g npm@12.2.1 && npm install && node server.js"
+    networks:
+      - rms_net
+
+  # ── S3 / NAS Storage Simulation (Pigsty / MinIO) ────────────────────────────
+  s3_storage:
+    image: pgsty/silo:latest
+    container_name: s3_storage
+    restart: unless-stopped
+    ports:
+      - "${S3_API_PORT:-9000}:9000"
+      - "${S3_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: "${S3_ROOT_USER:-admin}"
+      MINIO_ROOT_PASSWORD: "${S3_ROOT_PASSWORD:-adminpassword}"
+    command: server /data --console-address ":9001"
+    volumes:
+      - s3_data:/data
     networks:
       - rms_net
 
@@ -104,6 +121,7 @@ volumes:
   vendor:
   node_modules:
   laravel_views:
+  s3_data:
 
 networks:
   rms_net:

@@ -22,7 +22,7 @@ return new class extends Migration
             ['name' => 'Document Control System', 'version' => '1.0.0'],
             ['name' => 'Admin Console', 'version' => '1.0.0'],
             ['name' => 'Profile Manager', 'version' => '1.0.0'],
-            ['name' => 'Chatify', 'version' => '1.0.0'],
+            ['name' => 'Messify', 'version' => '1.0.0'],
          ];
 
         $hasActive = Schema::hasColumn('subsystems', 'is_active');
@@ -74,7 +74,7 @@ return new class extends Migration
             'Document Control System',
             'Admin Console',
             'Profile Manager',
-            'Chatify',
+            'Messify',
         ];
 
         // Delete related version log entries for these subsystems

@@ -1,5 +1,5 @@
 <?php
-require __DIR__ . '/chatify/bootstrap.php';
+require __DIR__ . '/messify/bootstrap.php';
 header('Content-Type: application/json');
 try {
     $pdo = Database::getConnection();

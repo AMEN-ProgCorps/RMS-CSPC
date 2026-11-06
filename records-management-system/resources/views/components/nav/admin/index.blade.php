@@ -131,10 +131,10 @@
             <div class="function-button {{ request()->routeIs('admin.activity.dcs.activity-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.dcs.activity-logs') }}')">Activity Logs</div>
         </div>
 
-        {{-- Group E: Chatify --}}
-        <div class="nav-tree-group" data-group-name="Chatify">
+        {{-- Group E: Messify --}}
+        <div class="nav-tree-group" data-group-name="Messify">
             <div class="nav-tree-title">
-                <i class="fa-solid fa-comments"></i> Chatify
+                <i class="fa-solid fa-comments"></i> Messify
             </div>
             <div class="function-button {{ request()->routeIs('admin.activity.chat-audit') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.activity.chat-audit') }}')">Audit Trail</div>
         </div>

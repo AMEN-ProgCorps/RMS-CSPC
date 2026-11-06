@@ -143,7 +143,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
             ['code' => 'DCS', 'name' => 'Document Control', 'active' => true],
             ['code' => 'ADM', 'name' => 'Admin Console', 'active' => true],
             ['code' => 'PRF', 'name' => 'Profile Manager', 'active' => true],
-            ['code' => 'CHT', 'name' => 'Chatify Messenger', 'active' => true],
+            ['code' => 'CHT', 'name' => 'Messify Messenger', 'active' => true],
             ['code' => 'EXT', 'name' => 'External Tracking', 'active' => ($activeSubsystems >= 6)],
         ];
 

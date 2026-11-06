@@ -23,7 +23,7 @@ class PersonalSetting extends Model
         'sidebar_toggle_key',
         'action_toggle_key',
         'notification_toggle_key',
-        'chatify_toggle_key',
+        'messify_toggle_key',
         'dcs_db_visible_groups',
         'follow_scroll_enabled',
         'follow_scroll_side',

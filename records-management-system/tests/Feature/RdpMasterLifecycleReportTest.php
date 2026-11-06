@@ -170,54 +170,79 @@ class RdpMasterLifecycleReportTest extends TestCase
         $this->assertNotNull($response);
     }
 
-    public function test_master_lifecycle_generate_form_modal_interaction(): void
-    {
-        Volt::test('pages.rdp.reports.master-lifecycle')
-            ->assertSee('Generate Form')
-            ->assertSet('showGenerateModal', false)
-            ->call('openGenerateFormModal')
-            ->assertSet('showGenerateModal', true)
-            ->assertSee('Select Form Type')
-            ->assertSee('NAP Form 1')
-            ->assertSee('NAP Form 2')
-            ->assertSee('NAP Form 3')
-            ->call('closeGenerateFormModal')
-            ->assertSet('showGenerateModal', false);
-    }
-
-    public function test_master_lifecycle_generate_forms_saved_to_pending(): void
-    {
-        // 1. Generate NAP Form 1 and verify pending record created
-        $component1 = Volt::test('pages.rdp.reports.master-lifecycle');
-        $component1->call('openGenerateFormModal')
-            ->set('selectedFormType', 'nap1')
-            ->set('formClusterName', 'Test Generated NAP Form 1')
-            ->call('submitGenerateForm')
-            ->assertHasNoErrors();
-
-        $this->assertDatabaseHas('rdp_pending_record', [
-            'cluster_name'   => 'Test Generated NAP Form 1',
-            'is_for_nap_one' => true,
-        ]);
-
-        // 2. Generate NAP Form 2 and verify pending series created
-        $component2 = Volt::test('pages.rdp.reports.master-lifecycle');
-        $component2->call('openGenerateFormModal')
-            ->set('selectedFormType', 'nap2')
-            ->set('formClusterName', 'Test Generated RDS Form 2')
-            ->call('submitGenerateForm')
-            ->assertHasNoErrors();
-
-        $this->assertDatabaseHas('rdp_pending_record_series', [
-            'cluster_name' => 'Test Generated RDS Form 2',
-        ]);
-    }
-
     public function test_master_lifecycle_role_clearance_scoping(): void
     {
         // Component initialized with clearance enabled
         $component = Volt::test('pages.rdp.reports.master-lifecycle');
         $component->assertViewHas('hasAllOfficesClearance', true);
         $component->assertSee('All Offices');
+    }
+
+    public function test_master_lifecycle_three_phase_badges_and_superseded_transition(): void
+    {
+        // 1. Initial state: active record has REF 'NAP FORM 1' and STATUS 'INVENTORIED'
+        $component = Volt::test('pages.rdp.reports.master-lifecycle');
+        $component->assertSee('NAP FORM 1');
+        $component->assertSee('INVENTORIED');
+        $component->assertSee('SUPERSEDED');
+
+        // 2. Package record into pending NAP 1 cluster
+        $rec1Id = DB::table('rdp_record')->where('description', self::DESC_TRAVEL)->value('id');
+        $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'rdp_main_pending';
+        $clusterId = DB::table($mainPendingTbl)->insertGetId([
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('rdp_pending_record')->insert([
+            'cluster_id'       => $clusterId,
+            'cluster_name'     => 'Phase Test Cluster ' . $clusterId,
+            'status_id'        => 1, // Pending
+            'is_for_nap_one'   => true,
+            'is_for_nap_three' => false,
+            'created_by'       => Auth::id() ?? 1,
+            'is_active'        => true,
+            'created_at'       => now(),
+            'updated_at'       => now(),
+        ]);
+        DB::table('rdp_grouped_record')->insert([
+            'group_head' => $clusterId,
+            'record_id'  => $rec1Id,
+            'is_active'  => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Now record displays PENDING in STATUS column and NAP FORM 1 in REF column
+        $componentPending = Volt::test('pages.rdp.reports.master-lifecycle');
+        $componentPending->assertSee('NAP FORM 1');
+        $componentPending->assertSee('PENDING');
+
+        // 3. Mark cluster submitted (status_id = 5)
+        DB::table('rdp_pending_record')->where('cluster_id', $clusterId)->update(['status_id' => 5]);
+        $componentSubmitted = Volt::test('pages.rdp.reports.master-lifecycle');
+        $componentSubmitted->assertSee('NAP FORM 1');
+        $componentSubmitted->assertSee('SUBMITTED');
+
+        // 4. Create an expired record (from 1980 with 5 year retention)
+        $expiredRecId = DB::table('rdp_record')->insertGetId([
+            'record_series_id' => $this->rootId,
+            'description'      => 'Historical Voucher 1980 EXPIRED',
+            'records_location' => 'CABINET 9',
+            'is_active'        => true,
+            'created_at'       => now(),
+            'updated_at'       => now(),
+            'is_draft'         => false,
+        ]);
+        DB::table('rdp_period_covered')->insert([
+            'period_owner' => $expiredRecId,
+            'date_covered' => '1980-01-01',
+            'volume'       => '1 volume',
+            'created_at'   => now(),
+            'modified_at'  => now(),
+        ]);
+
+        $componentExpired = Volt::test('pages.rdp.reports.master-lifecycle');
+        $componentExpired->assertSee('NAP FORM 3');
+        $componentExpired->assertSee('FOR DISPOSAL');
     }
 }

@@ -6,9 +6,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Chatify Chat Backup Table Migration
+ * Messify Chat Backup Table Migration
  * ============================================================
- * Creates the chatify_chat_backup table used to archive messages
+ * Creates the messify_chat_backup table used to archive messages
  * when an administrator clears or deletes conversations.
  *
  * Rows are NEVER hard-deleted from this table — they are only
@@ -19,10 +19,10 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('chatify_chat_backup', function (Blueprint $table) {
+        Schema::create('messify_chat_backup', function (Blueprint $table) {
             $table->bigIncrements('id');
 
-            // Conversation bucket — mirrors chat_messages.conv_id
+            // Conversation bucket — mirrors messify_chat_messages.conv_id
             $table->string('conv_id', 30)->index();
 
             // Sender (nullable — no FK so backup survives user deletion)
@@ -31,17 +31,17 @@ return new class extends Migration
             // Receiver: NULL for global, set for private DMs
             $table->unsignedInteger('receiver_id')->nullable();
 
-            // Encrypted ciphertext (AES-256-GCM, same as chat_messages)
+            // Encrypted ciphertext (AES-256-GCM, same as messify_chat_messages)
             $table->text('message');
 
             // 'text' or 'upload'
             $table->string('msg_type', 10)->default('text');
 
-            // Original timestamps from chat_messages (microsecond precision)
+            // Original timestamps from messify_chat_messages (microsecond precision)
             $table->timestampTz('created_at', 6)->nullable();
             $table->timestampTz('updated_at', 6)->nullable();
 
-            // Original UUID from chat_messages (no unique constraint — same
+            // Original UUID from messify_chat_messages (no unique constraint — same
             // message could theoretically be backed up more than once)
             $table->string('msg_uuid', 32)->index();
 
@@ -56,13 +56,13 @@ return new class extends Migration
             $table->unsignedInteger('archived_by')->nullable();
         });
 
-        DB::statement('CREATE INDEX idx_backup_conv_id ON chatify_chat_backup (conv_id)');
-        DB::statement('CREATE INDEX idx_backup_msg_uuid ON chatify_chat_backup (msg_uuid)');
-        DB::statement('CREATE INDEX idx_backup_archived_at ON chatify_chat_backup (archived_at DESC)');
+        DB::statement('CREATE INDEX idx_backup_conv_id ON messify_chat_backup (conv_id)');
+        DB::statement('CREATE INDEX idx_backup_msg_uuid ON messify_chat_backup (msg_uuid)');
+        DB::statement('CREATE INDEX idx_backup_archived_at ON messify_chat_backup (archived_at DESC)');
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('chatify_chat_backup');
+        Schema::dropIfExists('messify_chat_backup');
     }
 };

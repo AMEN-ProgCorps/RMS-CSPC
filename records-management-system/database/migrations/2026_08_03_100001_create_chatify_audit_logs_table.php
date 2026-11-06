@@ -6,9 +6,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Chatify Audit Logs Migration
+ * Messify Audit Logs Migration
  * ============================================================
- * Records user actions performed inside Chatify for admin
+ * Records user actions performed inside Messify for admin
  * audit trail purposes.
  *
  * Logged actions:
@@ -19,13 +19,13 @@ use Illuminate\Support\Facades\Schema;
  *   upload_file     — uploaded a file to global chat
  *   upload_dm_file  — uploaded a file to a DM conversation
  *
- * Table: chatify_audit_logs
+ * Table: messify_chat_audit_logs
  */
 return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('chatify_audit_logs', function (Blueprint $table) {
+        Schema::create('messify_chat_audit_logs', function (Blueprint $table) {
             $table->bigIncrements('id');
 
             // The acting user
@@ -52,14 +52,14 @@ return new class extends Migration
         });
 
         // Composite index for per-user filtering (common admin query pattern)
-        DB::statement('CREATE INDEX idx_cal_account_created ON chatify_audit_logs (account_id, created_at DESC)');
+        DB::statement('CREATE INDEX idx_cal_account_created ON messify_chat_audit_logs (account_id, created_at DESC)');
     }
 
     public function down(): void
     {
-        Schema::table('chatify_audit_logs', function (Blueprint $table) {
+        Schema::table('messify_chat_audit_logs', function (Blueprint $table) {
             $table->dropForeign('fk_cal_account');
         });
-        Schema::dropIfExists('chatify_audit_logs');
+        Schema::dropIfExists('messify_chat_audit_logs');
     }
 };

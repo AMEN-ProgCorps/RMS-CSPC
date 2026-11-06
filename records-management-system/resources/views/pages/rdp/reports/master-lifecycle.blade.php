@@ -19,15 +19,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
     public string $dateFrom = '';
     public string $dateTo = '';
 
-    // Generate Form Modal Properties
-    public bool $showGenerateModal = false;
-    public string $selectedFormType = 'nap1'; // 'nap1', 'nap2', 'nap3'
-    public string $formClusterName = '';
-    public string $formOffice = '';
-    public ?string $generateSuccessMessage = null;
-    public ?string $generateErrorMessage = null;
-    public ?int $lastGeneratedClusterId = null;
-
     // View / Edit Record Details & Action Date Modal Properties
     public bool $showRecordModal = false;
     public ?int $selectedRecordId = null;
@@ -129,14 +120,46 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             );
             $isTransferred = (bool)($rec->transferred_to_nap3 ?? false);
 
-            if ($isRevised) {
-                $rec->status = 'revised';
-            } elseif ($isTransferred) {
+            if ($isTransferred) {
                 $rec->status = 'disposed';
             } elseif ($isExpired) {
                 $rec->status = 'expired';
+            } elseif ($isRevised) {
+                $rec->status = 'revised';
             } else {
                 $rec->status = 'active';
+            }
+
+            $recClusters = DB::table('rdp_grouped_record')
+                ->join('rdp_pending_record', 'rdp_grouped_record.group_head', '=', 'rdp_pending_record.cluster_id')
+                ->where('rdp_grouped_record.record_id', $rec->id)
+                ->where('rdp_grouped_record.is_active', true)
+                ->where('rdp_pending_record.is_active', true)
+                ->select(['rdp_pending_record.is_for_nap_three', 'rdp_pending_record.status_id', 'rdp_pending_record.is_verified'])
+                ->get();
+            $isSubmittedNap = $recClusters->contains(fn($c) => (int)($c->status_id ?? 0) === 5 || (int)($c->status_id ?? 0) === 2 || (bool)($c->is_verified ?? false));
+            $isPendingNap = $recClusters->contains(fn($c) => (int)($c->status_id ?? 0) === 1);
+
+            if ($recClusters->contains('is_for_nap_three', true) || (bool)($rec->transferred_to_nap3 ?? false) || in_array($rec->status, ['disposed', 'expired'])) {
+                $rec->ref_nap = 'NAP FORM 3';
+                if ($isSubmittedNap || (bool)($rec->transferred_to_nap3 ?? false) || $rec->status === 'disposed') {
+                    $rec->phase_status = 'DISPOSED';
+                } elseif ($isPendingNap) {
+                    $rec->phase_status = 'PENDING';
+                } else {
+                    $rec->phase_status = 'FOR DISPOSAL';
+                }
+            } else {
+                $rec->ref_nap = 'NAP FORM 1';
+                if ($rec->status === 'revised') {
+                    $rec->phase_status = 'SUPERSEDED';
+                } elseif ($isSubmittedNap) {
+                    $rec->phase_status = 'SUBMITTED';
+                } elseif ($isPendingNap) {
+                    $rec->phase_status = 'PENDING';
+                } else {
+                    $rec->phase_status = 'INVENTORIED';
+                }
             }
         }
 
@@ -605,32 +628,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         ]);
     }
 
-    public function openGenerateFormModal(): void
-    {
-        $user = Auth::user();
-        $perms = $user?->permissions;
-        if (!$this->hasReportAccessClearance($user, $perms)) {
-            $this->generateErrorMessage = 'You do not have clearance to generate RDP forms.';
-            return;
-        }
-
-        $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
-        $this->formOffice = !empty($this->officeFilter) ? $this->officeFilter : ($userOffice ?? '');
-        $this->selectedFormType = 'nap1';
-        $this->updateDefaultFormClusterName();
-        $this->generateSuccessMessage = null;
-        $this->generateErrorMessage = null;
-        $this->lastGeneratedClusterId = null;
-        $this->showGenerateModal = true;
-    }
-
-    public function closeGenerateFormModal(): void
-    {
-        $this->showGenerateModal = false;
-        $this->generateSuccessMessage = null;
-        $this->generateErrorMessage = null;
-    }
-
     public function openRecordModal(int $recordId): void
     {
         $this->selectedRecordId = $recordId;
@@ -715,288 +712,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                 : 'Action date cleared successfully!';
         } catch (\Throwable $e) {
             $this->recordModalError = 'Failed to update action date: ' . $e->getMessage();
-        }
-    }
-
-    public function updatedSelectedFormType(): void
-    {
-        $this->updateDefaultFormClusterName();
-    }
-
-    public function updatedFormOffice(): void
-    {
-        $this->updateDefaultFormClusterName();
-    }
-
-    private function updateDefaultFormClusterName(): void
-    {
-        $off = !empty($this->formOffice) ? $this->formOffice : 'CAMPUS';
-        $date = Carbon::now()->format('Y-m-d');
-        if ($this->selectedFormType === 'nap1') {
-            $this->formClusterName = "Inventory Form — {$off} ({$date})";
-        } elseif ($this->selectedFormType === 'nap2') {
-            $this->formClusterName = "RDS Schedule Form — {$off} ({$date})";
-        } else {
-            $this->formClusterName = "Disposal Authority Form — {$off} ({$date})";
-        }
-    }
-
-    public function submitGenerateForm(): void
-    {
-        $user = Auth::user();
-        $perms = $user?->permissions;
-        if (!$this->hasReportAccessClearance($user, $perms)) {
-            $this->generateErrorMessage = 'You do not have clearance to generate RDP forms.';
-            return;
-        }
-
-        $targetOffice = trim($this->formOffice);
-        $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
-        if (empty($targetOffice) && !$this->hasAllOfficesClearance($user, $perms)) {
-            $targetOffice = $userOffice ?: '';
-        }
-
-        $data = $this->with();
-        $hierarchyTree = $data['hierarchyTree'] ?? [];
-
-        $mainPendingTbl = Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
-
-        try {
-            DB::beginTransaction();
-
-            if ($this->selectedFormType === 'nap1') {
-                // Collect active (non-disposed) records from current hierarchy tree
-                $recordIds = [];
-                foreach ($hierarchyTree as $root) {
-                    if (!empty($root->direct_records)) {
-                        foreach ($root->direct_records as $rec) {
-                            if (($rec->status ?? '') !== 'disposed') {
-                                if (empty($targetOffice) || ($rec->office ?? '') === $targetOffice) {
-                                    $recordIds[] = (int)$rec->id;
-                                }
-                            }
-                        }
-                    }
-                    if (!empty($root->children)) {
-                        foreach ($root->children as $child) {
-                            if (!empty($child->records)) {
-                                foreach ($child->records as $sRec) {
-                                    if (($sRec->status ?? '') !== 'disposed') {
-                                        if (empty($targetOffice) || ($sRec->office ?? '') === $targetOffice) {
-                                            $recordIds[] = (int)$sRec->id;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                $recordIds = array_values(array_unique($recordIds));
-
-                if (empty($recordIds) && !empty($targetOffice)) {
-                    $recordIds = DB::table('rdp_record')
-                        ->where('is_draft', false)
-                        ->where('is_active', true)
-                        ->where('transferred_to_nap3', false)
-                        ->where('office_own', $targetOffice)
-                        ->pluck('id')
-                        ->map(fn($v) => (int)$v)
-                        ->all();
-                }
-
-                if (empty($recordIds)) {
-                    $this->generateErrorMessage = 'No active records available to package into NAP Form 1 for the selected office.';
-                    DB::rollBack();
-                    return;
-                }
-
-                $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
-                    'status'     => 'UNUSED',
-                    'is_active'  => true,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                $clusterTitle = trim($this->formClusterName) ?: ("Inventory Form — " . ($targetOffice ?: 'CAMPUS') . " (" . now()->format('Y-m-d') . ")");
-
-                DB::table('rdp_pending_record')->insert([
-                    'cluster_id'       => $mainPendingId,
-                    'cluster_name'     => $clusterTitle,
-                    'status_id'        => 1, // Pending Verification
-                    'office'           => $targetOffice ?: null,
-                    'created_by'       => $user?->id,
-                    'is_for_nap_one'   => true,
-                    'is_for_nap_three' => false,
-                    'is_active'        => true,
-                    'created_at'       => now(),
-                    'updated_at'       => now(),
-                ]);
-
-                foreach ($recordIds as $rId) {
-                    DB::table('rdp_grouped_record')->insert([
-                        'group_head' => $mainPendingId,
-                        'record_id'  => (int)$rId,
-                        'is_active'  => true,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                }
-
-                DB::commit();
-                $this->lastGeneratedClusterId = $mainPendingId;
-                $this->generateSuccessMessage = "NAP Form 1 created with " . count($recordIds) . " records and saved to Pending successfully!";
-
-            } elseif ($this->selectedFormType === 'nap2') {
-                // Collect series from current hierarchy tree
-                $seriesIds = [];
-                foreach ($hierarchyTree as $root) {
-                    if (empty($targetOffice) || ($root->recorded_at_office ?? '') === $targetOffice) {
-                        $seriesIds[] = (int)$root->id;
-                    }
-                    if (!empty($root->children)) {
-                        foreach ($root->children as $child) {
-                            if (empty($targetOffice) || ($child->recorded_at_office ?? '') === $targetOffice) {
-                                $seriesIds[] = (int)$child->id;
-                            }
-                        }
-                    }
-                }
-                $seriesIds = array_values(array_unique($seriesIds));
-
-                if (empty($seriesIds) && !empty($targetOffice)) {
-                    $seriesIds = DB::table('rdp_record_series')
-                        ->where('is_active', true)
-                        ->where('recorded_at_office', $targetOffice)
-                        ->pluck('id')
-                        ->map(fn($v) => (int)$v)
-                        ->all();
-                }
-
-                if (empty($seriesIds)) {
-                    $this->generateErrorMessage = 'No record series available to package into NAP Form 2 for the selected office.';
-                    DB::rollBack();
-                    return;
-                }
-
-                $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
-                    'status'     => 'UNUSED',
-                    'is_active'  => true,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                $clusterTitle = trim($this->formClusterName) ?: ("RDS Schedule Form — " . ($targetOffice ?: 'CAMPUS') . " (" . now()->format('Y-m-d') . ")");
-
-                DB::table('rdp_pending_record_series')->insert([
-                    'cluster_id'   => $mainPendingId,
-                    'cluster_name' => $clusterTitle,
-                    'status_id'    => 1, // Pending Verification
-                    'office'       => $targetOffice ?: null,
-                    'created_by'   => $user?->id,
-                    'is_active'    => true,
-                    'created_at'   => now(),
-                    'updated_at'   => now(),
-                ]);
-
-                foreach ($seriesIds as $sId) {
-                    DB::table('rdp_grouped_record_series')->insert([
-                        'group_head'       => $mainPendingId,
-                        'record_series_id' => (int)$sId,
-                        'is_active'        => true,
-                        'created_at'       => now(),
-                        'updated_at'       => now(),
-                    ]);
-                }
-
-                DB::commit();
-                $this->lastGeneratedClusterId = $mainPendingId;
-                $this->generateSuccessMessage = "NAP Form 2 created with " . count($seriesIds) . " record series and saved to Pending successfully!";
-
-            } else {
-                // Collect disposed/expired records from current hierarchy tree
-                $recordIds = [];
-                foreach ($hierarchyTree as $root) {
-                    if (!empty($root->direct_records)) {
-                        foreach ($root->direct_records as $rec) {
-                            if (($rec->status ?? '') === 'disposed') {
-                                if (empty($targetOffice) || ($rec->office ?? '') === $targetOffice) {
-                                    $recordIds[] = (int)$rec->id;
-                                }
-                            }
-                        }
-                    }
-                    if (!empty($root->children)) {
-                        foreach ($root->children as $child) {
-                            if (!empty($child->records)) {
-                                foreach ($child->records as $sRec) {
-                                    if (($sRec->status ?? '') === 'disposed') {
-                                        if (empty($targetOffice) || ($sRec->office ?? '') === $targetOffice) {
-                                            $recordIds[] = (int)$sRec->id;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                $recordIds = array_values(array_unique($recordIds));
-
-                if (empty($recordIds) && !empty($targetOffice)) {
-                    $recordIds = DB::table('rdp_record')
-                        ->where('is_draft', false)
-                        ->where('is_active', true)
-                        ->where('transferred_to_nap3', true)
-                        ->where('office_own', $targetOffice)
-                        ->pluck('id')
-                        ->map(fn($v) => (int)$v)
-                        ->all();
-                }
-
-                if (empty($recordIds)) {
-                    $this->generateErrorMessage = 'No disposed or expired records available to package into NAP Form 3 for the selected office.';
-                    DB::rollBack();
-                    return;
-                }
-
-                $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
-                    'status'     => 'UNUSED',
-                    'is_active'  => true,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                $clusterTitle = trim($this->formClusterName) ?: ("Disposal Authority Form — " . ($targetOffice ?: 'CAMPUS') . " (" . now()->format('Y-m-d') . ")");
-
-                DB::table('rdp_pending_record')->insert([
-                    'cluster_id'       => $mainPendingId,
-                    'cluster_name'     => $clusterTitle,
-                    'status_id'        => 1, // Pending Verification
-                    'office'           => $targetOffice ?: null,
-                    'created_by'       => $user?->id,
-                    'is_for_nap_one'   => false,
-                    'is_for_nap_three' => true,
-                    'is_active'        => true,
-                    'created_at'       => now(),
-                    'updated_at'       => now(),
-                ]);
-
-                foreach ($recordIds as $rId) {
-                    DB::table('rdp_grouped_record')->insert([
-                        'group_head' => $mainPendingId,
-                        'record_id'  => (int)$rId,
-                        'is_active'  => true,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                }
-
-                DB::commit();
-                $this->lastGeneratedClusterId = $mainPendingId;
-                $this->generateSuccessMessage = "NAP Form 3 created with " . count($recordIds) . " expired records and saved to Pending successfully!";
-            }
-        } catch (\Exception $e) {
-            DB::rollBack();
-            $this->generateErrorMessage = 'Failed to generate form: ' . $e->getMessage();
         }
     }
 
@@ -1175,14 +890,26 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                 'rdp_grouped_record.record_id',
                 'rdp_pending_record.is_for_nap_one',
                 'rdp_pending_record.is_for_nap_three',
+                'rdp_pending_record.status_id',
+                'rdp_pending_record.is_verified',
             ])
             ->get()
             ->groupBy('record_id');
 
-        $seriesNap2Ids = DB::table('rdp_grouped_record_series')
-            ->where('is_active', true)
-            ->pluck('record_series_id', 'record_series_id')
-            ->all();
+        $seriesNap2Clusters = empty($allNeededSeriesIds) ? collect() : DB::table('rdp_grouped_record_series')
+            ->join('rdp_pending_record_series', 'rdp_grouped_record_series.group_head', '=', 'rdp_pending_record_series.cluster_id')
+            ->whereIn('rdp_grouped_record_series.record_series_id', $allNeededSeriesIds)
+            ->where('rdp_grouped_record_series.is_active', true)
+            ->where('rdp_pending_record_series.is_active', true)
+            ->select([
+                'rdp_grouped_record_series.record_series_id',
+                'rdp_pending_record_series.status_id',
+                'rdp_pending_record_series.is_verified',
+            ])
+            ->get()
+            ->groupBy('record_series_id');
+
+        $seriesNap2Ids = $seriesNap2Clusters->keys()->all();
 
         // Count totals for Status Pills
         $statusCounts = [
@@ -1332,12 +1059,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                     );
                     $isTransferred = (bool)($rec->transferred_to_nap3 ?? false);
 
-                    if ($isRevised) {
-                        $status = 'revised';
-                    } elseif ($isTransferred) {
+                    if ($isTransferred) {
                         $status = 'disposed';
                     } elseif ($isExpired) {
                         $status = 'expired';
+                    } elseif ($isRevised) {
+                        $status = 'revised';
                     } elseif ($parentSeries && (!(bool)($parentSeries->is_verified ?? false))) {
                         $status = 'pending_rds';
                     } else {
@@ -1346,16 +1073,49 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
 
                     $r->status = $status;
 
-                    // Resolve REF (NAP Form Type)
+                    // Resolve REF (NAP Form Type) & Phase Status
                     $recClusters = $recordNapClusters[$rec->id] ?? collect();
+                    $isSubmittedNap = $recClusters->contains(fn($c) => (int)($c->status_id ?? 0) === 5 || (int)($c->status_id ?? 0) === 2 || (bool)($c->is_verified ?? false));
+                    $isPendingNap = $recClusters->contains(fn($c) => (int)($c->status_id ?? 0) === 1);
+
                     if ($recClusters->contains('is_for_nap_three', true) || (bool)($rec->transferred_to_nap3 ?? false) || in_array($status, ['disposed', 'expired'])) {
+                        // NAP Form 3 (Disposal)
                         $refNap = 'NAP FORM 3';
-                    } elseif ($status === 'pending_rds' || isset($seriesNap2Ids[$sId]) || ($parentSeries && !(bool)($parentSeries->is_verified ?? false))) {
+                        if ($isSubmittedNap || (bool)($rec->transferred_to_nap3 ?? false) || $status === 'disposed') {
+                            $phaseStatus = 'DISPOSED';
+                        } elseif ($isPendingNap) {
+                            $phaseStatus = 'PENDING';
+                        } else {
+                            $phaseStatus = 'FOR DISPOSAL';
+                        }
+                    } elseif ($status === 'pending_rds' || ($parentSeries && !(bool)($parentSeries->is_verified ?? false))) {
+                        // NAP Form 2 (RDS)
                         $refNap = 'NAP FORM 2';
+                        $sClusters = $seriesNap2Clusters[$sId] ?? collect();
+                        $isSeriesSubmitted = $sClusters->contains(fn($c) => (int)($c->status_id ?? 0) === 5 || (int)($c->status_id ?? 0) === 2 || (bool)($c->is_verified ?? false));
+                        $isSeriesPending = $sClusters->contains(fn($c) => (int)($c->status_id ?? 0) === 1);
+                        if ($isSeriesSubmitted || (bool)($parentSeries?->is_verified ?? false)) {
+                            $phaseStatus = 'SUBMITTED';
+                        } elseif ($isSeriesPending) {
+                            $phaseStatus = 'PENDING';
+                        } else {
+                            $phaseStatus = 'INVENTORIED';
+                        }
                     } else {
+                        // NAP Form 1 (Active records, including active superseded records)
                         $refNap = 'NAP FORM 1';
+                        if ($status === 'revised') {
+                            $phaseStatus = 'SUPERSEDED';
+                        } elseif ($isSubmittedNap) {
+                            $phaseStatus = 'SUBMITTED';
+                        } elseif ($isPendingNap) {
+                            $phaseStatus = 'PENDING';
+                        } else {
+                            $phaseStatus = 'INVENTORIED';
+                        }
                     }
                     $r->ref_nap = $refNap;
+                    $r->phase_status = $phaseStatus;
 
                 } else {
                     // Batch Record Mode with Sub-Periods (Single batch or merged batch across multiple records)
@@ -1419,24 +1179,53 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                         );
                         $isSubTransferred = (bool)($rec->transferred_to_nap3 ?? false);
 
-                        if ($isSubRevised) {
-                            $pStatus = 'revised';
-                        } elseif ($isSubTransferred) {
+                        if ($isSubTransferred) {
                             $pStatus = 'disposed';
                         } elseif ($isSubExpired) {
                             $pStatus = 'expired';
+                        } elseif ($isSubRevised) {
+                            $pStatus = 'revised';
                         } else {
                             $pStatus = 'active';
                         }
 
-                        // Resolve Sub-Period REF (NAP Form Type)
+                        // Resolve Sub-Period REF & Phase Status
                         $gpClusters = $recordNapClusters[$rec->id] ?? collect();
+                        $isSubSubmittedNap = $gpClusters->contains(fn($c) => (int)($c->status_id ?? 0) === 5 || (int)($c->status_id ?? 0) === 2 || (bool)($c->is_verified ?? false));
+                        $isSubPendingNap = $gpClusters->contains(fn($c) => (int)($c->status_id ?? 0) === 1);
+
                         if ($gpClusters->contains('is_for_nap_three', true) || (bool)($rec->transferred_to_nap3 ?? false) || in_array($pStatus, ['disposed', 'expired'])) {
                             $subRefNap = 'NAP FORM 3';
-                        } elseif ($pStatus === 'pending_rds' || isset($seriesNap2Ids[$sId]) || ($parentSeries && !(bool)($parentSeries->is_verified ?? false))) {
+                            if ($isSubSubmittedNap || (bool)($rec->transferred_to_nap3 ?? false) || $pStatus === 'disposed') {
+                                $subPhaseStatus = 'DISPOSED';
+                            } elseif ($isSubPendingNap) {
+                                $subPhaseStatus = 'PENDING';
+                            } else {
+                                $subPhaseStatus = 'FOR DISPOSAL';
+                            }
+                        } elseif ($pStatus === 'pending_rds' || ($parentSeries && !(bool)($parentSeries->is_verified ?? false))) {
                             $subRefNap = 'NAP FORM 2';
+                            $sClusters = $seriesNap2Clusters[$sId] ?? collect();
+                            $isSeriesSubmitted = $sClusters->contains(fn($c) => (int)($c->status_id ?? 0) === 5 || (int)($c->status_id ?? 0) === 2 || (bool)($c->is_verified ?? false));
+                            $isSeriesPending = $sClusters->contains(fn($c) => (int)($c->status_id ?? 0) === 1);
+                            if ($isSeriesSubmitted || (bool)($parentSeries?->is_verified ?? false)) {
+                                $subPhaseStatus = 'SUBMITTED';
+                            } elseif ($isSeriesPending) {
+                                $subPhaseStatus = 'PENDING';
+                            } else {
+                                $subPhaseStatus = 'INVENTORIED';
+                            }
                         } else {
                             $subRefNap = 'NAP FORM 1';
+                            if ($pStatus === 'revised') {
+                                $subPhaseStatus = 'SUPERSEDED';
+                            } elseif ($isSubSubmittedNap) {
+                                $subPhaseStatus = 'SUBMITTED';
+                            } elseif ($isSubPendingNap) {
+                                $subPhaseStatus = 'PENDING';
+                            } else {
+                                $subPhaseStatus = 'INVENTORIED';
+                            }
                         }
 
                         $cleanPStart = !empty($pStart) && $pStart !== '—' ? Carbon::parse($pStart)->format('Y-m-d') : null;
@@ -1456,6 +1245,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                             'raw_sort_date'         => $cleanPEnd ?: ($cleanPStart ?: '0000-00-00'),
                             'status'                => $pStatus,
                             'ref_nap'               => $subRefNap,
+                            'phase_status'          => $subPhaseStatus,
                             'immunity'              => $subImmunity,
                             'action_date'           => $rec->action_date ?? null,
                             'formatted_action_date' => !empty($rec->action_date) ? Carbon::parse($rec->action_date)->format('M d, Y') : '—',
@@ -1491,11 +1281,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                     $allDisposedOrExpired = !empty($subPeriodItems) && count(array_filter($subPeriodItems, fn($s) => in_array($s->status, ['disposed', 'expired']))) === count($subPeriodItems);
                     $anyRevised = !empty($subPeriodItems) && count(array_filter($subPeriodItems, fn($s) => $s->status === 'revised')) > 0;
 
-                    if ($anyRevised) {
-                        $status = 'revised';
-                    } elseif ($allDisposedOrExpired) {
+                    if ($allDisposedOrExpired) {
                         $hasAnyDisposed = count(array_filter($subPeriodItems, fn($s) => $s->status === 'disposed')) > 0;
                         $status = $hasAnyDisposed ? 'disposed' : 'expired';
+                    } elseif ($anyRevised) {
+                        $status = 'revised';
                     } elseif ($parentSeries && (!(bool)($parentSeries->is_verified ?? false))) {
                         $status = 'pending_rds';
                     } else {
@@ -1504,15 +1294,42 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
 
                     $r->status = $status;
 
-                    // Batch parent ref_nap
+                    // Batch parent ref_nap & phase_status
+                    $hasAnySubmitted = !empty($subPeriodItems) && count(array_filter($subPeriodItems, fn($s) => ($s->phase_status ?? '') === 'SUBMITTED' || ($s->phase_status ?? '') === 'DISPOSED')) > 0;
+                    $hasAnyPending = !empty($subPeriodItems) && count(array_filter($subPeriodItems, fn($s) => ($s->phase_status ?? '') === 'PENDING')) > 0;
+
                     if ($status === 'disposed' || $status === 'expired') {
                         $batchRefNap = 'NAP FORM 3';
-                    } elseif ($status === 'pending_rds' || isset($seriesNap2Ids[$sId]) || ($parentSeries && !(bool)($parentSeries->is_verified ?? false))) {
+                        if ($hasAnySubmitted || $status === 'disposed') {
+                            $batchPhaseStatus = 'DISPOSED';
+                        } elseif ($hasAnyPending) {
+                            $batchPhaseStatus = 'PENDING';
+                        } else {
+                            $batchPhaseStatus = 'FOR DISPOSAL';
+                        }
+                    } elseif ($status === 'pending_rds' || ($parentSeries && !(bool)($parentSeries->is_verified ?? false))) {
                         $batchRefNap = 'NAP FORM 2';
+                        if ($hasAnySubmitted) {
+                            $batchPhaseStatus = 'SUBMITTED';
+                        } elseif ($hasAnyPending) {
+                            $batchPhaseStatus = 'PENDING';
+                        } else {
+                            $batchPhaseStatus = 'INVENTORIED';
+                        }
                     } else {
                         $batchRefNap = 'NAP FORM 1';
+                        if ($status === 'revised') {
+                            $batchPhaseStatus = 'SUPERSEDED';
+                        } elseif ($hasAnySubmitted) {
+                            $batchPhaseStatus = 'SUBMITTED';
+                        } elseif ($hasAnyPending) {
+                            $batchPhaseStatus = 'PENDING';
+                        } else {
+                            $batchPhaseStatus = 'INVENTORIED';
+                        }
                     }
                     $r->ref_nap = $batchRefNap;
+                    $r->phase_status = $batchPhaseStatus;
                 }
 
                 $actionDateFormatted = '—';
@@ -2441,7 +2258,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
 
         init() {
             this.$watch('drawerOpen', (open) => {
-                const widget = document.getElementById('chatify-global-widget');
+                const widget = document.getElementById('messify-global-widget') || document.getElementById('messify-global-widget');
                 if (widget) {
                     widget.style.transition = 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
                     widget.style.transform = open ? 'translateX(-390px)' : 'translateX(0)';
@@ -2460,7 +2277,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             });
         },
         destroy() {
-            const widget = document.getElementById('chatify-global-widget');
+            const widget = document.getElementById('messify-global-widget') || document.getElementById('messify-global-widget');
             if (widget) {
                 widget.style.transform = 'translateX(0)';
             }
@@ -2550,7 +2367,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                         class="ml-pill-btn {{ $statusFilter === 'revised' ? 'is-active' : '' }}" 
                         wire:click="setStatusFilter('revised')">
                     <span style="color: #d97706; font-weight: 900;">●</span>
-                    <span>REVISED</span>
+                    <span>SUPERSEDED</span>
                     <span class="ml-pill-count">{{ $statusCounts['revised'] }}</span>
                 </button>
                 <button type="button" 
@@ -2608,15 +2425,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                     @if($retentionFilter !== 'all' || !empty($mediumFilter) || !empty($dateFrom) || !empty($dateTo) || ($hasAllOfficesClearance && !empty($officeFilter)))
                         <span class="ml-filter-indicator" title="Active filters applied"></span>
                     @endif
-                </button>
-
-                <!-- Generate Form Button -->
-                <button type="button" 
-                        wire:click="openGenerateFormModal" 
-                        class="ml-action-btn ml-generate-btn"
-                        title="Generate official NAP Form (Form 1, 2, or 3) and save to Pending">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
-                    <span>Generate Form</span>
                 </button>
 
                 @if(!empty($search) || $statusFilter !== 'all' || $retentionFilter !== 'all' || !empty($mediumFilter) || !empty($dateFrom) || !empty($dateTo) || ($hasAllOfficesClearance && !empty($officeFilter)))
@@ -2833,27 +2641,37 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                                         {!! empty($rec->formatted_action_date) || $rec->formatted_action_date === '—' ? '<span class="ml-dash">—</span>' : e($rec->formatted_action_date) !!}
                                     </td>
                                     <td style="text-align: center;">
-                                        @if(($rec->ref_nap ?? '') === 'NAP FORM 1')
-                                            <span style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; border: 1px solid #bae6fd; white-space: nowrap;">NAP FORM 1</span>
-                                        @elseif(($rec->ref_nap ?? '') === 'NAP FORM 2')
-                                            <span style="font-size: 10px; font-weight: 700; background: #fef3c7; color: #b45309; padding: 2px 6px; border-radius: 4px; border: 1px solid #fde68a; white-space: nowrap;">NAP FORM 2</span>
-                                        @elseif(($rec->ref_nap ?? '') === 'NAP FORM 3')
-                                            <span style="font-size: 10px; font-weight: 700; background: #fee2e2; color: #b91c1c; padding: 2px 6px; border-radius: 4px; border: 1px solid #fecaca; white-space: nowrap;">NAP FORM 3</span>
+                                        @php $rNap = $rec->ref_nap ?? ''; @endphp
+                                        @if($rNap === 'NAP FORM 1')
+                                            <span style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 7px; border-radius: 4px; border: 1px solid #bae6fd; white-space: nowrap;">NAP FORM 1</span>
+                                        @elseif($rNap === 'NAP FORM 2')
+                                            <span style="font-size: 10px; font-weight: 700; background: #fef3c7; color: #b45309; padding: 2px 7px; border-radius: 4px; border: 1px solid #fde68a; white-space: nowrap;">NAP FORM 2</span>
+                                        @elseif($rNap === 'NAP FORM 3')
+                                            <span style="font-size: 10px; font-weight: 700; background: #fee2e2; color: #b91c1c; padding: 2px 7px; border-radius: 4px; border: 1px solid #fecaca; white-space: nowrap;">NAP FORM 3</span>
+                                        @elseif(!empty($rNap) && $rNap !== '—')
+                                            <span style="font-size: 10px; font-weight: 700; background: #f1f5f9; color: #475569; padding: 2px 7px; border-radius: 4px; border: 1px solid #cbd5e1; white-space: nowrap;">{{ $rNap }}</span>
                                         @else
                                             <span class="ml-dash">—</span>
                                         @endif
                                     </td>
                                     <td style="text-align: center;">
-                                        @if($rec->status === 'revised')
-                                            <span class="ml-badge ml-badge-revised">Revised</span>
-                                        @elseif($rec->status === 'disposed')
-                                            <span class="ml-badge ml-badge-disposed">Disposed</span>
-                                        @elseif($rec->status === 'expired')
-                                            <span class="ml-badge ml-badge-expired">Expired</span>
-                                        @elseif($rec->status === 'pending_rds')
-                                            <span class="ml-badge ml-badge-pending">Pending RDS</span>
+                                        @php $pStatus = $rec->phase_status ?? strtoupper($rec->status ?? 'ACTIVE'); @endphp
+                                        @if($pStatus === 'SUBMITTED')
+                                            <span style="font-size: 10px; font-weight: 800; background: #ecfdf5; color: #047857; padding: 2px 8px; border-radius: 9999px; border: 1px solid #6ee7b7; white-space: nowrap;">SUBMITTED</span>
+                                        @elseif($pStatus === 'PENDING')
+                                            <span style="font-size: 10px; font-weight: 800; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 9999px; border: 1px solid #fde68a; white-space: nowrap;">PENDING</span>
+                                        @elseif($pStatus === 'INVENTORIED')
+                                            <span style="font-size: 10px; font-weight: 800; background: #f0f9ff; color: #0369a1; padding: 2px 8px; border-radius: 9999px; border: 1px solid #bae6fd; white-space: nowrap;">INVENTORIED</span>
+                                        @elseif($pStatus === 'SUPERSEDED')
+                                            <span style="font-size: 10px; font-weight: 800; background: #fef3c7; color: #b45309; padding: 2px 8px; border-radius: 9999px; border: 1px solid #fde68a; white-space: nowrap;">SUPERSEDED</span>
+                                        @elseif($pStatus === 'FOR DISPOSAL')
+                                            <span style="font-size: 10px; font-weight: 800; background: #fff1f2; color: #be123c; padding: 2px 8px; border-radius: 9999px; border: 1px solid #fecdd3; white-space: nowrap;">FOR DISPOSAL</span>
+                                        @elseif($pStatus === 'DISPOSED')
+                                            <span style="font-size: 10px; font-weight: 800; background: #fee2e2; color: #b91c1c; padding: 2px 8px; border-radius: 9999px; border: 1px solid #fecaca; white-space: nowrap;">DISPOSED</span>
+                                        @elseif($pStatus === 'PENDING RDS')
+                                            <span style="font-size: 10px; font-weight: 800; background: #eff6ff; color: #1d4ed8; padding: 2px 8px; border-radius: 9999px; border: 1px solid #bfdbfe; white-space: nowrap;">PENDING RDS</span>
                                         @else
-                                            <span class="ml-badge ml-badge-active">Active</span>
+                                            <span style="font-size: 10px; font-weight: 800; background: #dcfce7; color: #15803d; padding: 2px 8px; border-radius: 9999px; border: 1px solid #bbf7d0; white-space: nowrap;">ACTIVE</span>
                                         @endif
                                     </td>
                                     <td style="text-align: center; font-size: 11px;">{{ $root->recorded_at_office ?: 'ALL' }}</td>
@@ -2931,27 +2749,37 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                                             </td>
                                             <td style="text-align: center; font-size: 11px; color: #64748b;">{{ $subP->formatted_action_date ?: $rec->formatted_action_date }}</td>
                                             <td style="text-align: center;">
-                                                @if(($subP->ref_nap ?? $rec->ref_nap ?? '') === 'NAP FORM 1')
-                                                    <span style="font-size: 9.5px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1px 5px; border-radius: 4px; border: 1px solid #bae6fd; white-space: nowrap;">NAP FORM 1</span>
-                                                @elseif(($subP->ref_nap ?? $rec->ref_nap ?? '') === 'NAP FORM 2')
-                                                    <span style="font-size: 9.5px; font-weight: 700; background: #fef3c7; color: #b45309; padding: 1px 5px; border-radius: 4px; border: 1px solid #fde68a; white-space: nowrap;">NAP FORM 2</span>
-                                                @elseif(($subP->ref_nap ?? $rec->ref_nap ?? '') === 'NAP FORM 3')
-                                                    <span style="font-size: 9.5px; font-weight: 700; background: #fee2e2; color: #b91c1c; padding: 1px 5px; border-radius: 4px; border: 1px solid #fecaca; white-space: nowrap;">NAP FORM 3</span>
+                                                @php $subRNap = $subP->ref_nap ?? $rec->ref_nap ?? ''; @endphp
+                                                @if($subRNap === 'NAP FORM 1')
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1px 6px; border-radius: 4px; border: 1px solid #bae6fd; white-space: nowrap;">NAP FORM 1</span>
+                                                @elseif($subRNap === 'NAP FORM 2')
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #fef3c7; color: #b45309; padding: 1px 6px; border-radius: 4px; border: 1px solid #fde68a; white-space: nowrap;">NAP FORM 2</span>
+                                                @elseif($subRNap === 'NAP FORM 3')
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #fee2e2; color: #b91c1c; padding: 1px 6px; border-radius: 4px; border: 1px solid #fecaca; white-space: nowrap;">NAP FORM 3</span>
+                                                @elseif(!empty($subRNap) && $subRNap !== '—')
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #f1f5f9; color: #475569; padding: 1px 6px; border-radius: 4px; border: 1px solid #cbd5e1; white-space: nowrap;">{{ $subRNap }}</span>
                                                 @else
                                                     <span class="ml-dash">—</span>
                                                 @endif
                                             </td>
                                             <td style="text-align: center;">
-                                                @if($subP->status === 'revised')
-                                                    <span class="ml-badge ml-badge-revised">Revised</span>
-                                                @elseif($subP->status === 'disposed')
-                                                    <span class="ml-badge ml-badge-disposed">Disposed</span>
-                                                @elseif($subP->status === 'expired')
-                                                    <span class="ml-badge ml-badge-expired">Expired</span>
-                                                @elseif($subP->status === 'pending_rds')
-                                                    <span class="ml-badge ml-badge-pending">Pending RDS</span>
+                                                @php $subPStatus = $subP->phase_status ?? strtoupper($subP->status ?? 'ACTIVE'); @endphp
+                                                @if($subPStatus === 'SUBMITTED')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #ecfdf5; color: #047857; padding: 2px 7px; border-radius: 9999px; border: 1px solid #6ee7b7; white-space: nowrap;">SUBMITTED</span>
+                                                @elseif($subPStatus === 'PENDING')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #fef3c7; color: #92400e; padding: 2px 7px; border-radius: 9999px; border: 1px solid #fde68a; white-space: nowrap;">PENDING</span>
+                                                @elseif($subPStatus === 'INVENTORIED')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #f0f9ff; color: #0369a1; padding: 2px 7px; border-radius: 9999px; border: 1px solid #bae6fd; white-space: nowrap;">INVENTORIED</span>
+                                                @elseif($subPStatus === 'SUPERSEDED')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #fef3c7; color: #b45309; padding: 2px 7px; border-radius: 9999px; border: 1px solid #fde68a; white-space: nowrap;">SUPERSEDED</span>
+                                                @elseif($subPStatus === 'FOR DISPOSAL')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #fff1f2; color: #be123c; padding: 2px 7px; border-radius: 9999px; border: 1px solid #fecdd3; white-space: nowrap;">FOR DISPOSAL</span>
+                                                @elseif($subPStatus === 'DISPOSED')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #fee2e2; color: #b91c1c; padding: 2px 7px; border-radius: 9999px; border: 1px solid #fecaca; white-space: nowrap;">DISPOSED</span>
+                                                @elseif($subPStatus === 'PENDING RDS')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; padding: 2px 7px; border-radius: 9999px; border: 1px solid #bfdbfe; white-space: nowrap;">PENDING RDS</span>
                                                 @else
-                                                    <span class="ml-badge ml-badge-active">Active</span>
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #dcfce7; color: #15803d; padding: 2px 7px; border-radius: 9999px; border: 1px solid #bbf7d0; white-space: nowrap;">ACTIVE</span>
                                                 @endif
                                             </td>
                                             <td style="text-align: center; font-size: 11px; color: #64748b;">{{ $root->recorded_at_office ?: 'ALL' }}</td>
@@ -3169,27 +2997,37 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                                                 {!! empty($sRec->formatted_action_date) || $sRec->formatted_action_date === '—' ? '<span class="ml-dash">—</span>' : e($sRec->formatted_action_date) !!}
                                             </td>
                                             <td style="text-align: center;">
-                                                @if(($sRec->ref_nap ?? '') === 'NAP FORM 1')
-                                                    <span style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; border: 1px solid #bae6fd; white-space: nowrap;">NAP FORM 1</span>
-                                                @elseif(($sRec->ref_nap ?? '') === 'NAP FORM 2')
-                                                    <span style="font-size: 10px; font-weight: 700; background: #fef3c7; color: #b45309; padding: 2px 6px; border-radius: 4px; border: 1px solid #fde68a; white-space: nowrap;">NAP FORM 2</span>
-                                                @elseif(($sRec->ref_nap ?? '') === 'NAP FORM 3')
-                                                    <span style="font-size: 10px; font-weight: 700; background: #fee2e2; color: #b91c1c; padding: 2px 6px; border-radius: 4px; border: 1px solid #fecaca; white-space: nowrap;">NAP FORM 3</span>
+                                                @php $sRNap = $sRec->ref_nap ?? ''; @endphp
+                                                @if($sRNap === 'NAP FORM 1')
+                                                    <span style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 7px; border-radius: 4px; border: 1px solid #bae6fd; white-space: nowrap;">NAP FORM 1</span>
+                                                @elseif($sRNap === 'NAP FORM 2')
+                                                    <span style="font-size: 10px; font-weight: 700; background: #fef3c7; color: #b45309; padding: 2px 7px; border-radius: 4px; border: 1px solid #fde68a; white-space: nowrap;">NAP FORM 2</span>
+                                                @elseif($sRNap === 'NAP FORM 3')
+                                                    <span style="font-size: 10px; font-weight: 700; background: #fee2e2; color: #b91c1c; padding: 2px 7px; border-radius: 4px; border: 1px solid #fecaca; white-space: nowrap;">NAP FORM 3</span>
+                                                @elseif(!empty($sRNap) && $sRNap !== '—')
+                                                    <span style="font-size: 10px; font-weight: 700; background: #f1f5f9; color: #475569; padding: 2px 7px; border-radius: 4px; border: 1px solid #cbd5e1; white-space: nowrap;">{{ $sRNap }}</span>
                                                 @else
                                                     <span class="ml-dash">—</span>
                                                 @endif
                                             </td>
                                             <td style="text-align: center;">
-                                                @if($sRec->status === 'revised')
-                                                    <span class="ml-badge ml-badge-revised">Revised</span>
-                                                @elseif($sRec->status === 'disposed')
-                                                    <span class="ml-badge ml-badge-disposed">Disposed</span>
-                                                @elseif($sRec->status === 'expired')
-                                                    <span class="ml-badge ml-badge-expired">Expired</span>
-                                                @elseif($sRec->status === 'pending_rds')
-                                                    <span class="ml-badge ml-badge-pending">Pending RDS</span>
+                                                @php $sPStatus = $sRec->phase_status ?? strtoupper($sRec->status ?? 'ACTIVE'); @endphp
+                                                @if($sPStatus === 'SUBMITTED')
+                                                    <span style="font-size: 10px; font-weight: 800; background: #ecfdf5; color: #047857; padding: 2px 8px; border-radius: 9999px; border: 1px solid #6ee7b7; white-space: nowrap;">SUBMITTED</span>
+                                                @elseif($sPStatus === 'PENDING')
+                                                    <span style="font-size: 10px; font-weight: 800; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 9999px; border: 1px solid #fde68a; white-space: nowrap;">PENDING</span>
+                                                @elseif($sPStatus === 'INVENTORIED')
+                                                    <span style="font-size: 10px; font-weight: 800; background: #f0f9ff; color: #0369a1; padding: 2px 8px; border-radius: 9999px; border: 1px solid #bae6fd; white-space: nowrap;">INVENTORIED</span>
+                                                @elseif($sPStatus === 'SUPERSEDED')
+                                                    <span style="font-size: 10px; font-weight: 800; background: #fef3c7; color: #b45309; padding: 2px 8px; border-radius: 9999px; border: 1px solid #fde68a; white-space: nowrap;">SUPERSEDED</span>
+                                                @elseif($sPStatus === 'FOR DISPOSAL')
+                                                    <span style="font-size: 10px; font-weight: 800; background: #fff1f2; color: #be123c; padding: 2px 8px; border-radius: 9999px; border: 1px solid #fecdd3; white-space: nowrap;">FOR DISPOSAL</span>
+                                                @elseif($sPStatus === 'DISPOSED')
+                                                    <span style="font-size: 10px; font-weight: 800; background: #fee2e2; color: #b91c1c; padding: 2px 8px; border-radius: 9999px; border: 1px solid #fecaca; white-space: nowrap;">DISPOSED</span>
+                                                @elseif($sPStatus === 'PENDING RDS')
+                                                    <span style="font-size: 10px; font-weight: 800; background: #eff6ff; color: #1d4ed8; padding: 2px 8px; border-radius: 9999px; border: 1px solid #bfdbfe; white-space: nowrap;">PENDING RDS</span>
                                                 @else
-                                                    <span class="ml-badge ml-badge-active">Active</span>
+                                                    <span style="font-size: 10px; font-weight: 800; background: #dcfce7; color: #15803d; padding: 2px 8px; border-radius: 9999px; border: 1px solid #bbf7d0; white-space: nowrap;">ACTIVE</span>
                                                 @endif
                                             </td>
                                             <td style="text-align: center; font-size: 11px;">{{ $sub->recorded_at_office ?: 'ALL' }}</td>
@@ -3267,27 +3105,37 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                                             </td>
                                             <td style="text-align: center; font-size: 11px; color: #64748b;">{{ $subP->formatted_action_date ?: $sRec->formatted_action_date }}</td>
                                             <td style="text-align: center;">
-                                                @if(($subP->ref_nap ?? $sRec->ref_nap ?? '') === 'NAP FORM 1')
-                                                    <span style="font-size: 9.5px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1px 5px; border-radius: 4px; border: 1px solid #bae6fd; white-space: nowrap;">NAP FORM 1</span>
-                                                @elseif(($subP->ref_nap ?? $sRec->ref_nap ?? '') === 'NAP FORM 2')
-                                                    <span style="font-size: 9.5px; font-weight: 700; background: #fef3c7; color: #b45309; padding: 1px 5px; border-radius: 4px; border: 1px solid #fde68a; white-space: nowrap;">NAP FORM 2</span>
-                                                @elseif(($subP->ref_nap ?? $sRec->ref_nap ?? '') === 'NAP FORM 3')
-                                                    <span style="font-size: 9.5px; font-weight: 700; background: #fee2e2; color: #b91c1c; padding: 1px 5px; border-radius: 4px; border: 1px solid #fecaca; white-space: nowrap;">NAP FORM 3</span>
+                                                @php $subRNap = $subP->ref_nap ?? $sRec->ref_nap ?? ''; @endphp
+                                                @if($subRNap === 'NAP FORM 1')
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1px 6px; border-radius: 4px; border: 1px solid #bae6fd; white-space: nowrap;">NAP FORM 1</span>
+                                                @elseif($subRNap === 'NAP FORM 2')
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #fef3c7; color: #b45309; padding: 1px 6px; border-radius: 4px; border: 1px solid #fde68a; white-space: nowrap;">NAP FORM 2</span>
+                                                @elseif($subRNap === 'NAP FORM 3')
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #fee2e2; color: #b91c1c; padding: 1px 6px; border-radius: 4px; border: 1px solid #fecaca; white-space: nowrap;">NAP FORM 3</span>
+                                                @elseif(!empty($subRNap) && $subRNap !== '—')
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #f1f5f9; color: #475569; padding: 1px 6px; border-radius: 4px; border: 1px solid #cbd5e1; white-space: nowrap;">{{ $subRNap }}</span>
                                                 @else
                                                     <span class="ml-dash">—</span>
                                                 @endif
                                             </td>
                                             <td style="text-align: center;">
-                                                @if($subP->status === 'revised')
-                                                    <span class="ml-badge ml-badge-revised">Revised</span>
-                                                @elseif($subP->status === 'disposed')
-                                                    <span class="ml-badge ml-badge-disposed">Disposed</span>
-                                                @elseif($subP->status === 'expired')
-                                                    <span class="ml-badge ml-badge-expired">Expired</span>
-                                                @elseif($subP->status === 'pending_rds')
-                                                    <span class="ml-badge ml-badge-pending">Pending RDS</span>
+                                                @php $subPStatus = $subP->phase_status ?? strtoupper($subP->status ?? 'ACTIVE'); @endphp
+                                                @if($subPStatus === 'SUBMITTED')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #ecfdf5; color: #047857; padding: 2px 7px; border-radius: 9999px; border: 1px solid #6ee7b7; white-space: nowrap;">SUBMITTED</span>
+                                                @elseif($subPStatus === 'PENDING')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #fef3c7; color: #92400e; padding: 2px 7px; border-radius: 9999px; border: 1px solid #fde68a; white-space: nowrap;">PENDING</span>
+                                                @elseif($subPStatus === 'INVENTORIED')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #f0f9ff; color: #0369a1; padding: 2px 7px; border-radius: 9999px; border: 1px solid #bae6fd; white-space: nowrap;">INVENTORIED</span>
+                                                @elseif($subPStatus === 'SUPERSEDED')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #fef3c7; color: #b45309; padding: 2px 7px; border-radius: 9999px; border: 1px solid #fde68a; white-space: nowrap;">SUPERSEDED</span>
+                                                @elseif($subPStatus === 'FOR DISPOSAL')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #fff1f2; color: #be123c; padding: 2px 7px; border-radius: 9999px; border: 1px solid #fecdd3; white-space: nowrap;">FOR DISPOSAL</span>
+                                                @elseif($subPStatus === 'DISPOSED')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #fee2e2; color: #b91c1c; padding: 2px 7px; border-radius: 9999px; border: 1px solid #fecaca; white-space: nowrap;">DISPOSED</span>
+                                                @elseif($subPStatus === 'PENDING RDS')
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; padding: 2px 7px; border-radius: 9999px; border: 1px solid #bfdbfe; white-space: nowrap;">PENDING RDS</span>
                                                 @else
-                                                    <span class="ml-badge ml-badge-active">Active</span>
+                                                    <span style="font-size: 9.5px; font-weight: 800; background: #dcfce7; color: #15803d; padding: 2px 7px; border-radius: 9999px; border: 1px solid #bbf7d0; white-space: nowrap;">ACTIVE</span>
                                                 @endif
                                             </td>
                                             <td style="text-align: center; font-size: 11px; color: #64748b;">{{ $sub->recorded_at_office ?: 'ALL' }}</td>
@@ -3405,110 +3253,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         </div>
     </aside>
 
-    <!-- GENERATE FORM MODAL -->
-    @if($showGenerateModal)
-        <div class="ml-modal-overlay" wire:click.self="closeGenerateFormModal">
-            <div class="ml-modal-dialog">
-                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
-                    <div>
-                        <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: inherit;">Generate Report Form</h3>
-                        <p style="margin: 2px 0 0; font-size: 12px; color: #64748b;">Select an official NAP Form type to package into Pending.</p>
-                    </div>
-                    <button type="button" wire:click="closeGenerateFormModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px;" title="Close Modal">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                    </button>
-                </div>
-
-                @if($generateSuccessMessage)
-                    <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 14px 16px; font-size: 13px; color: #166534; font-weight: 600; display: flex; flex-direction: column; gap: 10px;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
-                            <span>{{ $generateSuccessMessage }}</span>
-                        </div>
-                        <div style="display: flex; gap: 10px; margin-top: 4px;">
-                            <a href="{{ route('rdp.pending.list') }}" class="ml-action-btn ml-generate-btn" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 6px 14px; height: 32px;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
-                                <span>Go to Pending Forms</span>
-                            </a>
-                            <button type="button" wire:click="closeGenerateFormModal" class="ml-action-btn" style="font-size: 12px; padding: 6px 14px; height: 32px;">Close</button>
-                        </div>
-                    </div>
-                @else
-                    @if($generateErrorMessage)
-                        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 14px; font-size: 12.5px; color: #991b1b; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                            <span>{{ $generateErrorMessage }}</span>
-                        </div>
-                    @endif
-
-                    <div style="display: flex; flex-direction: column; gap: 14px;">
-                        <div>
-                            <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 8px;">Select Form Type</label>
-                            <div class="ml-form-type-grid">
-                                <!-- NAP Form 1 -->
-                                <label class="ml-form-type-card {{ $selectedFormType === 'nap1' ? 'active' : '' }}">
-                                    <input type="radio" wire:model.live="selectedFormType" value="nap1" style="margin-top: 3px;">
-                                    <div>
-                                        <div style="font-size: 13px; font-weight: 700; color: inherit;">NAP Form 1 — Records Inventory and Appraisal</div>
-                                        <div style="font-size: 11.5px; color: #64748b; margin-top: 2px;">Packages active records from Generalized Records for appraisal, verification, and scheduling.</div>
-                                    </div>
-                                </label>
-
-                                <!-- NAP Form 2 -->
-                                <label class="ml-form-type-card {{ $selectedFormType === 'nap2' ? 'active' : '' }}">
-                                    <input type="radio" wire:model.live="selectedFormType" value="nap2" style="margin-top: 3px;">
-                                    <div>
-                                        <div style="font-size: 13px; font-weight: 700; color: inherit;">NAP Form 2 — Records Disposition Schedule (RDS)</div>
-                                        <div style="font-size: 11.5px; color: #64748b; margin-top: 2px;">Packages record series with retention rules into an RDS submission schedule.</div>
-                                    </div>
-                                </label>
-
-                                <!-- NAP Form 3 -->
-                                <label class="ml-form-type-card {{ $selectedFormType === 'nap3' ? 'active' : '' }}">
-                                    <input type="radio" wire:model.live="selectedFormType" value="nap3" style="margin-top: 3px;">
-                                    <div>
-                                        <div style="font-size: 13px; font-weight: 700; color: inherit;">NAP Form 3 — Request for Authority to Dispose of Records</div>
-                                        <div style="font-size: 11.5px; color: #64748b; margin-top: 2px;">Packages expired and disposed records into a formal disposal authority request.</div>
-                                    </div>
-                                </label>
-                            </div>
-                        </div>
-
-                        @if($hasAllOfficesClearance)
-                            <div>
-                                <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Target Office</label>
-                                <select wire:model.live="formOffice" class="ml-search-input" style="width: 100%; padding: 8px 12px; font-size: 13px;">
-                                    <option value="">All Filtered Offices / Campus-wide</option>
-                                    @foreach($officesList as $off)
-                                        <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                        @else
-                            <div style="font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 6px;">
-                                <span style="font-weight: 700;">Office:</span>
-                                <span>{{ $userOfficeCode ?? 'N/A' }}</span>
-                            </div>
-                        @endif
-
-                        <div>
-                            <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Form / Cluster Title</label>
-                            <input type="text" wire:model="formClusterName" class="ml-search-input" style="width: 100%; padding: 8px 12px; font-size: 13px;" placeholder="Enter submission form title...">
-                        </div>
-
-                        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
-                            <button type="button" wire:click="closeGenerateFormModal" class="ml-action-btn" style="padding: 8px 16px;">Cancel</button>
-                            <button type="button" wire:click="submitGenerateForm" class="ml-action-btn ml-generate-btn" style="padding: 8px 18px; display: inline-flex; align-items: center; gap: 6px;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                                <span>Save to Pending</span>
-                            </button>
-                        </div>
-                    </div>
-                @endif
-            </div>
-        </div>
-    @endif
-
     <!-- Record Details & Action Date Modal -->
     @php
         $recObj = $this->selectedRecord;
@@ -3599,16 +3343,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                         <div>
                             <span style="color: #64748b; font-weight: 600; display: block; font-size: 11px;">CURRENT STATUS</span>
                             <span style="display: inline-block; margin-top: 2px;">
-                                @if($recObj->status === 'revised')
-                                    <span class="ml-badge ml-badge-revised">Revised</span>
-                                @elseif($recObj->status === 'disposed')
-                                    <span class="ml-badge ml-badge-disposed">Disposed</span>
-                                @elseif($recObj->status === 'expired')
-                                    <span class="ml-badge ml-badge-expired">Expired</span>
-                                @elseif($recObj->status === 'pending_rds')
-                                    <span class="ml-badge ml-badge-pending">Pending RDS</span>
+                                @php $modalPhase = $recObj->phase_status ?? strtoupper($recObj->status ?? 'ACTIVE'); @endphp
+                                @if($modalPhase === 'SUBMITTED')
+                                    <span class="ml-badge" style="background: #ecfdf5; color: #047857; border: 1px solid #6ee7b7;">SUBMITTED</span>
+                                @elseif($modalPhase === 'PENDING')
+                                    <span class="ml-badge" style="background: #fef3c7; color: #92400e; border: 1px solid #fde68a;">PENDING</span>
+                                @elseif($modalPhase === 'INVENTORIED')
+                                    <span class="ml-badge" style="background: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd;">INVENTORIED</span>
+                                @elseif($modalPhase === 'SUPERSEDED')
+                                    <span class="ml-badge ml-badge-revised">SUPERSEDED</span>
+                                @elseif($modalPhase === 'FOR DISPOSAL')
+                                    <span class="ml-badge" style="background: #fff1f2; color: #be123c; border: 1px solid #fecdd3;">FOR DISPOSAL</span>
+                                @elseif($modalPhase === 'DISPOSED')
+                                    <span class="ml-badge ml-badge-disposed">DISPOSED</span>
+                                @elseif($modalPhase === 'PENDING RDS')
+                                    <span class="ml-badge ml-badge-pending">PENDING RDS</span>
                                 @else
-                                    <span class="ml-badge ml-badge-active">Active</span>
+                                    <span class="ml-badge ml-badge-active">ACTIVE</span>
                                 @endif
                             </span>
                         </div>

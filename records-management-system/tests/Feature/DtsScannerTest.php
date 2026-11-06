@@ -603,7 +603,7 @@ class DtsScannerTest extends TestCase
             ['is_active' => true]
         );
         DB::table($subsystemsTable)->updateOrInsert(
-            ['subsystem_name' => 'Chatify'],
+            ['subsystem_name' => 'Messify'],
             ['is_active' => true]
         );
 
@@ -622,7 +622,7 @@ class DtsScannerTest extends TestCase
             ->assertSee('DTS QR Scanner')
             ->assertSee('mobile-only')
             ->assertSee('desktop-only')
-            ->assertSee('Chatify');
+            ->assertSee('Messify');
 
         // Scenario 2: User does not have receive permission
         DB::table($this->condDetailsTable)
@@ -638,6 +638,6 @@ class DtsScannerTest extends TestCase
         Volt::test('pages.portal.access-page')
             ->assertDontSee('DTS QR Scanner')
             ->assertSee('desktop-only')
-            ->assertSee('Chatify');
+            ->assertSee('Messify');
     }
 }

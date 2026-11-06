@@ -176,10 +176,10 @@ class User extends Authenticatable
         return $setting ? $setting->notification_toggle_key : null;
     }
 
-    public function chatifyToggleKey(): ?string
+    public function messifyToggleKey(): ?string
     {
         $setting = $this->personalSetting;
-        return $setting ? $setting->chatify_toggle_key : null;
+        return $setting ? $setting->messify_toggle_key : null;
     }
 
     /** @return array<string, bool> */

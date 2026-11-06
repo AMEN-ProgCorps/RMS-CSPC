@@ -155,15 +155,15 @@ class BackupService
             'dcs_office_dcn_reviewers' => 112,
             'dcs_office_dcn_approvals' => 113,
 
-            // Tier 7: Chatify, Messages & Audit Logs
-            'chat_conversations' => 114,
-            'chat_messages' => 115,
-            'chat_reactions' => 116,
-            'chat_read_markers' => 117,
-            'chatify_chat_backup' => 118,
+            // Tier 7: Messify, Messages & Audit Logs
+            'messify_chat_conversations' => 114,
+            'messify_chat_messages' => 115,
+            'messify_chat_reactions' => 116,
+            'messify_chat_read_markers' => 117,
+            'messify_chat_backup' => 118,
             'chat_notifications' => 119,
-            'chatify_legal_agreements' => 120,
-            'chatify_audit_logs' => 121,
+            'messify_chat_legal_agreements' => 120,
+            'messify_chat_audit_logs' => 121,
             'sys_notifications' => 120,
             'notifications' => 120,
             'sys_notification_div' => 121,

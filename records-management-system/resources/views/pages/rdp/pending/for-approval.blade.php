@@ -17,6 +17,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
     public ?object $targetCluster = null;
     public array $clusterItems = [];
     public ?int $selectedSeriesTypeId = null;
+    public bool $showSeriesTypeModal = false;
+    public bool $showRejectModal = false;
+    public string $rejectionRemarks = '';
 
     // Print Modal State
     public bool $showPrintModal = false;
@@ -90,6 +93,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                     'rdp_pending_record_series.cluster_id',
                     'rdp_pending_record_series.cluster_name',
                     'rdp_pending_record_series.status_id',
+                    'rdp_pending_record_series.evaluation_remarks',
                     DB::raw("COALESCE(rdp_pending_record_series.office, submitter_office.office_code) as office"),
                     'rdp_pending_record_series.created_at',
                     'rdp_pending_status.status_name',
@@ -129,6 +133,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                     'rdp_pending_record.cluster_id',
                     'rdp_pending_record.cluster_name',
                     'rdp_pending_record.status_id',
+                    'rdp_pending_record.evaluation_remarks',
                     DB::raw("COALESCE(rdp_pending_record.office, submitter_office.office_code) as office"),
                     'rdp_pending_record.is_for_nap_one',
                     'rdp_pending_record.is_for_nap_three',
@@ -197,23 +202,62 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
     {
         if (!$this->targetCluster) return;
 
+        $formCode = strtolower($this->targetCluster->form_code ?? '');
+        $formLabel = $this->targetCluster->form_label ?? '';
+
+        // If NAP Form 2, prompt admin with the Series Type selection modal first
+        if ($formLabel === 'NAP Form 2' || $formCode === 'nap2') {
+            $this->showSeriesTypeModal = true;
+            return;
+        }
+
+        $this->executeApproval();
+    }
+
+    public function confirmNap2Approval(): void
+    {
+        $this->showSeriesTypeModal = false;
+        $this->executeApproval();
+    }
+
+    public function closeSeriesTypeModal(): void
+    {
+        $this->showSeriesTypeModal = false;
+    }
+
+    public function openRejectModal(): void
+    {
+        $this->rejectionRemarks = '';
+        $this->showRejectModal = true;
+    }
+
+    public function closeRejectModal(): void
+    {
+        $this->showRejectModal = false;
+        $this->rejectionRemarks = '';
+    }
+
+    public function executeApproval(): void
+    {
+        if (!$this->targetCluster) return;
+
         try {
             DB::beginTransaction();
 
-            $formCode = $this->targetCluster->form_code ?? '';
+            $formCode = strtolower($this->targetCluster->form_code ?? '');
             $formLabel = $this->targetCluster->form_label ?? '';
             $clusterId = (int)($this->targetCluster->cluster_id ?? 0);
             $clusterName = $this->targetCluster->cluster_name ?? ('Cluster #' . $clusterId);
             $office = $this->targetCluster->office ?? 'Office';
 
             if ($formLabel === 'NAP Form 2' || $formCode === 'nap2') {
-                // NAP Form 2: Verify cluster AND all contained Record Series so they become official and leave NAP Form 2 draft list
+                // NAP Form 2: Mark Submitted (status_id = 5) and verified
                 DB::table('rdp_pending_record_series')
                     ->where('cluster_id', $clusterId)
                     ->update([
                         'is_verified' => true,
-                        'status_id'  => 2, // Verified
-                        'updated_at' => now(),
+                        'status_id'   => 5, // Submitted
+                        'updated_at'  => now(),
                     ]);
 
                 $seriesIds = array_column($this->clusterItems, 'id');
@@ -227,13 +271,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                         ]);
                 }
             } elseif ($formLabel === 'NAP Form 3' || $formCode === 'nap3') {
-                // NAP Form 3: Verify cluster AND all contained Records so they are marked disposed/verified
+                // NAP Form 3: Mark Submitted (status_id = 5) and records verified
                 DB::table('rdp_pending_record')
                     ->where('cluster_id', $clusterId)
                     ->update([
                         'is_verified' => true,
-                        'status_id'  => 2, // Verified
-                        'updated_at' => now(),
+                        'status_id'   => 5, // Submitted
+                        'updated_at'  => now(),
                     ]);
 
                 $recordIds = array_column($this->clusterItems, 'id');
@@ -246,102 +290,44 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                         ]);
                 }
             } else {
-                // NAP Form 1: Verify cluster ONLY. Record series/records inside remain unchanged
+                // NAP Form 1: Mark Submitted (status_id = 5) and lock records
                 DB::table('rdp_pending_record')
                     ->where('cluster_id', $clusterId)
                     ->update([
                         'is_verified' => true,
-                        'status_id'  => 2, // Verified
-                        'updated_at' => now(),
-                    ]);
-            }
-
-            $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
-            DB::table($adminLogsTbl)->insert([
-                'admin_id'     => Auth::id() ?? 1,
-                'changes'      => "Evaluated & Verified submission cluster #{$clusterId} ('{$clusterName}') [{$formLabel}] from office {$office}",
-                'what_system'  => 2,
-                'when_changes' => now(),
-            ]);
-
-            DB::commit();
-
-            $this->successMessage = "Submission cluster '{$clusterName}' successfully VERIFIED!";
-            $this->closeApprovalModal();
-        } catch (\Exception $e) {
-            DB::rollBack();
-            $this->errorMessage = 'Verification failed: ' . $e->getMessage();
-        }
-    }
-
-    public function returnCluster(): void
-    {
-        if (!$this->targetCluster) return;
-
-        try {
-            DB::beginTransaction();
-
-            $formCode = $this->targetCluster->form_code ?? '';
-            $formLabel = $this->targetCluster->form_label ?? '';
-            $clusterId = (int)($this->targetCluster->cluster_id ?? 0);
-            $clusterName = $this->targetCluster->cluster_name ?? ('Cluster #' . $clusterId);
-            $office = $this->targetCluster->office ?? 'Office';
-
-            if ($formLabel === 'NAP Form 2' || $formCode === 'nap2') {
-                DB::table('rdp_pending_record_series')
-                    ->where('cluster_id', $clusterId)
-                    ->update([
-                        'status_id'   => 4, // Returned for Correction
-                        'is_verified' => false,
+                        'status_id'   => 5, // Submitted
                         'updated_at'  => now(),
                     ]);
 
-                $seriesIds = array_column($this->clusterItems, 'id');
-                if (!empty($seriesIds)) {
-                    DB::table('rdp_record_series')
-                        ->whereIn('id', $seriesIds)
+                $recordIds = array_column($this->clusterItems, 'id');
+                if (!empty($recordIds)) {
+                    DB::table('rdp_record')
+                        ->whereIn('id', $recordIds)
                         ->update([
-                            'is_verified' => false,
+                            'is_verified' => true,
                             'updated_at'  => now(),
                         ]);
                 }
-            } else {
-                DB::table('rdp_pending_record')
-                    ->where('cluster_id', $clusterId)
-                    ->update([
-                        'status_id'   => 4,
-                        'is_verified' => false,
-                        'updated_at'  => now(),
-                    ]);
-
-                if ($formLabel === 'NAP Form 3' || $formCode === 'nap3') {
-                    $recordIds = array_column($this->clusterItems, 'id');
-                    if (!empty($recordIds)) {
-                        DB::table('rdp_record')
-                            ->whereIn('id', $recordIds)
-                            ->update([
-                                'is_verified' => false,
-                                'updated_at'  => now(),
-                            ]);
-                    }
-                }
             }
 
             $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
             DB::table($adminLogsTbl)->insert([
                 'admin_id'     => Auth::id() ?? 1,
-                'changes'      => "Returned submission cluster #{$clusterId} ('{$clusterName}') [{$formLabel}] to office {$office} for correction",
+                'changes'      => "Evaluated & Approved submission cluster #{$clusterId} ('{$clusterName}') [{$formLabel}] from office {$office} — Marked as Submitted",
                 'what_system'  => 2,
                 'when_changes' => now(),
             ]);
 
+            // Dispatch notification to submitting office
+            \App\Services\RdpNotificationService::notifyFormApproved($office, $formLabel, $clusterName, Auth::id());
+
             DB::commit();
 
-            $this->successMessage = "Cluster '{$clusterName}' returned for correction.";
+            $this->successMessage = "Submission form '{$clusterName}' has been successfully Approved and Marked as Submitted to NAP!";
             $this->closeApprovalModal();
         } catch (\Exception $e) {
             DB::rollBack();
-            $this->errorMessage = 'Action failed: ' . $e->getMessage();
+            $this->errorMessage = 'Approval failed: ' . $e->getMessage();
         }
     }
 
@@ -349,10 +335,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
     {
         if (!$this->targetCluster) return;
 
+        $remarks = trim($this->rejectionRemarks);
+        if (empty($remarks)) {
+            $this->errorMessage = 'Please provide evaluation remarks explaining why this form is being rejected / returned for correction.';
+            return;
+        }
+
         try {
             DB::beginTransaction();
 
-            $formCode = $this->targetCluster->form_code ?? '';
+            $formCode = strtolower($this->targetCluster->form_code ?? '');
             $formLabel = $this->targetCluster->form_label ?? '';
             $clusterId = (int)($this->targetCluster->cluster_id ?? 0);
             $clusterName = $this->targetCluster->cluster_name ?? ('Cluster #' . $clusterId);
@@ -362,9 +354,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 DB::table('rdp_pending_record_series')
                     ->where('cluster_id', $clusterId)
                     ->update([
-                        'status_id'   => 3, // Rejected
-                        'is_verified' => false,
-                        'updated_at'  => now(),
+                        'status_id'          => 4, // Returned for Correction / Rejected
+                        'is_verified'        => false,
+                        'evaluation_remarks' => $remarks,
+                        'updated_at'         => now(),
                     ]);
 
                 $seriesIds = array_column($this->clusterItems, 'id');
@@ -380,35 +373,38 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 DB::table('rdp_pending_record')
                     ->where('cluster_id', $clusterId)
                     ->update([
-                        'status_id'   => 3,
-                        'is_verified' => false,
-                        'updated_at'  => now(),
+                        'status_id'          => 4,
+                        'is_verified'        => false,
+                        'evaluation_remarks' => $remarks,
+                        'updated_at'         => now(),
                     ]);
 
-                if ($formLabel === 'NAP Form 3' || $formCode === 'nap3') {
-                    $recordIds = array_column($this->clusterItems, 'id');
-                    if (!empty($recordIds)) {
-                        DB::table('rdp_record')
-                            ->whereIn('id', $recordIds)
-                            ->update([
-                                'is_verified' => false,
-                                'updated_at'  => now(),
-                            ]);
-                    }
+                $recordIds = array_column($this->clusterItems, 'id');
+                if (!empty($recordIds)) {
+                    DB::table('rdp_record')
+                        ->whereIn('id', $recordIds)
+                        ->update([
+                            'is_verified' => false,
+                            'updated_at'  => now(),
+                        ]);
                 }
             }
 
             $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
             DB::table($adminLogsTbl)->insert([
                 'admin_id'     => Auth::id() ?? 1,
-                'changes'      => "Rejected submission cluster #{$clusterId} ('{$clusterName}') [{$formLabel}] from office {$office}",
+                'changes'      => "Rejected submission cluster #{$clusterId} ('{$clusterName}') [{$formLabel}] from office {$office} for correction. Remarks: {$remarks}",
                 'what_system'  => 2,
                 'when_changes' => now(),
             ]);
 
+            // Dispatch notification to submitting office
+            \App\Services\RdpNotificationService::notifyFormRejected($office, $formLabel, $clusterName, $remarks, Auth::id());
+
             DB::commit();
 
-            $this->successMessage = "Cluster '{$clusterName}' rejected.";
+            $this->closeRejectModal();
+            $this->successMessage = "Cluster '{$clusterName}' has been rejected and returned to {$office} for correction.";
             $this->closeApprovalModal();
         } catch (\Exception $e) {
             DB::rollBack();
@@ -462,6 +458,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                     'rdp_pending_record_series.cluster_id',
                     'rdp_pending_record_series.cluster_name',
                     'rdp_pending_record_series.status_id',
+                    'rdp_pending_record_series.evaluation_remarks',
                     DB::raw("COALESCE(rdp_pending_record_series.office, submitter_office.office_code) as office"),
                     'rdp_pending_record_series.created_at',
                     'rdp_pending_status.status_name',
@@ -506,6 +503,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                     'rdp_pending_record.cluster_id',
                     'rdp_pending_record.cluster_name',
                     'rdp_pending_record.status_id',
+                    'rdp_pending_record.evaluation_remarks',
                     DB::raw("COALESCE(rdp_pending_record.office, submitter_office.office_code) as office"),
                     'rdp_pending_record.is_for_nap_one',
                     'rdp_pending_record.is_for_nap_three',
@@ -684,7 +682,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         .status-1 { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; } /* Pending */
         .status-2 { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; } /* Approved */
         .status-3 { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; } /* Rejected */
-        .status-4 { background: #e0f2fe; color: #075985; border: 1px solid #bae6fd; } /* Returned */
+        .status-4 { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; } /* Returned / Rejected */
+        .status-5 { background: #ecfdf5; color: #047857; border: 1px solid #6ee7b7; font-weight: 700; } /* Submitted */
 
         .form-type-pill {
             background: #f1f5f9;
@@ -910,7 +909,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
             #navigation,
             .top-nav-tabs-wrapper,
             .dcs-top-tabs-host,
-            .chatify-floating-widget,
+            .messify-floating-widget,
             .header-card,
             .controls-group,
             .approval-table-wrapper,
@@ -1118,14 +1117,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                     <button wire:click="closeApprovalModal" style="background: none; border: none; font-size: 20px; cursor: pointer;">&times;</button>
                 </div>
 
-                @if($targetCluster->form_label === 'NAP Form 2')
-                    <div class="form-group">
-                        <label class="form-label">Target Reference Series Type for Approved Items:</label>
-                        <select wire:model="selectedSeriesTypeId" class="form-select">
-                            @foreach($seriesTypes as $st)
-                                <option value="{{ $st->id }}">{{ $st->shorted_type }} — {{ $st->type_name }}</option>
-                            @endforeach
-                        </select>
+                @if(!empty($targetCluster->evaluation_remarks))
+                    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+                        <span style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #b91c1c; display: block; margin-bottom: 2px;">Evaluation / Correction Remarks:</span>
+                        <p style="margin: 0; font-size: 13px; color: #7f1d1d;">{{ $targetCluster->evaluation_remarks }}</p>
                     </div>
                 @endif
 
@@ -1156,10 +1151,83 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                     </table>
                 </div>
 
-                <div class="modal-actions">
-                    <button wire:click="rejectCluster" class="btn-reject">Unverify / Reject</button>
-                    <button wire:click="returnCluster" class="btn-return">Return for Correction</button>
-                    <button wire:click="approveCluster" class="btn-approve">{{ (int)($targetCluster->status_id ?? 0) === 2 ? 'Re-verify Cluster' : 'Verify Cluster' }}</button>
+                <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 10px; align-items: center;">
+                    <button type="button" wire:click="openRejectModal" class="btn-reject" style="padding: 9px 18px; font-weight: 700; background: #ef4444; color: #ffffff; border: none; border-radius: 8px; cursor: pointer;">
+                        Reject Form
+                    </button>
+                    <button type="button" wire:click="approveCluster" class="btn-approve" style="padding: 9px 20px; font-weight: 700; background: #16a34a; color: #ffffff; border: none; border-radius: 8px; cursor: pointer;">
+                        Approve Form
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Reject & Return Modal with Required Remarks --}}
+    @if($showRejectModal)
+        <div class="modal-overlay" style="z-index: 100000;">
+            <div class="modal-card" style="max-width: 520px; border-radius: 12px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
+                    <div>
+                        <h3 style="font-size: 18px; font-weight: 800; color: #b91c1c; margin: 0;">Reject & Return Form</h3>
+                        <span style="font-size: 12px; color: #64748b;">Specify remarks or corrections needed for the submitting office</span>
+                    </div>
+                    <button type="button" wire:click="closeRejectModal" style="background: none; border: none; font-size: 22px; cursor: pointer; color: #64748b;">&times;</button>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; font-size: 12px; font-weight: 700; text-transform: uppercase; color: #475569; margin-bottom: 6px;">
+                        Evaluation Remarks / Correction Notes <span style="color: #ef4444;">*</span>
+                    </label>
+                    <textarea wire:model="rejectionRemarks" rows="4" style="width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; font-size: 13px; font-family: inherit; resize: vertical; box-sizing: border-box;" placeholder="Enter details explaining why this form is being rejected (e.g., incorrect retention period on Item 2, missing remarks, typo in series title)..."></textarea>
+                    <span style="font-size: 11px; color: #64748b; margin-top: 4px; display: block;">This note will be notified to the submitting office and saved on their Pending List.</span>
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button type="button" wire:click="closeRejectModal" style="padding: 9px 18px; background: #94a3b8; color: #fff; border: none; border-radius: 8px; font-weight: 700; cursor: pointer;">
+                        Cancel
+                    </button>
+                    <button type="button" wire:click="rejectCluster" style="padding: 9px 20px; background: #dc2626; color: #fff; border: none; border-radius: 8px; font-weight: 700; cursor: pointer;">
+                        Confirm Rejection
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- NAP Form 2 Series Type Selection Modal on Approve --}}
+    @if($showSeriesTypeModal)
+        <div class="modal-overlay" style="z-index: 100000;">
+            <div class="modal-card" style="max-width: 540px; border-radius: 12px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
+                    <div>
+                        <h3 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0;">Select Record Series Type</h3>
+                        <span style="font-size: 12px; color: #64748b;">Choose the official reference type to record these series under</span>
+                    </div>
+                    <button type="button" wire:click="closeSeriesTypeModal" style="background: none; border: none; font-size: 22px; cursor: pointer; color: #64748b;">&times;</button>
+                </div>
+
+                <div style="margin-bottom: 22px;">
+                    <label style="display: block; font-size: 12px; font-weight: 700; text-transform: uppercase; color: #475569; margin-bottom: 8px;">
+                        Target Reference Series Type:
+                    </label>
+                    <select wire:model="selectedSeriesTypeId" class="form-select" style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; font-weight: 600;">
+                        @foreach($seriesTypes as $st)
+                            <option value="{{ $st->id }}">{{ $st->shorted_type }} — {{ $st->type_name }}</option>
+                        @endforeach
+                    </select>
+                    <p style="font-size: 11.5px; color: #64748b; margin-top: 8px; line-height: 1.5;">
+                        All {{ count($clusterItems) }} record series contained in this cluster will officially be recorded under this type and marked as <strong>Submitted</strong> to the National Archives.
+                    </p>
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button type="button" wire:click="closeSeriesTypeModal" style="padding: 9px 18px; background: #94a3b8; color: #fff; border: none; border-radius: 8px; font-weight: 700; cursor: pointer;">
+                        Cancel
+                    </button>
+                    <button type="button" wire:click="confirmNap2Approval" style="padding: 9px 20px; background: #16a34a; color: #fff; border: none; border-radius: 8px; font-weight: 700; cursor: pointer;">
+                        Confirm & Approve Form
+                    </button>
                 </div>
             </div>
         </div>

@@ -684,8 +684,7 @@ class BackupService
             $backupData['total_records'] = $totalRecords;
 
             $jsonContent = json_encode($backupData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            $baseFilename = 'rms_backup_full_' . date('Y-m-d_His') . '.json';
-            $filename = !empty($cleanLabel) ? "[{$cleanLabel}]{$baseFilename}" : $baseFilename;
+            $filename = static::generateBackupFilename($cleanLabel);
 
             if (!Storage::disk('local')->exists('backups')) {
                 Storage::disk('local')->makeDirectory('backups');
@@ -733,6 +732,41 @@ class BackupService
                 'message' => "Backup failed: " . $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * Generate standard backup filename in the format:
+     * [ this backup is for? ]<backupdefaultname>.json
+     * where backupdefaultname = <month>-<day>-<year>-<24 style current time>
+     * e.g. [Accessing Server Settings - Terminal]06-11-2026-2115.json
+     * or 06-11-2026-2115.json (if no label)
+     *
+     * @param string|null $label Optional explanation or key for what the backup is for
+     * @return string
+     */
+    public static function generateBackupFilename(?string $label = null): string
+    {
+        // <month/day>-<month/day>-<year>-<24 style current time> (e.g. 06-11-2026-2115)
+        $backupDefaultName = date('d-m-Y-Hi');
+        $cleanLabel = trim(preg_replace('/[\/\\\:\*\?"<>\|]/', '', (string) $label));
+
+        if (!empty($cleanLabel)) {
+            $filename = "[{$cleanLabel}]{$backupDefaultName}.json";
+        } else {
+            $filename = "{$backupDefaultName}.json";
+        }
+
+        // Avoid collision if multiple backups are generated within the same minute
+        if (Storage::disk('local')->exists("backups/{$filename}")) {
+            $uniqueSuffix = date('-s');
+            if (!empty($cleanLabel)) {
+                $filename = "[{$cleanLabel}]{$backupDefaultName}{$uniqueSuffix}.json";
+            } else {
+                $filename = "{$backupDefaultName}{$uniqueSuffix}.json";
+            }
+        }
+
+        return $filename;
     }
 
     /**

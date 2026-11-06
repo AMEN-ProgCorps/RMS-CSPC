@@ -58,7 +58,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
         $this->isCreatingBackup = true;
         $this->isBusy = true;
 
-        $res = $backupService->createFullBackup('Pre_Terminal_Safety');
+        $res = $backupService->createFullBackup('Accessing Server Settings - Terminal');
 
         if ($res['success']) {
             session()->put('terminal_safety_backup_done', true);

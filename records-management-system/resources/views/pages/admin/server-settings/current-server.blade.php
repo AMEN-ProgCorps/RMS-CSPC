@@ -174,7 +174,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     public function generateBackupAndProceed(BackupService $backupService, ServerManagementService $service): void
     {
         $this->isBusy = true;
-        $backupRes = $backupService->createFullBackup('Pre_Update_Safety');
+        $backupLabel = ($this->pendingUpdateAction === 'git_pull')
+            ? 'Accessing Server Settings - Git Update'
+            : 'Accessing Server Settings - Database Migration';
+
+        $backupRes = $backupService->createFullBackup($backupLabel);
 
         if (!$backupRes['success']) {
             $this->errorMessage = "Mandatory safety backup failed: " . $backupRes['message'];

@@ -80,12 +80,6 @@ try {
     $stmt = $pdo->query('SELECT account_id FROM ' . Database::t('account_details') . ' WHERE ' . $verCol . ' = TRUE');
     $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
     $verified_account_ids = array_map('intval', $rows);
-    $adminIds = Auth::getAllSuperAdminIds();
-    foreach ($adminIds as $aid) {
-        if (!in_array($aid, $verified_account_ids, true)) {
-            $verified_account_ids[] = $aid;
-        }
-    }
 } catch (Throwable $e) {
     // Non-fatal — verified badges simply won't show if DB is unavailable
 }

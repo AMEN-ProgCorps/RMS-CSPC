@@ -4529,7 +4529,14 @@
                 nameTextSpan.title = u.full_name;
                 nameSpan.appendChild(nameTextSpan);
 
-                if (u.is_messify_verified) {
+                const targetId = Number(u.account_id);
+                const isVerified = Boolean(
+                  u.is_messify_verified ||
+                  (window.verifiedAccountIdsSet && window.verifiedAccountIdsSet.has(targetId)) ||
+                  (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.has && verifiedAccountIds.has(targetId))
+                );
+
+                if (isVerified) {
                   const b = document.createElement('span');
                   b.className = 'verified-badge';
                   b.style.cssText = 'flex-shrink:0;';
@@ -4542,14 +4549,14 @@
                 label.style.cssText = 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;';
                 const chk = document.createElement('input');
                 chk.type = 'checkbox';
-                chk.checked = !!u.is_messify_verified;
+                chk.checked = isVerified;
                 chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
                 const slider = document.createElement('span');
                 slider.className = 'slider-bg';
-                slider.style.cssText = `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${chk.checked ? '#1b74e4' : 'var(--border-color)'};`;
+                slider.style.cssText = `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${isVerified ? '#1b74e4' : 'var(--border-color)'};`;
                 const knob = document.createElement('span');
                 knob.className = 'slider-knob';
-                knob.style.cssText = `position:absolute;top:3px;left:${chk.checked ? '21px' : '3px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
+                knob.style.cssText = `position:absolute;top:3px;left:${isVerified ? '21px' : '3px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
                 slider.appendChild(knob);
                 label.appendChild(chk);
                 label.appendChild(slider);
@@ -6730,6 +6737,12 @@
             u.is_messify_verified = false;
           }
         });
+      }
+      if (Array.isArray(window.currentOfficeMembers)) {
+        window.currentOfficeMembers.forEach(m => { m.is_messify_verified = false; });
+      }
+      if (Array.isArray(window.activeCustomGcMembers)) {
+        window.activeCustomGcMembers.forEach(m => { m.is_messify_verified = false; });
       }
 
       // Remove verified check badges from user messages in the chat box

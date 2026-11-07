@@ -39,10 +39,21 @@ $matched = $result['users'] ?? [];
 $users = [];
 if (!empty($matched)) {
     $user = $matched[0];
+    $targetAccId = (int) $user['account_id'];
+    $dbVerified = false;
+    try {
+        $pdo = Database::getConnection();
+        $verCol = Database::verifiedColumn();
+        $vStmt = $pdo->prepare('SELECT ' . $verCol . ' FROM ' . Database::t('account_details') . ' WHERE account_id = ?');
+        $vStmt->execute([$targetAccId]);
+        $dbVerified = filter_var($vStmt->fetchColumn(), FILTER_VALIDATE_BOOLEAN);
+    } catch (Throwable) {
+        $dbVerified = filter_var($user['is_messify_verified'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    }
     $users[] = [
-        'account_id'          => (int) $user['account_id'],
+        'account_id'          => $targetAccId,
         'full_name'           => $user['full_name'],
-        'is_messify_verified' => filter_var($user['is_messify_verified'] ?? false, FILTER_VALIDATE_BOOLEAN),
+        'is_messify_verified' => $dbVerified,
     ];
 }
 

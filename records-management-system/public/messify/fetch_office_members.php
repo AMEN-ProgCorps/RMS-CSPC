@@ -120,7 +120,7 @@ try {
             'avatar_url'          => $row['avatar_url'] ?? null,
             'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
             'last_online_time'    => $row['last_online_time'] ?? null,
-            'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false) || $isSadm,
+            'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false),
             'is_super_admin'      => $isSadm,
             'role_name'           => $isSadm ? 'Super Admin' : ($row['role_name'] ?? 'Member'),
         ];

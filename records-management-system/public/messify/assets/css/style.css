@@ -3017,6 +3017,13 @@
         transform: translate3d(0, 0, 0);
       }
 
+      /* Never show "No chat selected" empty placeholder on mobile viewports */
+      #noChatSelectedState,
+      .empty-chat#noChatSelectedState,
+      .app-container.no-chat-selected #noChatSelectedState {
+        display: none !important;
+      }
+
       .app-container {
         height: 100%;
         height: 100dvh;

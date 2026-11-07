@@ -68,12 +68,17 @@
 
     function setNoChatSelected(active) {
       const appContainer = document.getElementById('appContainer') || document.querySelector('.app-container');
+      const isMobile = (typeof isMobileViewport === 'function' ? isMobileViewport() : false) || (window.innerWidth <= 991);
       if (active) {
         if (appContainer) appContainer.classList.add('no-chat-selected');
         if (chatBox) {
-          const dropOverlay = document.getElementById('dropOverlay');
-          chatBox.innerHTML = getNoChatSelectedHtml();
-          if (dropOverlay) chatBox.prepend(dropOverlay);
+          if (isMobile) {
+            chatBox.innerHTML = '';
+          } else {
+            const dropOverlay = document.getElementById('dropOverlay');
+            chatBox.innerHTML = getNoChatSelectedHtml();
+            if (dropOverlay) chatBox.prepend(dropOverlay);
+          }
         }
       } else {
         if (appContainer) appContainer.classList.remove('no-chat-selected');
@@ -6497,13 +6502,20 @@
       }
 
       // Mobile/Tablet sidebar adjustments: return to frontpage
-      if (isMobileViewport()) {
+      const isMobile = (typeof isMobileViewport === 'function' ? isMobileViewport() : false) || (window.innerWidth <= 991);
+      if (isMobile) {
         if (sidebar) sidebar.classList.add('open');
         if (backButton) backButton.style.display = 'none';
       }
 
       if (chatBox) {
-        setNoChatSelected(true);
+        if (!isMobile) {
+          setNoChatSelected(true);
+        } else {
+          const appContainer = document.getElementById('appContainer') || document.querySelector('.app-container');
+          if (appContainer) appContainer.classList.add('no-chat-selected');
+          chatBox.innerHTML = '';
+        }
       }
       const gcItem = document.getElementById('globalChatItem');
       if (gcItem) gcItem.classList.remove('active');

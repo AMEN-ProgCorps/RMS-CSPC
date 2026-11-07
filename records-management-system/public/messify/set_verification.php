@@ -36,18 +36,21 @@ if ($targetAccountId <= 0) {
 try {
     $pdo  = Database::getConnection();
     $verCol = Database::verifiedColumn();
+
+    $chkStmt = $pdo->prepare('SELECT 1 FROM ' . Database::t('account_details') . ' WHERE account_id = :id');
+    $chkStmt->execute([':id' => $targetAccountId]);
+    if (!$chkStmt->fetch()) {
+        http_response_code(404);
+        echo json_encode(['ok' => false, 'error' => 'User not found']);
+        exit;
+    }
+
     $stmt = $pdo->prepare(
         'UPDATE ' . Database::t('account_details') . ' SET ' . $verCol . ' = :v WHERE account_id = :id'
     );
     $stmt->bindValue(':v',   $isVerified, PDO::PARAM_BOOL);
     $stmt->bindValue(':id',  $targetAccountId, PDO::PARAM_INT);
     $stmt->execute();
-
-    if ($stmt->rowCount() === 0) {
-        http_response_code(404);
-        echo json_encode(['ok' => false, 'error' => 'User not found']);
-        exit;
-    }
 } catch (Throwable $e) {
     error_log('set_verification.php — DB error: ' . $e->getMessage());
     http_response_code(500);

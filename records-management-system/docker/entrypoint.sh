@@ -136,6 +136,23 @@ else
     echo "  ✓  PaddleOCR venv OK"
 fi
 
+# Masterlist PDF export uses headless Chromium so the download matches print preview.
+if ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
+    echo "  ⚠  Chromium missing — installing so Document Masterlist PDF matches preview..."
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -qq \
+            && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chromium fonts-liberation fonts-liberation2 >/dev/null 2>&1 \
+            || echo "  ⚠  Chromium install failed — masterlist PDF will use Dompdf fallback."
+    else
+        echo "  ⚠  Cannot install Chromium automatically — rebuild the app image."
+    fi
+fi
+if command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>&1; then
+    echo "  ✓  Chromium OK for masterlist PDF export"
+else
+    echo "  ⚠  Chromium still missing — masterlist PDF will use Dompdf letterhead fallback."
+fi
+
 echo "[5/5] Starting services via Supervisor..."
 echo "──────────────────────────────────────────"
 

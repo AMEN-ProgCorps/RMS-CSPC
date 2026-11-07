@@ -1,0 +1,12 @@
+{
+  "cacheVersionMin": 61,
+  "runner": "scripts/drr/pdf-compare-accuracy-fixtures.mjs",
+  "cases": [
+    "real-page-indices",
+    "delete-page",
+    "move-paragraph-across-pages",
+    "form-field-edit-only",
+    "shared-letterhead-two-different-bodies",
+    "section-title-not-soft-paired"
+  ]
+}

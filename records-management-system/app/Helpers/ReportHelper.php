@@ -216,9 +216,9 @@ class ReportHelper
     {
         $chrome = null;
         foreach ([
+            getenv('CHROME_WIN_PATH') ?: null,
             '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe',
             '/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-            getenv('CHROME_WIN_PATH') ?: null,
         ] as $path) {
             if (is_string($path) && $path !== '' && is_file($path)) {
                 $chrome = $path;
@@ -229,15 +229,28 @@ class ReportHelper
             return null;
         }
 
-        $winTmp = '/mnt/c/Windows/Temp';
-        if (! is_dir($winTmp) || ! is_writable($winTmp)) {
+        // Prefer a Windows-visible temp dir so chrome.exe can open the HTML.
+        $winTmp = null;
+        foreach ([
+            getenv('CHROME_WIN_TEMP') ?: null,
+            '/mnt/c/Users/'.(getenv('USERNAME') ?: 'Public').'/AppData/Local/Temp',
+            '/mnt/c/Windows/Temp',
+        ] as $candidate) {
+            if (is_string($candidate) && $candidate !== '' && is_dir($candidate) && is_writable($candidate)) {
+                $winTmp = $candidate;
+                break;
+            }
+        }
+        if ($winTmp === null) {
             $winTmp = sys_get_temp_dir();
         }
 
         $id = bin2hex(random_bytes(8));
         $htmlFile = $winTmp.'/ml-'.$id.'.html';
         $pdfFile = $winTmp.'/ml-'.$id.'.pdf';
-        file_put_contents($htmlFile, $html);
+        if (@file_put_contents($htmlFile, $html) === false) {
+            return null;
+        }
 
         $htmlWin = $this->toWindowsPath($htmlFile);
         $pdfWin = $this->toWindowsPath($pdfFile);
@@ -258,12 +271,21 @@ class ReportHelper
             escapeshellarg($htmlWin),
         ]);
 
-        exec($cmd.' 2>/dev/null', $unused, $code);
+        exec($cmd.' 2>&1', $unused, $code);
         $pdf = (is_file($pdfFile) && filesize($pdfFile) > 100) ? file_get_contents($pdfFile) : false;
         @unlink($htmlFile);
         @unlink($pdfFile);
 
-        return is_string($pdf) && $pdf !== '' ? $pdf : null;
+        if (! is_string($pdf) || $pdf === '') {
+            Log::warning('Masterlist PDF: Windows Chrome failed', [
+                'code' => $code,
+                'out' => implode("\n", array_slice($unused ?? [], 0, 20)),
+            ]);
+
+            return null;
+        }
+
+        return $pdf;
     }
 
     private function toWindowsPath(string $linuxPath): ?string
@@ -2636,42 +2658,50 @@ class ReportHelper
             }
 
             if ($output === null) {
-            $viewData['isPdf'] = true;
-            $viewData['embed'] = false;
+                $viewData['isPdf'] = true;
+                $viewData['embed'] = false;
+                // Masterlist must stay on CSPC-F-DCC-03 (same form as print preview),
+                // not the generic report shell used for monitoring/OPCR.
+                $html = view(
+                    $isMlPrint
+                        ? 'pages.dcs.reports.export-masterlist-internal'
+                        : 'pages.dcs.reports.export',
+                    $viewData
+                )->render();
 
-            $html = view('pages.dcs.reports.export', $viewData)->render();
+                $options = new \Dompdf\Options();
+                $options->set('isHtml5ParserEnabled', true);
+                $options->set('isRemoteEnabled', false);
+                $options->set('defaultFont', 'Helvetica');
+                $options->set('dpi', 96);
+                $options->set('isPhpEnabled', false);
 
-            $options = new \Dompdf\Options();
-            $options->set('isHtml5ParserEnabled', true);
-            $options->set('isRemoteEnabled', false);
-            $options->set('defaultFont', 'Helvetica');
-            $options->set('dpi', 96);
-            $options->set('isPhpEnabled', false);
+                $dompdf = new \Dompdf\Dompdf($options);
+                $dompdf->loadHtml($html);
+                $dompdf->setPaper(
+                    ($isPlainTable || $isMlPrint) ? 'letter' : 'a4',
+                    $isPlainTable ? 'landscape' : 'portrait'
+                );
+                $dompdf->render();
 
-            $dompdf = new \Dompdf\Dompdf($options);
-            $dompdf->loadHtml($html);
-            $dompdf->setPaper(
-                $isPlainTable ? 'letter' : 'a4',
-                $isPlainTable ? 'landscape' : 'portrait'
-            );
-            $dompdf->render();
+                // Generic canvas footer is only for non-masterlist letterhead PDFs.
+                // Masterlist already paints Effectivity / Rev. / Page in its own template.
+                if (! $isPlainTable && ! $isMlPrint) {
+                    $canvas  = $dompdf->getCanvas();
+                    $fm      = $dompdf->getFontMetrics();
+                    $font    = $fm->getFont('Helvetica');
+                    $w       = $canvas->get_width();
+                    $h       = $canvas->get_height();
+                    $footerY = $h - 18;
 
-            if (! $isPlainTable) {
-                $canvas  = $dompdf->getCanvas();
-                $fm      = $dompdf->getFontMetrics();
-                $font    = $fm->getFont('Helvetica');
-                $w       = $canvas->get_width();
-                $h       = $canvas->get_height();
-                $footerY = $h - 18;
-
-                $canvas->line(40, $footerY - 14, $w - 40, $footerY - 14, [13/255, 42/255, 122/255], 1.5);
-                $canvas->page_text(40, $footerY, 'Effectivity Date:', $font, 9, [0, 0, 0], 0, 1, '');
-                $centerText = 'Rev.';
-                $centerW    = $fm->getTextWidth($centerText, $font, 9);
-                $canvas->page_text(($w - $centerW) / 2, $footerY, $centerText, $font, 9, [0, 0, 0], 0, 1, '');
-                $canvas->page_text($w - 130, $footerY, 'Page {PAGE_NUM} of {PAGE_COUNT}', $font, 9, [0, 0, 0], 0, 1, '');
-            }
-            $output = $dompdf->output();
+                    $canvas->line(40, $footerY - 14, $w - 40, $footerY - 14, [13/255, 42/255, 122/255], 1.5);
+                    $canvas->page_text(40, $footerY, 'Effectivity Date:', $font, 9, [0, 0, 0], 0, 1, '');
+                    $centerText = 'Rev.';
+                    $centerW    = $fm->getTextWidth($centerText, $font, 9);
+                    $canvas->page_text(($w - $centerW) / 2, $footerY, $centerText, $font, 9, [0, 0, 0], 0, 1, '');
+                    $canvas->page_text($w - 130, $footerY, 'Page {PAGE_NUM} of {PAGE_COUNT}', $font, 9, [0, 0, 0], 0, 1, '');
+                }
+                $output = $dompdf->output();
             }
             $this->archiveGeneratedReport(
                 $output,

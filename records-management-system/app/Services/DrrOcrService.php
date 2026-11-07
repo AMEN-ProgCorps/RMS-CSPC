@@ -12,6 +12,9 @@ class DrrOcrService
 
     private const PDF_CACHE_TTL = 3600;
 
+    /** Persist OCR JSON per storage path + page + DPI so re-compares stay stable. */
+    private const OCR_JSON_TTL = 604800;
+
     public static function ocrPages(Request $request): array
     {
         @set_time_limit(180);
@@ -110,7 +113,7 @@ class DrrOcrService
                 if ($page < 1) {
                     continue;
                 }
-                $pages[] = self::ocrOnePage($pdfPath, $page);
+                $pages[] = self::ocrOnePage($pdfPath, $page, $storagePath !== '' ? $storagePath : null);
             }
 
             DcsAuditService::log(
@@ -180,15 +183,26 @@ class DrrOcrService
         return null;
     }
 
-    private static function ocrOnePage(string $pdfPath, int $page): array
+    private static function ocrOnePage(string $pdfPath, int $page, ?string $storagePath = null): array
     {
         $errors = [];
         foreach ([260, 200, 150] as $dpi) {
+            $cached = self::readOcrJsonCache($pdfPath, $page, $dpi, $storagePath);
+            if ($cached !== null) {
+                $cached['page'] = $page;
+                $cached['used_ocr'] = true;
+                $cached['cache_hit'] = true;
+
+                return $cached;
+            }
+
             $imagePath = Storage::disk('local')->path('temp/drr-ocr/' . uniqid('page_', true) . '.jpg');
             try {
                 PdfPageRenderer::savePage($pdfPath, $imagePath, $page, $dpi);
                 $row = self::ocrImageFile($imagePath, $page);
                 if (! empty($row['ok']) || trim((string) ($row['text'] ?? '')) !== '' || ! empty($row['words'])) {
+                    self::writeOcrJsonCache($pdfPath, $page, $dpi, $storagePath, $row);
+
                     return $row;
                 }
                 $errors[] = "dpi {$dpi}: empty OCR";
@@ -218,6 +232,71 @@ class DrrOcrService
             'engine' => 'paddleocr',
             'geometry' => 'none',
         ];
+    }
+
+    private static function ocrJsonCacheRel(string $pdfPath, int $page, int $dpi, ?string $storagePath): string
+    {
+        $mtime = @filemtime($pdfPath) ?: 0;
+        $size = @filesize($pdfPath) ?: 0;
+        $identity = ($storagePath !== null && $storagePath !== '')
+            ? 'path:'.$storagePath
+            : 'file:'.$pdfPath;
+        $key = hash('sha256', $identity.'|'.$mtime.'|'.$size.'|'.$page.'|'.$dpi);
+
+        return 'temp/drr-ocr/json/'.$key.'.json';
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private static function readOcrJsonCache(string $pdfPath, int $page, int $dpi, ?string $storagePath): ?array
+    {
+        $rel = self::ocrJsonCacheRel($pdfPath, $page, $dpi, $storagePath);
+        if (! Storage::disk('local')->exists($rel)) {
+            return null;
+        }
+        $abs = Storage::disk('local')->path($rel);
+        $mtime = @filemtime($abs);
+        if ($mtime === false || $mtime < time() - self::OCR_JSON_TTL) {
+            Storage::disk('local')->delete($rel);
+
+            return null;
+        }
+        try {
+            $raw = Storage::disk('local')->get($rel);
+            $decoded = json_decode($raw, true);
+            if (! is_array($decoded) || trim((string) ($decoded['text'] ?? '')) === '') {
+                return null;
+            }
+
+            return $decoded;
+        } catch (\Throwable $e) {
+            Log::warning('DRR OCR JSON cache read failed: '.$e->getMessage());
+
+            return null;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private static function writeOcrJsonCache(
+        string $pdfPath,
+        int $page,
+        int $dpi,
+        ?string $storagePath,
+        array $row
+    ): void {
+        if (trim((string) ($row['text'] ?? '')) === '' && empty($row['words'])) {
+            return;
+        }
+        try {
+            Storage::disk('local')->makeDirectory('temp/drr-ocr/json');
+            $rel = self::ocrJsonCacheRel($pdfPath, $page, $dpi, $storagePath);
+            Storage::disk('local')->put($rel, json_encode($row, JSON_UNESCAPED_UNICODE));
+        } catch (\Throwable $e) {
+            Log::warning('DRR OCR JSON cache write failed: '.$e->getMessage());
+        }
     }
 
     /**

@@ -1204,18 +1204,38 @@ body {
 }
 
 .drr-page-wrap.is-added-gap,
-.drr-page-wrap.is-removed-gap {
+.drr-page-wrap.is-removed-gap,
+.drr-page-wrap.is-compact-gap {
     background: #f8fafc;
+    outline: none;
 }
 
-.drr-page-wrap.is-added-gap .drr-page-empty {
+.drr-page-wrap.is-compact-gap {
+    min-height: 0;
+}
+
+.drr-page-wrap.is-added-gap .drr-page-empty,
+.drr-page-wrap.is-added-gap .drr-page-empty.is-gap-banner {
     color: #15803d;
     font-weight: 600;
 }
 
-.drr-page-wrap.is-removed-gap .drr-page-empty {
+.drr-page-wrap.is-removed-gap .drr-page-empty,
+.drr-page-wrap.is-removed-gap .drr-page-empty.is-gap-banner {
     color: #b91c1c;
     font-weight: 600;
+}
+
+.drr-page-empty.is-gap-banner {
+    min-height: 48px;
+    padding: 10px 14px;
+    font-size: 0.78rem;
+    border-bottom: 1px dashed var(--dcs-border);
+    background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+}
+
+.drr-page-wrap.is-compact-gap .drr-page-empty {
+    min-height: 48px;
 }
 
 .drr-page-caption {

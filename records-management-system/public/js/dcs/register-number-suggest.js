@@ -179,7 +179,8 @@
         scheduleDocNoSuggest();
     };
 
-    function clearInsertShift() {
+    function clearInsertShift(options) {
+        const forceClearAllow = !!(options && options.forceClearAllow);
         const confirmed = document.getElementById('insertShiftConfirmed');
         const docNo = document.getElementById('insertShiftDocNo');
         const letters = document.getElementById('insertShiftRenameLetters');
@@ -187,7 +188,14 @@
         if (confirmed) confirmed.value = '0';
         if (docNo) docNo.value = '';
         if (letters) letters.value = '0';
-        if (allowDup) allowDup.value = '0';
+        const kept = String(window.__keptDuplicateDocNo || '').trim().toLowerCase();
+        const stillKept = kept !== '' && currentDocNo().toLowerCase() === kept;
+        if (allowDup && (forceClearAllow || !stillKept)) {
+            allowDup.value = '0';
+            if (forceClearAllow || !stillKept) {
+                window.__keptDuplicateDocNo = '';
+            }
+        }
         const stackWith = document.getElementById('stackWithRequestId');
         const stacked = String(window.__stackedDocNo || '');
         if (stackWith && (!stacked || currentDocNo().toLowerCase() !== stacked.toLowerCase())) {
@@ -197,6 +205,12 @@
 
     function currentDocNo() {
         return String(document.getElementById('masterlistDocNo')?.value || '').trim();
+    }
+
+    function hasStickyKeepDuplicate() {
+        const allowDup = document.getElementById('allowDuplicateDocNo')?.value === '1';
+        const kept = String(window.__keptDuplicateDocNo || '').trim().toLowerCase();
+        return allowDup && kept !== '' && currentDocNo().toLowerCase() === kept;
     }
 
     function mountInsertModal() {
@@ -224,6 +238,10 @@
     }
 
     window.openDocNoInsertModal = function (data) {
+        // User already chose Keep for this document number — do not reopen.
+        if (hasStickyKeepDuplicate()) {
+            return;
+        }
         window.__docNoInsertLookup = data || {};
         const docNo = currentDocNo();
         const draftOnly = !!(data && (data.draft_only || (data.draft_exists && !data.exists)));
@@ -510,9 +528,10 @@
     }
 
     function confirmKeepDuplicate() {
-        clearInsertShift();
+        clearInsertShift({ forceClearAllow: true });
         const allowDup = document.getElementById('allowDuplicateDocNo');
         if (allowDup) allowDup.value = '1';
+        window.__keptDuplicateDocNo = currentDocNo();
         const revField = document.getElementById('masterlistRevisionNo');
         if (revField) {
             revField.value = '0';
@@ -572,7 +591,8 @@
                 return;
             }
             if (e.target.closest('#docNoInsertNext')) {
-                clearInsertShift();
+                clearInsertShift({ forceClearAllow: true });
+                window.__keptDuplicateDocNo = '';
                 const input = document.getElementById('masterlistDocNo');
                 const next = window.__suggestedDocNo;
                 if (input && next) {
@@ -621,9 +641,16 @@
         if (!input) return;
         input.addEventListener('input', function () {
             const stacked = String(window.__stackedDocNo || '');
-            if (!stacked || currentDocNo().toLowerCase() !== stacked.toLowerCase()) {
+            const typed = currentDocNo().toLowerCase();
+            if (!stacked || typed !== stacked.toLowerCase()) {
                 clearInsertShift();
                 window.__stackedDocNo = '';
+            }
+            const kept = String(window.__keptDuplicateDocNo || '').trim().toLowerCase();
+            if (kept && typed !== kept) {
+                window.__keptDuplicateDocNo = '';
+                const allowDup = document.getElementById('allowDuplicateDocNo');
+                if (allowDup) allowDup.value = '0';
             }
             syncFormSuggestVisibility(input, document.getElementById('docNoSuggestHint'));
             scheduleDocNoSuggest();

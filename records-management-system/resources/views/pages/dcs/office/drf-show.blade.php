@@ -176,6 +176,34 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                 </div>
 
                 @php
+                    $syllabiCtx = \App\Helpers\OfficeIntakeHelper::officeDrfSyllabiContextFromRow($drf);
+                @endphp
+                @if(!empty($syllabiCtx['is_syllabi']))
+                    <div class="reg-grid-3" style="margin-top:8px;">
+                        <div class="reg-field">
+                            <label>College</label>
+                            <div class="ofi-show-value">{{ $syllabiCtx['college'] ?: '—' }}</div>
+                        </div>
+                        <div class="reg-field">
+                            <label>Program</label>
+                            <div class="ofi-show-value">{{ $syllabiCtx['program'] ?: '—' }}</div>
+                        </div>
+                        <div class="reg-field">
+                            <label>Semester</label>
+                            <div class="ofi-show-value">{{ $syllabiCtx['semester'] ?: '—' }}</div>
+                        </div>
+                        <div class="reg-field">
+                            <label>Course name</label>
+                            <div class="ofi-show-value">{{ $syllabiCtx['course'] ?: '—' }}</div>
+                        </div>
+                        <div class="reg-field">
+                            <label>School year</label>
+                            <div class="ofi-show-value">{{ $syllabiCtx['school_year'] ?: '—' }}</div>
+                        </div>
+                    </div>
+                @endif
+
+                @php
                     $previousDocNo = trim((string) ($drf->previous_document_no ?? ''));
                     $previousTitle = trim((string) ($drf->previous_document_title ?? ''));
                     $previousOriginator = trim((string) ($drf->previous_originator ?? ''));

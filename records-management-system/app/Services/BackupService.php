@@ -491,13 +491,19 @@ class BackupService
                 DB::statement('SET FOREIGN_KEY_CHECKS = 1;');
             }
 
+            // 7. Kill every active login (admin + office intake + other tabs).
+            // Restore skips replaying the sessions table, so old cookies would otherwise
+            // keep people signed in as whoever that user_id is in the restored dump.
+            $this->clearAllAuthSessions($logCallback);
+
             $logCallback("Restoration completed successfully (100%)", 100);
 
             return [
                 'success' => true,
-                'message' => "System database successfully restored from [{$filename}] ({$restoredCount} records restored across {$totalTables} tables).",
+                'message' => "System database successfully restored from [{$filename}] ({$restoredCount} records restored across {$totalTables} tables). All users must sign in again.",
                 'tables_count' => $totalTables,
                 'records_count' => $restoredCount,
+                'force_relogin' => true,
             ];
 
         } catch (\Throwable $e) {
@@ -518,6 +524,56 @@ class BackupService
                 'success' => false,
                 'message' => "Restoration failed: " . $e->getMessage(),
             ];
+        }
+    }
+
+    /**
+     * Drop every persisted login so admin / office intake / other browsers must sign in again.
+     *
+     * @param  callable(string, int): void|null  $logCallback
+     */
+    public function clearAllAuthSessions(?callable $logCallback = null): void
+    {
+        $log = function (string $msg, int $pct = 98) use ($logCallback): void {
+            if ($logCallback) {
+                $logCallback($msg, $pct);
+            }
+        };
+
+        try {
+            $sessionTable = (string) config('session.table', 'sessions');
+            if ($sessionTable !== '' && Schema::hasTable($sessionTable)) {
+                DB::table($sessionTable)->delete();
+                $log("Cleared database sessions [{$sessionTable}] — all users must re-login.");
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Could not clear database sessions after restore: '.$e->getMessage());
+        }
+
+        // File session leftovers (local) under storage/framework/sessions.
+        try {
+            $sessionPath = storage_path('framework/sessions');
+            if (is_dir($sessionPath)) {
+                foreach (glob($sessionPath.DIRECTORY_SEPARATOR.'*') ?: [] as $file) {
+                    if (is_file($file) && basename($file) !== '.gitignore') {
+                        @unlink($file);
+                    }
+                }
+                $log('Cleared file-based session store.');
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Could not clear file sessions after restore: '.$e->getMessage());
+        }
+
+        try {
+            if (Schema::hasTable('cache')) {
+                DB::table('cache')->delete();
+            }
+            if (Schema::hasTable('cache_locks')) {
+                DB::table('cache_locks')->delete();
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Could not clear cache tables after restore: '.$e->getMessage());
         }
     }
 

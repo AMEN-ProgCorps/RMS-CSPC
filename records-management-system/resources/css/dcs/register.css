@@ -2200,18 +2200,23 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 }
 
 .reg-syllabi-years {
-    min-height: 42px;
-    padding: 8px 10px;
+    box-sizing: border-box;
+    height: 40px;
+    min-height: 40px;
+    max-height: 40px;
+    padding: 0 10px;
     border: 1px solid var(--reg-border, #cbd5e1);
     border-radius: 8px;
     background: var(--reg-bg, #fff);
     color: var(--reg-text, #0f172a);
     font-size: 0.9rem;
-    line-height: 1.35;
+    line-height: 1;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 6px;
     align-items: center;
+    overflow-x: auto;
+    overflow-y: hidden;
 }
 
 .reg-syllabi-years.is-empty {
@@ -2222,16 +2227,18 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 .reg-syllabi-year-chip {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
+    gap: 5px;
+    padding: 2px 8px;
+    height: 26px;
     border: 1px solid var(--reg-border, #cbd5e1);
     border-radius: 999px;
     background: color-mix(in srgb, var(--reg-accent, #1d4ed8) 6%, var(--reg-bg, #fff));
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     font-weight: 600;
     color: var(--reg-text, #0f172a);
     cursor: pointer;
     user-select: none;
+    flex: 0 0 auto;
 }
 
 .reg-syllabi-year-chip:hover {
@@ -2490,6 +2497,9 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 
 input[name="syllabiDateReceived[]"].is-locked,
 input[name="syllabiTimeReceived[]"].is-locked,
+input[name="syllabiDrfNo[]"].is-locked,
+input[name="syllabiDrfDate[]"].is-locked,
+input[name="syllabiDrfReceived[]"].is-locked,
 .syllabi-merged-copies.is-locked,
 .syllabi-merged-pages.is-locked {
     pointer-events: none;
@@ -3228,7 +3238,7 @@ select.reg-field-locked:disabled {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 20000;
+    z-index: 50000;
     padding: 24px;
     opacity: 0;
     visibility: hidden;
@@ -4186,7 +4196,7 @@ select.reg-field-locked:disabled {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 40000;
+    z-index: 50000;
     pointer-events: auto;
 }
 

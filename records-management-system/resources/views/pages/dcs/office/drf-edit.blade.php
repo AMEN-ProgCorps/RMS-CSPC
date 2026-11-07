@@ -55,6 +55,11 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             ];
         }
 
+        $subTypeId = (int) ($drf->sub_type_id ?? 0);
+        $subTypeName = $subTypeId > 0
+            ? (string) (\Illuminate\Support\Facades\DB::table('dcs_doc_types')->where('id', $subTypeId)->value('doc_type_name') ?? '')
+            : '';
+
         return [
             'drf' => $drf,
             'offices' => RegisterQueryHelper::jsCatalog()['offices'] ?? [],
@@ -67,6 +72,9 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             'lockDocType' => $lockDocType,
             'lockedTypeLabel' => $lockedTypeLabel,
             'optInTypeRadios' => OfficeIntakeHelper::enabledOfficeDrfTypeRadios(),
+            'syllabiCatalog' => OfficeIntakeHelper::officeDrfSyllabiCatalog((int) ($drf->id ?? 0)),
+            'isSyllabiLikeEdit' => RegisterQueryHelper::isSyllabiLikeName($subTypeName),
+            'subTypeName' => $subTypeName,
             'userOfficeId' => $office['id'],
             'userOfficeCode' => $office['code'],
             'userOfficeName' => $office['name'],
@@ -137,7 +145,18 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                                     break;
                                 }
                             }
+                            $savedDocTypeId = (string) old('docTypeId', (string) ($drf->doc_type_id ?? ''));
+                            $savedSubTypeId = (string) old('subTypeId', (string) ($drf->sub_type_id ?? ''));
                         @endphp
+                        {{-- Preserve catalog parent/sub on edit (edit UI does not re-pick them). --}}
+                        @if($docTypeKind === 'internal' || ($lockDocType ?? false))
+                            @if($savedDocTypeId !== '' && $optInDocTypeId === '')
+                                <input type="hidden" name="docTypeId" value="{{ $savedDocTypeId }}">
+                            @endif
+                            @if($savedSubTypeId !== '')
+                                <input type="hidden" name="subTypeId" id="drfSubTypeId" value="{{ $savedSubTypeId }}">
+                            @endif
+                        @endif
                         @if($lockDocType ?? false)
                             <input type="hidden" name="docTypeKind" value="{{ $docTypeKind }}">
                             @if($optInDocTypeId !== '')
@@ -168,6 +187,9 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                                 @endforeach
                             </div>
                             <input type="hidden" id="drfOptInDocTypeId" name="docTypeId" value="{{ $optInDocTypeId }}" @disabled(! in_array($docTypeKind, ['forms', 'logbooks'], true))>
+                            @if(!empty($subTypeName))
+                                <p class="ofi-hint">Sub-type: {{ $subTypeName }}</p>
+                            @endif
                             <script>
                                 document.addEventListener('DOMContentLoaded', function () {
                                     const form = document.querySelector('form');
@@ -184,6 +206,15 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                                 });
                             </script>
                         @endif
+                        @include('pages.dcs.office.partials.drf-syllabi-context', [
+                            'syllabiContextVisible' => (bool) ($isSyllabiLikeEdit ?? false),
+                            'subTypeName' => $subTypeName ?? '',
+                            'oldCollegeId' => old('collegeId', (string) ($drf->college_id ?? '')),
+                            'oldProgramId' => old('programId', (string) ($drf->program_id ?? '')),
+                            'oldSemesterId' => old('semesterId', (string) ($drf->semester_id ?? '')),
+                            'oldCourseId' => old('courseId', (string) ($drf->course_id ?? '')),
+                            'oldSchoolYearId' => old('schoolYearId', (string) ($drf->school_year_id ?? '')),
+                        ])
                     </div>
                     <div class="reg-field">
                         <label>Description/reason for request (define in detail) <span class="ofi-req">*</span></label>
@@ -284,8 +315,8 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             </div>
 
             <div class="reg-form-actions ofi-reg-actions">
-                <button type="submit" id="ofiDrfPreviewBtn" class="reg-btn reg-btn-cancel" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.drf.preview', absolute: false) }}">
-                    Preview form
+                <button type="submit" id="ofiDrfPreviewBtn" class="reg-btn ofi-btn-preview" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.drf.preview', absolute: false) }}">
+                    <i class="fa-solid fa-eye" aria-hidden="true"></i> Preview form
                 </button>
                 <button type="submit" id="ofiDrfSaveBtn" class="reg-btn reg-btn-save" disabled>
                     <i class="fa-solid fa-paper-plane"></i> Save &amp; resubmit to RFIO
@@ -293,12 +324,26 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             </div>
         </form>
     </div>
+
+    <div class="ofi-confirm-dialog-overlay" id="ofiAlertDialog" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="ofiAlertDialogTitle">
+        <div class="ofi-confirm-dialog">
+            <div class="ofi-confirm-dialog-header">
+                <span class="ofi-confirm-dialog-icon" aria-hidden="true"><i class="fa-solid fa-triangle-exclamation"></i></span>
+                <h3 id="ofiAlertDialogTitle">Cannot save</h3>
+            </div>
+            <div class="ofi-confirm-dialog-body" id="ofiAlertDialogMessage"></div>
+            <div class="ofi-confirm-dialog-footer">
+                <button type="button" class="ofi-confirm-dialog-btn ofi-confirm-dialog-btn-ok" data-ofi-alert-ok>OK</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
 window.__ofiOffices = @json($offices);
 window.__ofiClusters = @json($clusters);
 window.__ofiOldDistribute = @json($oldDistributeOfficeIds);
+window.__ofiSyllabiCatalog = @json($syllabiCatalog ?? []);
 window.__ofiSourceConfigs = [
     {
         key: 'distribute',
@@ -321,6 +366,40 @@ window.__ofiSourceConfigs = [
     const confirmBox = document.getElementById('ofiConfirmData');
     const saveBtn = document.getElementById('ofiDrfSaveBtn');
     if (!form || !confirmBox || !saveBtn) return;
+
+    function showOfiAlert(message, title) {
+        const overlay = document.getElementById('ofiAlertDialog');
+        if (!overlay) {
+            window.alert(message);
+            return;
+        }
+        if (overlay.parentElement !== document.body) {
+            document.body.appendChild(overlay);
+        }
+        const titleEl = overlay.querySelector('#ofiAlertDialogTitle');
+        const messageEl = overlay.querySelector('#ofiAlertDialogMessage');
+        const okBtn = overlay.querySelector('[data-ofi-alert-ok]');
+        if (titleEl) titleEl.textContent = title || 'Cannot save';
+        if (messageEl) messageEl.textContent = message;
+        function close() {
+            overlay.classList.remove('is-open');
+            overlay.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('ofi-modal-open');
+            document.removeEventListener('keydown', onKey);
+            overlay.removeEventListener('click', onBackdrop);
+            if (okBtn) okBtn.removeEventListener('click', onOk);
+        }
+        function onOk() { close(); }
+        function onBackdrop(e) { if (e.target === overlay) close(); }
+        function onKey(e) { if (e.key === 'Escape' || e.key === 'Enter') close(); }
+        overlay.addEventListener('click', onBackdrop);
+        document.addEventListener('keydown', onKey);
+        if (okBtn) okBtn.addEventListener('click', onOk);
+        overlay.classList.add('is-open');
+        overlay.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('ofi-modal-open');
+        if (okBtn) okBtn.focus();
+    }
 
     function syncConfirm() {
         saveBtn.disabled = !confirmBox.checked;
@@ -345,16 +424,17 @@ window.__ofiSourceConfigs = [
         if (e.submitter && e.submitter.id === 'ofiDrfPreviewBtn') return;
         if (!confirmBox.checked) {
             e.preventDefault();
-            alert('Please confirm that all the inputted data are correct before saving.');
+            showOfiAlert('Please confirm that all the inputted data are correct before saving.');
             return;
         }
 
         const selected = form.querySelectorAll('input[name="distributeToOffice[]"]');
         if (!selected.length) {
             e.preventDefault();
-            alert('Select at least one office to distribute the document to.');
+            showOfiAlert('Select at least one office to distribute the document to.');
             return;
         }
     });
 })();
 </script>
+@include('pages.dcs.office.partials.drf-syllabi-context-script')

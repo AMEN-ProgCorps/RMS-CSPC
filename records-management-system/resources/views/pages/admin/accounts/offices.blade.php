@@ -177,6 +177,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         $this->showClusterHeadDropdown = false;
     }
 
+    public function updatedClusterHeadSearch(): void
+    {
+        $this->showClusterHeadDropdown = true;
+    }
+
+    public function updatedOfficeClusterSearch(): void
+    {
+        $this->showOfficeClusterDropdown = true;
+    }
+
     public function saveClusterChanges(): void
     {
         if ($this->selectedClusterId === null) return;
@@ -641,6 +651,49 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
 
         $offices = $officeQuery->orderBy('office_name', 'asc')->get();
 
+        // Inspector pickers — filter independently of miller column search.
+        $clusterPickerTerm = trim($this->officeClusterSearch);
+        $clusterPickerQuery = \App\Models\Cluster::query()->where('is_active', true);
+        if ($clusterPickerTerm !== '') {
+            $clusterPickerQuery->where(function ($q) use ($clusterPickerTerm) {
+                $like = '%' . $clusterPickerTerm . '%';
+                $q->where('cluster_name', 'ilike', $like)->orWhere('cluster_code', 'ilike', $like);
+                if (preg_match('/\(([^)]+)\)\s*$/', $clusterPickerTerm, $m)) {
+                    $codeHint = trim($m[1]);
+                    $nameHint = trim(preg_replace('/\s*\([^)]+\)\s*$/', '', $clusterPickerTerm) ?? '');
+                    if ($codeHint !== '') {
+                        $q->orWhere('cluster_code', 'ilike', '%' . $codeHint . '%');
+                    }
+                    if ($nameHint !== '') {
+                        $q->orWhere('cluster_name', 'ilike', '%' . $nameHint . '%');
+                    }
+                }
+            });
+        }
+        $clusterPickerOptions = $clusterPickerQuery->orderBy('cluster_name', 'asc')->limit(150)->get();
+
+        $headPickerTerm = trim($this->clusterHeadSearch);
+        $clusterHeadOfficeQuery = \App\Models\office::query()
+            ->where('is_active', true)
+            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', 'HUB']);
+        if ($headPickerTerm !== '') {
+            $clusterHeadOfficeQuery->where(function ($q) use ($headPickerTerm) {
+                $like = '%' . $headPickerTerm . '%';
+                $q->where('office_name', 'ilike', $like)->orWhere('office_code', 'ilike', $like);
+                if (preg_match('/\(([^)]+)\)\s*$/', $headPickerTerm, $m)) {
+                    $codeHint = trim($m[1]);
+                    $nameHint = trim(preg_replace('/\s*\([^)]+\)\s*$/', '', $headPickerTerm) ?? '');
+                    if ($codeHint !== '') {
+                        $q->orWhere('office_code', 'ilike', '%' . $codeHint . '%');
+                    }
+                    if ($nameHint !== '') {
+                        $q->orWhere('office_name', 'ilike', '%' . $nameHint . '%');
+                    }
+                }
+            });
+        }
+        $clusterHeadOfficeOptions = $clusterHeadOfficeQuery->orderBy('office_name', 'asc')->limit(150)->get();
+
         $acctTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
         $acctDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
         $roleTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
@@ -766,18 +819,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         }
 
         return [
-            'clusters'              => $clusters,
-            'clusterOfficeCounts'   => $clusterOfficeCounts,
-            'totalOfficesCount'     => $totalOfficesCount,
-            'offices'               => $offices,
-            'personnelCounts'       => $personnelCounts,
-            'assignedStaff'         => $assignedStaff,
-            'storageData'           => $storageData,
-            'rdpBrackets'           => $rdpBrackets,
-            'otherOffices'          => $otherOffices,
-            'incomingTransactions'  => $incomingTransactions,
-            'incomingCount'         => $incomingCount,
-            'topReceivingOffices'   => $topReceivingOffices,
+            'clusters'                   => $clusters,
+            'clusterPickerOptions'       => $clusterPickerOptions,
+            'clusterOfficeCounts'        => $clusterOfficeCounts,
+            'totalOfficesCount'          => $totalOfficesCount,
+            'offices'                    => $offices,
+            'clusterHeadOfficeOptions'   => $clusterHeadOfficeOptions,
+            'personnelCounts'            => $personnelCounts,
+            'assignedStaff'              => $assignedStaff,
+            'storageData'                => $storageData,
+            'rdpBrackets'                => $rdpBrackets,
+            'otherOffices'               => $otherOffices,
+            'incomingTransactions'       => $incomingTransactions,
+            'incomingCount'              => $incomingCount,
+            'topReceivingOffices'        => $topReceivingOffices,
         ];
     }
 };
@@ -1621,17 +1676,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
 
                         <div class="m-field-group" style="position: relative;">
                             <label class="m-field-label">Cluster Division Assignment</label>
-                            <input type="text" class="m-field-input" placeholder="Search and assign cluster division..." wire:model.live="officeClusterSearch" wire:focus="$set('showOfficeClusterDropdown', true)">
+                            <input type="text" class="m-field-input" placeholder="Search name or abbreviation…" wire:model.live.debounce.150ms="officeClusterSearch" wire:focus="$set('showOfficeClusterDropdown', true)" autocomplete="off">
                             @if($showOfficeClusterDropdown)
                                 <div style="position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); z-index: 50; max-height: 180px; overflow-y: auto; margin-top: 2px;">
                                     <div wire:click="selectOfficeCluster('', 'No Cluster Division')" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #64748b;">
                                         None (Standalone Office)
                                     </div>
-                                    @foreach($clusters as $c)
-                                        <div wire:click="selectOfficeCluster('{{ $c->cluster_code }}', '{{ $c->cluster_name }}')" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #0f172a;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+                                    @forelse($clusterPickerOptions as $c)
+                                        <div wire:click="selectOfficeCluster(@js($c->cluster_code), @js($c->cluster_name))" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #0f172a;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
                                             <strong>{{ $c->cluster_name }}</strong> ({{ $c->cluster_code }})
                                         </div>
-                                    @endforeach
+                                    @empty
+                                        <div style="padding: 10px; font-size: 12px; color: #64748b;">No cluster matches “{{ $officeClusterSearch }}”.</div>
+                                    @endforelse
                                 </div>
                             @endif
                         </div>
@@ -1693,17 +1750,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
 
                         <div class="m-field-group" style="position: relative;">
                             <label class="m-field-label">Head Office Designation</label>
-                            <input type="text" class="m-field-input" placeholder="Search office to set as cluster head..." wire:model.live="clusterHeadSearch" wire:focus="$set('showClusterHeadDropdown', true)">
+                            <input type="text" class="m-field-input" placeholder="Search name or abbreviation…" wire:model.live.debounce.150ms="clusterHeadSearch" wire:focus="$set('showClusterHeadDropdown', true)" autocomplete="off">
                             @if($showClusterHeadDropdown)
                                 <div style="position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); z-index: 50; max-height: 180px; overflow-y: auto; margin-top: 2px;">
                                     <div wire:click="selectClusterHead('', 'No Head Office')" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #64748b;">
                                         None (Unassigned)
                                     </div>
-                                    @foreach($offices as $o)
-                                        <div wire:click="selectClusterHead('{{ $o->office_code }}', '{{ $o->office_name }}')" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #0f172a;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+                                    @forelse($clusterHeadOfficeOptions as $o)
+                                        <div wire:click="selectClusterHead(@js($o->office_code), @js($o->office_name))" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #0f172a;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
                                             <strong>{{ $o->office_name }}</strong> ({{ $o->office_code }})
                                         </div>
-                                    @endforeach
+                                    @empty
+                                        <div style="padding: 10px; font-size: 12px; color: #64748b;">No office matches “{{ $clusterHeadSearch }}”.</div>
+                                    @endforelse
                                 </div>
                             @endif
                         </div>

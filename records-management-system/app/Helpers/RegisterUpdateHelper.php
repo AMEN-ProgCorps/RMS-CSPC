@@ -892,8 +892,13 @@ class RegisterUpdateHelper
                 ['doc_no' => $ml->doc_no ?? $docNo ?? null, 'is_draft' => $saveAsDraft]
             );
 
+            $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
+            $explicit = OfficeIntakeHelper::explicitRegisterIntake($request);
+            $explicitMatch = $explicit
+                && $pending
+                && $explicit['type'] === $pending['type']
+                && (int) $explicit['id'] === (int) $pending['id'];
             if ($saveAsDraft) {
-                $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
                 if ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && (int) $pending['id'] > 0) {
                     OfficeIntakeHelper::linkIntakeToRegistrationRequest(
                         $pending['type'],
@@ -901,19 +906,19 @@ class RegisterUpdateHelper
                         (int) $id
                     );
                 }
-            } elseif ($publishedFromDraft) {
-                $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
-                if ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && (int) $pending['id'] > 0) {
-                    OfficeIntakeHelper::closePendingIntakeForRegistration(
-                        $pending['type'],
-                        (int) $pending['id'],
-                        (int) $id,
-                        trim((string) ($ml->doc_no ?? $docNo ?? '')),
-                        trim((string) ($savedTitle ?? $ml->doc_title ?? '')) ?: null,
-                        null,
-                        false
-                    );
-                }
+            } elseif ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && (int) $pending['id'] > 0) {
+                // Close on first publish from draft OR when stacking a new office
+                // syllabi request onto an existing registration (edit + intake id).
+                OfficeIntakeHelper::closePendingIntakeForRegistration(
+                    $pending['type'],
+                    (int) $pending['id'],
+                    (int) $id,
+                    trim((string) ($ml->doc_no ?? $docNo ?? '')),
+                    trim((string) ($savedTitle ?? $ml->doc_title ?? '')) ?: null,
+                    null,
+                    false,
+                    ! $explicitMatch
+                );
             }
 
             $successMessage = $saveAsDraft

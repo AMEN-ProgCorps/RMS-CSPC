@@ -3,17 +3,23 @@
 
 /* Office DRF/DCN intake — same fixed shell as other DCS pages */
 .ofi-page {
-    position: fixed;
+    position: fixed !important;
     top: var(--dcs-header-height, 70px);
-    left: var(--dcs-sidebar, 300px);
+    left: var(--dcs-sidebar, 300px) !important;
     right: 0;
     bottom: 0;
+    margin: 0 !important;
     padding: var(--dcs-page-pad, 24px 28px 40px);
     background: var(--dash-bg);
     overflow-y: auto;
     overflow-x: hidden;
     box-sizing: border-box;
     z-index: 1;
+    display: block;
+    width: auto;
+    max-width: none;
+    /* Stay viewport-anchored even if a Livewire remorph wraps/flexes parents */
+    transform: none !important;
     transition: left var(--dcs-ease), top var(--dcs-ease);
 }
 
@@ -24,7 +30,7 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .ofi-page {
 
 body:has(#dcs-sidebar-collapsed:checked) .ofi-page,
 html[data-dcs-sidebar-collapsed="1"] .ofi-page {
-    left: var(--dcs-sidebar-collapsed, 68px);
+    left: var(--dcs-sidebar-collapsed, 68px) !important;
 }
 
 .ofi-page::-webkit-scrollbar { width: 6px; }
@@ -66,9 +72,62 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     border-top: 1px solid #e2e8f0;
 }
 
+.ofi-syllabi-context {
+    margin-top: 12px;
+    padding: 14px 14px 12px;
+    border: 1px solid #dbeafe;
+    border-radius: 10px;
+    background: #f8fbff;
+}
+
+.ofi-syllabi-context.is-ofi-hidden {
+    display: none !important;
+}
+
+.ofi-syllabi-grid {
+    gap: 12px;
+}
+
+[data-theme="dark"] .ofi-syllabi-context {
+    background: #0f172a;
+    border-color: #1e3a5f;
+}
+
 .ofi-reg-actions .reg-btn {
     flex: 0 0 auto;
     white-space: nowrap;
+}
+
+.ofi-reg-actions .ofi-btn-preview {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 2px solid #3b82f6;
+    font-weight: 700;
+    box-shadow: 0 1px 2px rgba(37, 99, 235, 0.18);
+}
+
+.ofi-reg-actions .ofi-btn-preview:hover {
+    background: #dbeafe;
+    color: #1e40af;
+    border-color: #2563eb;
+}
+
+.ofi-reg-actions .ofi-btn-preview i {
+    font-size: 0.95em;
+}
+
+[data-theme="dark"] .ofi-reg-actions .ofi-btn-preview {
+    background: #172554;
+    color: #93c5fd;
+    border-color: #3b82f6;
+}
+
+[data-theme="dark"] .ofi-reg-actions .ofi-btn-preview:hover {
+    background: #1e3a8a;
+    color: #bfdbfe;
 }
 
 .ofi-req {
@@ -2292,7 +2351,7 @@ body.ofi-modal-open {
 .ofi-confirm-dialog-overlay {
     position: fixed;
     inset: 0;
-    z-index: 1600;
+    z-index: 50000;
     display: none;
     align-items: center;
     justify-content: center;

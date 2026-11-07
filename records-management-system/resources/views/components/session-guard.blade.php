@@ -103,8 +103,12 @@ new class extends Component {
         lastPing: Date.now(),
         warn: false,
         left: 60,
-        timeoutMs: {{ (int) $idleTimeoutMinutes }} * 60 * 1000,
+        // Configured minutes = idle time before the warning modal appears.
+        idleMs: {{ (int) $idleTimeoutMinutes }} * 60 * 1000,
+        // After the modal appears, give a fixed grace period before logout.
         warningMs: 60 * 1000,
+        // Total session lifetime used for the activity cookie (idle + grace).
+        timeoutMs: {{ (int) $idleTimeoutMinutes }} * 60 * 1000 + 60 * 1000,
         pingIntervalMs: 2 * 60 * 1000,
         refreshToken: '{{ \App\Helpers\SubsystemHelper::refreshToken() }}',
         refreshing: false,
@@ -126,14 +130,15 @@ new class extends Component {
 
         tick() {
             const elapsed = Date.now() - this.lastActive;
-            const remaining = this.timeoutMs - elapsed;
 
-            if (remaining <= this.warningMs && remaining > 0) {
-                this.warn = true;
-                this.left = Math.max(1, Math.ceil(remaining / 1000));
-            } else if (remaining <= 0) {
+            // Wait the full idle period, then show the modal. Moving the cursor
+            // resets lastActive so another full idle period is required again.
+            if (elapsed >= this.idleMs + this.warningMs) {
                 this.warn = false;
                 $wire.logoutNow();
+            } else if (elapsed >= this.idleMs) {
+                this.warn = true;
+                this.left = Math.max(1, Math.ceil((this.idleMs + this.warningMs - elapsed) / 1000));
             } else {
                 this.warn = false;
             }

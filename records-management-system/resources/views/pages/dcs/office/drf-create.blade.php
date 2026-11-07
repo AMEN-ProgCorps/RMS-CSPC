@@ -102,12 +102,19 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill('external', null, null);
         } elseif (in_array($oldDocTypeKind, ['forms', 'logbooks'], true) && $oldDocTypeId !== '') {
             $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill('internal', (int) $oldDocTypeId, null);
-        } elseif ($oldDocTypeId !== '' || $lockDocType) {
-            $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill(
-                $oldDocTypeKind !== '' ? $oldDocTypeKind : 'internal',
-                $oldDocTypeId !== '' ? (int) $oldDocTypeId : null,
-                $oldSubTypeId !== '' ? (int) $oldSubTypeId : null
-            );
+        } elseif (($oldDocTypeId !== '' || $lockDocType) && $oldSubTypeId !== '') {
+            // Internal catalog: only prefill once a sub-type is chosen.
+            // Syllabi / TOS also need a college before signatories are filled.
+            $oldCollegeId = old('collegeId') !== null && old('collegeId') !== '' ? (int) old('collegeId') : null;
+            $needsCollege = OfficeIntakeHelper::isOfficeDrfSyllabiLike((int) $oldSubTypeId);
+            if (! $needsCollege || ($oldCollegeId !== null && $oldCollegeId > 0)) {
+                $sigPrefill = OfficeIntakeHelper::drfSignatoryPrefill(
+                    $oldDocTypeKind !== '' ? $oldDocTypeKind : 'internal',
+                    $oldDocTypeId !== '' ? (int) $oldDocTypeId : null,
+                    (int) $oldSubTypeId,
+                    $oldCollegeId
+                );
+            }
         }
         $parentKindMap = $sigTemplateMap['parentKind'] ?? [];
         $docTypeParentsForJs = [];
@@ -142,6 +149,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             'oldSubTypeId' => $oldSubTypeId,
             'sigPrefill' => $sigPrefill,
             'sigTemplateMap' => $sigTemplateMap,
+            'syllabiCatalog' => OfficeIntakeHelper::officeDrfSyllabiCatalog(),
             'userOfficeId' => $office['id'],
             'userOfficeCode' => $office['code'],
             'userOfficeName' => $office['name'],
@@ -277,7 +285,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                                 <div class="reg-field" style="margin:0;" id="ofiDrfDocTypeWrap">
                                     <label for="drfDocTypeId">Document type <span class="ofi-req">*</span></label>
                                     <select id="drfDocTypeId" name="docTypeId" @required($showCatalog) @disabled(! $showCatalog)>
-                                        <option value="">Select document type…</option>
+                                        <option value="" disabled {{ $selectedParent === '' ? 'selected' : '' }} hidden>Select document type…</option>
                                         @foreach($parentsForKind as $type)
                                             <option value="{{ $type->id }}" @selected((string) $type->id === $selectedParent)>{{ $type->doc_type_name }}</option>
                                         @endforeach
@@ -286,7 +294,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                                 <div class="reg-field" style="margin:0;" id="ofiDrfSubTypeWrap">
                                     <label for="drfSubTypeId">Sub-type <span id="drfSubTypeReq" class="ofi-req" @if(count($parentSubs) < 1) hidden @endif>*</span></label>
                                     <select id="drfSubTypeId" name="subTypeId" @disabled(! $showCatalog || $selectedParent === '') @if($showCatalog && count($parentSubs) > 0) required @endif>
-                                        <option value="">{{ count($parentSubs) > 0 ? 'Select sub-type…' : ($selectedParent !== '' ? 'No sub-types' : 'Select a document type first') }}</option>
+                                        <option value="" disabled {{ $selectedSub === '' ? 'selected' : '' }} hidden>{{ count($parentSubs) > 0 ? 'Select sub-type…' : ($selectedParent !== '' ? 'No sub-types' : 'Select a document type first') }}</option>
                                         @foreach($parentSubs as $sub)
                                             <option value="{{ $sub->id }}" @selected((string) $sub->id === $selectedSub)>{{ $sub->doc_type_name }}</option>
                                         @endforeach
@@ -295,6 +303,27 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                             </div>
                             <p id="drfRecurDocTypeHint" class="ofi-hint" hidden>This follows the registered document and cannot be changed after Find document.</p>
                         @endif
+                        @php
+                            $syllabiContextVisible = false;
+                            if ($selectedSub !== '') {
+                                $subName = '';
+                                foreach (($docTypeChildrenByParent[$selectedParent] ?? []) as $subRow) {
+                                    if ((string) ($subRow->id ?? '') === $selectedSub) {
+                                        $subName = (string) ($subRow->doc_type_name ?? '');
+                                        break;
+                                    }
+                                }
+                                $syllabiContextVisible = \App\Helpers\RegisterQueryHelper::isSyllabiLikeName($subName);
+                            }
+                        @endphp
+                        @include('pages.dcs.office.partials.drf-syllabi-context', [
+                            'syllabiContextVisible' => $syllabiContextVisible,
+                            'oldCollegeId' => old('collegeId', ''),
+                            'oldProgramId' => old('programId', ''),
+                            'oldSemesterId' => old('semesterId', ''),
+                            'oldCourseId' => old('courseId', ''),
+                            'oldSchoolYearId' => old('schoolYearId', ''),
+                        ])
                     </div>
                     <div class="reg-field">
                         <label>Description/reason for request (define in detail) <span class="ofi-req">*</span></label>
@@ -412,14 +441,27 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             </div>
 
             <div class="reg-form-actions ofi-reg-actions">
-                <button type="submit" id="ofiDrfPreviewBtn" class="reg-btn reg-btn-cancel" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.drf.preview', absolute: false) }}">
-                    Preview form
+                <button type="submit" id="ofiDrfPreviewBtn" class="reg-btn ofi-btn-preview" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.drf.preview', absolute: false) }}">
+                    <i class="fa-solid fa-eye" aria-hidden="true"></i> Preview form
                 </button>
                 <button type="submit" id="ofiDrfSaveBtn" class="reg-btn reg-btn-save" disabled>
                     <i class="fa-solid fa-lock"></i> Save (cannot edit later)
                 </button>
             </div>
         </form>
+    </div>
+
+    <div class="ofi-confirm-dialog-overlay" id="ofiAlertDialog" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="ofiAlertDialogTitle">
+        <div class="ofi-confirm-dialog">
+            <div class="ofi-confirm-dialog-header">
+                <span class="ofi-confirm-dialog-icon" aria-hidden="true"><i class="fa-solid fa-triangle-exclamation"></i></span>
+                <h3 id="ofiAlertDialogTitle">Cannot save</h3>
+            </div>
+            <div class="ofi-confirm-dialog-body" id="ofiAlertDialogMessage"></div>
+            <div class="ofi-confirm-dialog-footer">
+                <button type="button" class="ofi-confirm-dialog-btn ofi-confirm-dialog-btn-ok" data-ofi-alert-ok>OK</button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -429,7 +471,8 @@ window.__ofiClusters = @json($clusters);
 window.__ofiOldDistribute = @json($oldDistributeOfficeIds);
 window.__ofiDocTypeChildren = @json($docTypeChildrenByParent ?? []);
 window.__ofiDocTypeParents = @json($docTypeParentsForJs ?? []);
-window.__ofiSigTemplateMap = @json($sigTemplateMap ?? ['byDocTypeId' => [], 'parentKind' => [], 'externalParentId' => null]);
+window.__ofiSigTemplateMap = @json($sigTemplateMap);
+window.__ofiSyllabiCatalog = @json($syllabiCatalog ?? []);
 window.__ofiSourceConfigs = [
     {
         key: 'distribute',
@@ -452,6 +495,40 @@ window.__ofiSourceConfigs = [
     const confirmBox = document.getElementById('ofiConfirmData');
     const saveBtn = document.getElementById('ofiDrfSaveBtn');
     if (!form || !confirmBox || !saveBtn) return;
+
+    function showOfiAlert(message, title) {
+        const overlay = document.getElementById('ofiAlertDialog');
+        if (!overlay) {
+            window.alert(message);
+            return;
+        }
+        if (overlay.parentElement !== document.body) {
+            document.body.appendChild(overlay);
+        }
+        const titleEl = overlay.querySelector('#ofiAlertDialogTitle');
+        const messageEl = overlay.querySelector('#ofiAlertDialogMessage');
+        const okBtn = overlay.querySelector('[data-ofi-alert-ok]');
+        if (titleEl) titleEl.textContent = title || 'Cannot save';
+        if (messageEl) messageEl.textContent = message;
+        function close() {
+            overlay.classList.remove('is-open');
+            overlay.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('ofi-modal-open');
+            document.removeEventListener('keydown', onKey);
+            overlay.removeEventListener('click', onBackdrop);
+            if (okBtn) okBtn.removeEventListener('click', onOk);
+        }
+        function onOk() { close(); }
+        function onBackdrop(e) { if (e.target === overlay) close(); }
+        function onKey(e) { if (e.key === 'Escape' || e.key === 'Enter') close(); }
+        overlay.addEventListener('click', onBackdrop);
+        document.addEventListener('keydown', onKey);
+        if (okBtn) okBtn.addEventListener('click', onOk);
+        overlay.classList.add('is-open');
+        overlay.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('ofi-modal-open');
+        if (okBtn) okBtn.focus();
+    }
 
     function syncConfirm() {
         saveBtn.disabled = !confirmBox.checked;
@@ -515,6 +592,10 @@ window.__ofiSourceConfigs = [
     function resolveTemplate() {
         const kind = selectedKind();
         const byId = sigMap.byDocTypeId || {};
+        const byCollege = sigMap.byDocTypeCollege || {};
+        const syllabiIds = sigMap.syllabiLikeDocTypeIds || [];
+        const collegeSel = document.getElementById('ofiDrfCollegeId');
+        const collegeId = collegeSel && !collegeSel.disabled ? String(collegeSel.value || '') : '';
         if (kind === 'external') {
             const externalId = sigMap.externalParentId ? String(sigMap.externalParentId) : '';
             return (externalId && byId[externalId]) ? byId[externalId] : null;
@@ -525,11 +606,41 @@ window.__ofiSourceConfigs = [
             if (optInId && byId[optInId]) return byId[optInId];
             return null;
         }
+        // Internal catalog: signatories only after a sub-type is selected.
+        // Changing document type (e.g. Internal Forms) with no sub-type clears them.
         const parentId = parentSelect ? String(parentSelect.value || '') : '';
         const subId = subSelect && !subSelect.disabled ? String(subSelect.value || '') : '';
-        if (subId && byId[subId]) return byId[subId];
-        if (parentId && byId[parentId]) return byId[parentId];
-        return null;
+        const kids = parentId && childrenByParent[parentId] ? childrenByParent[parentId] : [];
+        if (kids.length > 0 && !subId) {
+            return null;
+        }
+        function pickForDocType(docTypeId, requireCollege) {
+            if (!docTypeId) return null;
+            const isSyllabi = syllabiIds.indexOf(docTypeId) !== -1;
+            if (isSyllabi || requireCollege) {
+                // Syllabi / TOS: no signatories until a college is chosen.
+                if (!collegeId) return null;
+                if (byCollege[docTypeId] && byCollege[docTypeId][collegeId]) {
+                    return byCollege[docTypeId][collegeId];
+                }
+                // College-specific missing → optional All-campuses default for that sub-type.
+                if (byId[docTypeId]) return byId[docTypeId];
+                return null;
+            }
+            if (byId[docTypeId]) return byId[docTypeId];
+            return null;
+        }
+        if (subId) {
+            const subIsSyllabi = syllabiIds.indexOf(subId) !== -1;
+            // Prefer sub-type assignment; fall back to parent only for non-syllabi
+            // (syllabi must resolve against the sub-type + college scope).
+            if (subIsSyllabi) {
+                return pickForDocType(subId, true);
+            }
+            return pickForDocType(subId, false) || pickForDocType(parentId, false);
+        }
+        // Parent with no sub-types in catalog: whole-type assignment is allowed.
+        return pickForDocType(parentId, false);
     }
 
     function clearSignatories() {
@@ -586,6 +697,8 @@ window.__ofiSourceConfigs = [
         const placeholder = document.createElement('option');
         placeholder.value = '';
         placeholder.textContent = 'Select document type…';
+        placeholder.disabled = true;
+        placeholder.hidden = true;
         parentSelect.appendChild(placeholder);
         list.forEach(function (p) {
             const opt = document.createElement('option');
@@ -594,8 +707,10 @@ window.__ofiSourceConfigs = [
             if (previous && previous === String(p.id)) opt.selected = true;
             parentSelect.appendChild(opt);
         });
-        if (previous && !list.some(function (p) { return String(p.id) === previous; })) {
-            parentSelect.value = '';
+        if (previous && list.some(function (p) { return String(p.id) === previous; })) {
+            parentSelect.value = previous;
+        } else {
+            placeholder.selected = true;
         }
     }
 
@@ -610,6 +725,8 @@ window.__ofiSourceConfigs = [
         const placeholder = document.createElement('option');
         placeholder.value = '';
         placeholder.textContent = kids.length ? 'Select sub-type…' : (parentId ? 'No sub-types' : 'Select a document type first');
+        placeholder.disabled = true;
+        placeholder.hidden = true;
         subSelect.appendChild(placeholder);
         if (showInternalCatalog) {
             kids.forEach(function (sub) {
@@ -624,9 +741,14 @@ window.__ofiSourceConfigs = [
         if (showInternalCatalog && kids.length) {
             subSelect.required = true;
             if (subReq) subReq.hidden = false;
+            if (previous && kids.some(function (sub) { return String(sub.id) === previous; })) {
+                subSelect.value = previous;
+            } else {
+                placeholder.selected = true;
+            }
         } else {
             subSelect.required = false;
-            subSelect.value = '';
+            placeholder.selected = true;
             if (subReq) subReq.hidden = true;
         }
     }
@@ -634,6 +756,7 @@ window.__ofiSourceConfigs = [
     function refreshSignatoriesForSelection() {
         applySignatories(resolveTemplate());
     }
+    window.__ofiRefreshDrfSignatories = refreshSignatoriesForSelection;
 
     form.querySelectorAll('input[name="docTypeKind"]').forEach(function (radio) {
         radio.addEventListener('change', function () {
@@ -641,28 +764,35 @@ window.__ofiSourceConfigs = [
             rebuildParentOptions(false);
             rebuildSubOptions(false);
             refreshSignatoriesForSelection();
+            if (typeof window.__ofiSyncSyllabiContext === 'function') window.__ofiSyncSyllabiContext();
         });
     });
     syncOptInDocTypeId();
     if (parentSelect && parentSelect.tagName === 'SELECT') {
         parentSelect.addEventListener('change', function () {
             rebuildSubOptions(false);
+            // Document type change clears sub-type → clear signatories until a new sub-type is picked.
             refreshSignatoriesForSelection();
+            if (typeof window.__ofiSyncSyllabiContext === 'function') window.__ofiSyncSyllabiContext();
         });
     }
     if (subSelect && subSelect.tagName === 'SELECT') {
         subSelect.addEventListener('change', function () {
+            // Always reset then apply the template for the newly selected sub-type.
             refreshSignatoriesForSelection();
+            if (typeof window.__ofiSyncSyllabiContext === 'function') window.__ofiSyncSyllabiContext();
         });
     }
 
     syncCatalogVisibility();
+    if (typeof window.__ofiSyncSyllabiContext === 'function') window.__ofiSyncSyllabiContext();
+    refreshSignatoriesForSelection();
 
     form.addEventListener('submit', function (e) {
         if (e.submitter && e.submitter.id === 'ofiDrfPreviewBtn') return;
         if (!confirmBox.checked) {
             e.preventDefault();
-            alert('Please confirm that all the inputted data are correct before saving.');
+            showOfiAlert('Please confirm that all the inputted data are correct before saving.');
             return;
         }
 
@@ -700,7 +830,7 @@ window.__ofiSourceConfigs = [
         }
         if (!selectedCount) {
             e.preventDefault();
-            alert('Select at least one office to distribute the document to.');
+            showOfiAlert('Select at least one office to distribute the document to.');
             return;
         }
 
@@ -719,6 +849,7 @@ window.__ofiSourceConfigs = [
     }
 })();
 </script>
+@include('pages.dcs.office.partials.drf-syllabi-context-script')
 @if($isRecurring ?? false)
     @include('pages.dcs.office.partials.drf-recur-script')
 @endif

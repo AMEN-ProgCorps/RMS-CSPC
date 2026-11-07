@@ -8,15 +8,15 @@ use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
-use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
-    #[On('office-incoming-refresh')]
-    public function refreshOfficeIncoming(): void
-    {
-    }
+    /**
+     * Do not remorph this page on office-incoming-refresh.
+     * A full Livewire redraw (especially with a sibling <script> root) shifts
+     * .ofi-page and throws "Snapshot missing". Incoming badges/stats update via JS.
+     */
 
     public function with(): array
     {
@@ -191,31 +191,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </section>
     </div>
 </div>
-<script>
-document.addEventListener('alpine:init', () => {
-    Alpine.data('ofiDashboardClock', () => ({
-        nowClock: @json($headerTime),
-        _timer: null,
-        tick() {
-            try {
-                this.nowClock = new Date().toLocaleTimeString([], {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    hour12: true,
-                });
-            } catch (e) {}
-        },
-        init() {
-            this.tick();
-            this._timer = setInterval(() => this.tick(), 1000);
-        },
-        destroy() {
-            if (this._timer) clearInterval(this._timer);
-        },
-    }));
-});
-</script>
 @elseif(!empty($isLimitedDcs))
 <div class="ofi-page ofi-dash" x-data="ofiDashboardClock()">
     <div class="ofi-inner ofi-inner-wide">
@@ -273,7 +248,7 @@ document.addEventListener('alpine:init', () => {
                 <div class="ofi-dash-stat-icon"><i class="fa-solid fa-inbox"></i></div>
                 <div class="ofi-dash-stat-body">
                     <span class="ofi-dash-stat-label">Incoming</span>
-                    <strong class="ofi-dash-stat-value">{{ (int) ($officeIncomingTotal ?? 0) }}</strong>
+                    <strong class="ofi-dash-stat-value" data-ofi-incoming-stat>{{ (int) ($officeIncomingTotal ?? 0) }}</strong>
                     <span class="ofi-dash-stat-hint">Waiting to be received</span>
                 </div>
             </a>
@@ -408,33 +383,6 @@ document.addEventListener('alpine:init', () => {
         </section>
     </div>
 </div>
-<script>
-document.addEventListener('alpine:init', () => {
-    Alpine.data('ofiDashboardClock', () => ({
-        nowClock: @json($headerTime),
-        _timer: null,
-        tick() {
-            try {
-                this.nowClock = new Date().toLocaleTimeString([], {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    second: '2-digit',
-                });
-            } catch (e) {
-                const n = new Date();
-                this.nowClock = n.toTimeString().slice(0, 8);
-            }
-        },
-        init() {
-            this.tick();
-            this._timer = setInterval(() => this.tick(), 1000);
-        },
-        destroy() {
-            if (this._timer) clearInterval(this._timer);
-        },
-    }));
-});
-</script>
 @else
 <main class="dashboard-main" wire:ignore x-data="dcsDashboardCalendar()">
     <div
@@ -1077,9 +1025,38 @@ document.addEventListener('alpine:init', () => {
         </div>
     </template>
 </main>
+@endif
 
+{{-- Livewire @script is outside the component root (avoids multi-root + Snapshot missing). --}}
+@script
 <script>
-document.addEventListener('alpine:init', () => {
+(() => {
+    const register = () => {
+    Alpine.data('ofiDashboardClock', () => ({
+        nowClock: @json($headerTime ?? ''),
+        _timer: null,
+        tick() {
+            try {
+                this.nowClock = new Date().toLocaleTimeString([], {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true,
+                });
+            } catch (e) {
+                const n = new Date();
+                this.nowClock = n.toLocaleTimeString();
+            }
+        },
+        init() {
+            this.tick();
+            this._timer = setInterval(() => this.tick(), 1000);
+        },
+        destroy() {
+            if (this._timer) clearInterval(this._timer);
+        },
+    }));
+
     Alpine.data('dcsDashboardSearch', () => ({
         query: '',
         results: [],
@@ -1771,6 +1748,13 @@ document.addEventListener('alpine:init', () => {
             }
         },
     }));
-});
+    };
+
+    if (window.Alpine) {
+        register();
+    } else {
+        document.addEventListener('alpine:init', register);
+    }
+})();
 </script>
-@endif
+@endscript

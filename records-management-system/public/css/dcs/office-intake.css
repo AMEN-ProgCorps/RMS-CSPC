@@ -2,19 +2,24 @@
 
 /* Office DRF/DCN intake — same fixed shell as other DCS pages */
 .ofi-page {
-    position: fixed;
+    position: fixed !important;
     top: var(--dcs-header-height, 70px);
-    left: var(--dcs-sidebar, 300px);
+    left: var(--dcs-sidebar, 300px) !important;
     right: 0;
     bottom: 0;
+    margin: 0 !important;
     padding: var(--dcs-page-pad, 24px 28px 40px);
-    background: #f1f5f9;
+    background: var(--dash-bg);
     overflow-y: auto;
     overflow-x: hidden;
     box-sizing: border-box;
     z-index: 1;
-    transition: left var(--dcs-ease, 0.2s ease), top var(--dcs-ease, 0.2s ease);
-    animation: ofiFadeIn 0.25s ease both;
+    display: block;
+    width: auto;
+    max-width: none;
+    /* Stay viewport-anchored even if a Livewire remorph wraps/flexes parents */
+    transform: none !important;
+    transition: left var(--dcs-ease), top var(--dcs-ease);
 }
 
 /* Clear top tabs (also in top-tabs.css; duplicated here so public asset works without Vite rebuild) */
@@ -24,7 +29,7 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .ofi-page {
 
 body:has(#dcs-sidebar-collapsed:checked) .ofi-page,
 html[data-dcs-sidebar-collapsed="1"] .ofi-page {
-    left: var(--dcs-sidebar-collapsed, 68px);
+    left: var(--dcs-sidebar-collapsed, 68px) !important;
 }
 
 @keyframes ofiFadeIn {

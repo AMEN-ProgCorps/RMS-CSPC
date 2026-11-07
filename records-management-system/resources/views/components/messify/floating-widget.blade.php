@@ -229,10 +229,27 @@ body.report-widget-open #messify-global-widget {
         }
     }
 
-    // Unlock browser audio context on user's first interaction anywhere on page or in iframe
-    const unlockEvents = ['click', 'touchstart', 'keydown', 'pointerdown', 'mousemove', 'focus', 'scroll'];
+    // Unlock browser audio on first real gesture so later poll/WS notification
+    // sounds are allowed (HTML5 Audio needs a successful play() under a gesture).
+    const unlockEvents = ['click', 'touchstart', 'keydown', 'pointerdown'];
     function unlockAudioHandler() {
         initAudioContext();
+        try {
+            if (pingAudio) {
+                const prevVolume = pingAudio.volume;
+                pingAudio.volume = 0.001;
+                const p = pingAudio.play();
+                if (p && typeof p.then === 'function') {
+                    p.then(() => {
+                        pingAudio.pause();
+                        pingAudio.currentTime = 0;
+                        pingAudio.volume = prevVolume || 0.8;
+                    }).catch(() => {
+                        try { pingAudio.volume = prevVolume || 0.8; } catch (e) {}
+                    });
+                }
+            }
+        } catch (e) {}
         unlockEvents.forEach(evt => document.removeEventListener(evt, unlockAudioHandler));
     }
     unlockEvents.forEach(evt => document.addEventListener(evt, unlockAudioHandler, { passive: true }));
@@ -490,6 +507,8 @@ body.report-widget-open #messify-global-widget {
         if (!isTabletOrDesktop()) {
             isOpen = false;
             setWidgetVisibility(false, false);
+            // Still poll unread so system/distribution popouts work on mobile.
+            updateUnreadBadge();
             return;
         }
 
@@ -560,11 +579,11 @@ body.report-widget-open #messify-global-widget {
                 }
             }
 
-            // Play notification sound if unread count increased (and not initial page load)
+            // Play chat sound here; system overlay Alpine plays its own sound.
             const hasNewChat = (lastChatUnread !== null && chatCount > lastChatUnread);
             const hasNewSystem = (lastSystemUnread !== null && systemCount > lastSystemUnread);
 
-            if (hasNewChat || hasNewSystem) {
+            if (hasNewChat) {
                 playNotificationSound();
             }
 
@@ -572,6 +591,8 @@ body.report-widget-open #messify-global-widget {
                 window.dispatchEvent(new CustomEvent('rms-notification-overlay-show', {
                     detail: data.latest_system_notification
                 }));
+            } else if (hasNewSystem) {
+                playNotificationSound();
             }
 
             applyUnreadCounts(chatCount, systemCount, totalSystemCount);
@@ -642,6 +663,19 @@ body.report-widget-open #messify-global-widget {
             playNotificationSound();
             // Single debounced refresh — AbortController cancels any in-flight request.
             scheduleUnreadPoll(300);
+        } else if (event.data.type === 'MESSIFY_SYSTEM_NOTIFICATION') {
+            // Instant DCS/system bell notice from Messify WebSocket (e.g. document distribution).
+            // Overlay Alpine plays the sound; just show the popout + refresh counts.
+            const notif = event.data.notification || null;
+            if (notif && notif.content) {
+                window.dispatchEvent(new CustomEvent('rms-notification-overlay-show', {
+                    detail: notif
+                }));
+                if (window.Livewire && typeof window.Livewire.dispatch === 'function') {
+                    window.Livewire.dispatch('rms-notification-ping');
+                }
+            }
+            scheduleUnreadPoll(200);
         } else if (event.data.type === 'MESSIFY_PLAY_SOUND' || event.data.type === 'MESSIFY_PLAY_SOUND') {
             playNotificationSound();
         } else if (event.data.type === 'MESSIFY_USER_INTERACTION' || event.data.type === 'MESSIFY_USER_INTERACTION') {

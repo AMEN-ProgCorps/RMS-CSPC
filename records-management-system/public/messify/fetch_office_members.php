@@ -74,6 +74,7 @@ try {
     $tblAccount = Database::t('account');
     $tblRole    = Database::t('condition_key');
     $tblPerm    = Database::t('condition_details');
+    $verCol     = Database::verifiedColumn();
 
     $stmt = $pdo->prepare("
         SELECT ad.account_id,
@@ -84,7 +85,7 @@ try {
                ad.is_currently_online,
                ad.last_online_time,
                ad.avatar_url,
-               COALESCE(ad.is_messify_verified, FALSE) AS is_messify_verified,
+               COALESCE(ad.{$verCol}, FALSE) AS is_messify_verified,
                ck.key_name AS role_name,
                cd.is_sadm
         FROM {$tblDetails} ad

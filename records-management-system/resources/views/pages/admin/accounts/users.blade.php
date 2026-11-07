@@ -495,12 +495,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                         'account_id' => $userId,
                         'office_id'  => $officeId,
                     ]);
-                } elseif (file_exists(public_path('messify/core/WsPush.php'))) {
-                    require_once public_path('messify/bootstrap.php');
-                    \WsPush::broadcast('users_changed', [
-                        'account_id' => $userId,
-                        'office_id'  => $officeId,
-                    ]);
                 }
             } catch (\Throwable) {}
         } catch (\Exception $e) {

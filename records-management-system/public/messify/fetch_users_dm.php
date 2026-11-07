@@ -38,7 +38,9 @@ $hasMoreUsers = false;
 
 // ── Resolve current user & office context early so GCs can be unified ─────────
 $myInfo = UserResolver::getUserInfo($myAccountId);
-$freshMyOfficeId = isset($myInfo['office_id']) ? (int) $myInfo['office_id'] : 0;
+$freshMyOfficeId = isset($myInfo['office_id']) && (int) $myInfo['office_id'] > 0
+    ? (int) $myInfo['office_id']
+    : (int) ($_SESSION['office_id'] ?? 0);
 $freshMyOffice = null;
 $officeGcUnreadCount = 0;
 if ($freshMyOfficeId > 0) {
@@ -512,10 +514,12 @@ if ($isAdmin) {
     }
 }
 
-$freshMyOfficeId = isset($myInfo['office_id']) ? (int) $myInfo['office_id'] : 0;
-$freshMyOffice = null;
-$officeGcUnreadCount = 0;
-if ($freshMyOfficeId > 0) {
+if ($freshMyOfficeId <= 0) {
+    $freshMyOfficeId = isset($myInfo['office_id']) && (int) $myInfo['office_id'] > 0
+        ? (int) $myInfo['office_id']
+        : (int) ($_SESSION['office_id'] ?? 0);
+}
+if ($freshMyOfficeId > 0 && !$freshMyOffice) {
     try {
         $pdo = Database::getConnection();
         $stmt = $pdo->prepare('SELECT office_name, office_code FROM ' . Database::t('office') . ' WHERE id = :id LIMIT 1');

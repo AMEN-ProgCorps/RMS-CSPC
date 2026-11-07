@@ -76,7 +76,8 @@ $_SESSION['is_admin'] = $is_admin;
 $verified_account_ids = [];
 try {
     $pdo  = Database::getConnection();
-    $stmt = $pdo->query('SELECT account_id FROM ' . Database::t('account_details') . ' WHERE is_messify_verified = TRUE');
+    $verCol = Database::verifiedColumn();
+    $stmt = $pdo->query('SELECT account_id FROM ' . Database::t('account_details') . ' WHERE ' . $verCol . ' = TRUE');
     $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
     $verified_account_ids = array_map('intval', $rows);
     $adminIds = Auth::getAllSuperAdminIds();

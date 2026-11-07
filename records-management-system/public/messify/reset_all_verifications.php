@@ -23,8 +23,9 @@ if (!Auth::isAdmin()) {
 
 try {
     $pdo = Database::getConnection();
+    $verCol = Database::verifiedColumn();
     $stmt = $pdo->prepare(
-        'UPDATE ' . Database::t('account_details') . ' SET is_messify_verified = FALSE WHERE is_messify_verified = TRUE'
+        'UPDATE ' . Database::t('account_details') . ' SET ' . $verCol . ' = FALSE WHERE ' . $verCol . ' = TRUE'
     );
     $stmt->execute();
     $count = $stmt->rowCount();

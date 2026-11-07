@@ -89,12 +89,34 @@ class Database
         return $sysName;
     }
 
+    private static ?string $verifiedColCache = null;
+
     /**
-     * Verification column name in account_details.
+     * Verification column name in account_details (auto-detects is_messify_verified vs is_chatify_verified).
      */
     public static function verifiedColumn(): string
     {
-        return 'is_messify_verified';
+        if (self::$verifiedColCache !== null) {
+            return self::$verifiedColCache;
+        }
+
+        try {
+            $pdo = self::getConnection();
+            $stmt = $pdo->query("
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name IN ('account_details', 'sys_account_details')
+                  AND column_name IN ('is_messify_verified', 'is_chatify_verified')
+                ORDER BY CASE WHEN column_name = 'is_messify_verified' THEN 0 ELSE 1 END
+                LIMIT 1
+            ");
+            $col = $stmt->fetchColumn();
+            self::$verifiedColCache = $col ?: 'is_messify_verified';
+        } catch (Throwable) {
+            self::$verifiedColCache = 'is_messify_verified';
+        }
+
+        return self::$verifiedColCache;
     }
 
     /**

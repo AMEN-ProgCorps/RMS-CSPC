@@ -555,18 +555,19 @@ class UserResolver
         }
 
         try {
-            $pdo  = Database::getConnection();
-            $stmt = $pdo->prepare(
-                'SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
+            $pdo    = Database::getConnection();
+            $verCol = Database::verifiedColumn();
+            $stmt   = $pdo->prepare(
+                "SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
                         ad.office_id, o.office_name, o.office_code, ad.email, ad.is_currently_online, ad.last_online_time,
                         ad.avatar_url,
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
                         COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
-                        COALESCE(ad." . Database::verifiedColumn() . ", FALSE) AS is_messify_verified
-                 FROM ' . Database::t('account_details') . ' ad
-                 LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
+                        COALESCE(ad.{$verCol}, FALSE) AS is_messify_verified
+                 FROM " . Database::t('account_details') . " ad
+                 LEFT JOIN " . Database::t('office') . " o ON o.id = ad.office_id
                  WHERE ad.account_id = :id
-                 LIMIT 1'
+                 LIMIT 1"
             );
             $stmt->execute([':id' => $accountId]);
             $row = $stmt->fetch();
@@ -576,7 +577,7 @@ class UserResolver
                 return $row;
             }
         } catch (PDOException $e) {
-            // Silently return null — rendering continues with "Unknown User"
+            error_log('UserResolver::getRow() — ' . $e->getMessage());
         }
 
         return null;
@@ -589,24 +590,25 @@ class UserResolver
         }
 
         try {
-            $pdo  = Database::getConnection();
-            $stmt = $pdo->query(
-                'SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
+            $pdo    = Database::getConnection();
+            $verCol = Database::verifiedColumn();
+            $stmt   = $pdo->query(
+                "SELECT ad.account_id, ad.first_name, ad.last_name, ad.middle_name,
                         ad.office_id, o.office_name, o.office_code, ad.email, ad.is_currently_online, ad.last_online_time,
                         ad.avatar_url,
                         COALESCE(ad.allow_typing_preview, TRUE) AS allow_typing_preview,
                         COALESCE(ad.allow_see_typing_preview, TRUE) AS allow_see_typing_preview,
-                        COALESCE(ad." . Database::verifiedColumn() . ", FALSE) AS is_messify_verified
-                 FROM ' . Database::t('account_details') . ' ad
-                 LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
-                 ORDER BY ad.last_name, ad.first_name'
+                        COALESCE(ad.{$verCol}, FALSE) AS is_messify_verified
+                 FROM " . Database::t('account_details') . " ad
+                 LEFT JOIN " . Database::t('office') . " o ON o.id = ad.office_id
+                 ORDER BY ad.last_name, ad.first_name"
             );
             while ($row = $stmt->fetch()) {
                 self::$cache[(int) $row['account_id']] = $row;
             }
             self::$loaded = true;
         } catch (PDOException $e) {
-            // Cache stays empty; single-row fallback will be used
+            error_log('UserResolver::loadAll() — ' . $e->getMessage());
         }
     }
 }

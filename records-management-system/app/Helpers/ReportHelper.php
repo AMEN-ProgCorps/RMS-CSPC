@@ -189,11 +189,8 @@ class ReportHelper
      */
     private function renderPreviewPdf(string $html): ?string
     {
-        $pdf = $this->renderPreviewPdfWithWindowsChrome($html);
-        if ($pdf !== null) {
-            return $pdf;
-        }
-
+        // Prefer Puppeteer/system Chromium: Page.printToPDF with preferCSSPageSize
+        // + zero margins. Windows Chrome --print-to-pdf ignores those and shifts the footer.
         $dir = sys_get_temp_dir();
         $id = bin2hex(random_bytes(8));
         $htmlFile = $dir.'/ml-'.$id.'.html';
@@ -208,7 +205,11 @@ class ReportHelper
         @unlink($htmlFile);
         @unlink($pdfFile);
 
-        return $pdf;
+        if ($pdf !== null) {
+            return $pdf;
+        }
+
+        return $this->renderPreviewPdfWithWindowsChrome($html);
     }
 
     /** Headless Google Chrome on Windows (common for WSL2 local servers). */
@@ -371,28 +372,10 @@ class ReportHelper
 
     private function renderPreviewPdfWithSystemChrome(string $htmlFile, string $pdfFile): ?string
     {
-        $binary = null;
-        $candidates = array_filter([
-            getenv('CHROMIUM_PATH') ?: null,
-            '/usr/bin/chromium',
-            '/usr/bin/chromium-browser',
-            '/usr/bin/google-chrome',
-            '/usr/bin/google-chrome-stable',
-            '/usr/lib/chromium/chromium',
-        ]);
-        foreach ($candidates as $path) {
-            if (is_string($path) && is_executable($path)) {
-                $binary = $path;
-                break;
-            }
-        }
-        if ($binary === null && function_exists('shell_exec')) {
-            $found = trim((string) shell_exec('command -v chromium || command -v chromium-browser || command -v google-chrome || true'));
-            if ($found !== '' && is_executable($found)) {
-                $binary = $found;
-            }
-        }
+        $binary = $this->resolveChromiumBinary();
         if ($binary === null) {
+            Log::warning('Masterlist PDF: no system Chromium binary found');
+
             return null;
         }
 
@@ -402,15 +385,17 @@ class ReportHelper
             return null;
         }
 
-        $cmd = 'HOME='.escapeshellarg($userDataDir).' '.implode(' ', [
+        $cmd = 'HOME='.escapeshellarg($userDataDir).' XDG_CONFIG_HOME='.escapeshellarg($userDataDir).' '.implode(' ', [
             escapeshellarg($binary),
             '--headless=new',
             '--disable-gpu',
             '--no-sandbox',
             '--disable-dev-shm-usage',
             '--disable-crash-reporter',
+            '--disable-software-rasterizer',
             '--hide-scrollbars',
-            '--virtual-time-budget=8000',
+            '--font-render-hinting=none',
+            '--virtual-time-budget=10000',
             '--user-data-dir='.escapeshellarg($userDataDir),
             '--no-pdf-header-footer',
             '--print-to-pdf-no-header',
@@ -419,7 +404,15 @@ class ReportHelper
         ]);
 
         $out = [];
-        exec($cmd.' 2>&1', $out, $code);
+        $code = 1;
+        if (function_exists('exec')) {
+            exec($cmd.' 2>&1', $out, $code);
+        } else {
+            Log::warning('Masterlist PDF: PHP exec() is disabled; cannot run Chromium');
+            @rmdir($userDataDir);
+
+            return null;
+        }
         $pdf = (is_file($pdfFile) && filesize($pdfFile) > 100) ? file_get_contents($pdfFile) : false;
 
         // Best-effort cleanup of the ephemeral Chromium profile.
@@ -429,14 +422,60 @@ class ReportHelper
 
         if (! is_string($pdf) || $pdf === '') {
             Log::warning('Masterlist PDF: system Chromium failed', [
+                'binary' => $binary,
                 'code' => $code,
-                'out' => implode("\n", array_slice($out, 0, 20)),
+                'out' => implode("\n", array_slice($out, 0, 30)),
             ]);
 
             return null;
         }
 
         return $pdf;
+    }
+
+    /** Locate Chromium/Chrome for headless PDF (Docker apt package or host install). */
+    private function resolveChromiumBinary(): ?string
+    {
+        $envFile = storage_path('app/chromium.env');
+        if (is_file($envFile)) {
+            foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+                if (! str_contains($line, '=')) {
+                    continue;
+                }
+                [$k, $v] = array_map('trim', explode('=', $line, 2));
+                if (($k === 'CHROMIUM_PATH' || $k === 'PUPPETEER_EXECUTABLE_PATH') && $v !== '' && is_file($v)) {
+                    return $v;
+                }
+            }
+        }
+
+        $candidates = array_filter([
+            getenv('CHROMIUM_PATH') ?: null,
+            getenv('PUPPETEER_EXECUTABLE_PATH') ?: null,
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/usr/lib/chromium/chromium',
+            '/usr/lib/chromium-browser/chromium-browser',
+            '/usr/bin/google-chrome',
+            '/usr/bin/google-chrome-stable',
+        ]);
+        foreach ($candidates as $path) {
+            if (! is_string($path) || $path === '') {
+                continue;
+            }
+            // Debian wrappers are often scripts; accept is_file even when not +x for root-only bits.
+            if (is_file($path) && (is_executable($path) || @is_readable($path))) {
+                return $path;
+            }
+        }
+        if (function_exists('shell_exec')) {
+            $found = trim((string) shell_exec('command -v chromium || command -v chromium-browser || command -v google-chrome || true'));
+            if ($found !== '' && is_file($found)) {
+                return $found;
+            }
+        }
+
+        return null;
     }
 
     /** CSPC form code shown on the report letterhead (right of blue rule). */
@@ -2658,30 +2697,40 @@ class ReportHelper
             }
 
             if ($output === null) {
-                $viewData['isPdf'] = true;
-                $viewData['embed'] = false;
-                // Masterlist must stay on CSPC-F-DCC-03 (same form as print preview),
-                // not the generic report shell used for monitoring/OPCR.
-                $html = view(
-                    $isMlPrint
-                        ? 'pages.dcs.reports.export-masterlist-internal'
-                        : 'pages.dcs.reports.export',
-                    $viewData
-                )->render();
+                if ($isMlPrint) {
+                    // Same blade markup as print preview (not the old Dompdf-only branch),
+                    // so logo/filters/footer cannot drift from what the user sees.
+                    $dompdfData = $viewData;
+                    $dompdfData['isPdf'] = false;
+                    $dompdfData['embed'] = true;
+                    $dompdfData['forcePrintLayout'] = true;
+                    $dompdfData['isDompdf'] = true;
+                    $html = view('pages.dcs.reports.export-masterlist-internal', $dompdfData)->render();
+                } else {
+                    $viewData['isPdf'] = true;
+                    $viewData['embed'] = false;
+                    $html = view('pages.dcs.reports.export', $viewData)->render();
+                }
 
                 $options = new \Dompdf\Options();
                 $options->set('isHtml5ParserEnabled', true);
                 $options->set('isRemoteEnabled', false);
-                $options->set('defaultFont', 'Helvetica');
+                $options->set('defaultFont', $isMlPrint ? 'DejaVu Sans' : 'Helvetica');
                 $options->set('dpi', 96);
                 $options->set('isPhpEnabled', false);
+                $options->set('isFontSubsettingEnabled', true);
 
                 $dompdf = new \Dompdf\Dompdf($options);
                 $dompdf->loadHtml($html);
-                $dompdf->setPaper(
-                    ($isPlainTable || $isMlPrint) ? 'letter' : 'a4',
-                    $isPlainTable ? 'landscape' : 'portrait'
-                );
+                if ($isMlPrint) {
+                    // Letter points, full bleed — margins would spill a blank page 2.
+                    $dompdf->setPaper([0.0, 0.0, 612.0, 792.0], 'portrait');
+                } else {
+                    $dompdf->setPaper(
+                        $isPlainTable ? 'letter' : 'a4',
+                        $isPlainTable ? 'landscape' : 'portrait'
+                    );
+                }
                 $dompdf->render();
 
                 // Generic canvas footer is only for non-masterlist letterhead PDFs.

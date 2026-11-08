@@ -2814,13 +2814,20 @@
 }
 
 [data-theme="dark"] .dash-welcome-bar {
-    background: linear-gradient(135deg, #000066 0%, #043899 50%, #002b7a 100%) !important;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35) !important;
+    background:
+        radial-gradient(120% 140% at 100% 0%, rgba(255, 184, 0, 0.14) 0%, rgba(255, 184, 0, 0) 42%),
+        radial-gradient(90% 120% at 0% 100%, rgba(96, 165, 250, 0.14) 0%, rgba(96, 165, 250, 0) 46%),
+        linear-gradient(135deg, #000066 0%, #043899 52%, #001a52 100%) !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    box-shadow:
+        0 14px 34px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
 }
 
 [data-theme="dark"] .dash-welcome-calendar.dash-calendar-trigger {
-    background: rgba(15, 23, 42, 0.35) !important;
-    border-color: rgba(255, 255, 255, 0.18) !important;
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
 }
 
 [data-theme="dark"] .dash-queue-chip {

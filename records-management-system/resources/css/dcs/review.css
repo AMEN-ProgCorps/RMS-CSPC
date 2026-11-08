@@ -634,6 +634,15 @@ body {
     margin-bottom: 10px;
 }
 
+.drr-legend-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dcs-muted, #64748b);
+    margin-right: 2px;
+}
+
 .drr-leg {
     display: inline-flex;
     align-items: center;

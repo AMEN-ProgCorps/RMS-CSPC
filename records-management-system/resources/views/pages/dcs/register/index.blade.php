@@ -939,6 +939,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
             <div class="reg-modal-body reg-modal-body--compare">
                 <div class="reg-compare-legend" data-drr-compare-legend="1" aria-label="Highlight legend">
+                    <span class="drr-legend-label">Legend:</span>
                     <span class="reg-compare-leg reg-compare-leg-del"><i class="drr-leg-swatch is-del" aria-hidden="true"></i>Removed</span>
                     <span class="reg-compare-leg reg-compare-leg-ins"><i class="drr-leg-swatch is-ins" aria-hidden="true"></i>Added</span>
                     <span class="reg-compare-leg reg-compare-leg-chg"><i class="drr-leg-swatch is-chg" aria-hidden="true"></i>Changed</span>

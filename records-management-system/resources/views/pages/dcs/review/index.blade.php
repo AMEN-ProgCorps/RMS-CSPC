@@ -447,6 +447,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
 
                 @if($canCompare)
                     <div class="drr-legend" aria-label="Highlight legend">
+                        <span class="drr-legend-label">Legend:</span>
                         <span class="drr-leg drr-leg-del"><i class="drr-leg-swatch is-del" aria-hidden="true"></i>Removed</span>
                         <span class="drr-leg drr-leg-ins"><i class="drr-leg-swatch is-ins" aria-hidden="true"></i>Added</span>
                         <span class="drr-leg drr-leg-chg"><i class="drr-leg-swatch is-chg" aria-hidden="true"></i>Changed</span>
@@ -587,6 +588,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
         </div>
         <div class="drr-adhoc-modal-body">
             <div class="drr-legend drr-adhoc-legend" aria-label="Highlight legend">
+                <span class="drr-legend-label">Legend:</span>
                 <span class="drr-leg drr-leg-del"><i class="drr-leg-swatch is-del" aria-hidden="true"></i>Removed</span>
                 <span class="drr-leg drr-leg-ins"><i class="drr-leg-swatch is-ins" aria-hidden="true"></i>Added</span>
                 <span class="drr-leg drr-leg-chg"><i class="drr-leg-swatch is-chg" aria-hidden="true"></i>Changed</span>

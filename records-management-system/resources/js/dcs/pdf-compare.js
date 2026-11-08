@@ -19,18 +19,25 @@ const FILL = {
 };
 
 const CHUNK_SIZE = 10;
-const OCR_BATCH = 1;
-/** Parallel OCR requests per document side — keep at 1; server lock is per-user. */
-const OCR_CONCURRENCY = 1;
+/** Pages per OCR HTTP request (same storage_path). */
+const OCR_BATCH = 3;
+/** Parallel OCR requests — path-scoped server locks allow left/right in parallel. */
+const OCR_CONCURRENCY = 2;
 /** Prefer embedded PDF text when this many tokens exist; otherwise OCR. */
 const RICH_EMBEDDED_TEXT = 20;
 /** Skip OCR when embedded text already has this many paintable tokens. */
 const SKIP_OCR_PAINTABLE = 28;
+/** Prefer real word OCR boxes; line-split only when fewer paintable words exist. */
+const WORD_OCR_PAINT_MIN = 8;
+/** Cap structure overlay marks per page side (instead of dropping table del/ins). */
+const MAX_OVERLAY_MARKS_PER_SIDE = 220;
 const TOKEN_CAP = 4000;
 /** When content alignment finds nothing but docs share vocabulary, pair by page index. */
 const DOC_SIMILARITY_INDEX_FALLBACK = 0.18;
 /** Bump whenever highlight algorithm changes so stale IndexedDB caches are discarded. */
-const CACHE_VERSION = 61;
+const CACHE_VERSION = 64;
+/** Max normalized height for a single painted glyph band (stops floating tall OCR boxes). */
+const GLYPH_BAND_H = 0.016;
 /**
  * Pixel diff below this ⇒ candidate for identical (must also pass text check).
  */
@@ -142,14 +149,27 @@ function normalizeWord(w) {
 }
 
 /**
- * Global OCR request queue — the server holds a per-user lock, so parallel
- * fetches return ocr_busy and leave pages unreadable. Serialize all OCR calls.
+ * Bounded OCR request pool — server locks per storage path, so left/right
+ * (different paths) can run together up to OCR_CONCURRENCY.
  */
-let __drrOcrQueue = Promise.resolve();
+let __drrOcrActive = 0;
+const __drrOcrWaiters = [];
 function enqueueOcrRequest(task) {
-    const run = __drrOcrQueue.then(task, task);
-    __drrOcrQueue = run.then(() => undefined, () => undefined);
-    return run;
+    return new Promise((resolve, reject) => {
+        const run = () => {
+            __drrOcrActive += 1;
+            Promise.resolve()
+                .then(task)
+                .then(resolve, reject)
+                .finally(() => {
+                    __drrOcrActive = Math.max(0, __drrOcrActive - 1);
+                    const next = __drrOcrWaiters.shift();
+                    if (next) next();
+                });
+        };
+        if (__drrOcrActive < OCR_CONCURRENCY) run();
+        else __drrOcrWaiters.push(run);
+    });
 }
 
 /** Paddle has used both 0–1 and 0–100 confidence scales across releases. */
@@ -175,33 +195,90 @@ function visualTextWidth(text) {
     return Math.max(width, 0.5);
 }
 
-/** Return proportional word boxes while reserving a small amount for spaces. */
+/**
+ * Collapse tall OCR/phrase boxes onto the printed glyph band.
+ * OCR often pads above the ink; bias slightly downward (0.62) so fills sit on text.
+ */
+function clampBoxToGlyphBand(box, maxNormH = GLYPH_BAND_H) {
+    if (!box || !Number.isFinite(box.x) || !Number.isFinite(box.h)) return box || null;
+    const maxH = Math.max(0.008, maxNormH);
+    if (box.h <= maxH * 1.35) {
+        return {
+            x: box.x,
+            y: box.y,
+            w: Math.max(box.w, 0.002),
+            h: Math.max(box.h, 0.006),
+        };
+    }
+    const h = maxH;
+    const y = box.y + (box.h - h) * 0.62;
+    return {
+        x: box.x,
+        y: Math.max(0, Math.min(y, 0.995)),
+        w: Math.max(box.w, 0.002),
+        h,
+    };
+}
+
+/** Return proportional word boxes while reserving a small amount for spaces.
+ * Gap/inset keep parity with scripts/ocr/paddle_ocr.py split_phrase_geometry.
+ */
 function splitPhraseBox(box, parts) {
     if (!box || !parts?.length) return [];
+    const band = clampBoxToGlyphBand(box);
     const weights = parts.map(visualTextWidth);
-    const gap = 0.30;
+    const gap = 0.38;
     const total = weights.reduce((sum, weight) => sum + weight, 0)
         + gap * Math.max(parts.length - 1, 0);
     if (!Number.isFinite(total) || total <= 0) return [];
 
-    const unit = box.w / total;
-    let cursor = box.x;
+    const unit = band.w / total;
+    let cursor = band.x;
     return parts.map((part, index) => {
         const fullWidth = Math.max(unit * weights[index], 0.002);
-        const wordBox = {
-            x: cursor,
-            y: box.y,
-            w: Math.max(fullWidth * 0.98, 0.002),
-            h: box.h,
-        };
+        const inset = Math.min(fullWidth * 0.02, 0.0015);
+        const wordBox = clampBoxToGlyphBand({
+            x: cursor + inset,
+            y: band.y,
+            w: Math.max(fullWidth - inset * 2, 0.002),
+            h: band.h,
+        });
         cursor += fullWidth + (index < parts.length - 1 ? unit * gap : 0);
         return wordBox;
     });
 }
 
-function tokensFromItems(items) {
-    return items
-        .map((item) => ({ t: (item.str || '').trim(), item, norm: normalizeWord(item.str), box: null }))
+/** Normalize PDF.js text item into OCR-style 0–1 top-left box. */
+function boxFromPdfItem(item, pageWidth, pageHeight) {
+    if (!item?.transform || !(pageWidth > 0) || !(pageHeight > 0)) return null;
+    const e = Number(item.transform[4]) || 0;
+    const f = Number(item.transform[5]) || 0;
+    const scaleY = Math.hypot(Number(item.transform[1]) || 0, Number(item.transform[3]) || 0) || 0;
+    const height = Math.abs(Number(item.height) || scaleY || 10);
+    const width = Math.abs(Number(item.width) || 0);
+    if (width < 0.4 && height < 0.4) return null;
+    const x = e / pageWidth;
+    // PDF user-space Y grows up; OCR/paint boxes use top-down 0–1.
+    const y = (pageHeight - f - height * 0.2) / pageHeight;
+    const w = width / pageWidth;
+    const h = Math.max(height, scaleY * 0.85) / pageHeight;
+    if (![x, y, w, h].every((n) => Number.isFinite(n))) return null;
+    return {
+        x: Math.max(0, Math.min(x, 0.999)),
+        y: Math.max(0, Math.min(y, 0.999)),
+        w: Math.max(0.001, Math.min(w, 1 - Math.max(0, x))),
+        h: Math.max(0.001, Math.min(h, 1 - Math.max(0, y))),
+    };
+}
+
+function tokensFromItems(items, pageWidth = 0, pageHeight = 0) {
+    return (items || [])
+        .map((item) => {
+            const t = (item.str || '').trim();
+            const norm = normalizeWord(item.str);
+            const box = boxFromPdfItem(item, pageWidth, pageHeight);
+            return { t, item, norm, box };
+        })
         .filter((row) => row.t !== '' && row.norm !== '');
 }
 
@@ -273,7 +350,7 @@ function tokensFromOcrPage(row) {
     // Prefer real word boxes so shared wording can cancel word-by-word.
     // Line tokens made "INTELLECTUAL PROPERTY" one unit and falsely highlighted
     // when the other side had the same words separately.
-    if (wordPaint >= 8) return fromWords;
+    if (wordPaint >= WORD_OCR_PAINT_MIN) return fromWords;
     if (fromWords.length >= fromLines.length && fromWords.length) return fromWords;
     if (fromLines.length) return fromLines;
     return fromWords;
@@ -308,7 +385,7 @@ function tokensFromOcrWords(words) {
                 conf: ocrConfidence(w.conf),
                 synthetic: false,
                 item: null,
-                box: { x, y, w: bw, h: bh },
+                box: clampBoxToGlyphBand({ x, y, w: bw, h: bh }),
             });
         });
 }
@@ -337,7 +414,7 @@ function explodePhraseToken(token) {
                 t: part,
                 norm,
                 item: null,
-                box: boxes[idx] || null,
+                box: boxes[idx] || clampBoxToGlyphBand(box),
             };
         }).filter(Boolean);
     }
@@ -1394,13 +1471,18 @@ function paintMark(ctx, viewport, mark, color) {
         h = Math.min(h, ch - y);
         if (w < 1.5 || h < 1.5) return;
 
-        // Cap tall OCR boxes to a text-line band so fills look like word highlights.
-        // Sentence/block marks get a slightly taller band (Draftable-style).
-        const maxH = mark.sentence
-            ? Math.max(13, ch * 0.026)
-            : Math.max(11, ch * 0.018);
+        // Cap tall OCR boxes onto the glyph band. Bias down (0.62) — OCR boxes
+        // often include padding above the ink, which made green fills float high.
+        const lineH = Number.isFinite(Number(mark.lineHeightPx)) && Number(mark.lineHeightPx) > 4
+            ? Number(mark.lineHeightPx)
+            : (Number.isFinite(Number(mark.lineHeight)) ? Number(mark.lineHeight) * ch : NaN);
+        const maxH = Number.isFinite(lineH) && lineH > 4
+            ? Math.min(Math.max(lineH * 1.05, 9), ch * 0.022)
+            : (mark.sentence
+                ? Math.max(12, ch * 0.022)
+                : Math.max(9, ch * 0.014));
         if (h > maxH) {
-            y = y + (h - maxH) * 0.35;
+            y = y + (h - maxH) * 0.62;
             h = maxH;
         }
 
@@ -1448,7 +1530,10 @@ function markFromToken(k, token) {
         norm: token.norm || null,
         sectionKey: token.sectionKey || token.sectionSoftKey || null,
     };
-    if (token.box) return { k, box: token.box, ...meta };
+    if (token.box) {
+        const box = clampBoxToGlyphBand(token.box);
+        return { k, box, lineHeight: Math.min(box?.h || GLYPH_BAND_H, GLYPH_BAND_H), ...meta };
+    }
     if (token.item) return { k, item: token.item, ...meta };
     return null;
 }
@@ -1461,12 +1546,43 @@ function pageHasPaintableTokens(page) {
     return (page?.tokens || []).some(tokenPaintable);
 }
 
+const TABLE_HEADER_RE = /\b(doc(?:ument)?\s*no\.?|item\s*no\.?|originator|particulars|description|quantity|unit|amount|date\s*filed)\b/i;
+
+/** Detect masterlist / grid pages that need OCR table structure even with rich embedded text. */
+function pageLooksTabular(tokens) {
+    const list = (tokens || []).filter((t) => t?.norm);
+    if (list.length < 12) return false;
+    const rawJoin = list.map((t) => String(t.t || '')).join(' ');
+    if (TABLE_HEADER_RE.test(rawJoin)) return true;
+
+    const lines = clusterTokensIntoLines(list);
+    if (lines.length < 4) return false;
+    const multiCol = lines.filter((ln) => (ln.tokens || []).length >= 3).length;
+    if (multiCol < 3) return false;
+
+    // Shared X bands across many rows ⇒ grid.
+    const xs = [];
+    for (const ln of lines) {
+        for (const t of ln.tokens || []) {
+            const x = tokenSortX(t);
+            if (Number.isFinite(x)) xs.push(Math.round(x * 40) / 40);
+        }
+    }
+    if (xs.length < 18) return multiCol >= Math.max(4, Math.floor(lines.length * 0.45));
+    const freq = new Map();
+    for (const x of xs) freq.set(x, (freq.get(x) || 0) + 1);
+    const strongBands = [...freq.values()].filter((n) => n >= Math.max(3, Math.floor(lines.length * 0.25))).length;
+    return strongBands >= 3 || multiCol >= Math.max(5, Math.floor(lines.length * 0.5));
+}
+
 /** Re-OCR when the other side uses OCR boxes but this page only has sparse/missing text. */
 function pageNeedsOcrForCompare(page, partnerPage) {
     if (!page) return false;
     if (!page.tokens.length) return true;
     if (!pageHasPaintableTokens(page)) return true;
     if (page.ocrFailed) return true;
+    // Table-like pages need word+table geometry once (even with rich embedded text).
+    if (pageLooksTabular(page.tokens) && !(page.tables?.length) && !page.usedOcr) return true;
     if (partnerPage?.usedOcr && !page.usedOcr) return true;
     if (
         partnerPage?.usedOcr
@@ -1505,22 +1621,8 @@ async function applyOcrToPages(pages, pageNumbers, sideMeta, setStatus, warnings
         setStatus(label, 'loading', pct);
     };
 
-    const ocrOne = async (pageNo) => {
-        reportProgress(`OCR ${sideMeta.label}: page ${pageNo} (${done + 1}/${total})…`);
-
-        let results = [];
-        try {
-            results = await ocrPageBatch({
-                file: sideMeta.file || null,
-                storagePath: sideMeta.storagePath || '',
-                pages: [pageNo],
-            });
-        } catch (err) {
-            // Defer warning until image OCR also fails — embedded text may still be usable.
-            results = [{ page: pageNo, text: '', words: [], used_ocr: true, ok: false }];
-        }
-
-        let row = results.find((r) => Number(r.page) === pageNo) || results[0];
+    const applyOcrRow = async (pageNo, rowIn) => {
+        let row = rowIn || { page: pageNo, text: '', words: [], used_ocr: true, ok: false };
         let tokens = tokensFromOcrPage(row).slice(0, TOKEN_CAP);
 
         // Image OCR only when storage OCR produced nothing usable — skip sparse
@@ -1580,15 +1682,18 @@ async function applyOcrToPages(pages, pageNumbers, sideMeta, setStatus, warnings
             if (!finalPaintable && !finalHasText && row?.ok === false) {
                 warnings.push(`OCR failed for ${sideMeta.label} page ${pageNo}.`);
             }
+            const tables = Array.isArray(row?.tables) && row.tables.length
+                ? row.tables
+                : (prev?.tables?.length ? prev.tables : buildPseudoTablesFromTokens(tokens));
             pages[idx] = {
                 page: pageNo,
                 tokens,
-                usedOcr: finalPaintable || Boolean(prev?.usedOcr) || Boolean(row?.used_ocr),
+                usedOcr: finalPaintable || Boolean(prev?.usedOcr) || Boolean(row?.used_ocr) || pageLooksTabular(tokens),
                 hasText: tokens.length > 0,
                 rawText: String(row?.text || prev?.rawText || ''),
                 ocrFailed: !finalPaintable && !finalHasText && Boolean(row?.ok === false),
                 blocks: Array.isArray(row?.blocks) && row.blocks.length ? row.blocks : (prev?.blocks || []),
-                tables: Array.isArray(row?.tables) && row.tables.length ? row.tables : (prev?.tables || []),
+                tables,
                 signatures: Array.isArray(row?.signatures) && row.signatures.length ? row.signatures : (prev?.signatures || []),
                 footers: Array.isArray(row?.footers) && row.footers.length ? row.footers : (prev?.footers || []),
                 figures: Array.isArray(row?.figures) && row.figures.length ? row.figures : (prev?.figures || []),
@@ -1598,11 +1703,39 @@ async function applyOcrToPages(pages, pageNumbers, sideMeta, setStatus, warnings
         reportProgress(`OCR ${sideMeta.label}: page ${pageNo} (${done}/${total})…`);
     };
 
-    const workers = Array.from({ length: Math.min(OCR_CONCURRENCY, unique.length) }, async () => {
-        while (cursor < unique.length) {
-            const pageNo = unique[cursor];
+    const ocrBatch = async (pageNos) => {
+        const label = pageNos.length === 1
+            ? `page ${pageNos[0]}`
+            : `pages ${pageNos[0]}–${pageNos[pageNos.length - 1]}`;
+        reportProgress(`OCR ${sideMeta.label}: ${label} (${done + 1}/${total})…`);
+
+        let results = [];
+        try {
+            results = await ocrPageBatch({
+                file: sideMeta.file || null,
+                storagePath: sideMeta.storagePath || '',
+                pages: pageNos,
+            });
+        } catch (err) {
+            results = pageNos.map((pageNo) => ({ page: pageNo, text: '', words: [], used_ocr: true, ok: false }));
+        }
+
+        for (const pageNo of pageNos) {
+            const row = results.find((r) => Number(r.page) === pageNo) || null;
+            await applyOcrRow(pageNo, row);
+        }
+    };
+
+    const batches = [];
+    for (let i = 0; i < unique.length; i += OCR_BATCH) {
+        batches.push(unique.slice(i, i + OCR_BATCH));
+    }
+
+    const workers = Array.from({ length: Math.min(OCR_CONCURRENCY, batches.length) }, async () => {
+        while (cursor < batches.length) {
+            const batch = batches[cursor];
             cursor += 1;
-            await ocrOne(pageNo);
+            await ocrBatch(batch);
         }
     });
     await Promise.all(workers);
@@ -1695,13 +1828,22 @@ function allTokenMarks(tokens, k) {
         .filter(Boolean);
 }
 
-async function pageItems(doc, pageNumber) {
+async function pageTextLayer(doc, pageNumber) {
     if (!doc || pageNumber > doc.numPages) {
-        return [];
+        return { items: [], pageWidth: 1, pageHeight: 1 };
     }
     const page = await doc.getPage(pageNumber);
     const content = await page.getTextContent();
-    return content.items || [];
+    const viewport = page.getViewport({ scale: 1 });
+    return {
+        items: content.items || [],
+        pageWidth: viewport.width || 1,
+        pageHeight: viewport.height || 1,
+    };
+}
+
+async function pageItems(doc, pageNumber) {
+    return (await pageTextLayer(doc, pageNumber)).items;
 }
 
 function storagePathFromUrl(url) {
@@ -1851,9 +1993,11 @@ async function ensurePageTexts(doc, sideMeta, setStatus, options = {}) {
             continue;
         }
 
-        const items = tokensFromItems(await pageItems(doc, p)).slice(0, TOKEN_CAP);
+        const layer = await pageTextLayer(doc, p);
+        const items = tokensFromItems(layer.items, layer.pageWidth, layer.pageHeight).slice(0, TOKEN_CAP);
         const paintCount = items.filter(tokenPaintable).length;
         const richText = items.length >= RICH_EMBEDDED_TEXT && paintCount >= SKIP_OCR_PAINTABLE;
+        const tabular = pageLooksTabular(items);
         const inOcrWave = !ocrPageFilter || ocrPageFilter.has(p);
         pages.push({
             page: p,
@@ -1862,15 +2006,15 @@ async function ensurePageTexts(doc, sideMeta, setStatus, options = {}) {
             hasText: items.length > 0,
             unchanged: false,
             blocks: [],
-            tables: [],
+            tables: tabular ? buildPseudoTablesFromTokens(items) : [],
             signatures: [],
             footers: [],
             figures: [],
         });
 
-        // Skip OCR when embedded PDF text is already dense + paintable (major speedup).
-        // Still OCR sparse / image-only / thin text layers.
-        if (inOcrWave && !richText) {
+        // Skip OCR when embedded PDF text is dense + paintable (narrative speedup).
+        // Table-like pages always OCR for word + table geometry.
+        if (inOcrWave && (!richText || tabular)) {
             missing.push(p);
         }
     }
@@ -2143,10 +2287,42 @@ function alignPagesByContent(leftPages, rightPages, visualByPage = null) {
 
 function alignPagesSmart(leftPages, rightPages, visualByPage = null) {
     const similarity = documentSimilarity(leftPages, rightPages);
-    // Always show real PDF page indices side-by-side (p.N ↔ p.N).
-    // Content-LCS / refuse-weak invented blank opposite "pages" and inflated
-    // "37 new / 9 removed" counts — reviewers want the document pages as they are.
+    // Fast path: real PDF page indices side-by-side (p.N ↔ p.N).
     const positionAlign = alignPagesByPosition(leftPages, rightPages, visualByPage);
+
+    let matched = 0;
+    let weak = 0;
+    let forceUnmatch = false;
+    for (const slot of positionAlign) {
+        if (slot?.type !== 'match' || !slot.left || !slot.right) continue;
+        matched += 1;
+        const score = pageSigSimilarity(pageSignature(slot.left), pageSignature(slot.right));
+        slot.bodyScore = score;
+        if (score < PAGE_CONTENT_MATCH) weak += 1;
+        if (score < PAGE_FORCE_UNMATCH) forceUnmatch = true;
+    }
+
+    const multiPage = Math.max(leftPages.length, rightPages.length) > 1;
+    const weakRatio = matched > 0 ? weak / matched : 0;
+    const shouldLcs = multiPage && (
+        weakRatio >= PAGE_ALIGN_WEAK_RATIO
+        || forceUnmatch
+        || (similarity >= DOC_SIMILARITY_INDEX_FALLBACK && weakRatio > 0)
+    );
+
+    if (shouldLcs) {
+        const lcs = alignPagesByLcs(leftPages, rightPages, visualByPage);
+        // Defensive: never blank the compare if LCS degenerates.
+        if (lcs?.alignment?.length && lcs.matchCount > 0) {
+            return {
+                alignment: lcs.alignment,
+                mode: 'content-lcs',
+                similarity,
+                matchCount: lcs.matchCount,
+            };
+        }
+    }
+
     return {
         alignment: positionAlign,
         mode: 'position',
@@ -2595,10 +2771,9 @@ function isNoiseDiffToken(token) {
     const n = token?.norm || '';
     if (!n) return true;
     if (isUnreliableOcrToken(token)) return true;
-    if (n.length <= 2) return true;
+    // Keep single digits (Rev. 0→1) and 2-char codes; only drop true function words.
     if (NOISE_DIFF_WORDS.has(n)) return true;
-    // Single-digit bullets / list markers only — years and doc IDs must stay visible.
-    if (/^\d$/.test(n)) return true;
+    if (n.length <= 2 && !/\d/.test(n) && !/^[a-z]{2}$/i.test(n)) return true;
     return false;
 }
 
@@ -3314,15 +3489,15 @@ async function findUnchangedPagePairs(leftDoc, rightDoc, onProgress) {
                 Promise.all([
                     pageVisualHash(leftDoc, p, 64),
                     pageVisualHash(rightDoc, p, 64),
-                    pageItems(leftDoc, p),
-                    pageItems(rightDoc, p),
-                ]).then(([lh, rh, leftItems, rightItems]) => {
+                    pageTextLayer(leftDoc, p),
+                    pageTextLayer(rightDoc, p),
+                ]).then(([lh, rh, leftLayer, rightLayer]) => {
                     const leftNorm = normalizeVisualHash(lh);
                     const rightNorm = normalizeVisualHash(rh);
                     const visualDiff = visualHashDiff(leftNorm, rightNorm);
 
-                    const lt = tokensFromItems(leftItems);
-                    const rt = tokensFromItems(rightItems);
+                    const lt = tokensFromItems(leftLayer.items, leftLayer.pageWidth, leftLayer.pageHeight);
+                    const rt = tokensFromItems(rightLayer.items, rightLayer.pageWidth, rightLayer.pageHeight);
                     const eitherHasText = lt.length > 0 || rt.length > 0;
                     const sparse = lt.length < RICH_EMBEDDED_TEXT || rt.length < RICH_EMBEDDED_TEXT;
                     const textSim = eitherHasText ? pageTextSimilarity(lt, rt) : 1;
@@ -3506,21 +3681,60 @@ function unitSimilarity(a, b) {
 }
 
 function resolveUnitTokens(unit, fallbackTokens) {
-    if (unit?.tokens?.length) return unit.tokens;
+    if (unit?.tokens?.length) {
+        return unit.tokens.map((t) => (
+            t?.box ? { ...t, box: clampBoxToGlyphBand(t.box) } : t
+        ));
+    }
+    const plain = String(unit?.text || unit?.raw || '').trim();
+    // Blank cells must not harvest neighboring OCR tokens (caused false header chg).
+    if (!plain && !unit?.words?.length) return [];
+
     const fromWords = tokensFromStructureWords(unit?.words);
-    if (fromWords.length) return fromWords;
-    // Map unit box onto page tokens
-    const box = unit?.box;
+    if (fromWords.length) {
+        return fromWords.map((t) => (
+            t?.box ? { ...t, box: clampBoxToGlyphBand(t.box) } : t
+        ));
+    }
+    // Map unit box onto page tokens — tight band only (reject tall harvested boxes).
+    const box = unit?.box || (
+        [unit?.x, unit?.y, unit?.w, unit?.h].every((n) => Number.isFinite(Number(n)))
+            ? { x: Number(unit.x), y: Number(unit.y), w: Number(unit.w), h: Number(unit.h) }
+            : null
+    );
     if (box && fallbackTokens?.length) {
-        return fallbackTokens.filter((t) => {
+        const band = clampBoxToGlyphBand(box, Math.min(0.028, Math.max(box.h || GLYPH_BAND_H, GLYPH_BAND_H)));
+        const padX = 0.008;
+        const padY = 0.006;
+        const hits = fallbackTokens.filter((t) => {
             if (!t?.box) return false;
             const cx = t.box.x + t.box.w / 2;
             const cy = t.box.y + t.box.h / 2;
-            return cx >= box.x - 0.01 && cx <= box.x + box.w + 0.01
-                && cy >= box.y - 0.01 && cy <= box.y + box.h + 0.01;
+            return cx >= band.x - padX && cx <= band.x + band.w + padX
+                && cy >= band.y - padY && cy <= band.y + band.h + padY;
         });
+        if (hits.length) return hits;
+        // Fall back to text match when geometry miss (still blank-safe via plain check).
+        if (plain) {
+            const norms = new Set(
+                plain.split(/\s+/).map((w) => normalizeWord(w)).filter(Boolean)
+            );
+            return fallbackTokens.filter((t) => t?.norm && norms.has(t.norm)).slice(0, 24);
+        }
     }
     return [];
+}
+
+function cellPlainText(cell) {
+    return String(cell?.text || cell?.raw || '').replace(/\s+/g, ' ').trim();
+}
+
+function cellCompareKey(cell) {
+    return cellPlainText(cell).toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function cellIsBlank(cell) {
+    return !cellCompareKey(cell);
 }
 
 /**
@@ -3787,12 +4001,333 @@ function diffFooterFields(leftFooters, rightFooters, leftTok, rightTok) {
     return result;
 }
 
+function tableRowIndexes(table) {
+    return [...new Set((table?.cells || []).map((c) => Number(c.r)))]
+        .filter((r) => Number.isFinite(r))
+        .sort((a, b) => a - b);
+}
+
+function tableRowSignature(table, rowIndex) {
+    return (table?.cells || [])
+        .filter((c) => Number(c.r) === rowIndex)
+        .sort((a, b) => Number(a.c) - Number(b.c))
+        .map((c) => normalizeWord(c.text || c.raw || ''))
+        .filter(Boolean)
+        .join('|');
+}
+
+function tableRowCellsByCol(table, rowIndex) {
+    const m = new Map();
+    for (const c of table?.cells || []) {
+        if (Number(c.r) !== rowIndex) continue;
+        m.set(Number(c.c), c);
+    }
+    return m;
+}
+
+const TABLE_HEADER_CELL_RE = /^(doc(?:ument)?no|item(?:no)?|code|ref|no|originator|title|date|particulars|description|amount|qty|quantity|unit|approvals?|position|names?|signature)$/i;
+const CODE_LIKE_CELL_RE = /^[A-Z]{1,8}[-/._]?\d[\w./-]{0,24}$/i;
+
+/** True when a table row looks like column headers, not data. */
+function isTableHeaderRow(table, rowIndex) {
+    const raw = (table?.cells || [])
+        .filter((c) => Number(c.r) === rowIndex)
+        .map((c) => String(c.text || c.raw || ''))
+        .join(' ')
+        .toLowerCase();
+    if (!raw.trim()) return false;
+    const headerHits = (raw.match(/\b(approvals?|position|names?|signature|title|description|originator|item|date|doc(?:ument)?\s*no|particulars|amount|qty|quantity|unit|code|ref)\b/g) || []).length;
+    const dataHits = (raw.match(/\b(phd|president|chairperson|vice-?chair|january|february|march|april|may|june|july|august|september|october|november|december|iso)\b/g) || []).length;
+    return headerHits >= 2 && dataHits === 0;
+}
+
+/** Stable row identity: Doc No / code → title stem → full-row signature. */
+function tableRowStableKey(table, rowIndex) {
+    const cells = [...tableRowCellsByCol(table, rowIndex).entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([, c]) => String(c.text || c.raw || '').trim())
+        .filter(Boolean);
+    if (!cells.length) return '';
+
+    for (const c of cells) {
+        const n = normalizeWord(c);
+        if (!n || TABLE_HEADER_CELL_RE.test(n)) continue;
+        if (CODE_LIKE_CELL_RE.test(c) || (/[A-Za-z]/.test(c) && /\d{2,}/.test(c) && c.length <= 40)) {
+            return `code:${n}`;
+        }
+    }
+
+    const first = cells[0];
+    const firstNorm = normalizeWord(first);
+    if (first && first.length <= 36 && /\d/.test(first) && firstNorm && !TABLE_HEADER_CELL_RE.test(firstNorm)) {
+        return `code:${firstNorm}`;
+    }
+
+    const title = cells.find((c) => String(c).length > 8 && !CODE_LIKE_CELL_RE.test(c)) || cells[1] || cells[0];
+    const stem = normalizeWord(title).slice(0, 48);
+    if (stem.length >= 4) return `title:${stem}`;
+    return `sig:${tableRowSignature(table, rowIndex)}`;
+}
+
+function tableContentSignature(table) {
+    const rows = tableRowIndexes(table).slice(0, 12);
+    return rows.map((r) => tableRowStableKey(table, r) || tableRowSignature(table, r)).filter(Boolean).join('||');
+}
+
+function tableSimilarity(a, b) {
+    if (!a || !b) return 0;
+    const as = new Set(tableContentSignature(a).split('||').filter(Boolean));
+    const bs = new Set(tableContentSignature(b).split('||').filter(Boolean));
+    if (!as.size || !bs.size) {
+        const ar = tableRowIndexes(a).length;
+        const br = tableRowIndexes(b).length;
+        if (!ar || !br) return 0;
+        return Math.min(ar, br) / Math.max(ar, br);
+    }
+    let hit = 0;
+    for (const k of as) if (bs.has(k)) hit++;
+    return hit / Math.max(as.size, bs.size, 1);
+}
+
+/** Pair tables by content when indexes diverge (inserted tables / OCR split). */
+function pairTablesByContent(leftTables, rightTables) {
+    const left = Array.isArray(leftTables) ? leftTables : [];
+    const right = Array.isArray(rightTables) ? rightTables : [];
+    const usedRight = new Set();
+    const pairs = [];
+
+    for (let li = 0; li < left.length; li++) {
+        let best = -1;
+        let bestScore = 0;
+        for (let ri = 0; ri < right.length; ri++) {
+            if (usedRight.has(ri)) continue;
+            const score = tableSimilarity(left[li], right[ri]);
+            const indexBonus = li === ri ? 0.05 : 0;
+            const adjusted = score + indexBonus;
+            if (adjusted > bestScore) {
+                bestScore = adjusted;
+                best = ri;
+            }
+        }
+        if (best >= 0 && bestScore >= 0.28) {
+            usedRight.add(best);
+            pairs.push({ left: left[li], right: right[best] });
+        } else {
+            pairs.push({ left: left[li], right: null });
+        }
+    }
+    for (let ri = 0; ri < right.length; ri++) {
+        if (usedRight.has(ri)) continue;
+        pairs.push({ left: null, right: right[ri] });
+    }
+    return pairs;
+}
+
+/**
+ * Client pseudo-table when OCR tables are empty — cluster tokens into rows/cols.
+ */
+function buildPseudoTablesFromTokens(tokens) {
+    const list = (tokens || []).filter((t) => t?.norm && tokenPaintable(t));
+    if (list.length < 12) return [];
+    const lines = clusterTokensIntoLines(list).filter((ln) => (ln.tokens || []).length >= 2);
+    if (lines.length < 3) return [];
+
+    const multiCol = lines.filter((ln) => ln.tokens.length >= 3);
+    if (multiCol.length < 3 && !TABLE_HEADER_RE.test(lines.map((l) => lineRawText(l)).join(' '))) {
+        return [];
+    }
+
+    const xs = [];
+    for (const ln of multiCol.length >= 3 ? multiCol : lines) {
+        for (const t of ln.tokens) {
+            const x = tokenSortX(t);
+            if (Number.isFinite(x)) xs.push(x);
+        }
+    }
+    xs.sort((a, b) => a - b);
+    const bands = [];
+    for (const x of xs) {
+        const last = bands[bands.length - 1];
+        if (last && Math.abs(last - x) <= 0.045) continue;
+        bands.push(x);
+    }
+    if (bands.length < 2) return [];
+
+    const colOf = (x) => {
+        let best = 0;
+        let bestD = Infinity;
+        for (let i = 0; i < bands.length; i++) {
+            const d = Math.abs(bands[i] - x);
+            if (d < bestD) {
+                bestD = d;
+                best = i;
+            }
+        }
+        return best;
+    };
+
+    const cells = [];
+    const useLines = multiCol.length >= 3 ? multiCol : lines;
+    useLines.forEach((ln, r) => {
+        for (const t of ln.tokens) {
+            const x = tokenSortX(t);
+            const y = tokenSortY(t);
+            const c = colOf(x);
+            const existing = cells.find((cell) => cell.r === r && cell.c === c);
+            if (existing) {
+                existing.text = `${existing.text} ${t.t}`.trim();
+                existing.raw = existing.text;
+                continue;
+            }
+            const bx = Number.isFinite(t.box?.x) ? t.box.x : x;
+            const by = Number.isFinite(t.box?.y) ? t.box.y : y;
+            const bw = Number.isFinite(t.box?.w) ? t.box.w : 0.06;
+            const bh = Number.isFinite(t.box?.h) ? t.box.h : 0.02;
+            cells.push({
+                r,
+                c,
+                text: String(t.t || ''),
+                raw: String(t.t || ''),
+                x: bx,
+                y: by,
+                w: bw,
+                h: bh,
+                box: { x: bx, y: by, w: bw, h: bh },
+                tokens: [t],
+            });
+        }
+    });
+
+    if (cells.length < 6) return [];
+    return [{
+        rows: useLines.length,
+        cols: bands.length,
+        cells,
+        pseudo: true,
+    }];
+}
+
+/**
+ * Align table rows by stable Doc No/title keys first, then LCS on residuals
+ * so inserting a masterlist row does not paint every shifted cell as delete+insert.
+ */
+function alignTableRowsByContent(lt, rt) {
+    const leftRows = tableRowIndexes(lt);
+    const rightRows = tableRowIndexes(rt);
+    if (!leftRows.length || !rightRows.length) {
+        return {
+            pairs: [],
+            leftOnly: leftRows,
+            rightOnly: rightRows,
+        };
+    }
+
+    const leftKeys = leftRows.map((r) => tableRowStableKey(lt, r));
+    const rightKeys = rightRows.map((r) => tableRowStableKey(rt, r));
+    const leftIsHeader = leftRows.map((r) => isTableHeaderRow(lt, r));
+    const rightIsHeader = rightRows.map((r) => isTableHeaderRow(rt, r));
+
+    const pairedLeft = new Set();
+    const pairedRight = new Set();
+    const pairs = [];
+
+    // Force-pair header rows so "Approvals: Position" never soft-matches a data row.
+    const leftHeaders = leftRows.map((r, i) => i).filter((i) => leftIsHeader[i]);
+    const rightHeaders = rightRows.map((r, i) => i).filter((i) => rightIsHeader[i]);
+    const headerPairs = Math.min(leftHeaders.length, rightHeaders.length);
+    for (let h = 0; h < headerPairs; h++) {
+        pairedLeft.add(leftHeaders[h]);
+        pairedRight.add(rightHeaders[h]);
+        pairs.push({ left: leftRows[leftHeaders[h]], right: rightRows[rightHeaders[h]] });
+    }
+
+    const rightByKey = new Map();
+    rightKeys.forEach((key, idx) => {
+        if (pairedRight.has(idx)) return;
+        if (!key || key.startsWith('sig:')) return;
+        if (!rightByKey.has(key)) rightByKey.set(key, []);
+        rightByKey.get(key).push(idx);
+    });
+
+    leftKeys.forEach((key, li) => {
+        if (pairedLeft.has(li)) return;
+        if (!key || key.startsWith('sig:')) return;
+        const candidates = rightByKey.get(key);
+        if (!candidates?.length) return;
+        const ri = candidates.shift();
+        if (ri == null || pairedRight.has(ri)) return;
+        pairedLeft.add(li);
+        pairedRight.add(ri);
+        pairs.push({ left: leftRows[li], right: rightRows[ri] });
+    });
+
+    const leftRemainIdx = leftRows.map((_, i) => i).filter((i) => !pairedLeft.has(i));
+    const rightRemainIdx = rightRows.map((_, i) => i).filter((i) => !pairedRight.has(i));
+    const leftSig = leftRemainIdx.map((i) => leftKeys[i] || tableRowSignature(lt, leftRows[i]));
+    const rightSig = rightRemainIdx.map((i) => rightKeys[i] || tableRowSignature(rt, rightRows[i]));
+    const ops = lcsOps(leftSig, rightSig, (a, b, li, ri) => {
+        // lcsOps only passes (a,b) — header guard applied via signature tags below.
+        if (a === b) return true;
+        if (!a || !b) return false;
+        if (a.startsWith('code:') || b.startsWith('code:')) return a === b;
+        const as = new Set(String(a).replace(/^(title|sig|hdr):/, '').split('|').filter(Boolean));
+        const bs = new Set(String(b).replace(/^(title|sig|hdr):/, '').split('|').filter(Boolean));
+        if (!as.size || !bs.size) return false;
+        let hit = 0;
+        for (const t of as) if (bs.has(t)) hit++;
+        return hit / Math.max(as.size, bs.size) >= 0.55;
+    });
+
+    // Prevent residual soft-pairs between leftover header and data rows.
+    const leftOnly = [];
+    const rightOnly = [];
+    for (const op of ops) {
+        if (op.k === 'eq') {
+            const li = leftRemainIdx[op.li];
+            const ri = rightRemainIdx[op.ri];
+            if (leftIsHeader[li] !== rightIsHeader[ri]) {
+                leftOnly.push(leftRows[li]);
+                rightOnly.push(rightRows[ri]);
+                continue;
+            }
+            pairs.push({
+                left: leftRows[li],
+                right: rightRows[ri],
+            });
+        } else if (op.k === 'del') {
+            leftOnly.push(leftRows[leftRemainIdx[op.li]]);
+        } else if (op.k === 'ins') {
+            rightOnly.push(rightRows[rightRemainIdx[op.ri]]);
+        }
+    }
+    return { pairs, leftOnly, rightOnly };
+}
+
+function capOverlayMarks(result, maxPerSide = MAX_OVERLAY_MARKS_PER_SIDE) {
+    if (!result) return emptyMarks();
+    const trim = (marks) => {
+        const list = marks || [];
+        if (list.length <= maxPerSide) return list;
+        // Prefer del/ins (row adds/removes) over chg when capping.
+        const ranked = list.slice().sort((a, b) => {
+            const rank = (m) => (m?.k === 'del' || m?.k === 'ins' ? 0 : 1);
+            return rank(a) - rank(b);
+        });
+        return ranked.slice(0, maxPerSide);
+    };
+    return {
+        leftMarks: trim(result.leftMarks),
+        rightMarks: trim(result.rightMarks),
+        del: result.del || 0,
+        ins: result.ins || 0,
+        chg: result.chg || 0,
+    };
+}
+
 function diffTableCells(leftTables, rightTables, leftTok, rightTok) {
     let result = emptyMarks();
-    const n = Math.max(leftTables?.length || 0, rightTables?.length || 0);
-    for (let ti = 0; ti < n; ti++) {
-        const lt = leftTables?.[ti];
-        const rt = rightTables?.[ti];
+    const paired = pairTablesByContent(leftTables, rightTables);
+    for (const { left: lt, right: rt } of paired) {
         if (!lt && rt) {
             for (const cell of rt.cells || []) {
                 const toks = resolveUnitTokens(cell, rightTok);
@@ -3814,37 +4349,74 @@ function diffTableCells(leftTables, rightTables, leftTok, rightTok) {
             continue;
         }
         if (!lt || !rt) continue;
-        const cellMap = (table) => {
-            const m = new Map();
-            for (const c of table.cells || []) {
-                m.set(`${c.r}:${c.c}`, c);
-            }
-            return m;
-        };
-        const LM = cellMap(lt);
-        const RM = cellMap(rt);
-        const keys = new Set([...LM.keys(), ...RM.keys()]);
-        for (const key of keys) {
-            const lc = LM.get(key);
-            const rc = RM.get(key);
-            const ltoks = resolveUnitTokens(lc || {}, leftTok);
-            const rtoks = resolveUnitTokens(rc || {}, rightTok);
-            if (lc && rc) {
-                result = mergeMarkResults(result, wordDiffMarksHybrid(ltoks, rtoks));
-            } else if (lc) {
-                const p = markTokensKind(ltoks, 'del');
+
+        const aligned = alignTableRowsByContent(lt, rt);
+        for (const row of aligned.leftOnly) {
+            for (const cell of tableRowCellsByCol(lt, row).values()) {
+                const toks = resolveUnitTokens(cell, leftTok);
+                const p = markTokensKind(toks, 'del');
                 result = mergeMarkResults(result, {
                     leftMarks: p.marks, rightMarks: [], del: p.n, ins: 0, chg: 0,
                 });
-            } else if (rc) {
-                const p = markTokensKind(rtoks, 'ins');
+            }
+        }
+        for (const row of aligned.rightOnly) {
+            for (const cell of tableRowCellsByCol(rt, row).values()) {
+                const toks = resolveUnitTokens(cell, rightTok);
+                const p = markTokensKind(toks, 'ins');
                 result = mergeMarkResults(result, {
                     leftMarks: [], rightMarks: p.marks, del: 0, ins: p.n, chg: 0,
                 });
             }
         }
+        for (const pair of aligned.pairs) {
+            const LM = tableRowCellsByCol(lt, pair.left);
+            const RM = tableRowCellsByCol(rt, pair.right);
+            const cols = new Set([...LM.keys(), ...RM.keys()]);
+            for (const col of cols) {
+                const lc = LM.get(col);
+                const rc = RM.get(col);
+                // Identical header/label cells must stay clean (no false yellow).
+                if (lc && rc && cellCompareKey(lc) && cellCompareKey(lc) === cellCompareKey(rc)) {
+                    continue;
+                }
+                if (lc && rc && cellIsBlank(lc) && !cellIsBlank(rc)) {
+                    const rtoks = resolveUnitTokens(rc, rightTok);
+                    const p = markTokensKind(rtoks, 'ins');
+                    result = mergeMarkResults(result, {
+                        leftMarks: [], rightMarks: p.marks, del: 0, ins: p.n, chg: 0,
+                    });
+                    continue;
+                }
+                if (lc && rc && !cellIsBlank(lc) && cellIsBlank(rc)) {
+                    const ltoks = resolveUnitTokens(lc, leftTok);
+                    const p = markTokensKind(ltoks, 'del');
+                    result = mergeMarkResults(result, {
+                        leftMarks: p.marks, rightMarks: [], del: p.n, ins: 0, chg: 0,
+                    });
+                    continue;
+                }
+                if (lc && rc && cellIsBlank(lc) && cellIsBlank(rc)) continue;
+
+                const ltoks = resolveUnitTokens(lc || {}, leftTok);
+                const rtoks = resolveUnitTokens(rc || {}, rightTok);
+                if (lc && rc) {
+                    result = mergeMarkResults(result, wordDiffMarksHybrid(ltoks, rtoks));
+                } else if (lc) {
+                    const p = markTokensKind(ltoks, 'del');
+                    result = mergeMarkResults(result, {
+                        leftMarks: p.marks, rightMarks: [], del: p.n, ins: 0, chg: 0,
+                    });
+                } else if (rc) {
+                    const p = markTokensKind(rtoks, 'ins');
+                    result = mergeMarkResults(result, {
+                        leftMarks: [], rightMarks: p.marks, del: 0, ins: p.n, chg: 0,
+                    });
+                }
+            }
+        }
     }
-    return result;
+    return capOverlayMarks(result);
 }
 
 function diffFlowFigures(leftFigs, rightFigs, leftTok, rightTok) {
@@ -4124,7 +4696,13 @@ function wordDiffMarksStructuredPage(leftPage, rightPage) {
 
     const sigResult = diffSignatureFields(leftSigs, rightSigs, leftAll, rightAll);
     const footResult = diffFooterFields(leftFeet, rightFeet, leftAll, rightAll);
-    const tableResult = diffTableCells(leftPage?.tables || [], rightPage?.tables || [], leftAll, rightAll);
+    const leftTables = (leftPage?.tables?.length
+        ? leftPage.tables
+        : buildPseudoTablesFromTokens(leftAll));
+    const rightTables = (rightPage?.tables?.length
+        ? rightPage.tables
+        : buildPseudoTablesFromTokens(rightAll));
+    const tableResult = diffTableCells(leftTables, rightTables, leftAll, rightAll);
     const flowResult = diffFlowFigures(leftPage?.figures || [], rightPage?.figures || [], leftAll, rightAll);
 
     const scoreBody = (r) => {
@@ -4146,29 +4724,33 @@ function wordDiffMarksStructuredPage(leftPage, rightPage) {
         body = fullHybrid;
     }
 
+    // When table structure produced real row edits, prefer it over dense body rewrite paint.
+    const tablePaint = countPaintableMarks(tableResult);
+    if (tablePaint > 0 && (leftTables.length || rightTables.length)) {
+        const tableHarsh = (tableResult.del || 0) + (tableResult.ins || 0);
+        if (tableHarsh > 0 || tablePaint < bodyPaint * 0.85) {
+            body = emptyMarks();
+        }
+    }
+
     const overlays = mergeMarkResults(sigResult, footResult, tableResult, flowResult);
     const overlayPaint = countPaintableMarks(overlays);
 
     let structured = body;
-    // Keep sparse structure overlays (signatures, footers, cell edits).
-    // Drop dense table/flow overlays that re-paint the whole page red/green.
+    // Always keep table/signature overlays (capped). Never drop unmatched-row del/ins.
     if (overlayPaint > 0 && overlayPaint / denom < 0.28) {
         structured = mergeMarkResults(body, overlays);
     } else if (overlayPaint > 0) {
-        // Prefer yellow/chg marks from overlays only.
-        const chgOnly = {
-            leftMarks: (overlays.leftMarks || []).filter((m) => m.k === 'chg'),
-            rightMarks: (overlays.rightMarks || []).filter((m) => m.k === 'chg'),
+        const tableKeep = capOverlayMarks(tableResult);
+        const sparseSigFoot = mergeMarkResults(sigResult, footResult);
+        const flowChgOnly = {
+            leftMarks: (flowResult.leftMarks || []).filter((m) => m.k === 'chg'),
+            rightMarks: (flowResult.rightMarks || []).filter((m) => m.k === 'chg'),
             del: 0,
             ins: 0,
-            chg: (overlays.chg || 0),
+            chg: flowResult.chg || 0,
         };
-        const sparseSigFoot = mergeMarkResults(sigResult, footResult);
-        if (countPaintableMarks(sparseSigFoot) / denom < 0.20) {
-            structured = mergeMarkResults(body, sparseSigFoot, chgOnly);
-        } else {
-            structured = mergeMarkResults(body, chgOnly);
-        }
+        structured = mergeMarkResults(body, sparseSigFoot, tableKeep, flowChgOnly);
     }
 
     if (countPaintableMarks(structured) === 0 && pageSim < PAGE_SIMILARITY_SKIP) {
@@ -4847,12 +5429,18 @@ function ensureCompareLegend(root) {
         legend.className = 'drr-compare-legend reg-compare-legend';
         parent.insertBefore(legend, root);
         legend.innerHTML = ''
+            + '<span class="drr-legend-label">Legend:</span>'
             + '<span class="drr-leg drr-leg-del reg-compare-leg reg-compare-leg-del">'
             + '<i class="drr-leg-swatch is-del" aria-hidden="true"></i>Removed</span>'
             + '<span class="drr-leg drr-leg-ins reg-compare-leg reg-compare-leg-ins">'
             + '<i class="drr-leg-swatch is-ins" aria-hidden="true"></i>Added</span>'
             + '<span class="drr-leg drr-leg-chg reg-compare-leg reg-compare-leg-chg">'
             + '<i class="drr-leg-swatch is-chg" aria-hidden="true"></i>Changed</span>';
+    } else if (!legend.querySelector('.drr-legend-label')) {
+        const label = document.createElement('span');
+        label.className = 'drr-legend-label';
+        label.textContent = 'Legend:';
+        legend.insertBefore(label, legend.firstChild);
     }
     legend.dataset.drrCompareLegend = '1';
     legend.setAttribute('aria-label', 'Highlight legend');
@@ -5709,7 +6297,31 @@ export function runPdfCompareAccuracyFixtures() {
         }
     };
 
-    check('real-page-indices', () => {
+    check('position-when-strong', () => {
+        const mk = (page, words) => ({
+            page,
+            tokens: words.map((norm, i) => ({
+                norm, t: norm, box: { x: 0.1, y: 0.2 + i * 0.03, w: 0.08, h: 0.02 },
+            })),
+        });
+        const left = [
+            mk(1, ['introduction', 'purpose', 'scope', 'policy']),
+            mk(2, ['evaluation', 'criteria', 'rubric', 'scoring']),
+        ];
+        const right = [
+            mk(1, ['introduction', 'purpose', 'scope', 'policy']),
+            mk(2, ['evaluation', 'criteria', 'rubric', 'scoring']),
+        ];
+        const { alignment, mode } = alignPagesSmart(left, right);
+        const matches = alignment.filter((s) => s.type === 'match');
+        if (mode !== 'position') throw new Error(`expected position mode, got ${mode}`);
+        if (matches.length !== 2) throw new Error(`expected 2 matches, got ${matches.length}`);
+        if (matches[0].leftPage !== 1 || matches[0].rightPage !== 1) {
+            throw new Error('page 1 must stay paired with page 1');
+        }
+    });
+
+    check('weak-index-escalates-lcs', () => {
         const mk = (page, words) => ({
             page,
             tokens: words.map((norm, i) => ({
@@ -5725,18 +6337,51 @@ export function runPdfCompareAccuracyFixtures() {
             mk(2, ['evaluation', 'criteria', 'rubric', 'scoring']),
             mk(3, ['appendix', 'extra', 'trailing', 'page']),
         ];
-        const { alignment } = alignPagesSmart(left, right);
-        // p.1↔p.1 and p.2↔p.2 must stay real matches — never explode into fake blanks.
+        const { alignment, mode } = alignPagesSmart(left, right);
+        if (mode !== 'content-lcs') throw new Error(`expected content-lcs, got ${mode}`);
         const matches = alignment.filter((s) => s.type === 'match');
-        const added = alignment.filter((s) => s.type === 'added');
-        if (matches.length !== 2) throw new Error(`expected 2 real page matches, got ${matches.length}`);
-        if (matches[0].leftPage !== 1 || matches[0].rightPage !== 1) {
-            throw new Error('page 1 must stay paired with page 1');
+        if (!matches.some((m) => m.leftPage === 2 && m.rightPage === 2)) {
+            throw new Error('LCS must rematch evaluation page across index shift');
         }
-        if (added.length !== 1 || added[0].rightPage !== 3) {
-            throw new Error('only trailing extra pages may be added');
+        if (matches.some((m) => m.leftPage === 1 && m.rightPage === 1)) {
+            throw new Error('weak same-index cover must not stay forced as a match');
         }
-        if (alignment.length !== 3) throw new Error('must not invent extra alignment slots');
+    });
+
+    check('masterlist-row-insert-keys', () => {
+        const mkTable = (rows) => ({
+            cells: rows.flatMap((row, r) => row.map((text, c) => ({ r, c, text, raw: text }))),
+        });
+        const left = mkTable([
+            ['DOC-001', 'Alpha title', '2024-01-01'],
+            ['DOC-002', 'Beta title', '2024-02-01'],
+        ]);
+        const right = mkTable([
+            ['DOC-000', 'New insert', '2024-01-15'],
+            ['DOC-001', 'Alpha title', '2024-01-01'],
+            ['DOC-002', 'Beta title', '2024-02-01'],
+        ]);
+        const aligned = alignTableRowsByContent(left, right);
+        if (aligned.pairs.length !== 2) throw new Error(`expected 2 paired rows, got ${aligned.pairs.length}`);
+        if (aligned.rightOnly.length !== 1 || aligned.rightOnly[0] !== 0) {
+            throw new Error('only the inserted top row should be right-only');
+        }
+        if (aligned.leftOnly.length !== 0) throw new Error('moved Doc Nos must not be left-only deletes');
+        const pairedLeft = aligned.pairs.map((p) => p.left).sort();
+        if (pairedLeft.join(',') !== '0,1') throw new Error('existing Doc Nos must stay paired');
+    });
+
+    check('phrase-box-paint-band', () => {
+        const boxes = splitPhraseBox({ x: 0.10, y: 0.20, w: 0.40, h: 0.08 }, ['INTELLECTUAL', 'PROPERTY']);
+        if (boxes.length !== 2) throw new Error('phrase must split into 2 word boxes');
+        const mid0 = boxes[0].x + boxes[0].w / 2;
+        const mid1 = boxes[1].x + boxes[1].w / 2;
+        if (!(mid0 < mid1)) throw new Error('word boxes must stay left-to-right');
+        if (!(boxes[0].h <= GLYPH_BAND_H * 1.35)) throw new Error('phrase must clamp tall OCR height');
+        if (!(boxes[0].y > 0.20)) throw new Error('phrase clamp must bias downward onto ink');
+        if (boxes[1].x <= boxes[0].x + boxes[0].w) {
+            throw new Error('phrase gap must separate adjacent word boxes');
+        }
     });
 
     check('form-field-edit-only', () => {
@@ -5786,8 +6431,62 @@ export function runPdfCompareAccuracyFixtures() {
         }
     });
 
+    check('approvals-header-no-false-chg', () => {
+        const cellOf = (text, r, c, y) => {
+            const words = String(text || '').split(/\s+/).filter(Boolean);
+            const tokens = words.map((w, i) => ({
+                t: w,
+                norm: normalizeWord(w),
+                box: { x: 0.1 + c * 0.2 + i * 0.04, y, w: 0.035, h: 0.014 },
+            }));
+            return { r, c, text, raw: text, tokens, box: tokens[0]?.box || null };
+        };
+        const left = {
+            cells: [
+                cellOf('Approvals: Position', 0, 0, 0.4),
+                cellOf('Names', 0, 1, 0.4),
+                cellOf('Signature', 0, 2, 0.4),
+                cellOf('Date', 0, 3, 0.4),
+            ],
+        };
+        const right = {
+            cells: [
+                cellOf('Approvals: Position', 0, 0, 0.4),
+                cellOf('Names', 0, 1, 0.4),
+                cellOf('Signature', 0, 2, 0.4),
+                cellOf('Date', 0, 3, 0.4),
+                cellOf('ISO Chairperson', 1, 0, 0.48),
+                cellOf('ESTELITO R. CLEMENTE, PhD', 1, 1, 0.48),
+            ],
+        };
+        const aligned = alignTableRowsByContent(left, right);
+        if (!aligned.pairs.some((p) => p.left === 0 && p.right === 0)) {
+            throw new Error('header rows must force-pair');
+        }
+        if (aligned.rightOnly.length !== 1 || aligned.rightOnly[0] !== 1) {
+            throw new Error('new approval data row must be right-only insert');
+        }
+        const diff = diffTableCells([left], [right], [], []);
+        const headerChg = [...(diff.leftMarks || []), ...(diff.rightMarks || [])]
+            .filter((m) => m.k === 'chg' && /approvals|position|names|signature|date/.test(String(m.norm || '')));
+        if (headerChg.length) throw new Error('identical Approvals header must not paint as changed');
+        if ((diff.ins || 0) < 1) throw new Error('new approval row must count as inserts');
+    });
+
+    check('rev-digit-not-noise', () => {
+        if (isNoiseDiffToken({ norm: '0' })) throw new Error('rev digit 0 must not be noise');
+        if (isNoiseDiffToken({ norm: '1' })) throw new Error('rev digit 1 must not be noise');
+        if (!isNoiseDiffToken({ norm: 'the' })) throw new Error('function words stay noise');
+    });
+
+    check('glyph-band-clamp', () => {
+        const tall = clampBoxToGlyphBand({ x: 0.2, y: 0.3, w: 0.2, h: 0.08 });
+        if (!(tall.h <= GLYPH_BAND_H * 1.35)) throw new Error('tall OCR box must clamp to glyph band');
+        if (!(tall.y > 0.3)) throw new Error('clamp must bias downward onto ink');
+    });
+
     check('cache-version', () => {
-        if (CACHE_VERSION < 61) throw new Error(`CACHE_VERSION ${CACHE_VERSION} < 61`);
+        if (CACHE_VERSION < 64) throw new Error(`CACHE_VERSION ${CACHE_VERSION} < 64`);
     });
 
     const failed = results.filter((r) => !r.ok);

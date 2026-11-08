@@ -2324,6 +2324,17 @@ class OfficeIntakeHelper
 
         DcsNotificationService::dismissOfficeIntakeNotifications('drf', $id);
 
+        RegisterPersistHelper::logAdminChange(
+            'Updated office DRF #' . $id . ': ' . (string) ($data['drfTitle'] ?? '')
+        );
+        \App\Services\DcsAuditService::log(
+            'office.drf.update',
+            'review_intake',
+            null,
+            null,
+            ['drf_id' => $id, 'title' => (string) ($data['drfTitle'] ?? '')]
+        );
+
         // Always notify Document Controllers / RFIO review queue.
         // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIO/RFOIU.
         DcsNotificationService::notifyOfficeIntakeResubmitted(
@@ -2437,6 +2448,19 @@ class OfficeIntakeHelper
 
         // Always notify Document Controllers / RFIO review queue.
         // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIO/RFOIU.
+        RegisterPersistHelper::logAdminChange(
+            'Updated office DCN #' . $id
+            . ($docNo !== '' ? ' for ' . $docNo : '')
+            . ($docTitle !== '' ? ': ' . $docTitle : '')
+        );
+        \App\Services\DcsAuditService::log(
+            'office.dcn.update',
+            'review_intake',
+            null,
+            null,
+            ['dcn_id' => $id, 'doc_no' => $docNo, 'title' => $docTitle]
+        );
+
         DcsNotificationService::notifyOfficeIntakeResubmitted(
             RegisterQueryHelper::rfioNotificationOfficeCode(),
             RegisterQueryHelper::currentUserDisplayName(),
@@ -4629,6 +4653,21 @@ class OfficeIntakeHelper
             120
         ));
 
+        RegisterPersistHelper::logAdminChange(
+            'Began registration from office ' . strtoupper($type) . ' #' . $id
+        );
+        \App\Services\DcsAuditService::log(
+            'office.intake.begin_register',
+            'review_intake',
+            null,
+            null,
+            [
+                'intake_type' => $type,
+                'intake_id' => $id,
+                'register_type' => $target['registerType'] ?? null,
+            ]
+        );
+
         return [
             'ok' => true,
             'type' => $target['intakeType'],
@@ -5115,6 +5154,25 @@ class OfficeIntakeHelper
         DcsNotificationService::dismissOfficeIntakeNotifications($type, $intakeId);
         session()->forget('dcs_office_intake_pending');
         cookie()->queue(cookie()->forget('dcs_office_intake_pending'));
+
+        RegisterPersistHelper::logAdminChange(
+            'Linked office ' . strtoupper($type) . ' #' . $intakeId
+            . ' to registration #' . $requestId
+            . ($docNo !== '' ? ' — ' . $docNo : '')
+            . ($docTitle ? ': ' . $docTitle : '')
+        );
+        \App\Services\DcsAuditService::log(
+            'office.intake.registered',
+            'review_intake',
+            $requestId,
+            null,
+            [
+                'intake_type' => $type,
+                'intake_id' => $intakeId,
+                'doc_no' => $docNo,
+                'title' => $docTitle,
+            ]
+        );
 
         if (! $notifyOffice || $deferRegisteredNotify) {
             return;
@@ -5894,13 +5952,25 @@ class OfficeIntakeHelper
         $now = now();
         $userId = (int) auth()->id();
 
-        if (empty($record->rfio_received_at)) {
+        $wasNew = empty($record->rfio_received_at);
+        if ($wasNew) {
             DB::table($table)->where('id', $id)->update([
                 'rfio_received_at' => $now,
                 'rfio_received_by' => $userId > 0 ? $userId : null,
                 'updated_at' => $now,
             ]);
             $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
+
+            RegisterPersistHelper::logAdminChange(
+                'Received signed office ' . strtoupper($type) . ' #' . $id
+            );
+            \App\Services\DcsAuditService::log(
+                'office.intake.received',
+                'review_intake',
+                null,
+                null,
+                ['intake_type' => $type, 'intake_id' => $id]
+            );
         }
 
         $state = self::intakeReceivedState($record);
@@ -5939,6 +6009,17 @@ class OfficeIntakeHelper
                 'updated_at' => now(),
             ]);
             $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
+
+            RegisterPersistHelper::logAdminChange(
+                'Cleared receipt on office ' . strtoupper($type) . ' #' . $id
+            );
+            \App\Services\DcsAuditService::log(
+                'office.intake.clear_received',
+                'review_intake',
+                null,
+                null,
+                ['intake_type' => $type, 'intake_id' => $id]
+            );
         }
 
         $state = self::intakeReceivedState($record);

@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Storage;
 
 class DrrOcrService
 {
-    public const MAX_PAGES_PER_REQUEST = 1;
+    public const MAX_PAGES_PER_REQUEST = 3;
 
     private const PDF_CACHE_TTL = 3600;
 
@@ -17,7 +17,7 @@ class DrrOcrService
 
     public static function ocrPages(Request $request): array
     {
-        @set_time_limit(180);
+        @set_time_limit(240);
 
         $rateCheck = RateLimiterService::check('dcs_ocr');
         if (!$rateCheck['allowed']) {
@@ -30,10 +30,19 @@ class DrrOcrService
             ];
         }
 
-        $lockKey = 'dcs_ocr:user:' . (auth()->id() ?: ('ip:' . (request()->ip() ?: 'guest')));
-        $lock = \Illuminate\Support\Facades\Cache::lock($lockKey, 180);
-        // Wait for the previous OCR of this user to finish instead of failing pages.
-        if (! $lock->block(150)) {
+        $storagePath = trim((string) $request->input('storage_path', ''));
+        // Path-scoped lock so left/right different files can OCR in parallel.
+        if ($storagePath !== '') {
+            $lockKey = 'dcs_ocr:path:' . hash('sha256', $storagePath);
+        } elseif ($request->hasFile('file')) {
+            $lockKey = 'dcs_ocr:upload:' . (auth()->id() ?: ('ip:' . (request()->ip() ?: 'guest')))
+                . ':' . hash('sha256', (string) $request->file('file')->getClientOriginalName());
+        } else {
+            $lockKey = 'dcs_ocr:user:' . (auth()->id() ?: ('ip:' . (request()->ip() ?: 'guest')));
+        }
+        $lock = \Illuminate\Support\Facades\Cache::lock($lockKey, 240);
+        // Wait for the previous OCR of this path to finish instead of failing pages.
+        if (! $lock->block(180)) {
             return [
                 'ok' => false,
                 'reason' => 'ocr_busy',

@@ -453,10 +453,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
                     {{ $isMultiServer ? 'VISIBLE on Portal & Subsystem Sidebars (Multi-Server is Active)' : 'HIDDEN (Cluster mode is currently Standalone)' }}
                 </span>
             </div>
+            @if(\Illuminate\Support\Facades\Route::has('admin.server-settings.multi-server'))
             <a href="{{ route('admin.server-settings.multi-server') }}" wire:navigate style="color: #2563eb; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11px;">
                 <span>Configure in Multi-Server</span>
                 <i class="fa-solid fa-arrow-right" style="font-size: 10px;"></i>
             </a>
+            @endif
         </div>
     </div>
 

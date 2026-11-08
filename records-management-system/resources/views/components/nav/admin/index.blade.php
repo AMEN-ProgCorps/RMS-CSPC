@@ -274,8 +274,6 @@
     </div>
     <div class="functions-container">
         <div class="function-button {{ request()->routeIs('admin.server-settings.current') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.server-settings.current') }}')">Current Server</div>
-        <div class="function-button {{ (request()->routeIs('admin.server-settings.multi-server') || request()->routeIs('admin.server-settings.addons')) ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.server-settings.multi-server') }}')">Multi-Server</div>
-        <div class="function-button {{ request()->routeIs('admin.server-settings.diagnostic') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.server-settings.diagnostic') }}')">Site Diagnostic</div>
         @if($isSadm)
         <div class="function-button {{ request()->routeIs('admin.server-settings.terminal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.server-settings.terminal') }}')">Terminal</div>
         @endif

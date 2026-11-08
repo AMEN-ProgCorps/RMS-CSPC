@@ -15,11 +15,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
     public bool $isMultiServer = false;
     public string $serverLabel = '';
 
-    public function boot(): void
-    {
-        $this->__alias = 'pages.admin.server-settings.site-diagnostic';
-    }
-
     public function mount(ServerManagementService $service): void
     {
         $this->serverLabel = $service->getServerLabel();
@@ -63,8 +58,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
         }
     }
 
-    public function refreshTelemetry(ServerManagementService $service): void
+    public function refreshTelemetry(?ServerManagementService $service = null): void
     {
+        $service = $service ?? app(ServerManagementService::class);
         $this->metrics = $service->getHardwareMetrics();
         $this->containers = $service->getContainersTelemetry();
 
@@ -91,7 +87,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
         session()->put('server_ram_telemetry_history', $this->ramHistory);
         session()->put('server_disk_telemetry_history', $this->diskHistory);
 
-        $this->lastRefreshedAt = now()->format('H:i:s');
+        $this->lastRefreshedAt = now()->format('h:i:s A');
     }
 };
 ?>
@@ -136,6 +132,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
             height: 80px;
             overflow: visible;
         }
+        @keyframes livePulse {
+            0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1.08); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        .live-pulse-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: livePulse 2s infinite;
+        }
     </style>
 @endpush
 
@@ -160,10 +169,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
         </div>
 
         <div style="display: flex; align-items: center; gap: 12px;">
-            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #64748b; background: #f8fafc; padding: 6px 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);"></span>
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #475569; background: #f8fafc; padding: 7px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <span class="live-pulse-dot"></span>
                 <span>Live Telemetry (5s auto-poll)</span>
-                <span style="font-size: 11px; font-weight: 600; color: #0f172a; margin-left: 4px;">{{ $lastRefreshedAt ?: 'Active' }}</span>
+                <span style="font-size: 11.5px; font-weight: 700; color: #0f172a; margin-left: 4px; font-family: monospace;">{{ $lastRefreshedAt ?: 'Active' }}</span>
             </div>
 
             <button type="button" wire:click="refreshTelemetry" wire:loading.attr="disabled" style="background: #0f172a; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">

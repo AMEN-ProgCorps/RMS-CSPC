@@ -180,16 +180,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public function loadNasCredentials(): void
     {
         $this->nasEndpoint = \DB::table('sys_system_settings')->where('key', 's3_endpoint')->value('value')
-            ?: env('AWS_ENDPOINT', 'http://s3_storage:9000');
+            ?: env('AWS_ENDPOINT', 'http://s3-storage:9000');
 
         $this->nasBucket = \DB::table('sys_system_settings')->where('key', 's3_bucket')->value('value')
-            ?: env('AWS_BUCKET', 'rms-storage');
+            ?: env('AWS_BUCKET', 'rms-bucket');
 
         $this->nasAccessKey = \DB::table('sys_system_settings')->where('key', 's3_access_key')->value('value')
-            ?: env('AWS_ACCESS_KEY_ID', 'pigsty_admin');
+            ?: env('AWS_ACCESS_KEY_ID', 'admin');
 
         $this->nasSecretKey = \DB::table('sys_system_settings')->where('key', 's3_secret_key')->value('value')
-            ?: env('AWS_SECRET_ACCESS_KEY', 'pigsty_secret_key_123');
+            ?: env('AWS_SECRET_ACCESS_KEY', 'adminpassword');
 
         $this->nasRegion = \DB::table('sys_system_settings')->where('key', 's3_region')->value('value')
             ?: env('AWS_DEFAULT_REGION', 'us-east-1');
@@ -267,11 +267,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         try {
             config([
-                'filesystems.disks.s3.key'                    => trim($this->nasAccessKey ?: env('AWS_ACCESS_KEY_ID', 'pigsty_admin')),
-                'filesystems.disks.s3.secret'                 => trim($this->nasSecretKey ?: env('AWS_SECRET_ACCESS_KEY', 'pigsty_secret_key_123')),
+                'filesystems.disks.s3.key'                    => trim($this->nasAccessKey ?: env('AWS_ACCESS_KEY_ID', 'admin')),
+                'filesystems.disks.s3.secret'                 => trim($this->nasSecretKey ?: env('AWS_SECRET_ACCESS_KEY', 'adminpassword')),
                 'filesystems.disks.s3.region'                 => trim($this->nasRegion ?: env('AWS_DEFAULT_REGION', 'us-east-1')),
-                'filesystems.disks.s3.bucket'                 => trim($this->nasBucket ?: env('AWS_BUCKET', 'rms-storage')),
-                'filesystems.disks.s3.endpoint'               => trim($this->nasEndpoint ?: env('AWS_ENDPOINT', 'http://s3_storage:9000')),
+                'filesystems.disks.s3.bucket'                 => trim($this->nasBucket ?: env('AWS_BUCKET', 'rms-bucket')),
+                'filesystems.disks.s3.endpoint'               => trim($this->nasEndpoint ?: env('AWS_ENDPOINT', 'http://s3-storage:9000')),
                 'filesystems.disks.s3.use_path_style_endpoint'=> $this->nasUsePathStyle,
             ]);
 
@@ -1833,9 +1833,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     <span>{{ $showNasEditForm ? 'Close Editor' : 'Edit NAS Configuration' }}</span>
                 </button>
 
-                <a href="http://localhost:9001" target="_blank" rel="noopener noreferrer" style="background: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                <a href="http://localhost:{{ env('S3_CONSOLE_PORT', 9101) }}" target="_blank" rel="noopener noreferrer" style="background: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
                     <i class="fa-solid fa-arrow-up-right-from-square" style="color: #64748b;"></i>
-                    <span>Open Pigsty S3 Console (Port 9001)</span>
+                    <span>Open Pigsty S3 Console (Port {{ env('S3_CONSOLE_PORT', 9101) }})</span>
                 </a>
             </div>
 

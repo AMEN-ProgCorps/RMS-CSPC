@@ -223,9 +223,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
             ]);
 
             foreach ($records as $row) {
+                $sourceLabel = match ($row->source) {
+                    'user' => 'User Added',
+                    'user_auto' => 'User Added | Auto',
+                    default => 'Automatically Detected',
+                };
+
                 fputcsv($handle, [
                     $row->ticket_number,
-                    $row->source,
+                    $sourceLabel,
                     $row->reference,
                     $row->title,
                     $row->status,
@@ -292,6 +298,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
             'in_progress' => 0,
             'critical' => 0,
             'total' => 0,
+            'source_user' => 0,
+            'source_auto' => 0,
+            'source_user_auto' => 0,
         ];
 
         $tickets = new \Illuminate\Pagination\LengthAwarePaginator([], 0, 15);
@@ -304,6 +313,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                 'in_progress' => \DB::table('sys_error_tickets')->where('status', 'in_progress')->count(),
                 'critical' => \DB::table('sys_error_tickets')->where('priority', 'critical')->whereIn('status', ['open', 'in_progress'])->count(),
                 'total' => \DB::table('sys_error_tickets')->count(),
+                'source_user' => \DB::table('sys_error_tickets')->where('source', 'user')->count(),
+                'source_auto' => \DB::table('sys_error_tickets')->where('source', 'auto')->count(),
+                'source_user_auto' => \DB::table('sys_error_tickets')->where('source', 'user_auto')->count(),
             ];
 
             $tickets = $this->baseQuery()->orderByDesc('t.last_seen_at')->orderByDesc('t.created_at')->paginate(15);
@@ -397,6 +409,62 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
             .ticket-grid { grid-template-columns: 1fr; }
         }
 
+        .source-filters-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+        }
+        .source-filter-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #475569;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .source-filter-pill:hover {
+            background: #f8fafc;
+            border-color: #94a3b8;
+        }
+        .source-filter-pill.active {
+            background: #0f172a;
+            color: #fff;
+            border-color: #0f172a;
+        }
+        .source-filter-pill.user.active {
+            background: #0284c7;
+            border-color: #0284c7;
+            color: #fff;
+        }
+        .source-filter-pill.auto.active {
+            background: #d97706;
+            border-color: #d97706;
+            color: #fff;
+        }
+        .source-filter-pill.hybrid.active {
+            background: #9333ea;
+            border-color: #9333ea;
+            color: #fff;
+        }
+        .source-filter-pill .pill-count {
+            padding: 1px 7px;
+            border-radius: 9999px;
+            background: rgba(0,0,0,0.08);
+            font-size: 0.72rem;
+            font-weight: 700;
+        }
+        .source-filter-pill.active .pill-count {
+            background: rgba(255,255,255,0.25);
+            color: #fff;
+        }
+
         /* Dark mode — match admin console surfaces */
         [data-theme="dark"] .ticket-modal-overlay {
             background: rgba(2, 6, 23, 0.78);
@@ -458,6 +526,36 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         [data-theme="dark"] .clickable-row:hover {
             background: rgba(37, 99, 235, 0.12);
         }
+        [data-theme="dark"] .source-filter-pill {
+            background: #1e293b;
+            border-color: #334155;
+            color: #cbd5e1;
+        }
+        [data-theme="dark"] .source-filter-pill:hover {
+            background: #334155;
+            border-color: #475569;
+        }
+        [data-theme="dark"] .source-filter-pill.active {
+            background: #3b82f6;
+            border-color: #3b82f6;
+            color: #fff;
+        }
+        [data-theme="dark"] .source-filter-pill.user.active {
+            background: #0284c7;
+            border-color: #0284c7;
+        }
+        [data-theme="dark"] .source-filter-pill.auto.active {
+            background: #d97706;
+            border-color: #d97706;
+        }
+        [data-theme="dark"] .source-filter-pill.hybrid.active {
+            background: #9333ea;
+            border-color: #9333ea;
+        }
+        [data-theme="dark"] .source-filter-pill .pill-count {
+            background: rgba(255, 255, 255, 0.12);
+            color: #e2e8f0;
+        }
     </style>
 @endpush
 
@@ -517,6 +615,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         </div>
 
         <div class="logs-controls-card">
+            <div class="source-filters-row">
+                <button type="button" wire:click="$set('sourceFilter', '')" class="source-filter-pill {{ $sourceFilter === '' ? 'active' : '' }}">
+                    <span>All Sources</span>
+                    <span class="pill-count">{{ $stats['total'] }}</span>
+                </button>
+                <button type="button" wire:click="$set('sourceFilter', 'user')" class="source-filter-pill user {{ $sourceFilter === 'user' ? 'active' : '' }}">
+                    <i class="fa-solid fa-user-pen"></i>
+                    <span>User Added</span>
+                    <span class="pill-count">{{ $stats['source_user'] }}</span>
+                </button>
+                <button type="button" wire:click="$set('sourceFilter', 'auto')" class="source-filter-pill auto {{ $sourceFilter === 'auto' ? 'active' : '' }}">
+                    <i class="fa-solid fa-robot"></i>
+                    <span>Automatically Detected</span>
+                    <span class="pill-count">{{ $stats['source_auto'] }}</span>
+                </button>
+                <button type="button" wire:click="$set('sourceFilter', 'user_auto')" class="source-filter-pill hybrid {{ $sourceFilter === 'user_auto' ? 'active' : '' }}">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    <span>User Added | Auto</span>
+                    <span class="pill-count">{{ $stats['source_user_auto'] }}</span>
+                </button>
+            </div>
+
             <div class="search-filter-group" style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 12px;">
                 <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: 1;">
                     <div class="search-box-wrapper">
@@ -545,8 +665,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
 
                     <select class="filter-select" wire:model.live="sourceFilter">
                         <option value="">All Sources</option>
-                        <option value="auto">Auto</option>
-                        <option value="user">User</option>
+                        <option value="user">User Added</option>
+                        <option value="auto">Automatically Detected</option>
+                        <option value="user_auto">User Added | Auto</option>
                     </select>
 
                     @if($search !== '' || $statusFilter !== '' || $priorityFilter !== '' || $sourceFilter !== '')
@@ -598,6 +719,29 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                     default => ['bg' => 'rgba(148,163,184,0.12)', 'color' => '#64748b', 'border' => 'rgba(148,163,184,0.22)'],
                                 };
                                 $seen = $ticket->last_seen_at ? \Carbon\Carbon::parse($ticket->last_seen_at) : ($ticket->created_at ? \Carbon\Carbon::parse($ticket->created_at) : null);
+                                $sourceBadge = match ($ticket->source) {
+                                    'user' => [
+                                        'bg' => 'rgba(14, 165, 233, 0.12)',
+                                        'color' => '#0284c7',
+                                        'border' => 'rgba(14, 165, 233, 0.25)',
+                                        'icon' => 'fa-user-pen',
+                                        'label' => 'User Added'
+                                    ],
+                                    'user_auto' => [
+                                        'bg' => 'rgba(168, 85, 247, 0.15)',
+                                        'color' => '#9333ea',
+                                        'border' => 'rgba(168, 85, 247, 0.3)',
+                                        'icon' => 'fa-wand-magic-sparkles',
+                                        'label' => 'User Added | Auto'
+                                    ],
+                                    default => [
+                                        'bg' => 'rgba(245, 158, 11, 0.12)',
+                                        'color' => '#d97706',
+                                        'border' => 'rgba(245, 158, 11, 0.25)',
+                                        'icon' => 'fa-robot',
+                                        'label' => 'Automatically Detected'
+                                    ],
+                                };
                             @endphp
                             <tr class="clickable-row" wire:key="ticket-{{ $ticket->id }}" wire:click="openTicket({{ $ticket->id }})">
                                 <td>
@@ -626,7 +770,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                     <div class="log-description">{{ \Illuminate\Support\Str::limit($ticket->title, 90) }}</div>
                                 </td>
                                 <td>
-                                    <span class="ip-address-pill">{{ $ticket->source === 'auto' ? 'Auto' : 'User' }}</span>
+                                    <span class="badge" style="background-color: {{ $sourceBadge['bg'] }}; color: {{ $sourceBadge['color'] }}; border: 1px solid {{ $sourceBadge['border'] }}; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; font-size: 0.76rem; padding: 3px 8px; border-radius: 6px;">
+                                        <i class="fa-solid {{ $sourceBadge['icon'] }}" style="font-size: 0.72rem;"></i>
+                                        <span>{{ $sourceBadge['label'] }}</span>
+                                    </span>
                                 </td>
                                 <td>{{ $ticket->subsystem ? strtoupper($ticket->subsystem) : '—' }}</td>
                                 <td>
@@ -689,17 +836,52 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                 <h2>{{ $selected->ticket_number }}</h2>
                 <p class="sub">{{ $selected->title }}</p>
 
+                @php
+                    $detailSource = match ($selected->source) {
+                        'user' => [
+                            'bg' => 'rgba(14, 165, 233, 0.12)',
+                            'color' => '#0284c7',
+                            'border' => 'rgba(14, 165, 233, 0.25)',
+                            'icon' => 'fa-user-pen',
+                            'label' => 'User Added',
+                            'desc' => 'Submitted directly by a user report.'
+                        ],
+                        'user_auto' => [
+                            'bg' => 'rgba(168, 85, 247, 0.15)',
+                            'color' => '#9333ea',
+                            'border' => 'rgba(168, 85, 247, 0.3)',
+                            'icon' => 'fa-wand-magic-sparkles',
+                            'label' => 'User Added | Auto',
+                            'desc' => 'Encountered by user & captured by automatic error diagnostics.'
+                        ],
+                        default => [
+                            'bg' => 'rgba(245, 158, 11, 0.12)',
+                            'color' => '#d97706',
+                            'border' => 'rgba(245, 158, 11, 0.25)',
+                            'icon' => 'fa-robot',
+                            'label' => 'Automatically Detected',
+                            'desc' => 'Automatically caught by server exceptions or client error catcher.'
+                        ],
+                    };
+                @endphp
+
                 <div class="ticket-meta">
-                    <div><strong>Source:</strong> {{ $selected->source }} @if($selected->reference) · <strong>Ref:</strong> {{ $selected->reference }} @endif</div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+                        <span class="badge" style="background-color: {{ $detailSource['bg'] }}; color: {{ $detailSource['color'] }}; border: 1px solid {{ $detailSource['border'] }}; font-weight: 700; padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid {{ $detailSource['icon'] }}"></i> {{ $detailSource['label'] }}
+                        </span>
+                        <span style="font-size: 0.78rem; color: #64748b;">{{ $detailSource['desc'] }}</span>
+                    </div>
+                    <div><strong>Reference:</strong> <code>{{ $selected->reference ?: $selected->ticket_number }}</code></div>
                     <div><strong>URL:</strong> {{ $selected->url ?: '—' }}</div>
                     <div><strong>Subsystem:</strong> {{ $selected->subsystem ? strtoupper($selected->subsystem) : '—' }} · <strong>HTTP:</strong> {{ $selected->http_status ?: '—' }}</div>
                     @if($selected->exception_class || $selected->file)
                         <div><strong>Exception:</strong> {{ $selected->exception_class ?: '—' }}</div>
                         <div><strong>File:</strong> {{ $selected->file }}@if($selected->line) :{{ $selected->line }}@endif</div>
                     @endif
-                    <div><strong>Reporter:</strong> {{ $selected->reporter_username ?: 'System' }} · <strong>Occurrences:</strong> {{ $selected->occurrence_count }}</div>
+                    <div><strong>Reporter:</strong> {{ $selected->reporter_username ?: ($selected->source === 'auto' ? 'Automated System' : 'User') }} · <strong>Occurrences:</strong> {{ $selected->occurrence_count }}</div>
                     @if($selected->description)
-                        <div style="margin-top:8px;"><strong>Description</strong><br>{{ $selected->description }}</div>
+                        <div style="margin-top:10px;"><strong>Details & Diagnostics</strong><br><div style="margin-top: 4px; padding: 10px; background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.06); border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; white-space: pre-wrap; word-break: break-word;">{{ $selected->description }}</div></div>
                     @endif
                 </div>
 

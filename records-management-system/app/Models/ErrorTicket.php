@@ -10,6 +10,24 @@ class ErrorTicket extends Model
 {
     use HasFactory;
 
+    public const SOURCE_USER = 'user';
+    public const SOURCE_AUTO = 'auto';
+    public const SOURCE_USER_AUTO = 'user_auto';
+
+    public static function sourceLabels(): array
+    {
+        return [
+            self::SOURCE_USER => 'User Added',
+            self::SOURCE_AUTO => 'Automatically Detected',
+            self::SOURCE_USER_AUTO => 'User Added | Auto',
+        ];
+    }
+
+    public function getSourceLabelAttribute(): string
+    {
+        return self::sourceLabels()[$this->source] ?? 'Automatically Detected';
+    }
+
     protected $table = 'sys_error_tickets';
 
     protected $fillable = [

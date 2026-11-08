@@ -20,6 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'api/session/*',
             'api/cluster/*',
+            'api/errors/*',
             'rdp/api/*',
             'rdp/intake/*',
         ]);

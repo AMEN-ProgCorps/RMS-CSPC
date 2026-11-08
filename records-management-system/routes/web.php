@@ -255,6 +255,50 @@ Volt::route('/track-document', 'pages.portal.track-document')
 Volt::route('/tracked', 'pages.portal.tracked')
     ->name('tracked');
 
+// Auto-capture client error page popouts & runtime exceptions (public endpoint, rate-limited)
+Route::post('/api/errors/auto-capture', function (\Illuminate\Http\Request $request) {
+    $data = $request->validate([
+        'reference' => 'nullable|string|max:32',
+        'title' => 'nullable|string|max:240',
+        'message' => 'nullable|string|max:5000',
+        'kind' => 'nullable|string|max:32',
+        'http_status' => 'nullable|integer',
+        'url' => 'nullable|string|max:2000',
+        'file' => 'nullable|string|max:500',
+        'line' => 'nullable|integer',
+        'context' => 'nullable|array',
+    ]);
+
+    $ip = $request->ip();
+    $rateKey = 'error_auto_capture:'.$ip;
+    if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($rateKey, 40)) {
+        return response()->json(['status' => 'rate_limited'], 429);
+    }
+    \Illuminate\Support\Facades\RateLimiter::hit($rateKey, 60);
+
+    $context = $data['context'] ?? [];
+    $context['ip'] = $ip;
+    $context['captured_via'] = 'client_error_popout';
+
+    $ticket = \App\Services\ErrorTicketRecorder::recordAuto([
+        'reference' => $data['reference'] ?? null,
+        'title' => $data['title'] ?? 'Client error popout',
+        'message' => $data['message'] ?? 'An error popout occurred on the client.',
+        'kind' => $data['kind'] ?? 'popout',
+        'http_status' => $data['http_status'] ?? 500,
+        'url' => $data['url'] ?? $request->headers->get('referer') ?? $request->fullUrl(),
+        'file' => $data['file'] ?? null,
+        'line' => $data['line'] ?? null,
+        'context' => $context,
+    ]);
+
+    return response()->json([
+        'ok' => true,
+        'ticket_number' => $ticket?->ticket_number ?? ($data['reference'] ?? null),
+        'source' => $ticket?->source ?? 'auto',
+    ]);
+})->name('api.errors.auto-capture');
+
 // Secured routes (behind auth middleware)
 Route::middleware(['auth'])
     ->group(function () {

@@ -25,13 +25,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     public string $consoleOutput = '';
     public bool $isBusy = false;
 
-    // Pre-Update Backup Soft Protection
-    public bool $showBackupRequiredModal = false;
-    public string $pendingUpdateAction = '';
-    public string $pendingUpdateTitle = '';
-    public string $pendingUpdateDescription = '';
+    // Safety Backup Soft Protection & Escalation Sequence
+    public bool $showSafetyBackupModal = false;
+    public bool $isBackupModalSkippable = true;
+    public int $backupSkipCount = 0; // 0 = initial (skippable, 5m), 1 = 5m reminder (skippable, 10m), 2+ = 20m mark (unskippable)
+    public int $nextPromptMinutes = 5;
     public ?array $latestBackup = null;
     public bool $hasSafetyBackup = false;
+    public bool $isCreatingSafetyBackup = false;
 
     public function boot(): void
     {
@@ -41,8 +42,108 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     public function mount(ServerManagementService $service): void
     {
         $this->refreshData($service);
+        $this->checkBackupRequirement();
+    }
+
+    public function checkBackupRequirement(): void
+    {
         $this->latestBackup = BackupService::getLatestBackup();
-        $this->hasSafetyBackup = session()->get('server_update_safety_backup_done', false);
+
+        // Check if user has generated a backup during this session
+        $backupCompletedAt = session()->get('safety_backup_completed_at');
+        if ($backupCompletedAt) {
+            $minutesSince = now()->diffInMinutes(\Carbon\Carbon::parse($backupCompletedAt));
+            if ($minutesSince < 30) {
+                $this->hasSafetyBackup = true;
+                $this->showSafetyBackupModal = false;
+                return;
+            }
+        }
+
+        // If a fresh backup exists on disk within the last 10 minutes when opening page
+        if (!$backupCompletedAt && $this->latestBackup && ($this->latestBackup['age_minutes'] ?? 999) < 10) {
+            $this->hasSafetyBackup = true;
+            $this->showSafetyBackupModal = false;
+            return;
+        }
+
+        $this->hasSafetyBackup = false;
+        $skipCount = (int) session()->get('safety_backup_skip_count', 0);
+        $dismissedUntil = session()->get('safety_backup_dismissed_until');
+
+        // If user dismissed and snooze timer has not elapsed yet, keep modal hidden
+        if ($dismissedUntil && now()->timestamp < $dismissedUntil) {
+            $this->showSafetyBackupModal = false;
+            return;
+        }
+
+        // Sequence escalation:
+        // 1st prompt: skippable, 5-minute snooze
+        // 2nd prompt (5m mark): skippable, 10-minute snooze
+        // 3rd prompt (20m mark / >= 2 skips): UNSKIPPABLE!
+        $this->backupSkipCount = $skipCount;
+
+        if ($skipCount === 0) {
+            $this->isBackupModalSkippable = true;
+            $this->nextPromptMinutes = 5;
+            $this->showSafetyBackupModal = true;
+        } elseif ($skipCount === 1) {
+            $this->isBackupModalSkippable = true;
+            $this->nextPromptMinutes = 10;
+            $this->showSafetyBackupModal = true;
+        } else {
+            $this->isBackupModalSkippable = false;
+            $this->nextPromptMinutes = 0;
+            $this->showSafetyBackupModal = true;
+        }
+    }
+
+    public function dismissSafetyBackupModal(): void
+    {
+        if (!$this->isBackupModalSkippable) {
+            return; // Cannot dismiss at 20m unskippable stage
+        }
+
+        $skipCount = (int) session()->get('safety_backup_skip_count', 0);
+
+        if ($skipCount === 0) {
+            $snoozeMinutes = 5;
+            session()->put('safety_backup_skip_count', 1);
+        } elseif ($skipCount === 1) {
+            $snoozeMinutes = 10;
+            session()->put('safety_backup_skip_count', 2);
+        } else {
+            $snoozeMinutes = 20;
+            session()->put('safety_backup_skip_count', 3);
+        }
+
+        session()->put('safety_backup_dismissed_until', now()->addMinutes($snoozeMinutes)->timestamp);
+        $this->showSafetyBackupModal = false;
+    }
+
+    public function executeSafetyBackup(BackupService $backupService): void
+    {
+        $this->isCreatingSafetyBackup = true;
+        $this->isBusy = true;
+
+        $res = $backupService->createFullBackup('Safety Backup - Current Server Console');
+
+        $this->isCreatingSafetyBackup = false;
+        $this->isBusy = false;
+
+        if (!$res['success']) {
+            $this->errorMessage = "Safety backup failed: " . ($res['message'] ?? 'Unknown error');
+            return;
+        }
+
+        session()->put('safety_backup_completed_at', now()->toDateTimeString());
+        session()->put('server_update_safety_backup_done', true);
+        session()->forget(['safety_backup_skip_count', 'safety_backup_dismissed_until']);
+
+        $this->hasSafetyBackup = true;
+        $this->showSafetyBackupModal = false;
+        $this->latestBackup = BackupService::getLatestBackup();
+        $this->successMessage = "Safety backup created successfully ({$res['filename']}). The system is secured.";
     }
 
     public function refreshData(ServerManagementService $service): void
@@ -100,14 +201,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
 
     public function runGitPull(ServerManagementService $service): void
     {
-        if (!$this->hasSafetyBackup) {
-            $this->pendingUpdateAction = 'git_pull';
-            $this->pendingUpdateTitle = 'Git Fetch & Pull (Software Update)';
-            $this->pendingUpdateDescription = 'Fetching the latest codebase commits from git and applying updates to the server.';
-            $this->showBackupRequiredModal = true;
-            return;
-        }
-
         $this->isBusy = true;
         $this->modalTitle = 'Git Fetch & Pull Operation';
         
@@ -146,14 +239,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
 
     public function updateDatabase(ServerManagementService $service): void
     {
-        if (!$this->hasSafetyBackup) {
-            $this->pendingUpdateAction = 'update_db';
-            $this->pendingUpdateTitle = 'Database Schema Update (Artisan Migrate)';
-            $this->pendingUpdateDescription = 'Running pending database schema migrations across the system.';
-            $this->showBackupRequiredModal = true;
-            return;
-        }
-
         $this->isBusy = true;
         $this->modalTitle = 'Database Migrations Update';
 
@@ -169,58 +254,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         }
 
         $this->refreshData($service);
-    }
-
-    public function generateBackupAndProceed(BackupService $backupService, ServerManagementService $service): void
-    {
-        $this->isBusy = true;
-        $backupLabel = ($this->pendingUpdateAction === 'git_pull')
-            ? 'Accessing Server Settings - Git Update'
-            : 'Accessing Server Settings - Database Migration';
-
-        $backupRes = $backupService->createFullBackup($backupLabel);
-
-        if (!$backupRes['success']) {
-            $this->errorMessage = "Mandatory safety backup failed: " . $backupRes['message'];
-            $this->showBackupRequiredModal = false;
-            $this->isBusy = false;
-            return;
-        }
-
-        session()->put('server_update_safety_backup_done', true);
-        $this->hasSafetyBackup = true;
-        $this->latestBackup = BackupService::getLatestBackup();
-        $this->showBackupRequiredModal = false;
-
-        $backupNotice = "[Pre-Update Safety Backup Generated Successfully]\n" .
-            "File: {$backupRes['filename']}\n" .
-            "Preserved: {$backupRes['total_records']} records across {$backupRes['tables_count']} tables.\n" .
-            "Timestamp: {$backupRes['created_at']}\n" .
-            "--------------------------------------------------\n\n";
-
-        if ($this->pendingUpdateAction === 'git_pull') {
-            $this->modalTitle = 'Git Fetch & Pull Operation';
-            $res = $service->runGitPull();
-            $this->consoleOutput = $backupNotice . $res['output'];
-            $this->showOutputModal = true;
-            $this->successMessage = $res['success'] ? 'Safety backup generated and Git pull executed successfully.' : 'Git pull reported errors.';
-        } elseif ($this->pendingUpdateAction === 'update_db') {
-            $this->modalTitle = 'Database Migrations Update';
-            $res = $service->updateDatabase();
-            $this->consoleOutput = $backupNotice . ($res['message'] ?? '') . "\n\n" . ($res['output'] ?? '');
-            $this->showOutputModal = true;
-            $this->successMessage = $res['success'] ? 'Safety backup generated and database updated successfully.' : ($res['message'] ?? 'Migration completed.');
-        }
-
-        $this->pendingUpdateAction = '';
-        $this->isBusy = false;
-        $this->refreshData($service);
-    }
-
-    public function closeBackupModal(): void
-    {
-        $this->showBackupRequiredModal = false;
-        $this->pendingUpdateAction = '';
     }
 
     public function renderNode(ServerManagementService $service): void
@@ -341,7 +374,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     </style>
 @endpush
 
-<div class="space-y-6">
+<div class="space-y-6" wire:poll.15s="checkBackupRequirement">
     <!-- Header Banner -->
     <div style="background: #ffffff; padding: 24px 28px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
         <div style="display: flex; align-items: center; gap: 16px;">
@@ -483,84 +516,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         </div>
     @endif
 
-    <!-- Telemetry 4-Card Grid -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
-        <!-- 1. CPU Usage -->
-        <div style="background: #ffffff; padding: 20px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <span style="font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase;">CPU Load</span>
-                <span style="font-size: 18px; color: #3b82f6;"><i class="fa-solid fa-microchip"></i></span>
-            </div>
-            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;">
-                <span style="font-size: 28px; font-weight: 800; color: #0f172a;">{{ $metrics['cpu']['usage_pct'] ?? 0 }}%</span>
-                <span style="font-size: 12px; color: #64748b;">({{ $metrics['cpu']['cores'] ?? 1 }} cores)</span>
-            </div>
-            <!-- Progress Bar -->
-            <div style="height: 6px; width: 100%; background: #f1f5f9; border-radius: 4px; overflow: hidden; margin-bottom: 10px;">
-                <div style="height: 100%; width: {{ min(100, $metrics['cpu']['usage_pct'] ?? 0) }}%; background: {{ ($metrics['cpu']['usage_pct'] ?? 0) > 80 ? '#ef4444' : '#3b82f6' }}; border-radius: 4px; transition: width 0.3s;"></div>
-            </div>
-            <div style="font-size: 11px; color: #64748b; display: flex; justify-content: space-between;">
-                <span>Load avg:</span>
-                <span>{{ $metrics['cpu']['load_1m'] ?? 0 }} (1m) &bull; {{ $metrics['cpu']['load_5m'] ?? 0 }} (5m)</span>
-            </div>
-        </div>
 
-        <!-- 2. RAM Memory (Crucial for 1GB VMs) -->
-        <div style="background: #ffffff; padding: 20px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <span style="font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase;">RAM Memory</span>
-                <span style="font-size: 18px; color: #10b981;"><i class="fa-solid fa-memory"></i></span>
-            </div>
-            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;">
-                <span style="font-size: 28px; font-weight: 800; color: #0f172a;">{{ $metrics['ram']['used_mb'] ?? 0 }} <span style="font-size: 16px; font-weight: 600;">MB</span></span>
-                <span style="font-size: 12px; color: #64748b;">/ {{ $metrics['ram']['total_mb'] ?? 1024 }} MB ({{ $metrics['ram']['usage_pct'] ?? 0 }}%)</span>
-            </div>
-            <div style="height: 6px; width: 100%; background: #f1f5f9; border-radius: 4px; overflow: hidden; margin-bottom: 10px;">
-                <div style="height: 100%; width: {{ min(100, $metrics['ram']['usage_pct'] ?? 0) }}%; background: {{ ($metrics['ram']['usage_pct'] ?? 0) > 85 ? '#ef4444' : '#10b981' }}; border-radius: 4px; transition: width 0.3s;"></div>
-            </div>
-            <div style="font-size: 11px; color: #64748b; display: flex; justify-content: space-between;">
-                <span>Free: {{ $metrics['ram']['free_mb'] ?? 0 }} MB</span>
-                <span>Swap: {{ $metrics['ram']['swap_used_mb'] ?? 0 }}/{{ $metrics['ram']['swap_total_mb'] ?? 0 }} MB</span>
-            </div>
-        </div>
-
-        <!-- 3. Disk Storage -->
-        <div style="background: #ffffff; padding: 20px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <span style="font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase;">Disk Storage</span>
-                <span style="font-size: 18px; color: #8b5cf6;"><i class="fa-solid fa-hard-drive"></i></span>
-            </div>
-            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;">
-                <span style="font-size: 28px; font-weight: 800; color: #0f172a;">{{ $metrics['disk']['used_gb'] ?? 0 }} <span style="font-size: 16px; font-weight: 600;">GB</span></span>
-                <span style="font-size: 12px; color: #64748b;">/ {{ $metrics['disk']['total_gb'] ?? 0 }} GB</span>
-            </div>
-            <div style="height: 6px; width: 100%; background: #f1f5f9; border-radius: 4px; overflow: hidden; margin-bottom: 10px;">
-                <div style="height: 100%; width: {{ min(100, $metrics['disk']['usage_pct'] ?? 0) }}%; background: {{ ($metrics['disk']['usage_pct'] ?? 0) > 90 ? '#ef4444' : '#8b5cf6' }}; border-radius: 4px; transition: width 0.3s;"></div>
-            </div>
-            <div style="font-size: 11px; color: #64748b; display: flex; justify-content: space-between;">
-                <span>Available: {{ $metrics['disk']['free_gb'] ?? 0 }} GB</span>
-                <span>{{ $metrics['disk']['usage_pct'] ?? 0 }}% used</span>
-            </div>
-        </div>
-
-        <!-- 4. Host Environment -->
-        <div style="background: #ffffff; padding: 20px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <span style="font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase;">Environment</span>
-                <span style="font-size: 18px; color: #f59e0b;"><i class="fa-solid fa-layer-group"></i></span>
-            </div>
-            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;">
-                <span style="font-size: 24px; font-weight: 800; color: #0f172a;">PHP {{ $metrics['host']['php_version'] ?? '8.4' }}</span>
-            </div>
-            <div style="font-size: 12px; color: #475569; margin-bottom: 6px;">
-                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; margin-right: 6px;"></span>
-                {{ $metrics['host']['is_docker'] ? 'Docker Containerized' : 'Baremetal Host' }}
-            </div>
-            <div style="font-size: 11px; color: #64748b;">
-                Server: {{ $metrics['host']['server_software'] ?? 'Nginx' }}
-            </div>
-        </div>
-    </div>
 
     <!-- Docker Containers Monitor -->
     <div style="background: #ffffff; padding: 24px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
@@ -625,16 +581,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
                     <div style="font-size: 11.5px; font-weight: 700; color: #059669; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 6px 12px; border-radius: 6px; display: flex; align-items: center; justify-content: space-between;">
                         <span style="display: flex; align-items: center; gap: 6px;">
                             <i class="fa-solid fa-circle-check"></i>
-                            <span>Pre-Update Safety Backup: Verified</span>
+                            <span>Safety Backup: Verified Active</span>
                         </span>
                         @if($latestBackup)
-                            <span style="font-size: 10.5px; color: #047857;">{{ $latestBackup['filename'] }}</span>
+                            <span style="font-size: 10.5px; color: #047857;">{{ $latestBackup['filename'] }} ({{ $latestBackup['age_minutes'] }}m ago)</span>
                         @endif
                     </div>
                 @else
-                    <div style="font-size: 11.5px; font-weight: 700; color: #b45309; background: #fffbeb; border: 1px solid #fcd34d; padding: 6px 12px; border-radius: 6px; display: flex; align-items: center; gap: 6px;">
-                        <i class="fa-solid fa-shield-halved"></i>
-                        <span>Soft Protection: Automatic system backup required before updates</span>
+                    <div style="font-size: 11.5px; font-weight: 700; color: #b45309; background: #fffbeb; border: 1px solid #fcd34d; padding: 6px 12px; border-radius: 6px; display: flex; align-items: center; justify-content: space-between;">
+                        <span style="display: flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-shield-halved"></i>
+                            <span>Safety Backup: Recommended before updates</span>
+                        </span>
+                        <button type="button" wire:click="$set('showSafetyBackupModal', true)" style="background: none; border: none; font-size: 11px; font-weight: 700; color: #b45309; text-decoration: underline; cursor: pointer;">
+                            Backup Now
+                        </button>
                     </div>
                 @endif
 
@@ -704,32 +665,44 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         </div>
     @endif
 
-    <!-- Pre-Update Mandatory Safety Backup Modal -->
-    @if ($showBackupRequiredModal)
+    <!-- Safety Backup Escalation Notice Modal -->
+    @if ($showSafetyBackupModal)
         <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px;">
             <div style="background: #ffffff; border-radius: 16px; max-width: 580px; width: 100%; border: 1px solid #cbd5e1; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.4); overflow: hidden;">
-                <div style="padding: 18px 24px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background: #fffbeb;">
+                <div style="padding: 18px 24px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background: {{ $isBackupModalSkippable ? '#fffbeb' : '#fef2f2' }};">
                     <div style="display: flex; align-items: center; gap: 12px;">
-                        <div style="width: 38px; height: 38px; border-radius: 10px; background: #fef3c7; color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 18px;">
-                            <i class="fa-solid fa-shield-halved"></i>
+                        <div style="width: 38px; height: 38px; border-radius: 10px; background: {{ $isBackupModalSkippable ? '#fef3c7' : '#fee2e2' }}; color: {{ $isBackupModalSkippable ? '#d97706' : '#dc2626' }}; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                            <i class="fa-solid {{ $isBackupModalSkippable ? 'fa-shield-halved' : 'fa-triangle-exclamation' }}"></i>
                         </div>
                         <div>
-                            <h4 style="margin: 0; font-size: 15px; font-weight: 800; color: #92400e;">Safety Backup Required</h4>
-                            <span style="font-size: 11px; font-weight: 700; color: #b45309; text-transform: uppercase;">Soft Protection Requirement</span>
+                            <h4 style="margin: 0; font-size: 15px; font-weight: 800; color: {{ $isBackupModalSkippable ? '#92400e' : '#991b1b' }};">
+                                {{ $isBackupModalSkippable ? 'Safety Backup Required' : 'Safety Backup Strictly Required' }}
+                            </h4>
+                            <span style="font-size: 11px; font-weight: 700; color: {{ $isBackupModalSkippable ? '#b45309' : '#b91c1c' }}; text-transform: uppercase;">
+                                @if ($backupSkipCount === 0)
+                                    Session Initial Protection Notice
+                                @elseif ($backupSkipCount === 1)
+                                    5-Minute Escalation Reminder
+                                @else
+                                    20-Minute Protection Gate (Unskippable)
+                                @endif
+                            </span>
                         </div>
                     </div>
-                    <button type="button" wire:click="closeBackupModal" style="background: none; border: none; font-size: 20px; color: #92400e; cursor: pointer;">&times;</button>
+                    @if ($isBackupModalSkippable)
+                        <button type="button" wire:click="dismissSafetyBackupModal" style="background: none; border: none; font-size: 20px; color: #92400e; cursor: pointer;">&times;</button>
+                    @endif
                 </div>
 
                 <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
-                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
-                        <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; letter-spacing: 0.04em;">Pending Operation</span>
-                        <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-top: 2px;">{{ $pendingUpdateTitle }}</div>
-                        <p style="font-size: 12.5px; color: #64748b; margin: 4px 0 0 0;">{{ $pendingUpdateDescription }}</p>
-                    </div>
-
                     <p style="font-size: 13.5px; color: #334155; line-height: 1.5; margin: 0;">
-                        Before performing this server update, generating a complete system database backup is strictly required. This is an automated safety measure so your data and database schema can be safely recovered if the update encounters breaking changes.
+                        @if ($backupSkipCount === 0)
+                            Welcome to Current Server Management. You have not created a database backup during this session. It is strongly advised to generate a safety backup snapshot before executing critical maintenance or server updates. You can dismiss this notice for 5 minutes.
+                        @elseif ($backupSkipCount === 1)
+                            It has been 5 minutes since your first reminder and no database backup has been created. A database backup protects your schemas and records from unrecoverable failures. You may dismiss this reminder for another 10 minutes.
+                        @else
+                            You have skipped the backup prompts and it has reached the 20-minute mark without a safety backup. Because critical server operations can modify database schemas and repositories, creating a safety backup is now <strong>mandatory and unskippable</strong>.
+                        @endif
                     </p>
 
                     @if($latestBackup)
@@ -737,18 +710,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
                             <i class="fa-solid fa-clock-rotate-left" style="color: #64748b;"></i>
                             <span>Previous backup on disk: <strong>{{ $latestBackup['filename'] }}</strong> ({{ $latestBackup['age_minutes'] }} mins ago)</span>
                         </div>
+                    @else
+                        <div style="font-size: 12px; color: #b45309; background: #fffbeb; padding: 10px 14px; border-radius: 8px; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-triangle-exclamation" style="color: #d97706;"></i>
+                            <span>No existing backups found on local storage. Creating a backup is essential.</span>
+                        </div>
                     @endif
                 </div>
 
                 <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 10px; background: #f8fafc;">
-                    <button type="button" wire:click="closeBackupModal" wire:loading.attr="disabled" style="background: #ffffff; color: #64748b; border: 1px solid #cbd5e1; padding: 10px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer;">
-                        Cancel
-                    </button>
-                    <button type="button" wire:click="generateBackupAndProceed" wire:loading.attr="disabled" wire:target="generateBackupAndProceed" style="background: #d97706; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 10px rgba(217, 119, 6, 0.3);">
-                        <i class="fa-solid fa-cloud-arrow-up" wire:loading.remove wire:target="generateBackupAndProceed"></i>
-                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="generateBackupAndProceed"></i>
-                        <span wire:loading.remove wire:target="generateBackupAndProceed">Generate Backup & Proceed With Update</span>
-                        <span wire:loading wire:target="generateBackupAndProceed">Backing Up & Updating...</span>
+                    @if ($isBackupModalSkippable)
+                        <button type="button" wire:click="dismissSafetyBackupModal" wire:loading.attr="disabled" style="background: #ffffff; color: #64748b; border: 1px solid #cbd5e1; padding: 10px 16px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer;">
+                            Dismiss (Remind in {{ $nextPromptMinutes }}m)
+                        </button>
+                    @endif
+                    <button type="button" wire:click="executeSafetyBackup" wire:loading.attr="disabled" wire:target="executeSafetyBackup" style="background: {{ $isBackupModalSkippable ? '#d97706' : '#dc2626' }}; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">
+                        <i class="fa-solid fa-cloud-arrow-up" wire:loading.remove wire:target="executeSafetyBackup"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="executeSafetyBackup"></i>
+                        <span wire:loading.remove wire:target="executeSafetyBackup">Generate Safety Backup</span>
+                        <span wire:loading wire:target="executeSafetyBackup">Creating Backup...</span>
                     </button>
                 </div>
             </div>

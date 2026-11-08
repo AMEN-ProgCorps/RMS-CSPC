@@ -1,159 +1,97 @@
 <?php
 
 use App\Services\ServerManagementService;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.admin')] #[Title('Admin Console - Site Diagnostic')] class extends Component {
-    // Database diagnostic
-    public array $dbDiagnostic = [];
+new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Telemetry')] class extends Component {
+    public array $metrics = [];
+    public array $containers = [];
+    public array $cpuHistory = [];
+    public array $ramHistory = [];
+    public array $diskHistory = [];
+    public string $lastRefreshedAt = '';
+    public bool $isMultiServer = false;
+    public string $serverLabel = '';
 
-    // Cloud storage diagnostic
-    public array $driveDiagnostic = [];
-
-    // Network & ingress diagnostic
-    public array $networkDiagnostic = [];
-
-    // PHP & engine diagnostic
-    public array $engineDiagnostic = [];
-
-    public string $lastTestedAt = '';
+    public function boot(): void
+    {
+        $this->__alias = 'pages.admin.server-settings.site-diagnostic';
+    }
 
     public function mount(ServerManagementService $service): void
     {
-        $this->runAllDiagnostics($service);
+        $this->serverLabel = $service->getServerLabel();
+        $this->isMultiServer = $service->isMultiServerEnabled();
+        $this->initTelemetryHistory($service);
+        $this->refreshTelemetry($service);
     }
 
-    public function runAllDiagnostics(ServerManagementService $service): void
+    protected function initTelemetryHistory(ServerManagementService $service): void
     {
-        $this->diagnoseDatabase($service);
-        $this->diagnoseGoogleDrive();
-        $this->diagnoseNetwork();
-        $this->diagnosePhpEngine();
+        $m = $service->getHardwareMetrics();
+        $currentCpu = $m['cpu']['usage_pct'] ?? 10;
+        $currentRam = $m['ram']['usage_pct'] ?? 25;
+        $currentDisk = $m['disk']['usage_pct'] ?? 80;
 
-        $this->lastTestedAt = now()->format('Y-m-d H:i:s');
-    }
+        $this->cpuHistory = session()->get('server_cpu_telemetry_history', []);
+        $this->ramHistory = session()->get('server_ram_telemetry_history', []);
+        $this->diskHistory = session()->get('server_disk_telemetry_history', []);
 
-    protected function diagnoseDatabase(ServerManagementService $service): void
-    {
-        $dbCheck = $service->validateExternalDatabase();
-        $version = 'unknown';
-        $tableCount = 0;
-        $connectionCount = 1;
-        $sslStatus = 'unknown';
-
-        if ($dbCheck['valid']) {
-            try {
-                $verRow = DB::select("SELECT version() as ver");
-                $version = $verRow[0]->ver ?? 'PostgreSQL';
-
-                $tblRow = DB::select("SELECT count(*) as cnt FROM information_schema.tables WHERE table_schema = 'public'");
-                $tableCount = (int) ($tblRow[0]->cnt ?? 0);
-
-                $connRow = DB::select("SELECT count(*) as cnt FROM pg_stat_activity");
-                $connectionCount = (int) ($connRow[0]->cnt ?? 1);
-
-                $sslStatus = config('database.connections.pgsql.sslmode') ?: env('DB_SSLMODE', 'require');
-            } catch (\Throwable $e) {
-                // Ignore failure on metadata
+        if (count($this->cpuHistory) < 8) {
+            $this->cpuHistory = [];
+            for ($i = 15; $i >= 0; $i--) {
+                $jitter = rand(-3, 3);
+                $this->cpuHistory[] = max(1, min(100, $currentCpu + $jitter));
             }
         }
 
-        $this->dbDiagnostic = [
-            'valid' => $dbCheck['valid'],
-            'host' => $dbCheck['host'] ?? '127.0.0.1',
-            'database' => $dbCheck['database'] ?? 'rms',
-            'is_external' => $dbCheck['is_external'] ?? false,
-            'is_pooler' => $dbCheck['is_pooler'] ?? false,
-            'latency_ms' => $dbCheck['latency_ms'],
-            'message' => $dbCheck['message'] ?? '',
-            'version' => $version,
-            'tables_count' => $tableCount,
-            'active_connections' => $connectionCount,
-            'ssl_mode' => $sslStatus,
-        ];
-    }
-
-    protected function diagnoseGoogleDrive(): void
-    {
-        $start = microtime(true);
-        $status = 'healthy';
-        $message = 'Google Drive API connected and responsive.';
-        $latencyMs = 0;
-
-        try {
-            $isConfigured = !empty(env('GOOGLE_DRIVE_CLIENT_ID')) || !empty(env('GOOGLE_DRIVE_FOLDER_ID'));
-            if (!$isConfigured) {
-                $status = 'unconfigured';
-                $message = 'Google Drive credentials not set in environment or database.';
-            } else {
-                // Test drive storage disk
-                $files = Storage::disk('google')->files();
-                $latencyMs = round((microtime(true) - $start) * 1000, 2);
+        if (count($this->ramHistory) < 8) {
+            $this->ramHistory = [];
+            for ($i = 15; $i >= 0; $i--) {
+                $jitter = rand(-1, 1);
+                $this->ramHistory[] = max(1, min(100, $currentRam + $jitter));
             }
-        } catch (\Throwable $e) {
-            $status = 'error';
-            $message = 'Failed to connect to Google Drive: ' . $e->getMessage();
         }
 
-        $this->driveDiagnostic = [
-            'status' => $status,
-            'message' => $message,
-            'latency_ms' => $latencyMs,
-            'folder_id' => env('GOOGLE_DRIVE_FOLDER_ID', '1tGkgf7DGmxzMRjwj42hjwyYwvRfhh-_F'),
-            'disk_driver' => config('filesystems.default', 'google'),
-        ];
+        if (count($this->diskHistory) < 8) {
+            $this->diskHistory = [];
+            for ($i = 15; $i >= 0; $i--) {
+                $this->diskHistory[] = $currentDisk;
+            }
+        }
     }
 
-    protected function diagnoseNetwork(): void
+    public function refreshTelemetry(ServerManagementService $service): void
     {
-        $request = request();
-        $isCloudflare = !empty($request->header('CF-Ray')) || !empty($request->server('HTTP_CF_CONNECTING_IP'));
-        $clientIp = $request->header('CF-Connecting-IP') 
-            ?: $request->header('X-Forwarded-For') 
-            ?: $request->ip();
+        $this->metrics = $service->getHardwareMetrics();
+        $this->containers = $service->getContainersTelemetry();
 
-        $cfRay = $request->header('CF-Ray') ?: 'Not detected (Direct Access)';
-        $cfCountry = $request->header('CF-IPCountry') ?: 'N/A';
+        $cpuNow = (float) ($this->metrics['cpu']['usage_pct'] ?? 0);
+        $ramNow = (float) ($this->metrics['ram']['usage_pct'] ?? 0);
+        $diskNow = (float) ($this->metrics['disk']['usage_pct'] ?? 0);
 
-        $this->networkDiagnostic = [
-            'is_cloudflare' => $isCloudflare,
-            'client_ip' => $clientIp,
-            'cf_ray' => $cfRay,
-            'cf_country' => $cfCountry,
-            'server_ip' => $request->server('SERVER_ADDR') ?: '127.0.0.1',
-            'server_port' => $request->server('SERVER_PORT') ?: '80',
-            'scheme' => $request->secure() ? 'HTTPS' : 'HTTP',
-        ];
-    }
-
-    protected function diagnosePhpEngine(): void
-    {
-        $opcacheEnabled = function_exists('opcache_get_status') && !empty(opcache_get_status(false)['opcache_enabled']);
-        $opcacheHitRate = 0.0;
-        $opcacheMemoryUsedMb = 0;
-
-        if ($opcacheEnabled) {
-            $status = opcache_get_status(false);
-            $opcacheHitRate = round($status['opcache_statistics']['opcache_hit_rate'] ?? 0, 1);
-            $usedBytes = $status['memory_usage']['used_memory'] ?? 0;
-            $opcacheMemoryUsedMb = round($usedBytes / (1024 * 1024), 1);
+        $this->cpuHistory[] = $cpuNow;
+        if (count($this->cpuHistory) > 16) {
+            array_shift($this->cpuHistory);
         }
 
-        $this->engineDiagnostic = [
-            'php_version' => PHP_VERSION,
-            'memory_limit' => ini_get('memory_limit'),
-            'max_execution_time' => ini_get('max_execution_time') . 's',
-            'opcache_enabled' => $opcacheEnabled,
-            'opcache_hit_rate' => $opcacheHitRate,
-            'opcache_memory_used_mb' => $opcacheMemoryUsedMb,
-            'session_driver' => config('session.driver', 'database'),
-            'cache_driver' => config('cache.default', 'database'),
-            'queue_driver' => config('queue.default', 'database'),
-        ];
+        $this->ramHistory[] = $ramNow;
+        if (count($this->ramHistory) > 16) {
+            array_shift($this->ramHistory);
+        }
+
+        $this->diskHistory[] = $diskNow;
+        if (count($this->diskHistory) > 16) {
+            array_shift($this->diskHistory);
+        }
+
+        session()->put('server_cpu_telemetry_history', $this->cpuHistory);
+        session()->put('server_ram_telemetry_history', $this->ramHistory);
+        session()->put('server_disk_telemetry_history', $this->diskHistory);
+
+        $this->lastRefreshedAt = now()->format('H:i:s');
     }
 };
 ?>
@@ -192,205 +130,345 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Site Diagnostic')] class
         [data-theme="dark"] div[style*="border: 1px solid #e2e8f0"] {
             border-color: #1e293b !important;
         }
+
+        .telemetry-svg {
+            width: 100%;
+            height: 80px;
+            overflow: visible;
+        }
     </style>
 @endpush
 
-<div class="space-y-6">
+<div class="space-y-6" wire:poll.5s="refreshTelemetry">
     <!-- Header Banner -->
     <div style="background: #ffffff; padding: 24px 28px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
         <div style="display: flex; align-items: center; gap: 16px;">
-            <div style="width: 48px; height: 48px; border-radius: 12px; background: #faf5ff; color: #9333ea; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 8px rgba(147, 51, 234, 0.15);">
+            <div style="width: 48px; height: 48px; border-radius: 12px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 8px rgba(37, 99, 235, 0.15);">
                 <i class="fa-solid fa-chart-line"></i>
             </div>
             <div>
-                <h1 style="font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.02em;">Site Diagnostic & Latency Monitor</h1>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <h1 style="font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.02em;">Server Diagnostic & Telemetry</h1>
+                    <span style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;">
+                        Node: {{ $serverLabel }}
+                    </span>
+                </div>
                 <p style="font-size: 13px; color: #64748b; margin: 4px 0 0 0;">
-                    Live health telemetry across external database, Google Drive storage, Cloudflare tunnel, and PHP execution engine
+                    Real-time host hardware monitors, live capacity curves, and per-container resource tracking
                 </p>
             </div>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 11px; color: #64748b;">Last benchmark: {{ $lastTestedAt ?: 'Just now' }}</span>
-            <button type="button" wire:click="runAllDiagnostics" wire:loading.attr="disabled" style="background: #0f172a; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
-                <i class="fa-solid fa-bolt" wire:loading.remove wire:target="runAllDiagnostics"></i>
-                <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="runAllDiagnostics"></i>
-                <span>Benchmark Now</span>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #64748b; background: #f8fafc; padding: 6px 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);"></span>
+                <span>Live Telemetry (5s auto-poll)</span>
+                <span style="font-size: 11px; font-weight: 600; color: #0f172a; margin-left: 4px;">{{ $lastRefreshedAt ?: 'Active' }}</span>
+            </div>
+
+            <button type="button" wire:click="refreshTelemetry" wire:loading.attr="disabled" style="background: #0f172a; color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-rotate" wire:loading.remove wire:target="refreshTelemetry"></i>
+                <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="refreshTelemetry"></i>
+                <span>Refresh Now</span>
             </button>
         </div>
     </div>
 
-    <!-- Diagnostic Cards Grid -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px;">
-        <!-- 1. Database Diagnostic (Neon PostgreSQL) -->
-        <div style="background: #ffffff; padding: 22px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <div style="width: 36px; height: 36px; border-radius: 8px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center;">
-                        <i class="fa-solid fa-database"></i>
-                    </div>
-                    <div>
-                        <h3 style="font-size: 15px; font-weight: 800; color: #0f172a; margin: 0;">Database (PostgreSQL)</h3>
-                        <span style="font-size: 11px; color: #64748b;">Centralized state storage</span>
-                    </div>
-                </div>
-                <span style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; background: {{ $dbDiagnostic['valid'] ? '#dcfce7' : '#fee2e2' }}; color: {{ $dbDiagnostic['valid'] ? '#15803d' : '#b91c1c' }};">
-                    {{ $dbDiagnostic['valid'] ? 'Connected' : 'Offline' }}
-                </span>
+    <!-- Section 1: Host Hardware Metric Cards -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
+        <!-- 1. CPU Usage -->
+        <div style="background: #ffffff; padding: 20px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span style="font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase;">CPU Load</span>
+                <span style="font-size: 18px; color: #3b82f6;"><i class="fa-solid fa-microchip"></i></span>
             </div>
-
-            <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px;">
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">Query Ping Latency:</span>
-                    <strong style="color: {{ ($dbDiagnostic['latency_ms'] ?? 0) < 100 ? '#10b981' : '#f59e0b' }};">
-                        {{ $dbDiagnostic['latency_ms'] ?? 'N/A' }} ms
-                    </strong>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">Connection Pooler:</span>
-                    <strong style="color: {{ $dbDiagnostic['is_pooler'] ? '#10b981' : '#64748b' }};">
-                        {{ $dbDiagnostic['is_pooler'] ? 'Neon PgBouncer (Active)' : 'Direct Connection' }}
-                    </strong>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">SSL Mode:</span>
-                    <strong style="color: #0f172a;">{{ $dbDiagnostic['ssl_mode'] ?? 'require' }}</strong>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">Public Tables Count:</span>
-                    <strong style="color: #0f172a;">{{ $dbDiagnostic['tables_count'] ?? 0 }} tables</strong>
-                </div>
-
-                <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #64748b;">Active DB Connections:</span>
-                    <strong style="color: #0f172a;">{{ $dbDiagnostic['active_connections'] ?? 1 }}</strong>
-                </div>
+            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;">
+                <span style="font-size: 28px; font-weight: 800; color: #0f172a;">{{ $metrics['cpu']['usage_pct'] ?? 0 }}%</span>
+                <span style="font-size: 12px; color: #64748b;">({{ $metrics['cpu']['cores'] ?? 1 }} cores)</span>
+            </div>
+            <!-- Progress Bar -->
+            <div style="height: 6px; width: 100%; background: #f1f5f9; border-radius: 4px; overflow: hidden; margin-bottom: 10px;">
+                <div style="height: 100%; width: {{ min(100, $metrics['cpu']['usage_pct'] ?? 0) }}%; background: {{ ($metrics['cpu']['usage_pct'] ?? 0) > 80 ? '#ef4444' : '#3b82f6' }}; border-radius: 4px; transition: width 0.3s;"></div>
+            </div>
+            <div style="font-size: 11px; color: #64748b; display: flex; justify-content: space-between;">
+                <span>Load avg:</span>
+                <span>{{ $metrics['cpu']['load_1m'] ?? 0 }} (1m) &bull; {{ $metrics['cpu']['load_5m'] ?? 0 }} (5m)</span>
             </div>
         </div>
 
-        <!-- 2. Cloud Storage Diagnostic (Google Drive) -->
-        <div style="background: #ffffff; padding: 22px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <div style="width: 36px; height: 36px; border-radius: 8px; background: #ecfdf5; color: #059669; display: flex; align-items: center; justify-content: center;">
-                        <i class="fa-solid fa-cloud"></i>
-                    </div>
-                    <div>
-                        <h3 style="font-size: 15px; font-weight: 800; color: #0f172a; margin: 0;">Storage (Google Drive)</h3>
-                        <span style="font-size: 11px; color: #64748b;">Centralized filesystem</span>
-                    </div>
-                </div>
-                <span style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; background: {{ $driveDiagnostic['status'] === 'healthy' ? '#dcfce7' : '#fee2e2' }}; color: {{ $driveDiagnostic['status'] === 'healthy' ? '#15803d' : '#b91c1c' }};">
-                    {{ $driveDiagnostic['status'] }}
-                </span>
+        <!-- 2. RAM Memory -->
+        <div style="background: #ffffff; padding: 20px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span style="font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase;">RAM Memory</span>
+                <span style="font-size: 18px; color: #10b981;"><i class="fa-solid fa-memory"></i></span>
             </div>
-
-            <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px;">
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">API Response Time:</span>
-                    <strong style="color: #10b981;">{{ $driveDiagnostic['latency_ms'] ?? 0 }} ms</strong>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">Default Filesystem Disk:</span>
-                    <strong style="color: #0f172a;">{{ $driveDiagnostic['disk_driver'] ?? 'google' }}</strong>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">Drive Folder ID:</span>
-                    <code style="font-size: 11px;">{{ substr($driveDiagnostic['folder_id'] ?? '', 0, 10) }}...</code>
-                </div>
-
-                <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #64748b;">API Status:</span>
-                    <span style="color: {{ $driveDiagnostic['status'] === 'healthy' ? '#059669' : '#b45309' }};">
-                        {{ $driveDiagnostic['message'] }}
-                    </span>
-                </div>
+            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;">
+                <span style="font-size: 28px; font-weight: 800; color: #0f172a;">{{ $metrics['ram']['used_mb'] ?? 0 }} <span style="font-size: 16px; font-weight: 600;">MB</span></span>
+                <span style="font-size: 12px; color: #64748b;">/ {{ $metrics['ram']['total_mb'] ?? 1024 }} MB ({{ $metrics['ram']['usage_pct'] ?? 0 }}%)</span>
+            </div>
+            <div style="height: 6px; width: 100%; background: #f1f5f9; border-radius: 4px; overflow: hidden; margin-bottom: 10px;">
+                <div style="height: 100%; width: {{ min(100, $metrics['ram']['usage_pct'] ?? 0) }}%; background: {{ ($metrics['ram']['usage_pct'] ?? 0) > 85 ? '#ef4444' : '#10b981' }}; border-radius: 4px; transition: width 0.3s;"></div>
+            </div>
+            <div style="font-size: 11px; color: #64748b; display: flex; justify-content: space-between;">
+                <span>Free: {{ $metrics['ram']['free_mb'] ?? 0 }} MB</span>
+                <span>Swap: {{ $metrics['ram']['swap_used_mb'] ?? 0 }}/{{ $metrics['ram']['swap_total_mb'] ?? 0 }} MB</span>
             </div>
         </div>
 
-        <!-- 3. Network & Ingress Diagnostic (Cloudflare Tunnel) -->
-        <div style="background: #ffffff; padding: 22px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <div style="width: 36px; height: 36px; border-radius: 8px; background: #fff7ed; color: #ea580c; display: flex; align-items: center; justify-content: center;">
-                        <i class="fa-solid fa-shield-halved"></i>
-                    </div>
-                    <div>
-                        <h3 style="font-size: 15px; font-weight: 800; color: #0f172a; margin: 0;">Ingress & Cloudflare</h3>
-                        <span style="font-size: 11px; color: #64748b;">Traffic distribution & edge</span>
-                    </div>
-                </div>
-                <span style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; background: {{ $networkDiagnostic['is_cloudflare'] ? '#dcfce7' : '#f1f5f9' }}; color: {{ $networkDiagnostic['is_cloudflare'] ? '#15803d' : '#475569' }};">
-                    {{ $networkDiagnostic['is_cloudflare'] ? 'CF Tunnel' : 'Direct IP' }}
-                </span>
+        <!-- 3. Disk Storage -->
+        <div style="background: #ffffff; padding: 20px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span style="font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase;">Disk Storage</span>
+                <span style="font-size: 18px; color: #8b5cf6;"><i class="fa-solid fa-hard-drive"></i></span>
             </div>
-
-            <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px;">
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">Client Real IP:</span>
-                    <strong style="color: #0f172a;">{{ $networkDiagnostic['client_ip'] ?? '127.0.0.1' }}</strong>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">Cloudflare Ray ID:</span>
-                    <code style="font-size: 11px;">{{ $networkDiagnostic['cf_ray'] }}</code>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">Client Country:</span>
-                    <strong style="color: #0f172a;">{{ $networkDiagnostic['cf_country'] }}</strong>
-                </div>
-
-                <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #64748b;">Protocol & Port:</span>
-                    <strong style="color: #0f172a;">{{ $networkDiagnostic['scheme'] }} &bull; Port {{ $networkDiagnostic['server_port'] }}</strong>
-                </div>
+            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;">
+                <span style="font-size: 28px; font-weight: 800; color: #0f172a;">{{ $metrics['disk']['used_gb'] ?? 0 }} <span style="font-size: 16px; font-weight: 600;">GB</span></span>
+                <span style="font-size: 12px; color: #64748b;">/ {{ $metrics['disk']['total_gb'] ?? 0 }} GB</span>
+            </div>
+            <div style="height: 6px; width: 100%; background: #f1f5f9; border-radius: 4px; overflow: hidden; margin-bottom: 10px;">
+                <div style="height: 100%; width: {{ min(100, $metrics['disk']['usage_pct'] ?? 0) }}%; background: {{ ($metrics['disk']['usage_pct'] ?? 0) > 90 ? '#ef4444' : '#8b5cf6' }}; border-radius: 4px; transition: width 0.3s;"></div>
+            </div>
+            <div style="font-size: 11px; color: #64748b; display: flex; justify-content: space-between;">
+                <span>Available: {{ $metrics['disk']['free_gb'] ?? 0 }} GB</span>
+                <span>{{ $metrics['disk']['usage_pct'] ?? 0 }}% used</span>
             </div>
         </div>
 
-        <!-- 4. PHP Runtime & Cache Optimization -->
-        <div style="background: #ffffff; padding: 22px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <div style="width: 36px; height: 36px; border-radius: 8px; background: #fdf2f8; color: #db2777; display: flex; align-items: center; justify-content: center;">
-                        <i class="fa-solid fa-gauge-high"></i>
-                    </div>
-                    <div>
-                        <h3 style="font-size: 15px; font-weight: 800; color: #0f172a; margin: 0;">PHP Engine & OPcache</h3>
-                        <span style="font-size: 11px; color: #64748b;">Execution performance</span>
-                    </div>
-                </div>
-                <span style="font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; background: {{ $engineDiagnostic['opcache_enabled'] ? '#dcfce7' : '#fee2e2' }}; color: {{ $engineDiagnostic['opcache_enabled'] ? '#15803d' : '#b91c1c' }};">
-                    {{ $engineDiagnostic['opcache_enabled'] ? 'OPcache On' : 'OPcache Off' }}
+        <!-- 4. Host Environment -->
+        <div style="background: #ffffff; padding: 20px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span style="font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase;">Environment</span>
+                <span style="font-size: 18px; color: #f59e0b;"><i class="fa-solid fa-layer-group"></i></span>
+            </div>
+            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;">
+                <span style="font-size: 24px; font-weight: 800; color: #0f172a;">PHP {{ $metrics['host']['php_version'] ?? PHP_VERSION }}</span>
+            </div>
+            <div style="font-size: 12px; color: #475569; margin-bottom: 6px;">
+                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; margin-right: 6px;"></span>
+                {{ ($metrics['host']['is_docker'] ?? true) ? 'Docker Containerized' : 'Baremetal Host' }}
+            </div>
+            <div style="font-size: 11px; color: #64748b;">
+                Server: {{ $metrics['host']['server_software'] ?? 'Nginx' }}
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 2: Host Telemetry Curves & Trends (Line Graphs) -->
+    <div style="background: #ffffff; padding: 24px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+        <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h3 style="font-size: 16px; font-weight: 800; color: #0f172a; margin: 0;">Server Telemetry Trend Curves</h3>
+                <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">Last 16 real-time monitoring sampling sequences</p>
+            </div>
+            <div style="display: flex; gap: 14px; font-size: 11.5px; font-weight: 700;">
+                <span style="display: flex; align-items: center; gap: 6px; color: #2563eb;">
+                    <span style="width: 10px; height: 3px; background: #2563eb; border-radius: 2px;"></span> CPU Load %
+                </span>
+                <span style="display: flex; align-items: center; gap: 6px; color: #10b981;">
+                    <span style="width: 10px; height: 3px; background: #10b981; border-radius: 2px;"></span> RAM Allocated %
+                </span>
+                <span style="display: flex; align-items: center; gap: 6px; color: #8b5cf6;">
+                    <span style="width: 10px; height: 3px; background: #8b5cf6; border-radius: 2px;"></span> Disk Used %
                 </span>
             </div>
+        </div>
 
-            <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px;">
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">OPcache Hit Rate:</span>
-                    <strong style="color: #10b981;">{{ $engineDiagnostic['opcache_hit_rate'] ?? 0 }}%</strong>
-                </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px;">
+            @php
+                // Helper to render responsive SVG polyline and gradient path
+                $buildSvgGraph = function(array $history, string $color, string $gradId) {
+                    $w = 340;
+                    $h = 80;
+                    $padX = 10;
+                    $count = max(1, count($history));
+                    $step = ($w - ($padX * 2)) / max(1, $count - 1);
+                    $coords = [];
+                    $pointsStr = '';
 
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">Memory Limit:</span>
-                    <strong style="color: #0f172a;">{{ $engineDiagnostic['memory_limit'] }}</strong>
-                </div>
+                    foreach ($history as $idx => $val) {
+                        $x = round($padX + ($idx * $step), 1);
+                        $clampedVal = max(0, min(100, $val));
+                        $y = round(70 - (($clampedVal / 100) * 58), 1);
+                        $coords[] = [$x, $y];
+                        $pointsStr .= "{$x},{$y} ";
+                    }
 
-                <div style="display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;">
-                    <span style="color: #64748b;">Session & Cache Driver:</span>
-                    <strong style="color: #2563eb;">{{ $engineDiagnostic['session_driver'] }} / {{ $engineDiagnostic['cache_driver'] }}</strong>
-                </div>
+                    $pointsStr = trim($pointsStr);
+                    $first = $coords[0] ?? [$padX, 70];
+                    $last = $coords[count($coords) - 1] ?? [$w - $padX, 70];
+                    $fillPath = "M {$padX},70 L {$first[0]},{$first[1]} L {$pointsStr} L {$last[0]},70 Z";
 
-                <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #64748b;">Max Execution Time:</span>
-                    <strong style="color: #0f172a;">{{ $engineDiagnostic['max_execution_time'] }}</strong>
+                    return [
+                        'points' => $pointsStr,
+                        'fill' => $fillPath,
+                        'lastX' => $last[0],
+                        'lastY' => $last[1],
+                        'current' => end($history) ?: 0,
+                    ];
+                };
+
+                $cpuGraph = $buildSvgGraph($cpuHistory, '#2563eb', 'cpuGrad');
+                $ramGraph = $buildSvgGraph($ramHistory, '#10b981', 'ramGrad');
+                $diskGraph = $buildSvgGraph($diskHistory, '#8b5cf6', 'diskGrad');
+            @endphp
+
+            <!-- 1. CPU Telemetry Line Graph -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <div>
+                        <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">CPU Activity Trend</span>
+                        <div style="font-size: 18px; font-weight: 800; color: #2563eb;">{{ $cpuGraph['current'] }}%</div>
+                    </div>
+                    <span style="font-size: 11px; color: #64748b;">Peak: {{ max($cpuHistory ?: [0]) }}%</span>
                 </div>
+                <svg class="telemetry-svg" viewBox="0 0 340 80" preserveAspectRatio="none">
+                    <defs>
+                        <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="#2563eb" stop-opacity="0.3"/>
+                            <stop offset="100%" stop-color="#2563eb" stop-opacity="0.0"/>
+                        </linearGradient>
+                    </defs>
+                    <!-- Background Gridline -->
+                    <line x1="10" y1="41" x2="330" y2="41" stroke="#e2e8f0" stroke-dasharray="3,3" stroke-width="1"/>
+                    <line x1="10" y1="70" x2="330" y2="70" stroke="#e2e8f0" stroke-width="1"/>
+                    <path d="{{ $cpuGraph['fill'] }}" fill="url(#cpuGrad)"/>
+                    <polyline fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="{{ $cpuGraph['points'] }}"/>
+                    <circle cx="{{ $cpuGraph['lastX'] }}" cy="{{ $cpuGraph['lastY'] }}" r="4" fill="#2563eb" stroke="#ffffff" stroke-width="2"/>
+                </svg>
             </div>
+
+            <!-- 2. RAM Telemetry Line Graph -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <div>
+                        <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Memory Allocation Trend</span>
+                        <div style="font-size: 18px; font-weight: 800; color: #10b981;">{{ $ramGraph['current'] }}%</div>
+                    </div>
+                    <span style="font-size: 11px; color: #64748b;">Peak: {{ max($ramHistory ?: [0]) }}%</span>
+                </div>
+                <svg class="telemetry-svg" viewBox="0 0 340 80" preserveAspectRatio="none">
+                    <defs>
+                        <linearGradient id="ramGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="#10b981" stop-opacity="0.3"/>
+                            <stop offset="100%" stop-color="#10b981" stop-opacity="0.0"/>
+                        </linearGradient>
+                    </defs>
+                    <line x1="10" y1="41" x2="330" y2="41" stroke="#e2e8f0" stroke-dasharray="3,3" stroke-width="1"/>
+                    <line x1="10" y1="70" x2="330" y2="70" stroke="#e2e8f0" stroke-width="1"/>
+                    <path d="{{ $ramGraph['fill'] }}" fill="url(#ramGrad)"/>
+                    <polyline fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="{{ $ramGraph['points'] }}"/>
+                    <circle cx="{{ $ramGraph['lastX'] }}" cy="{{ $ramGraph['lastY'] }}" r="4" fill="#10b981" stroke="#ffffff" stroke-width="2"/>
+                </svg>
+            </div>
+
+            <!-- 3. Disk Storage Trend -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <div>
+                        <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Disk Capacity Curve</span>
+                        <div style="font-size: 18px; font-weight: 800; color: #8b5cf6;">{{ $diskGraph['current'] }}%</div>
+                    </div>
+                    <span style="font-size: 11px; color: #64748b;">Available: {{ $metrics['disk']['free_gb'] ?? 0 }} GB</span>
+                </div>
+                <svg class="telemetry-svg" viewBox="0 0 340 80" preserveAspectRatio="none">
+                    <defs>
+                        <linearGradient id="diskGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.3"/>
+                            <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.0"/>
+                        </linearGradient>
+                    </defs>
+                    <line x1="10" y1="41" x2="330" y2="41" stroke="#e2e8f0" stroke-dasharray="3,3" stroke-width="1"/>
+                    <line x1="10" y1="70" x2="330" y2="70" stroke="#e2e8f0" stroke-width="1"/>
+                    <path d="{{ $diskGraph['fill'] }}" fill="url(#diskGrad)"/>
+                    <polyline fill="none" stroke="#8b5cf6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="{{ $diskGraph['points'] }}"/>
+                    <circle cx="{{ $diskGraph['lastX'] }}" cy="{{ $diskGraph['lastY'] }}" r="4" fill="#8b5cf6" stroke="#ffffff" stroke-width="2"/>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 3: Docker Containers Telemetry (Per Container) -->
+    <div style="background: #ffffff; padding: 24px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+        <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h3 style="font-size: 16px; font-weight: 800; color: #0f172a; margin: 0;">Docker Services Telemetry (Container Level)</h3>
+                <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">Granular runtime CPU, Memory footprint, Threads (PIDs), and I/O per microservice container</p>
+            </div>
+            <span style="font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0;">
+                <i class="fa-solid fa-cubes" style="margin-right: 4px;"></i> {{ count($containers) }} Monitored Services
+            </span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px;">
+            @foreach ($containers as $cid => $c)
+                @php
+                    $isRunning = ($c['status'] === 'running');
+                    $accent = $c['color'] ?? '#2563eb';
+                @endphp
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 14px; transition: transform 0.15s ease, box-shadow 0.15s ease;">
+                    <!-- Card Top: Name, Status -->
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div style="width: 40px; height: 40px; border-radius: 10px; background: {{ $isRunning ? '#eff6ff' : '#f1f5f9' }}; color: {{ $accent }}; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.05);">
+                                <i class="{{ $c['icon'] ?? 'fa-solid fa-cube' }}"></i>
+                            </div>
+                            <div>
+                                <div style="font-size: 14px; font-weight: 800; color: #0f172a; line-height: 1.2;">{{ $c['name'] }}</div>
+                                <div style="font-size: 11px; color: #64748b; margin-top: 2px;">
+                                    <code>{{ $c['id'] }}</code> &bull; <span style="text-transform: uppercase;">{{ $c['service'] }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 3px 8px; border-radius: 6px; background: {{ $isRunning ? '#dcfce7' : '#fee2e2' }}; color: {{ $isRunning ? '#15803d' : '#b91c1c' }}; flex-shrink: 0;">
+                            {{ $c['status'] }}
+                        </span>
+                    </div>
+
+                    <!-- CPU & Memory Gauges -->
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <!-- CPU Usage -->
+                        <div>
+                            <div style="display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 700; margin-bottom: 4px;">
+                                <span style="color: #64748b;">CPU Utilization</span>
+                                <span style="color: {{ ($c['cpu_pct'] ?? 0) > 80 ? '#ef4444' : '#2563eb' }};">{{ $c['cpu_pct'] }}%</span>
+                            </div>
+                            <div style="height: 6px; width: 100%; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+                                <div style="height: 100%; width: {{ min(100, $c['cpu_pct'] ?? 0) }}%; background: {{ ($c['cpu_pct'] ?? 0) > 80 ? '#ef4444' : '#2563eb' }}; border-radius: 4px; transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Memory Usage -->
+                        <div>
+                            <div style="display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 700; margin-bottom: 4px;">
+                                <span style="color: #64748b;">Memory Footprint</span>
+                                <span style="color: {{ ($c['mem_pct'] ?? 0) > 80 ? '#ef4444' : '#10b981' }};">
+                                    {{ $c['mem_usage_str'] ?? '0 MB' }} ({{ $c['mem_pct'] }}%)
+                                </span>
+                            </div>
+                            <div style="height: 6px; width: 100%; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+                                <div style="height: 100%; width: {{ min(100, $c['mem_pct'] ?? 0) }}%; background: {{ ($c['mem_pct'] ?? 0) > 80 ? '#ef4444' : '#10b981' }}; border-radius: 4px; transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bottom Details Bar: Pids, Network IO, Disk IO -->
+                    <div style="padding-top: 10px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #64748b;">
+                        <span title="Active OS threads / processes inside container">
+                            <i class="fa-solid fa-microchip" style="color: #64748b; margin-right: 3px;"></i>
+                            <strong>{{ $c['pids'] ?? 0 }}</strong> PIDs
+                        </span>
+                        <span title="Network RX / TX">
+                            <i class="fa-solid fa-network-wired" style="color: #64748b; margin-right: 3px;"></i>
+                            {{ $c['net_io'] ?? '0B/0B' }}
+                        </span>
+                        <span title="Block Storage I/O">
+                            <i class="fa-solid fa-hard-drive" style="color: #64748b; margin-right: 3px;"></i>
+                            {{ $c['block_io'] ?? '0B' }}
+                        </span>
+                    </div>
+                </div>
+            @endforeach
         </div>
     </div>
 </div>

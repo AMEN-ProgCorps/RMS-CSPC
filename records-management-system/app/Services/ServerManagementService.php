@@ -296,6 +296,207 @@ class ServerManagementService
     }
 
     /**
+     * Fetch rich real-time telemetry metrics for each container.
+     */
+    public function getContainersTelemetry(): array
+    {
+        $metaMap = [
+            'rms_app' => [
+                'name' => 'Application (Nginx + PHP 8.4)',
+                'service' => 'app',
+                'port' => 80,
+                'icon' => 'fa-solid fa-server',
+                'color' => '#2563eb',
+            ],
+            'rms_websocket' => [
+                'name' => 'WebSocket Server (Messify)',
+                'service' => 'websocket',
+                'port' => 8080,
+                'icon' => 'fa-solid fa-comments',
+                'color' => '#8b5cf6',
+            ],
+            'rms_db' => [
+                'name' => 'PostgreSQL Database',
+                'service' => 'db',
+                'port' => 5432,
+                'icon' => 'fa-solid fa-database',
+                'color' => '#0284c7',
+            ],
+            'rms_adminer' => [
+                'name' => 'Adminer Database UI',
+                'service' => 'adminer',
+                'port' => 8088,
+                'icon' => 'fa-solid fa-table-columns',
+                'color' => '#f59e0b',
+            ],
+            'rms_node' => [
+                'name' => 'Node / Vite Dev Server',
+                'service' => 'node',
+                'port' => 5173,
+                'icon' => 'fa-brands fa-node-js',
+                'color' => '#16a34a',
+            ],
+        ];
+
+        $results = [];
+
+        // 1. Try Docker CLI docker stats --no-stream
+        $statsOutput = null;
+        $nullRedirect = (PHP_OS_FAMILY === 'Windows') ? '2>NUL' : '2>/dev/null';
+        if (function_exists('shell_exec')) {
+            $statsOutput = @shell_exec("docker stats --no-stream --format \"{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}|{{.PIDs}}\" {$nullRedirect}");
+        }
+
+        if (!empty($statsOutput)) {
+            $lines = explode("\n", trim($statsOutput));
+            $statsMap = [];
+            foreach ($lines as $line) {
+                if (empty($line)) continue;
+                $parts = explode('|', $line);
+                $cName = trim($parts[0] ?? '');
+                $statsMap[$cName] = [
+                    'cpu_pct' => (float) rtrim(trim($parts[1] ?? '0'), '%'),
+                    'mem_usage_str' => trim($parts[2] ?? '0B / 0B'),
+                    'mem_pct' => (float) rtrim(trim($parts[3] ?? '0'), '%'),
+                    'net_io' => trim($parts[4] ?? '0B / 0B'),
+                    'block_io' => trim($parts[5] ?? '0B / 0B'),
+                    'pids' => (int) trim($parts[6] ?? '0'),
+                ];
+            }
+
+            foreach ($metaMap as $cid => $meta) {
+                $stat = $statsMap[$cid] ?? null;
+                $isRunning = ($stat !== null);
+                $results[$cid] = [
+                    'id' => $cid,
+                    'name' => $meta['name'],
+                    'service' => $meta['service'],
+                    'status' => $isRunning ? 'running' : 'stopped',
+                    'cpu_pct' => $stat['cpu_pct'] ?? 0.0,
+                    'mem_usage_str' => $stat['mem_usage_str'] ?? '0 MB / 0 MB',
+                    'mem_pct' => $stat['mem_pct'] ?? 0.0,
+                    'net_io' => $stat['net_io'] ?? '0 B / 0 B',
+                    'block_io' => $stat['block_io'] ?? '0 B / 0 B',
+                    'pids' => $stat['pids'] ?? 0,
+                    'icon' => $meta['icon'],
+                    'color' => $meta['color'],
+                ];
+            }
+
+            return $results;
+        }
+
+        // 2. Query Docker Socket directly via Unix Socket Curl
+        if (file_exists('/var/run/docker.sock') && function_exists('curl_init')) {
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_UNIX_SOCKET_PATH => '/var/run/docker.sock',
+                CURLOPT_URL => 'http://localhost/containers/json',
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 2,
+            ]);
+            $rawList = curl_exec($ch);
+            $runningList = json_decode($rawList, true) ?: [];
+
+            $runningByName = [];
+            foreach ($runningList as $c) {
+                $rawNames = $c['Names'] ?? [];
+                foreach ($rawNames as $n) {
+                    $runningByName[ltrim($n, '/')] = $c['Id'];
+                }
+            }
+
+            foreach ($metaMap as $cid => $meta) {
+                $containerId = $runningByName[$cid] ?? null;
+                if ($containerId) {
+                    $ch2 = curl_init();
+                    curl_setopt_array($ch2, [
+                        CURLOPT_UNIX_SOCKET_PATH => '/var/run/docker.sock',
+                        CURLOPT_URL => "http://localhost/containers/{$containerId}/stats?stream=false",
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_TIMEOUT => 2,
+                    ]);
+                    $statsRaw = curl_exec($ch2);
+                    $stats = json_decode($statsRaw, true) ?: [];
+
+                    $memBytes = $stats['memory_stats']['usage'] ?? 0;
+                    $limitBytes = $stats['memory_stats']['limit'] ?? 1;
+                    $memMb = round($memBytes / 1048576, 1);
+                    $limitMb = round($limitBytes / 1048576, 1);
+                    $memPct = $limitBytes > 0 ? round(($memBytes / $limitBytes) * 100, 1) : 0;
+                    $pids = $stats['pids_stats']['current'] ?? 0;
+
+                    $cpuDelta = ($stats['cpu_stats']['cpu_usage']['total_usage'] ?? 0) - ($stats['precpu_stats']['cpu_usage']['total_usage'] ?? 0);
+                    $sysDelta = ($stats['cpu_stats']['system_cpu_usage'] ?? 0) - ($stats['precpu_stats']['system_cpu_usage'] ?? 0);
+                    $cpus = $stats['cpu_stats']['online_cpus'] ?? 1;
+                    $cpuPct = ($sysDelta > 0) ? round(($cpuDelta / $sysDelta) * $cpus * 100, 1) : 0.0;
+
+                    $netRx = 0;
+                    $netTx = 0;
+                    if (!empty($stats['networks'])) {
+                        foreach ($stats['networks'] as $net) {
+                            $netRx += $net['rx_bytes'] ?? 0;
+                            $netTx += $net['tx_bytes'] ?? 0;
+                        }
+                    }
+
+                    $results[$cid] = [
+                        'id' => $cid,
+                        'name' => $meta['name'],
+                        'service' => $meta['service'],
+                        'status' => 'running',
+                        'cpu_pct' => max(0.1, $cpuPct),
+                        'mem_usage_str' => "{$memMb}MB / {$limitMb}MB",
+                        'mem_pct' => $memPct,
+                        'net_io' => round($netRx / 1048576, 1) . 'MB / ' . round($netTx / 1048576, 1) . 'MB',
+                        'block_io' => 'Active',
+                        'pids' => $pids,
+                        'icon' => $meta['icon'],
+                        'color' => $meta['color'],
+                    ];
+                } else {
+                    $results[$cid] = [
+                        'id' => $cid,
+                        'name' => $meta['name'],
+                        'service' => $meta['service'],
+                        'status' => 'stopped',
+                        'cpu_pct' => 0.0,
+                        'mem_usage_str' => '0 MB / 0 MB',
+                        'mem_pct' => 0.0,
+                        'net_io' => '0 MB / 0 MB',
+                        'block_io' => '0 MB',
+                        'pids' => 0,
+                        'icon' => $meta['icon'],
+                        'color' => $meta['color'],
+                    ];
+                }
+            }
+
+            return $results;
+        }
+
+        // Fallback default
+        foreach ($metaMap as $cid => $meta) {
+            $results[$cid] = [
+                'id' => $cid,
+                'name' => $meta['name'],
+                'service' => $meta['service'],
+                'status' => 'unknown',
+                'cpu_pct' => 0.0,
+                'mem_usage_str' => 'N/A',
+                'mem_pct' => 0.0,
+                'net_io' => 'N/A',
+                'block_io' => 'N/A',
+                'pids' => 0,
+                'icon' => $meta['icon'],
+                'color' => $meta['color'],
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
      * Test TCP port reachability with short timeout.
      */
     protected function checkPortReachable(string $host, int $port): bool

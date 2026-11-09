@@ -1931,7 +1931,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             @endif
                         </div>
                         <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 1.4;">
-                            Choose specific data categories to back up (Users, Offices, Roles, Flows, DTS, Messify, Logs).
+                            Choose specific data categories to back up (Users, Offices, Roles, Flows, DTS, Chatify, Logs).
                         </p>
                     </div>
                 </div>

@@ -19,12 +19,12 @@ class ChatController extends Controller
             return redirect()->route('login');
         }
 
-        // Messify subsystem check: ensure the messaging subsystem is active
-        $messifyActive = \Illuminate\Support\Facades\DB::table(
+        // Chatify/Messify subsystem check: ensure the messaging subsystem is active
+        $chatActive = \Illuminate\Support\Facades\DB::table(
             \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems'
-        )->where('subsystem_name', 'Messify')->where('is_active', true)->exists();
+        )->whereIn('subsystem_name', ['Messify', 'Chatify'])->where('is_active', true)->exists();
 
-        if (!$messifyActive) {
+        if (!$chatActive) {
             return redirect()->route('portal');
         }
 
@@ -40,7 +40,8 @@ class ChatController extends Controller
 
         // Redirect user to standalone chat system using dynamic host
         $host = request()->getSchemeAndHttpHost();
-        $url = $host . '/messify/auth_entry.php?' . http_build_query([
+        $chatDir = is_dir(public_path('chatify')) ? 'chatify' : 'messify';
+        $url = $host . '/' . $chatDir . '/auth_entry.php?' . http_build_query([
             'account_id' => $user->account_id,
             'expires'    => $expires,
             'token'      => $token,

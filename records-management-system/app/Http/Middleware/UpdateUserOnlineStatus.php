@@ -99,7 +99,7 @@ class UpdateUserOnlineStatus
                     ], 401);
                 }
 
-                if ($request->is('open-chat', 'messify*')) {
+                if ($request->is('open-chat', 'messify*', 'chatify*')) {
                     return response('<!DOCTYPE html><html><head><script>if(window.top){window.top.location.href="' . route('login') . '";}</script></head><body></body></html>', 401)
                         ->header('Content-Type', 'text/html');
                 }
@@ -130,7 +130,9 @@ class UpdateUserOnlineStatus
 
                 try {
                     DB::table('sessions')->where('user_id', $user->id)->delete();
-                    $wsPushFile = public_path('messify/core/WsPush.php');
+                    $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                        ? public_path('chatify/core/WsPush.php')
+                        : public_path('messify/core/WsPush.php');
                     if (is_file($wsPushFile)) {
                         require_once $wsPushFile;
                         if (class_exists('WsPush')) {
@@ -180,7 +182,9 @@ class UpdateUserOnlineStatus
 
                     try {
                         DB::table('sessions')->where('user_id', $user->id)->delete();
-                        $wsPushFile = public_path('messify/core/WsPush.php');
+                        $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                        ? public_path('chatify/core/WsPush.php')
+                        : public_path('messify/core/WsPush.php');
                         if (is_file($wsPushFile)) {
                             require_once $wsPushFile;
                             if (class_exists('WsPush')) {
@@ -209,7 +213,9 @@ class UpdateUserOnlineStatus
                     ]);
                 if ($wasOffline) {
                     try {
-                        $wsPushFile = public_path('messify/core/WsPush.php');
+                        $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                        ? public_path('chatify/core/WsPush.php')
+                        : public_path('messify/core/WsPush.php');
                         if (is_file($wsPushFile)) {
                             require_once $wsPushFile;
                             if (class_exists('WsPush')) {

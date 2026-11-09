@@ -156,7 +156,9 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
             ->update($updateData);
 
         try {
-            $wsPushFile = public_path('messify/core/WsPush.php');
+            $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                ? public_path('chatify/core/WsPush.php')
+                : public_path('messify/core/WsPush.php');
             if (is_file($wsPushFile)) {
                 require_once $wsPushFile;
                 if (class_exists('WsPush')) {
@@ -275,6 +277,7 @@ Volt::route('/tracked', 'pages.portal.tracked')
 Route::middleware(['auth'])
     ->group(function () {
     Route::get('/open-chat', [ChatController::class, 'openChat'])->name('open-chat');
+    Route::get('/chatify/open-chat', [ChatController::class, 'openChat'])->name('chatify.open-chat');
     Route::get('/messify/open-chat', [ChatController::class, 'openChat'])->name('messify.open-chat');
     Route::get('/chat/unread-count', function () {
         $user = Auth::user();
@@ -1254,7 +1257,9 @@ Route::get('/logout', function () {
 
         // Immediately broadcast offline presence & force-disconnect all Messify WebSocket connections
         try {
-            $wsPushFile = public_path('messify/core/WsPush.php');
+            $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                ? public_path('chatify/core/WsPush.php')
+                : public_path('messify/core/WsPush.php');
             if (is_file($wsPushFile)) {
                 require_once $wsPushFile;
                 if (class_exists('WsPush')) {
@@ -1267,7 +1272,10 @@ Route::get('/logout', function () {
 
         // Also keep HTTP fallback for standalone XAMPP setups
         try {
-            \Illuminate\Support\Facades\Http::timeout(2)->post('http://127.0.0.1/messify/invalidate_chat_session.php', [
+            $targetUrl = is_dir(public_path('chatify'))
+                ? 'http://127.0.0.1/chatify/invalidate_chat_session.php'
+                : 'http://127.0.0.1/messify/invalidate_chat_session.php';
+            \Illuminate\Support\Facades\Http::timeout(2)->post($targetUrl, [
                 'account_id' => $user->id,
                 'secret'     => env('CHAT_SHARED_SECRET', '7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd'),
             ]);

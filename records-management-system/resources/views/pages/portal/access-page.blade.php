@@ -154,7 +154,9 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             } catch (\Throwable) {}
 
             try {
-                $wsPushFile = public_path('messify/core/WsPush.php');
+                $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                    ? public_path('chatify/core/WsPush.php')
+                    : public_path('messify/core/WsPush.php');
                 if (is_file($wsPushFile)) {
                     require_once $wsPushFile;
                     if (class_exists('WsPush')) {

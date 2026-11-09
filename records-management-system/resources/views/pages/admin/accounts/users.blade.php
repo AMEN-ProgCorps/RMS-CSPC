@@ -360,7 +360,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             });
 
             try {
-                $wsPushFile = public_path('messify/core/WsPush.php');
+                $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                    ? public_path('chatify/core/WsPush.php')
+                    : public_path('messify/core/WsPush.php');
                 if (is_file($wsPushFile)) {
                     require_once $wsPushFile;
                     if (class_exists('WsPush')) {
@@ -426,7 +428,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             });
 
             try {
-                $wsPushFile = public_path('messify/core/WsPush.php');
+                $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                    ? public_path('chatify/core/WsPush.php')
+                    : public_path('messify/core/WsPush.php');
                 if (is_file($wsPushFile)) {
                     require_once $wsPushFile;
                     if (class_exists('WsPush')) {
@@ -496,8 +500,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             });
 
             try {
-                if (file_exists(public_path('messify/core/WsPush.php'))) {
-                    require_once public_path('messify/bootstrap.php');
+                $wsFile = is_file(public_path('chatify/core/WsPush.php'))
+                    ? public_path('chatify/core/WsPush.php')
+                    : public_path('messify/core/WsPush.php');
+                if (file_exists($wsFile)) {
+                    $bootstrapFile = is_file(public_path('chatify/bootstrap.php'))
+                        ? public_path('chatify/bootstrap.php')
+                        : public_path('messify/bootstrap.php');
+                    require_once $bootstrapFile;
                     \WsPush::broadcast('users_changed', [
                         'account_id' => $userId,
                         'office_id'  => $officeId,

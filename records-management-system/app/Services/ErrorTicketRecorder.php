@@ -42,7 +42,7 @@ class ErrorTicketRecorder
 
             $openMatch = ErrorTicket::query()
                 ->where('fingerprint', $fingerprint)
-                ->whereIn('status', ['open', 'in_progress'])
+                ->whereIn('status', ['open', 'in_progress', 'notice'])
                 ->where('last_seen_at', '>=', now()->subHours(self::DEDUPE_HOURS))
                 ->orderByDesc('last_seen_at')
                 ->first();
@@ -55,6 +55,8 @@ class ErrorTicketRecorder
             if ($title === '') {
                 $title = 'Server error';
             }
+
+            $isNotice = self::isSlowInternet($payload);
 
             return ErrorTicket::query()->create([
                 'ticket_number' => $reference !== '' ? $reference : self::nextTicketNumber('SRV'),
@@ -71,8 +73,8 @@ class ErrorTicketRecorder
                 'file' => $payload['file'] ?? null,
                 'line' => $payload['line'] ?? null,
                 'context' => $payload['context'] ?? null,
-                'status' => 'open',
-                'priority' => self::priorityFromStatus((int) ($payload['http_status'] ?? 500)),
+                'status' => $isNotice ? 'notice' : 'open',
+                'priority' => $isNotice ? 'low' : self::priorityFromStatus((int) ($payload['http_status'] ?? 500)),
                 'occurrence_count' => 1,
                 'last_seen_at' => now(),
                 'reported_by' => Auth::id(),
@@ -127,10 +129,16 @@ class ErrorTicketRecorder
                 if (Auth::check()) {
                     $existing->reported_by = Auth::id();
                 }
-                if ($payloadPriority = ($payload['priority'] ?? null)) {
+                $isSlowInternet = self::isSlowInternet($payload)
+                    || self::isSlowInternet(['title' => $existing->title, 'description' => $existing->description, 'http_status' => $existing->http_status]);
+
+                if ($isSlowInternet) {
+                    $existing->status = 'notice';
+                    $existing->priority = 'low';
+                } elseif ($payloadPriority = ($payload['priority'] ?? null)) {
                     $existing->priority = $payloadPriority;
                 }
-                if (in_array($existing->status, ['resolved', 'closed'], true)) {
+                if (! $isSlowInternet && in_array($existing->status, ['resolved', 'closed'], true)) {
                     $existing->status = 'open';
                     $existing->resolved_at = null;
                 }
@@ -148,7 +156,7 @@ class ErrorTicketRecorder
             if (is_string($pathOnly) && $pathOnly !== '' && $pathOnly !== '/') {
                 $recentAuto = ErrorTicket::query()
                     ->where('source', ErrorTicket::SOURCE_AUTO)
-                    ->whereIn('status', ['open', 'in_progress'])
+                    ->whereIn('status', ['open', 'in_progress', 'notice'])
                     ->where('url', 'like', "%{$pathOnly}%")
                     ->where('last_seen_at', '>=', now()->subMinutes(15))
                     ->orderByDesc('last_seen_at')
@@ -168,6 +176,12 @@ class ErrorTicketRecorder
                     if (Auth::check()) {
                         $recentAuto->reported_by = Auth::id();
                     }
+
+                    if (self::isSlowInternet($payload) || self::isSlowInternet(['title' => $recentAuto->title, 'description' => $recentAuto->description, 'http_status' => $recentAuto->http_status])) {
+                        $recentAuto->status = 'notice';
+                        $recentAuto->priority = 'low';
+                    }
+
                     $recentAuto->save();
 
                     return $recentAuto;
@@ -177,6 +191,7 @@ class ErrorTicketRecorder
 
         // Case 3: Pure user-submitted ticket (no auto-detection match) -> User Added
         $fingerprint = self::fingerprint('user', $url, 0, $title.'|'.$description);
+        $isUserNotice = self::isSlowInternet($payload);
 
         return ErrorTicket::query()->create([
             'ticket_number' => self::nextTicketNumber('TKT'),
@@ -197,12 +212,38 @@ class ErrorTicketRecorder
                 'ip' => request()?->ip(),
                 'route' => optional(request()?->route())->getName(),
             ]),
-            'status' => 'open',
-            'priority' => $payload['priority'] ?? 'medium',
+            'status' => $isUserNotice ? 'notice' : 'open',
+            'priority' => $isUserNotice ? 'low' : ($payload['priority'] ?? 'medium'),
             'occurrence_count' => 1,
             'last_seen_at' => now(),
             'reported_by' => Auth::id(),
         ]);
+    }
+
+    public static function isSlowInternet(array $payload): bool
+    {
+        $title = strtolower((string) ($payload['title'] ?? ''));
+        $desc = strtolower((string) ($payload['message'] ?? $payload['description'] ?? ''));
+        $httpStatus = (int) ($payload['http_status'] ?? 0);
+        $exception = strtolower((string) ($payload['exception_class'] ?? ''));
+
+        if (in_array($httpStatus, [408, 504], true)) {
+            return true;
+        }
+
+        if (str_contains($title, 'slow internet') || str_contains($title, 'slow connection') || str_contains($title, 'connection is too slow')) {
+            return true;
+        }
+
+        if (str_contains($desc, 'slow internet') || str_contains($desc, 'connection is too slow') || str_contains($desc, 'internet connection is too slow') || str_contains($desc, 'operation timed out')) {
+            return true;
+        }
+
+        if (str_contains($exception, 'timeout') || str_contains($exception, 'connectionexception')) {
+            return true;
+        }
+
+        return false;
     }
 
     public static function detectSubsystem(?string $url): ?string
@@ -254,7 +295,10 @@ class ErrorTicketRecorder
             $existing = (array) ($ticket->context ?? []);
             $ticket->context = array_merge($existing, (array) $payload['context']);
         }
-        if ($ticket->status === 'resolved' || $ticket->status === 'closed') {
+        if (self::isSlowInternet($payload) || self::isSlowInternet(['title' => $ticket->title, 'description' => $ticket->description, 'http_status' => $ticket->http_status])) {
+            $ticket->status = 'notice';
+            $ticket->priority = 'low';
+        } elseif ($ticket->status === 'resolved' || $ticket->status === 'closed') {
             $ticket->status = 'open';
             $ticket->resolved_at = null;
         }

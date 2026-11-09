@@ -129,7 +129,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         }
 
         $this->validate([
-            'editStatus' => 'required|in:open,in_progress,resolved,closed',
+            'editStatus' => 'required|in:open,in_progress,notice,resolved,closed',
             'editPriority' => 'required|in:low,medium,high,critical',
             'editAssignedTo' => 'nullable|integer',
             'editAdminNotes' => 'nullable|string|max:5000',
@@ -344,6 +344,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
             $stats = [
                 'open' => \DB::table('sys_error_tickets')->where('status', 'open')->count(),
                 'in_progress' => \DB::table('sys_error_tickets')->where('status', 'in_progress')->count(),
+                'notice' => \DB::table('sys_error_tickets')->where('status', 'notice')->count(),
                 'resolved' => \DB::table('sys_error_tickets')->where('status', 'resolved')->count(),
                 'closed' => \DB::table('sys_error_tickets')->where('status', 'closed')->count(),
                 'critical' => \DB::table('sys_error_tickets')->where('priority', 'critical')->whereIn('status', ['open', 'in_progress'])->count(),
@@ -664,8 +665,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         }
         .status-dot.open { background: #2563eb; }
         .status-dot.in_progress { background: #d97706; }
+        .status-dot.notice { background: #06b6d4; }
         .status-dot.resolved { background: #16a34a; }
         .status-dot.closed { background: #64748b; }
+
+        .notice-pill {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 4px;
+            background: #ecfeff;
+            color: #0891b2;
+            border: 1px solid #cffafe;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
 
         /* Priority Badge Pills */
         .priority-pill {
@@ -1029,6 +1046,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
             border-color: #334155;
             color: #e2e8f0;
         }
+        [data-theme="dark"] .status-dot.notice { background: #22d3ee; }
+        [data-theme="dark"] .notice-pill {
+            background: rgba(6, 182, 212, 0.16);
+            color: #22d3ee;
+            border-color: rgba(6, 182, 212, 0.35);
+        }
         [data-theme="dark"] .miller-path-tag {
             color: #f1f5f9;
         }
@@ -1151,6 +1174,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                         <span class="m-item-badge">{{ $stats['in_progress'] }}</span>
                     </div>
 
+                    <div class="m-item {{ $statusFilter === 'notice' ? 'active' : '' }}"
+                         wire:click="setCategoryFilter('notice', '', '')">
+                        <div class="m-item-left">
+                            <span class="status-dot notice" style="margin-right: 2px;"></span>
+                            <span class="m-item-title">Notice (Gentle Notice)</span>
+                        </div>
+                        <span class="m-item-badge" style="{{ $stats['notice'] > 0 ? 'background: #ecfeff; color: #0891b2;' : '' }}">{{ $stats['notice'] }}</span>
+                    </div>
+
                     <div class="m-item {{ $statusFilter === 'resolved' ? 'active' : '' }}"
                          wire:click="setCategoryFilter('resolved', '', '')">
                         <div class="m-item-left">
@@ -1229,6 +1261,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                         <option value="">Status: All</option>
                         <option value="open">Open</option>
                         <option value="in_progress">In Progress</option>
+                        <option value="notice">Notice</option>
                         <option value="resolved">Resolved</option>
                         <option value="closed">Closed</option>
                     </select>
@@ -1270,6 +1303,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                     </div>
 
                                     <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px;">
+                                        @if($t->status === 'notice')
+                                            <span class="notice-pill">
+                                                <i class="fa-solid fa-circle-info" style="font-size: 9.5px;"></i> Notice
+                                            </span>
+                                        @endif
+
                                         <span class="source-tag {{ $t->source }}">
                                             @if($t->source === 'user')
                                                 <i class="fa-solid fa-user-pen" style="font-size: 9.5px;"></i> User
@@ -1378,9 +1417,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                             <span class="priority-pill {{ $selected->priority }}" style="padding: 3px 8px; font-size: 11px;">
                                 {{ ucfirst($selected->priority) }}
                             </span>
-                            <span class="priority-pill" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; padding: 3px 8px; font-size: 11px;">
-                                {{ strtoupper(str_replace('_', ' ', $selected->status)) }}
-                            </span>
+                            @if($selected->status === 'notice')
+                                <span class="notice-pill" style="padding: 3px 8px; font-size: 11px;">
+                                    <i class="fa-solid fa-circle-info"></i> NOTICE (GENTLE NOTICE)
+                                </span>
+                            @else
+                                <span class="priority-pill" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; padding: 3px 8px; font-size: 11px;">
+                                    {{ strtoupper(str_replace('_', ' ', $selected->status)) }}
+                                </span>
+                            @endif
                         </div>
                     </div>
 
@@ -1454,6 +1499,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                         <div class="m-inspector-pre">{{ $selected->description }}</div>
                     @endif
 
+                    {{-- Notice Explanatory Banner --}}
+                    @if($selected->status === 'notice')
+                        <div style="margin-top: 12px; margin-bottom: 8px; padding: 10px 14px; background: #ecfeff; border: 1px solid #a5f3fc; border-radius: 8px; font-size: 12px; color: #0e7490; display: flex; align-items: flex-start; gap: 8px;">
+                            <i class="fa-solid fa-circle-info" style="font-size: 14px; margin-top: 2px; color: #0891b2; flex-shrink: 0;"></i>
+                            <div>
+                                <strong style="color: #0891b2;">Gentle Notice:</strong> This ticket is logged as a notice (slow internet / connection timeout). It does not require technical debugging or code fixes.
+                            </div>
+                        </div>
+                    @endif
+
                     {{-- Inline Triage Form --}}
                     <div class="m-inspector-section-title" style="margin-top: 14px;">Triage & Resolution</div>
 
@@ -1464,6 +1519,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                 <select wire:model="editStatus">
                                     <option value="open">Open</option>
                                     <option value="in_progress">In Progress</option>
+                                    <option value="notice">Notice (Gentle Notice - No Action Required)</option>
                                     <option value="resolved">Resolved</option>
                                     <option value="closed">Closed</option>
                                 </select>
@@ -1544,6 +1600,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
 
             <div style="font-size: 11.5px; color: #64748b; display: flex; align-items: center; gap: 12px;">
                 <span><strong>{{ $stats['open'] }}</strong> Open</span>
+                <span>&bull;</span>
+                <span style="color: #0891b2;"><strong>{{ $stats['notice'] ?? 0 }}</strong> Notice</span>
                 <span>&bull;</span>
                 <span style="color: #dc2626;"><strong>{{ $stats['critical'] }}</strong> Critical</span>
                 <span>&bull;</span>

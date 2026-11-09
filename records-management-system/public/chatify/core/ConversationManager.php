@@ -104,6 +104,38 @@ class ConversationManager
         // unconditionally so it self-heals no matter which branch above ran.
         try {
             $pdo->exec("ALTER TABLE messify_chat_conversations ADD COLUMN IF NOT EXISTS msg_count INTEGER NOT NULL DEFAULT 1");
+            // Ensure any existing conversation from messify_chat_messages exists in conversations table
+            $pdo->exec("
+                INSERT INTO messify_chat_conversations (
+                    conv_id, user_1, user_2, last_message, last_msg_type, last_msg_uuid, last_message_time, unread_user_1, unread_user_2, created_at, updated_at
+                )
+                SELECT DISTINCT ON (conv_id)
+                    conv_id,
+                    LEAST(sender_id, receiver_id) AS user_1,
+                    GREATEST(sender_id, receiver_id) AS user_2,
+                    message AS last_message,
+                    msg_type AS last_msg_type,
+                    msg_uuid AS last_msg_uuid,
+                    created_at AS last_message_time,
+                    0 AS unread_user_1,
+                    0 AS unread_user_2,
+                    created_at,
+                    created_at AS updated_at
+                FROM messify_chat_messages
+                WHERE conv_id != 'global' AND receiver_id IS NOT NULL
+                ORDER BY conv_id, created_at DESC, id DESC
+                ON CONFLICT (conv_id) DO NOTHING
+            ");
+            // Sync accurate message count from active messages in messify_chat_messages
+            $pdo->exec("
+                UPDATE messify_chat_conversations c
+                SET msg_count = (
+                    SELECT COUNT(*)
+                    FROM messify_chat_messages m
+                    WHERE m.conv_id = c.conv_id
+                      AND (m.status = 'active' OR m.status IS NULL)
+                )
+            ");
         } catch (Throwable $t) {
             error_log('ConversationManager::ensureConversationsTable() msg_count backfill fail — ' . $t->getMessage());
         }
@@ -981,7 +1013,7 @@ class ConversationManager
             $searchQuery = trim($searchQuery);
             $params = [];
             
-            $whereClause = "WHERE COALESCE(c.msg_count, 0) > 0 AND c.is_active = true";
+            $whereClause = "WHERE c.is_active = true AND (COALESCE(c.msg_count, 0) > 0 OR EXISTS (SELECT 1 FROM messify_chat_messages m WHERE m.conv_id = c.conv_id AND (m.status = 'active' OR m.status IS NULL)))";
 
             if ($searchQuery !== '') {
                 $like = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $searchQuery) . '%';
@@ -1014,7 +1046,7 @@ class ConversationManager
                      c.last_message AS last_message_enc,
                      c.last_msg_type,
                      EXTRACT(EPOCH FROM c.last_message_time)::BIGINT AS last_ts,
-                     COALESCE(c.msg_count, 1) AS msg_count,
+                     (SELECT COUNT(*) FROM messify_chat_messages m WHERE m.conv_id = c.conv_id AND (m.status = 'active' OR m.status IS NULL)) AS msg_count,
                      ad1.first_name AS u1_first_name,
                      ad1.last_name AS u1_last_name,
                      ad1.email AS u1_email,
@@ -1118,7 +1150,7 @@ class ConversationManager
                      c.last_message AS last_message_enc,
                      c.last_msg_type,
                      EXTRACT(EPOCH FROM c.last_message_time)::BIGINT AS last_ts,
-                     COALESCE(c.msg_count, 1) AS msg_count,
+                     (SELECT COUNT(*) FROM messify_chat_messages m WHERE m.conv_id = c.conv_id AND (m.status = 'active' OR m.status IS NULL)) AS msg_count,
                      ad1.first_name AS u1_first_name,
                      ad1.last_name AS u1_last_name,
                      ad1.email AS u1_email,
@@ -1135,7 +1167,10 @@ class ConversationManager
                  LEFT JOIN " . Database::t('account_details') . " ad2 ON ad2.account_id = c.user_2
                  LEFT JOIN " . Database::t('office') . " o2 ON o2.id = ad2.office_id
                  WHERE (c.user_1 = :target_id OR c.user_2 = :target_id)
-                   AND COALESCE(c.msg_count, 0) > 0
+                   AND (
+                       COALESCE(c.msg_count, 0) > 0
+                       OR EXISTS (SELECT 1 FROM messify_chat_messages m WHERE m.conv_id = c.conv_id AND (m.status = 'active' OR m.status IS NULL))
+                   )
                    AND c.is_active = true
                  ORDER BY c.last_message_time DESC
                  LIMIT :lim OFFSET :off";

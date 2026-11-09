@@ -327,7 +327,7 @@ if ($isAdmin) {
                 SELECT g.id, g.name, g.creator_id,
                        EXTRACT(EPOCH FROM g.created_at)::BIGINT AS created_ts,
                        (SELECT COUNT(*) FROM messify_chat_custom_group_members WHERE group_id = g.id) AS member_count,
-                       (SELECT COUNT(*) FROM messify_chat_messages WHERE conv_id = (\'gc_\' || g.id) AND status = \'active\') AS msg_count
+                       (SELECT COUNT(*) FROM messify_chat_messages WHERE conv_id = (\'gc_\' || g.id) AND (status = \'active\' OR status IS NULL)) AS msg_count
                 FROM messify_chat_custom_groups g
                 WHERE g.creator_id = :target_id
                    OR EXISTS (SELECT 1 FROM messify_chat_custom_group_members WHERE group_id = g.id AND account_id = :target_id)

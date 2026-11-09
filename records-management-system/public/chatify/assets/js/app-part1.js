@@ -656,7 +656,7 @@
                   const msgEl = item._msgEl || item.querySelector('.user-last-msg');
                   if (msgEl) {
                     const count = match.msgCount;
-                    msgEl.textContent = count > 99 ? '99+ messages' : (count === 1 ? '1 message' : count + ' messages');
+                    msgEl.textContent = count > 99 ? '99+ messages' : (count === 1 ? '1 message' : (count === 0 ? 'No messages' : count + ' messages'));
                   }
                 }
               } else if (adminSpyTargetUser) {

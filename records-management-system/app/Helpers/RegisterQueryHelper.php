@@ -3545,6 +3545,63 @@ class RegisterQueryHelper
     }
 
     /** Draft registrations only — for Document Registration → Drafts. */
+    /**
+     * Recent registration drafts for the admin DCS dashboard (lean, no search UI extras).
+     *
+     * @return array{total: int, items: list<array{title: string, doc_no: string, doc_type: string, href: string, updated_at: ?string}>}
+     */
+    public static function dashboardRecentDrafts(int $limit = 5): array
+    {
+        $limit = max(1, min(10, $limit));
+        $empty = ['total' => 0, 'items' => []];
+        if (! self::supportsDrafts() || ! self::canAccessDcsModule('register')) {
+            return $empty;
+        }
+
+        $query = DB::table('dcs_document_requests as dr')
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->where('dr.is_draft', true);
+        self::joinLatestByRequest($query, 'dcs_masterlist_registration', 'ml', 'dr', 'id', ['doc_no', 'doc_title']);
+        self::joinLatestByRequest($query, 'dcs_document_request_form', 'drf', 'dr', 'id', ['doc_title']);
+        self::applyNotDeleted($query, 'dr');
+        self::applyOfficeScope($query, 'dr');
+        self::applyExcludeOfficeIntakeRequests($query, 'dr');
+
+        $total = (int) (clone $query)->count('dr.id');
+        $rows = $query
+            ->orderByDesc('dr.updated_at')
+            ->orderByDesc('dr.id')
+            ->limit($limit)
+            ->get([
+                'dr.id',
+                'dr.updated_at',
+                'dt.doc_type_name',
+                'ml.doc_no',
+                'ml.doc_title as ml_title',
+                'drf.doc_title as drf_title',
+            ]);
+
+        $items = $rows->map(function ($doc) {
+            $docNo = trim((string) ($doc->doc_no ?? ''));
+            $title = trim((string) ($doc->ml_title ?: ($doc->drf_title ?: 'Untitled draft')));
+
+            return [
+                'title' => $title !== '' ? $title : 'Untitled draft',
+                'doc_no' => $docNo !== '' ? $docNo : '—',
+                'doc_type' => (string) ($doc->doc_type_name ?? 'Draft'),
+                'href' => route('dcs.register.edit', (int) $doc->id, absolute: false),
+                'updated_at' => $doc->updated_at
+                    ? \Carbon\Carbon::parse($doc->updated_at)->timezone('Asia/Manila')->format('M d, Y g:i A')
+                    : null,
+            ];
+        })->values()->all();
+
+        return [
+            'total' => $total,
+            'items' => $items,
+        ];
+    }
+
     public static function draftList(string $search, string $docTypeId, int $page, int $perPage = 15): array
     {
         $empty = [
@@ -5732,12 +5789,8 @@ class RegisterQueryHelper
                     'file' => true,
                 ],
                 'edit_url' => route('dcs.register.edit', $m->request_id, false),
-                'stamp_url' => $dashboardSearch
-                    ? null
-                    : route('dcs.stamping.index', self::documentSearchParams($m), false),
-                'inventory_url' => $dashboardSearch
-                    ? null
-                    : route('dcs.database.index', self::documentSearchParams($m), false),
+                'stamp_url' => route('dcs.stamping.index', self::documentSearchParams($m), false),
+                'inventory_url' => route('dcs.database.index', self::documentSearchParams($m), false),
                 'match_request_id' => isset($m->match_request_id) ? (int) $m->match_request_id : (int) $m->request_id,
                 'match_revise_no' => isset($m->match_revise_no) ? (int) $m->match_revise_no : (int) ($m->revise_no ?? 0),
                 'match_masterlist_id' => isset($m->match_masterlist_id) ? (int) $m->match_masterlist_id : (int) $m->id,

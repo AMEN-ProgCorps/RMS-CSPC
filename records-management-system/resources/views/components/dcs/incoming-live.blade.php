@@ -22,16 +22,19 @@ new class extends Component {
         }
     }
 
-    public function tick(): void
+    /**
+     * @param  bool  $force  Bust inventory cache (browser back / tab focus after appraisal).
+     */
+    public function tick(bool $force = false): void
     {
         if ($this->watchingIncoming()) {
-            $pending = OfficeIntakeHelper::officeIncomingAttentionTotal();
-            if ($pending !== $this->knownIncoming) {
+            $pending = OfficeIntakeHelper::officeIncomingAttentionTotal(null, $force);
+            if ($force || $pending !== $this->knownIncoming) {
                 $increased = $pending > $this->knownIncoming;
                 $this->knownIncoming = $pending;
                 $this->dispatch('office-incoming-count', count: $pending);
                 $this->dispatch('office-incoming-refresh');
-                if ($increased) {
+                if ($increased && ! $force) {
                     $this->dispatch('rms-notification-ping');
                 }
             }
@@ -39,11 +42,11 @@ new class extends Component {
 
         if ($this->watchingRequests()) {
             $pending = OfficeIntakeHelper::pendingOfficeRequestTotal();
-            if ($pending !== $this->knownRequests) {
+            if ($force || $pending !== $this->knownRequests) {
                 $increased = $pending > $this->knownRequests;
                 $this->knownRequests = $pending;
                 $this->dispatch('office-request-count', count: $pending);
-                if ($increased) {
+                if ($increased && ! $force) {
                     $this->dispatch('rms-notification-ping');
                 }
             }
@@ -63,4 +66,15 @@ new class extends Component {
 }; ?>
 
 {{-- Always keep a single root tag; Livewire cannot root on Blade @if markers. --}}
-<div wire:poll.5s.keep-alive="tick" class="dcs-incoming-live" hidden aria-hidden="true"></div>
+<div
+    wire:poll.5s.keep-alive="tick"
+    class="dcs-incoming-live"
+    hidden
+    aria-hidden="true"
+    x-data
+    x-init="
+        const forceTick = () => { try { $wire.tick(true); } catch (e) {} };
+        window.addEventListener('pageshow', (e) => { if (e.persisted) forceTick(); });
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) forceTick(); });
+    "
+></div>

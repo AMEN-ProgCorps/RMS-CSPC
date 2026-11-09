@@ -134,6 +134,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $requestCounts = RegisterQueryHelper::canBrowseAllOfficeIntake()
             ? OfficeIntakeHelper::pendingOfficeRequestCounts()
             : null;
+        $canRegister = RegisterQueryHelper::canAccessDcsModule('register');
+        $attentionItems = RegisterQueryHelper::canBrowseAllOfficeIntake()
+            ? OfficeIntakeHelper::dashboardRequestAttentionItems(6)
+            : [];
+        $attentionTotal = RegisterQueryHelper::canBrowseAllOfficeIntake()
+            ? OfficeIntakeHelper::pendingOfficeRequestTotal()
+            : 0;
+        $draftPayload = $canRegister
+            ? RegisterQueryHelper::dashboardRecentDrafts(5)
+            : ['total' => 0, 'items' => []];
+        $calendarPeek = \App\Helpers\CalendarHelper::todayPeek();
 
         return [
             'isDcsPathPending' => false,
@@ -149,9 +160,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'headerTime' => $headerTime,
             'holidays' => $holidays,
             'canDatabase' => RegisterQueryHelper::canAccessDcsModule('database'),
-            'canRegister' => RegisterQueryHelper::canAccessDcsModule('register'),
+            'canRegister' => $canRegister,
             'canSettings' => RegisterQueryHelper::canAccessDcsModule('settings'),
             'canStamping' => RegisterQueryHelper::canAccessDcsModule('stamping'),
+            'dashAttentionItems' => $attentionItems,
+            'dashAttentionTotal' => $attentionTotal,
+            'dashDraftTotal' => (int) ($draftPayload['total'] ?? 0),
+            'dashDraftItems' => $draftPayload['items'] ?? [],
+            'calendarPeek' => $calendarPeek,
         ];
     }
 }; ?>
@@ -531,33 +547,25 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <div class="dash-body" :class="{ 'is-calendar-open': calendarOpen, 'is-ready': calendarReady }">
             <div class="dashboard-content-wrapper dashboard-content-wrapper--full">
                 <div class="main-column">
-            <section class="dash-queue-bar">
+            <section class="dash-queue-bar" aria-label="Document queues">
                 @if(!empty($canDatabase))
-                    <a href="{{ route('dcs.database.index', absolute: false) }}" class="dash-queue-chip">
+                    <a href="{{ route('dcs.database.index', absolute: false) }}" class="dash-queue-chip" title="Every registered revision on the masterlist">
                         <span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong>
                     </a>
-                    <a href="{{ route('dcs.database.index', ['revision' => 'latest'], absolute: false) }}" class="dash-queue-chip is-latest">
+                    <a href="{{ route('dcs.database.index', ['revision' => 'latest'], absolute: false) }}" class="dash-queue-chip is-latest" title="Current controlled copies only">
                         <span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong>
                     </a>
-                    <a href="{{ route('dcs.database.index', ['revision' => 'superseded'], absolute: false) }}" class="dash-queue-chip is-superseded">
+                    <a href="{{ route('dcs.database.index', ['revision' => 'superseded'], absolute: false) }}" class="dash-queue-chip is-superseded" title="Replaced by a newer revision">
                         <span>Superseded</span><strong>{{ number_format((int) $stats['supersededCount']) }}</strong>
                     </a>
-                    <a href="{{ route('dcs.database.index', ['revision' => 'obsolete'], absolute: false) }}" class="dash-queue-chip is-obsolete">
+                    <a href="{{ route('dcs.database.index', ['revision' => 'obsolete'], absolute: false) }}" class="dash-queue-chip is-obsolete" title="Withdrawn from use">
                         <span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong>
                     </a>
                 @else
-                    <div class="dash-queue-chip"><span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong></div>
-                    <div class="dash-queue-chip is-latest"><span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong></div>
-                    <div class="dash-queue-chip is-superseded"><span>Superseded</span><strong>{{ number_format((int) $stats['supersededCount']) }}</strong></div>
-                    <div class="dash-queue-chip is-obsolete"><span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong></div>
-                @endif
-                @if(!empty($requestCounts))
-                    <a href="{{ route('dcs.requests.index', ['filter' => 'drf'], absolute: false) }}" class="dash-queue-chip is-request-drf">
-                        <span>DRF requests</span><strong>{{ number_format((int) ($requestCounts['drf'] ?? 0)) }}</strong>
-                    </a>
-                    <a href="{{ route('dcs.requests.index', ['filter' => 'dcn'], absolute: false) }}" class="dash-queue-chip is-request-dcn">
-                        <span>DCN requests</span><strong>{{ number_format((int) ($requestCounts['dcn'] ?? 0)) }}</strong>
-                    </a>
+                    <div class="dash-queue-chip" title="Every registered revision on the masterlist"><span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong></div>
+                    <div class="dash-queue-chip is-latest" title="Current controlled copies only"><span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong></div>
+                    <div class="dash-queue-chip is-superseded" title="Replaced by a newer revision"><span>Superseded</span><strong>{{ number_format((int) $stats['supersededCount']) }}</strong></div>
+                    <div class="dash-queue-chip is-obsolete" title="Withdrawn from use"><span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong></div>
                 @endif
             </section>
 
@@ -607,6 +615,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             placeholder="Search by document no., title, or keywords..."
                             autocomplete="off"
                         >
+                        <span class="dash-search-hint" x-show="query.trim().length === 1" x-cloak>Type at least 2 characters</span>
                         <button type="button" class="dash-search-clear" x-show="query.length > 0" x-cloak @click="clear()">
                             Clear
                         </button>
@@ -629,7 +638,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <template x-if="!loading && results.length === 0">
                             <div class="dash-search-state">
                                 <i class="fa-regular fa-folder-open"></i>
-                                <span>No documents matched your search.</span>
+                                <span x-text="query.trim().length < 2 ? 'Type at least 2 characters to search.' : 'No documents matched your search.'"></span>
                             </div>
                         </template>
 
@@ -851,6 +860,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </div>
 
                             <div class="dash-cl-modal-foot">
+                                <a class="dash-cl-close-btn" :href="checklistInventoryUrl" x-show="checklistInventoryUrl">Open in Database</a>
                                 <a class="dash-cl-close-btn" :href="checklistEditUrl" x-show="checklistEditUrl">Edit document</a>
                                 <a class="dash-cl-close-btn" :href="checklistStampUrl" x-show="checklistStampUrl">Stamp</a>
                                 <button type="button" class="dash-cl-close-btn" @click="closeDetailModal()">Close</button>
@@ -894,6 +904,149 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
             </section>
             @endif
+
+            @php
+                $dashAttentionItems = $dashAttentionItems ?? [];
+                $dashAttentionTotal = (int) ($dashAttentionTotal ?? 0);
+                $dashDraftItems = $dashDraftItems ?? [];
+                $dashDraftTotal = (int) ($dashDraftTotal ?? 0);
+                $calendarPeek = $calendarPeek ?? ['label' => '', 'holiday' => null, 'events' => [], 'upcoming' => []];
+            @endphp
+            <section class="dash-access-row" aria-label="Quick access">
+                <article class="dash-access-card dash-access-attention">
+                    <div class="dash-access-head">
+                        <div>
+                            <h2>Needs attention</h2>
+                            <p>Office DRF/DCN waiting in Request</p>
+                        </div>
+                        @if($dashAttentionTotal > 0)
+                            <span class="dash-access-count">{{ $dashAttentionTotal }}</span>
+                        @endif
+                    </div>
+                    @if($dashAttentionItems !== [])
+                        <ul class="dash-access-list">
+                            @foreach($dashAttentionItems as $item)
+                                <li>
+                                    <a href="{{ $item['href'] }}" class="dash-access-item">
+                                        <span class="dash-access-item-icon is-{{ $item['type'] ?? 'drf' }}">
+                                            <i class="fa-solid {{ ($item['type'] ?? '') === 'dcn' ? 'fa-file-pen' : 'fa-file-lines' }}"></i>
+                                        </span>
+                                        <span class="dash-access-item-copy">
+                                            <span class="dash-access-item-kind">{{ strtoupper((string) ($item['type'] ?? 'DRF')) }}</span>
+                                            <strong>{{ $item['title'] }}</strong>
+                                            <span>{{ $item['meta'] }}</span>
+                                        </span>
+                                        <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+                                    </a>
+                                </li>
+                            @endforeach
+                        </ul>
+                        <a href="{{ route('dcs.requests.index', absolute: false) }}" class="dash-access-foot">Open Request queue <i class="fa-solid fa-arrow-right"></i></a>
+                    @else
+                        <div class="dash-access-empty">
+                            <i class="fa-regular fa-circle-check"></i>
+                            <span>No open office requests right now.</span>
+                        </div>
+                    @endif
+                </article>
+
+                <article class="dash-access-card dash-access-drafts">
+                    <div class="dash-access-head">
+                        <div>
+                            <h2>Continue draft</h2>
+                            <p>Unfinished registrations</p>
+                        </div>
+                        @if(!empty($canRegister) && $dashDraftTotal > 0)
+                            <span class="dash-access-count">{{ $dashDraftTotal }}</span>
+                        @endif
+                    </div>
+                    @if(!empty($canRegister) && $dashDraftItems !== [])
+                        <ul class="dash-access-list">
+                            @foreach($dashDraftItems as $draft)
+                                <li>
+                                    <a href="{{ $draft['href'] }}" class="dash-access-item">
+                                        <span class="dash-access-item-icon is-draft">
+                                            <i class="fa-solid fa-pen-to-square"></i>
+                                        </span>
+                                        <span class="dash-access-item-copy">
+                                            <span class="dash-access-item-kind">{{ $draft['doc_type'] }} · {{ $draft['doc_no'] }}</span>
+                                            <strong>{{ $draft['title'] }}</strong>
+                                            @if(!empty($draft['updated_at']))
+                                                <span>Updated {{ $draft['updated_at'] }}</span>
+                                            @endif
+                                        </span>
+                                        <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+                                    </a>
+                                </li>
+                            @endforeach
+                        </ul>
+                        <a href="{{ route('dcs.register.drafts', absolute: false) }}" class="dash-access-foot">View all drafts <i class="fa-solid fa-arrow-right"></i></a>
+                    @elseif(empty($canRegister))
+                        <div class="dash-access-empty">
+                            <i class="fa-solid fa-lock"></i>
+                            <span>Register access is required to continue drafts.</span>
+                        </div>
+                    @else
+                        <div class="dash-access-empty">
+                            <i class="fa-regular fa-folder-open"></i>
+                            <span>No saved drafts yet.</span>
+                        </div>
+                    @endif
+                </article>
+
+                <article class="dash-access-card dash-access-calendar">
+                    <div class="dash-access-head">
+                        <div>
+                            <h2>Today</h2>
+                            <p>{{ $calendarPeek['label'] ?? $headerDate }}</p>
+                        </div>
+                        <button type="button" class="dash-access-cal-btn" @click="toggleCalendar()" title="Open calendar">
+                            <i class="fa-regular fa-calendar"></i>
+                        </button>
+                    </div>
+                    @if(!empty($calendarPeek['holiday']))
+                        <div class="dash-access-holiday">
+                            <i class="fa-solid fa-flag"></i>
+                            <span>{{ $calendarPeek['holiday'] }}</span>
+                        </div>
+                    @endif
+                    @if(!empty($calendarPeek['events']))
+                        <ul class="dash-access-list">
+                            @foreach($calendarPeek['events'] as $event)
+                                <li>
+                                    <div class="dash-access-item is-static">
+                                        <span class="dash-access-item-dot" style="background: {{ $event['color'] ?? '#0d2a7a' }}"></span>
+                                        <span class="dash-access-item-copy">
+                                            <span class="dash-access-item-kind">{{ $event['startTime'] }}{{ !empty($event['endTime']) ? ' – '.$event['endTime'] : '' }}@if(!empty($event['category_name'])) · {{ $event['category_name'] }}@endif</span>
+                                            <strong>{{ $event['title'] }}</strong>
+                                        </span>
+                                    </div>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @elseif(!empty($calendarPeek['upcoming']))
+                        <p class="dash-access-upcoming-label">Coming up</p>
+                        <ul class="dash-access-list">
+                            @foreach($calendarPeek['upcoming'] as $event)
+                                <li>
+                                    <div class="dash-access-item is-static">
+                                        <span class="dash-access-item-dot" style="background: {{ $event['color'] ?? '#0d2a7a' }}"></span>
+                                        <span class="dash-access-item-copy">
+                                            <span class="dash-access-item-kind">{{ \Carbon\Carbon::parse($event['date'])->timezone('Asia/Manila')->format('D, M j') }} · {{ $event['startTime'] }}</span>
+                                            <strong>{{ $event['title'] }}</strong>
+                                        </span>
+                                    </div>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @elseif(empty($calendarPeek['holiday']))
+                        <div class="dash-access-empty">
+                            <i class="fa-regular fa-calendar"></i>
+                            <span>No events scheduled for today.</span>
+                        </div>
+                    @endif
+                </article>
+            </section>
         </div>
             </div>
 
@@ -1258,6 +1411,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         officeListExpanded: {},
         checklistEditUrl: '',
         checklistStampUrl: '',
+        checklistInventoryUrl: '',
         activeChecklistKey: '',
         activeRequestId: null,
         fileVerifyLoading: false,
@@ -1281,9 +1435,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             }
 
             const q = this.query.trim();
-            if (q.length < 1) {
+            if (q.length < 2) {
                 this.results = [];
-                this.open = false;
+                this.open = q.length > 0;
                 this.loading = false;
                 return;
             }
@@ -1407,6 +1561,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             this.activeChecklistKey = '';
             this.activeChecklists = doc.checklists || null;
             this.checklistStampUrl = doc.stamp_url || '';
+            this.checklistInventoryUrl = doc.inventory_url || '';
             document.body.classList.add('dash-cl-open');
 
             // Show matched revision + first checklist immediately; revisions load in parallel.
@@ -1551,6 +1706,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             this.detailDocLabel = '';
             this.checklistEditUrl = '';
             this.checklistStampUrl = '';
+            this.checklistInventoryUrl = '';
             this.activeChecklistKey = '';
             this.activeRequestId = null;
             this.activeChecklists = null;
@@ -1627,7 +1783,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 });
             });
 
-            await this.loadAll();
+            // Defer calendar API work until the panel is opened (or was left open).
+            if (this.calendarOpen) {
+                await this.loadAll();
+            }
         },
         destroy() {
             if (this._clockTimer) {
@@ -1637,6 +1796,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         },
         toggleCalendar() {
             this.calendarOpen = !this.calendarOpen;
+            if (this.calendarOpen && this.events.length === 0 && this.categories.length === 0) {
+                this.loadAll();
+            }
         },
         dismissCalendarPortal() {
             if (this.modal !== null) {

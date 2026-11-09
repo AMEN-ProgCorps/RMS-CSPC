@@ -62,6 +62,93 @@ class CalendarHelper
         return response()->json($rows);
     }
 
+    /**
+     * Compact "today" strip for the DCS dashboard (holiday + events, else next upcoming).
+     *
+     * @return array{
+     *   date: string,
+     *   label: string,
+     *   holiday: ?string,
+     *   events: list<array{title: string, startTime: string, endTime: string, color: string, category_name: ?string}>,
+     *   upcoming: list<array{title: string, date: string, startTime: string, color: string, category_name: ?string}>
+     * }
+     */
+    public static function todayPeek(?string $date = null): array
+    {
+        $today = $date
+            ? \Carbon\Carbon::parse($date, 'Asia/Manila')->toDateString()
+            : now('Asia/Manila')->toDateString();
+        $year = (int) substr($today, 0, 4);
+        $holidays = self::philippineHolidays($year, $year + 1);
+        $holiday = $holidays[$today] ?? null;
+
+        $events = [];
+        $upcoming = [];
+        if (\Illuminate\Support\Facades\Schema::hasTable('dcs_calendar_events')) {
+            $events = DB::table('dcs_calendar_events as e')
+                ->leftJoin('dcs_calendar_categories as c', 'c.id', '=', 'e.category_id')
+                ->whereDate('e.event_date', $today)
+                ->orderBy('e.start_time')
+                ->limit(5)
+                ->get([
+                    'e.title',
+                    'e.start_time',
+                    'e.end_time',
+                    'c.name as category_name',
+                    'c.color',
+                ])
+                ->map(fn ($row) => [
+                    'title' => (string) ($row->title ?? 'Event'),
+                    'startTime' => substr((string) $row->start_time, 0, 5),
+                    'endTime' => substr((string) $row->end_time, 0, 5),
+                    'color' => $row->color ?: '#0d2a7a',
+                    'category_name' => $row->category_name,
+                ])
+                ->values()
+                ->all();
+
+            if ($events === [] && $holiday === null) {
+                $upcoming = DB::table('dcs_calendar_events as e')
+                    ->leftJoin('dcs_calendar_categories as c', 'c.id', '=', 'e.category_id')
+                    ->whereDate('e.event_date', '>', $today)
+                    ->whereDate('e.event_date', '<=', now('Asia/Manila')->addDays(7)->toDateString())
+                    ->orderBy('e.event_date')
+                    ->orderBy('e.start_time')
+                    ->limit(3)
+                    ->get([
+                        'e.title',
+                        'e.event_date',
+                        'e.start_time',
+                        'c.name as category_name',
+                        'c.color',
+                    ])
+                    ->map(function ($row) {
+                        $date = $row->event_date instanceof \DateTimeInterface
+                            ? $row->event_date->format('Y-m-d')
+                            : substr((string) $row->event_date, 0, 10);
+
+                        return [
+                            'title' => (string) ($row->title ?? 'Event'),
+                            'date' => $date,
+                            'startTime' => substr((string) $row->start_time, 0, 5),
+                            'color' => $row->color ?: '#0d2a7a',
+                            'category_name' => $row->category_name,
+                        ];
+                    })
+                    ->values()
+                    ->all();
+            }
+        }
+
+        return [
+            'date' => $today,
+            'label' => now('Asia/Manila')->format('l, M j'),
+            'holiday' => $holiday,
+            'events' => $events,
+            'upcoming' => $upcoming,
+        ];
+    }
+
     public static function storeCategory(Request $request): JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('settings');

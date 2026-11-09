@@ -1771,6 +1771,40 @@ class OfficeIntakeHelper
         return (int) ($counts['drf'] ?? 0) + (int) ($counts['dcn'] ?? 0);
     }
 
+    /**
+     * Compact Request-queue items for the admin DCS dashboard.
+     *
+     * @return list<array{kind: string, type: string, title: string, meta: string, href: string}>
+     */
+    public static function dashboardRequestAttentionItems(int $limit = 6): array
+    {
+        if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+            return [];
+        }
+
+        $limit = max(1, min(12, $limit));
+
+        return self::listPendingOfficeRequests()
+            ->take($limit)
+            ->map(function ($row) {
+                $type = strtolower((string) ($row->type ?? 'drf'));
+                $id = (int) ($row->id ?? 0);
+                $office = trim((string) ($row->submitting_office ?? ''));
+                $submitter = trim((string) ($row->submitter_name ?? ''));
+                $metaParts = array_values(array_filter([$office, $submitter]));
+
+                return [
+                    'kind' => 'request',
+                    'type' => $type,
+                    'title' => trim((string) ($row->title ?? '')) ?: ('Untitled '.strtoupper($type)),
+                    'meta' => $metaParts !== [] ? implode(' · ', $metaParts) : 'Waiting in Request',
+                    'href' => route('dcs.requests.show', ['type' => $type, 'id' => $id], absolute: false),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
     private static function countOpenIntake(string $table): int
     {
         if (! Schema::hasTable($table)) {
@@ -7100,9 +7134,13 @@ class OfficeIntakeHelper
      *
      * @return array{pending: int, appraisable: int, total: int}
      */
-    public static function officeIncomingAttentionBreakdown(?int $officeId = null): array
+    public static function officeIncomingAttentionBreakdown(?int $officeId = null, bool $forceFresh = false): array
     {
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+
+        if ($forceFresh) {
+            self::bumpOfficeInventoryCache();
+        }
 
         return self::rememberOfficeInventory(
             'incoming.attention.'.(int) ($officeId ?? 0),
@@ -7141,9 +7179,9 @@ class OfficeIntakeHelper
         );
     }
 
-    public static function officeIncomingAttentionTotal(?int $officeId = null): int
+    public static function officeIncomingAttentionTotal(?int $officeId = null, bool $forceFresh = false): int
     {
-        return (int) (self::officeIncomingAttentionBreakdown($officeId)['total'] ?? 0);
+        return (int) (self::officeIncomingAttentionBreakdown($officeId, $forceFresh)['total'] ?? 0);
     }
 
     /** True when this registration was created from an office DRF/DCN request. */

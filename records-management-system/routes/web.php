@@ -1031,7 +1031,11 @@ Route::middleware(['auth'])
                 return response()->json(OfficeIntakeHelper::markOfficeIntakePrinted($type, $id));
             })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.printed');
 
-            Route::get('/api/office-intake/attention', function () {
+            Route::get('/api/office-intake/attention', function (\Illuminate\Http\Request $request) {
+                if ($request->boolean('fresh')) {
+                    OfficeIntakeHelper::bumpOfficeInventoryCache();
+                }
+
                 return response()->json(OfficeIntakeHelper::officeDashboardAttentionPayload());
             })->name('api.office-intake.attention');
 

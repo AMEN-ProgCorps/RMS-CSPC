@@ -20,19 +20,14 @@ header.rms-app-header {
 }
 
 /*
- * Fixed header is out of document flow. Dashboard-shell layouts (DTS etc.) use
- * body > section for the sidebar + article — without this offset, the top of
- * .nav-header-container (Document Tracking System / Version) sits under the bar.
+ * DTS/RDP dashboard shell: header must stay in document flow.
+ * Fixed + section offset caused body overflow (page scrollbar) and clipped
+ * .nav-header-container. DCS keeps position: fixed above.
  */
-html:has(> body > header.rms-app-header),
-html:has(> body > header.rms-app-header) body {
-    height: 100%;
-}
-
-body:has(> header.rms-app-header) > section {
-    margin-top: 70px;
-    height: calc(100% - 70px);
-    box-sizing: border-box;
+body:has(> section) > header.rms-app-header {
+    position: relative;
+    top: auto;
+    left: auto;
 }
 
 header.rms-app-header .cspc-logo {

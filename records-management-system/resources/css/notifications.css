@@ -67,7 +67,7 @@
     position: absolute;
     top: 35px; /* Adjusted to sit cleanly below the 30px height bell button */
     right: -60px; /* Centered relative to the bell button */
-    width: 380px;
+    width: 420px;
     background-color: #ffffff;
     border-radius: 12px;
     box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
@@ -281,22 +281,26 @@
 
 .notif-content-wrapper {
     flex-grow: 1;
+    min-width: 0;
 }
 
 .notif-message {
     font-family: 'Inter', sans-serif;
     font-size: 13px;
     color: #374151;
-    line-height: 1.4;
+    line-height: 1.45;
     margin: 0;
     text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .notif-time {
     font-family: 'Inter', sans-serif;
     font-size: 11px;
     color: #9ca3af;
-    margin-top: 4px;
+    margin-top: 6px;
     display: block;
     text-align: left;
 }
@@ -390,7 +394,7 @@
     bottom: 24px;
     left: 24px;
     z-index: 999999;
-    max-width: 380px;
+    max-width: 440px;
     width: calc(100vw - 48px);
     pointer-events: auto;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -520,13 +524,14 @@
     font-size: 13px;
     font-weight: 500;
     color: #1e293b;
-    line-height: 1.45;
+    line-height: 1.5;
     margin: 0;
     text-align: left;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    max-height: none;
+    overflow: visible;
 }
 
 .notif-overlay-footer {

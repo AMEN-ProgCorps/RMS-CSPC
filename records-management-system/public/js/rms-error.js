@@ -464,6 +464,8 @@
         var message = String((event && event.message) || '');
         // Livewire snapshot races during background polls / morphs — not user-facing outages.
         if (/ResizeObserver|undelivered notifications|script error|Snapshot missing on Livewire component/i.test(message)) return;
+        // Optional widget helpers may be clicked before scripts finish loading.
+        if (/toggleMessifyWidget|reloadMessifyIframe|hideMessifyLoader|updateMessifyUnreadBadge/i.test(message)) return;
         var filename = event && event.filename ? String(event.filename) : '';
         if (!filename || filename.indexOf(location.origin) !== 0) return;
         if (/\/vendor\/livewire\//i.test(filename) && /Snapshot missing/i.test(message)) return;

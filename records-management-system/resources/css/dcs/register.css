@@ -3335,6 +3335,16 @@ select.reg-field-locked:disabled {
     margin-bottom: 12px;
 }
 
+.reg-compare-legend .drr-legend-label,
+.drr-compare-legend .drr-legend-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dcs-muted, #64748b);
+    margin-right: 2px;
+}
+
 .reg-compare-leg,
 .drr-compare-legend .drr-leg {
     display: inline-flex;

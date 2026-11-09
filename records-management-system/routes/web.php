@@ -1077,7 +1077,30 @@ Route::middleware(['auth'])
                 return response()->json(OfficeIntakeHelper::officeIntakePrintReadyIds($type, $ids));
             })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.print-ready');
 
+            Route::post('/api/office-intake/{type}/{id}/printed', function (string $type, int $id) {
+                return response()->json(OfficeIntakeHelper::markOfficeIntakePrinted($type, $id));
+            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.printed');
+
+            Route::get('/api/office-intake/attention', function (\Illuminate\Http\Request $request) {
+                if ($request->boolean('fresh')) {
+                    OfficeIntakeHelper::bumpOfficeInventoryCache();
+                }
+
+                return response()->json(OfficeIntakeHelper::officeDashboardAttentionPayload());
+            })->name('api.office-intake.attention');
+
             Route::middleware(['dcs.full'])->group(function () {
+                Route::get('/api/dashboard/request-attention', function () {
+                    if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+                        return response()->json(['total' => 0, 'items' => []], 403);
+                    }
+
+                    return response()->json([
+                        'total' => OfficeIntakeHelper::pendingOfficeRequestTotal(),
+                        'items' => OfficeIntakeHelper::dashboardRequestAttentionItems(6),
+                    ]);
+                })->name('api.dashboard.request-attention');
+
                 Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {
                     return response()->json(RegisterQueryHelper::documentChecklistPreview($id, $type));
                 })->whereIn('type', ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval', 'file']);

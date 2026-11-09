@@ -139,6 +139,40 @@ else
     echo "  ✓  PaddleOCR venv OK"
 fi
 
+# Masterlist PDF export uses headless Chromium so the download matches print preview.
+CHROME_BIN=""
+for candidate in /usr/bin/chromium /usr/bin/chromium-browser /usr/lib/chromium/chromium; do
+    if [ -x "$candidate" ] || [ -f "$candidate" ]; then
+        CHROME_BIN="$candidate"
+        break
+    fi
+done
+if [ -z "$CHROME_BIN" ] && command -v apt-get >/dev/null 2>&1; then
+    echo "  ⚠  Chromium missing — installing so Document Masterlist PDF matches preview..."
+    apt-get update -qq \
+        && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            chromium chromium-common fonts-liberation fonts-liberation2 fonts-dejavu-core \
+        || echo "  ⚠  Chromium install failed — masterlist PDF will use Dompdf (same HTML)."
+    for candidate in /usr/bin/chromium /usr/bin/chromium-browser /usr/lib/chromium/chromium; do
+        if [ -x "$candidate" ] || [ -f "$candidate" ]; then
+            CHROME_BIN="$candidate"
+            break
+        fi
+    done
+fi
+if [ -n "$CHROME_BIN" ]; then
+    echo "  ✓  Chromium OK for masterlist PDF export ($CHROME_BIN)"
+    # PHP-FPM (appuser) must find the binary — export for children.
+    export CHROMIUM_PATH="$CHROME_BIN"
+    export PUPPETEER_EXECUTABLE_PATH="$CHROME_BIN"
+    # Persist for PHP-FPM workers that do not inherit this shell.
+    mkdir -p /etc/php || true
+    printf 'CHROMIUM_PATH=%s\nPUPPETEER_EXECUTABLE_PATH=%s\n' "$CHROME_BIN" "$CHROME_BIN" \
+        > /var/www/html/storage/app/chromium.env 2>/dev/null || true
+else
+    echo "  ⚠  Chromium still missing — masterlist PDF uses Dompdf with the same preview HTML."
+fi
+
 echo "[5/5] Starting services via Supervisor..."
 echo "──────────────────────────────────────────"
 

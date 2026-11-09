@@ -2814,13 +2814,20 @@
 }
 
 [data-theme="dark"] .dash-welcome-bar {
-    background: linear-gradient(135deg, #000066 0%, #043899 50%, #002b7a 100%) !important;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35) !important;
+    background:
+        radial-gradient(120% 140% at 100% 0%, rgba(255, 184, 0, 0.14) 0%, rgba(255, 184, 0, 0) 42%),
+        radial-gradient(90% 120% at 0% 100%, rgba(96, 165, 250, 0.14) 0%, rgba(96, 165, 250, 0) 46%),
+        linear-gradient(135deg, #000066 0%, #043899 52%, #001a52 100%) !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    box-shadow:
+        0 14px 34px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
 }
 
 [data-theme="dark"] .dash-welcome-calendar.dash-calendar-trigger {
-    background: rgba(15, 23, 42, 0.35) !important;
-    border-color: rgba(255, 255, 255, 0.18) !important;
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
 }
 
 [data-theme="dark"] .dash-queue-chip {
@@ -3003,6 +3010,57 @@
 [data-theme="dark"] .ofi-unlock-btn:disabled,
 [data-theme="dark"] .ofi-notify-print-btn:disabled {
     opacity: 0.55 !important;
+}
+
+[data-theme="dark"] .ofi-unlock-btn.is-sent {
+    background: rgba(6, 95, 70, 0.28) !important;
+    border-color: #34d399 !important;
+    color: #6ee7b7 !important;
+    opacity: 1 !important;
+}
+
+[data-theme="dark"] .ofi-alert.err.ofi-correction-alert {
+    background: linear-gradient(180deg, rgba(127, 29, 29, 0.45) 0%, rgba(153, 27, 27, 0.32) 100%) !important;
+    border-color: #f87171 !important;
+    color: #fecaca !important;
+}
+
+[data-theme="dark"] .ofi-alert.ofi-print-hint-alert {
+    background: linear-gradient(180deg, rgba(120, 53, 15, 0.4) 0%, rgba(146, 64, 14, 0.3) 100%) !important;
+    border-color: #fbbf24 !important;
+    color: #fde68a !important;
+}
+
+[data-theme="dark"] .ofi-readonly-type-card {
+    background: #0b1220 !important;
+    border-color: #243447 !important;
+}
+
+[data-theme="dark"] .ofi-readonly-type-card .ofi-readonly-type-label {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .ofi-readonly-type-card .ofi-readonly-type-value {
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .ofi-unlock-sent {
+    background: linear-gradient(180deg, rgba(120, 53, 15, 0.45) 0%, rgba(146, 64, 14, 0.35) 100%) !important;
+    border-color: #f59e0b !important;
+    color: #fde68a !important;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16) !important;
+}
+
+[data-theme="dark"] .ofi-unlock-sent > i {
+    color: #fbbf24 !important;
+}
+
+[data-theme="dark"] .ofi-unlock-sent-body strong {
+    color: #fde68a !important;
+}
+
+[data-theme="dark"] .ofi-unlock-sent-body span {
+    color: #fcd34d !important;
 }
 
 [data-theme="dark"] .ofi-receive-proceed:disabled {

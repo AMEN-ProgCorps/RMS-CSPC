@@ -7,15 +7,21 @@
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use App\Services\RdpIntakeService;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
+use Livewire\WithPagination;
 
 new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class extends Component {
+    use WithPagination;
+
     #[Url]
     public string $type = 'all';
+
+    public int $perPage = 25;
 
     public function mount(): void
     {
@@ -43,6 +49,7 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
         $keys = array_keys(OfficeIntakeHelper::documentGroupDefs());
         if ($type === 'all' || in_array($type, $keys, true)) {
             $this->type = $type;
+            $this->resetPage();
         }
     }
 
@@ -109,6 +116,23 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
             $total = count($rows);
         }
         $activeCount = count($rows);
+        $perPage = max(10, min(100, (int) $this->perPage));
+        $page = max(1, (int) $this->getPage());
+        $lastPage = max(1, (int) ceil($activeCount / $perPage));
+        if ($page > $lastPage) {
+            $page = $lastPage;
+        }
+        $slice = array_slice($rows, ($page - 1) * $perPage, $perPage);
+        $paginator = new LengthAwarePaginator(
+            $slice,
+            $activeCount,
+            $perPage,
+            $page,
+            [
+                'path' => request()->url(),
+                'pageName' => 'page',
+            ]
+        );
 
         return [
             'groups' => $groups,
@@ -116,7 +140,7 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
             'activeType' => $active,
             'activeLabel' => $activeLabel,
             'activeCount' => $activeCount,
-            'rows' => $rows,
+            'rows' => $paginator,
             'officeName' => auth()->user()?->details?->office?->office_name
                 ?? auth()->user()?->details?->office?->office_code
                 ?? 'Your office',
@@ -152,7 +176,7 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
         @if(session('info'))
             <div class="ofi-alert">{{ session('info') }}</div>
         @endif
-        @if(collect($rows)->contains(fn ($row) => !empty($row['appraisal_url'])))
+        @if(collect($rows->items())->contains(fn ($row) => !empty($row['appraisal_url'])))
             <div class="ofi-alert">Save and Appraise documents stay on Incoming, and the notice stays, until you finish Appraisal.</div>
         @endif
 
@@ -184,7 +208,7 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
         @endunless
 
         <div class="ofi-card" style="position:relative;" wire:loading.class="is-loading">
-            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,markReceived">
+            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,markReceived,previousPage,nextPage,gotoPage">
                 <div class="dcs-loading-spinner" aria-hidden="true"></div>
                 <h4>Loading incoming…</h4>
                 <p>Fetching documents awaiting receipt.</p>
@@ -250,6 +274,18 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
                         </tbody>
                     </table>
                 </div>
+                @if($rows->hasPages())
+                    <div class="ofi-pagination" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 4px 4px;flex-wrap:wrap;">
+                        <span style="font-size:12.5px;color:#64748b;">
+                            Showing {{ $rows->firstItem() }}–{{ $rows->lastItem() }} of {{ $rows->total() }}
+                        </span>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <button type="button" class="ofi-btn" wire:click="previousPage" @disabled($rows->onFirstPage())>Previous</button>
+                            <span style="font-size:12.5px;color:#475569;">Page {{ $rows->currentPage() }} / {{ $rows->lastPage() }}</span>
+                            <button type="button" class="ofi-btn" wire:click="nextPage" @disabled(! $rows->hasMorePages())>Next</button>
+                        </div>
+                    </div>
+                @endif
             @endif
         </div>
     </div>

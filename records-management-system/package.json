@@ -4,7 +4,8 @@
     "type": "module",
     "scripts": {
         "build": "vite build",
-        "dev": "vite"
+        "dev": "vite",
+        "test:drr-accuracy": "node scripts/drr/pdf-compare-accuracy-fixtures.mjs"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",

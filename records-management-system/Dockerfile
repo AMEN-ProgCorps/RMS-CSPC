@@ -62,7 +62,10 @@ ENV OCR_ENGINE=paddle \
     OCR_PYTHON=/opt/paddle-venv/bin/python \
     OCR_PADDLE_SCRIPT=/var/www/html/scripts/ocr/paddle_ocr.py \
     OCR_TIMEOUT=180 \
-    PADDLEOCR_HOME=/opt/paddleocr
+    PADDLEOCR_HOME=/opt/paddleocr \
+    CHROMIUM_PATH=/usr/bin/chromium \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    PUPPETEER_SKIP_DOWNLOAD=true
 
 # ── Composer ──────────────────────────────────────────────────────────────────
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer

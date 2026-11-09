@@ -3545,6 +3545,63 @@ class RegisterQueryHelper
     }
 
     /** Draft registrations only — for Document Registration → Drafts. */
+    /**
+     * Recent registration drafts for the admin DCS dashboard (lean, no search UI extras).
+     *
+     * @return array{total: int, items: list<array{title: string, doc_no: string, doc_type: string, href: string, updated_at: ?string}>}
+     */
+    public static function dashboardRecentDrafts(int $limit = 5): array
+    {
+        $limit = max(1, min(10, $limit));
+        $empty = ['total' => 0, 'items' => []];
+        if (! self::supportsDrafts() || ! self::canAccessDcsModule('register')) {
+            return $empty;
+        }
+
+        $query = DB::table('dcs_document_requests as dr')
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->where('dr.is_draft', true);
+        self::joinLatestByRequest($query, 'dcs_masterlist_registration', 'ml', 'dr', 'id', ['doc_no', 'doc_title']);
+        self::joinLatestByRequest($query, 'dcs_document_request_form', 'drf', 'dr', 'id', ['doc_title']);
+        self::applyNotDeleted($query, 'dr');
+        self::applyOfficeScope($query, 'dr');
+        self::applyExcludeOfficeIntakeRequests($query, 'dr');
+
+        $total = (int) (clone $query)->count('dr.id');
+        $rows = $query
+            ->orderByDesc('dr.updated_at')
+            ->orderByDesc('dr.id')
+            ->limit($limit)
+            ->get([
+                'dr.id',
+                'dr.updated_at',
+                'dt.doc_type_name',
+                'ml.doc_no',
+                'ml.doc_title as ml_title',
+                'drf.doc_title as drf_title',
+            ]);
+
+        $items = $rows->map(function ($doc) {
+            $docNo = trim((string) ($doc->doc_no ?? ''));
+            $title = trim((string) ($doc->ml_title ?: ($doc->drf_title ?: 'Untitled draft')));
+
+            return [
+                'title' => $title !== '' ? $title : 'Untitled draft',
+                'doc_no' => $docNo !== '' ? $docNo : '—',
+                'doc_type' => (string) ($doc->doc_type_name ?? 'Draft'),
+                'href' => route('dcs.register.edit', (int) $doc->id, absolute: false),
+                'updated_at' => $doc->updated_at
+                    ? \Carbon\Carbon::parse($doc->updated_at)->timezone('Asia/Manila')->format('M d, Y g:i A')
+                    : null,
+            ];
+        })->values()->all();
+
+        return [
+            'total' => $total,
+            'items' => $items,
+        ];
+    }
+
     public static function draftList(string $search, string $docTypeId, int $page, int $perPage = 15): array
     {
         $empty = [
@@ -4241,7 +4298,7 @@ class RegisterQueryHelper
             return array_merge($base, ['error' => 'not_found']);
         }
 
-        if (count($revs) < 2 || $pairOptions === []) {
+        if (count($revs) < 2) {
             $pair = self::reviewPairSection(null, $byId[$latestId], 'masterlist');
             $hasScan = !empty($pair['right_scan']['url']);
 
@@ -4256,9 +4313,9 @@ class RegisterQueryHelper
             ]);
         }
 
-        $chosen = self::resolveConsecutivePair($pairOptions, $leftId, $rightId);
-        $left = $byId[$chosen['left_id']];
-        $right = $byId[$chosen['right_id']];
+        $resolved = self::resolveRevisionPair($asc, $byId, $pairOptions, $leftId, $rightId);
+        $left = $resolved['left'];
+        $right = $resolved['right'];
 
         $leftLabel = 'Rev ' . (int) $left['revise_no']
             . (!empty($left['doc_no']) && $left['doc_no'] !== $history['docNo'] ? ' · ' . $left['doc_no'] : '')
@@ -4287,62 +4344,128 @@ class RegisterQueryHelper
             ];
         }
 
+        $pairKey = (int) $left['id'] . ':' . (int) $right['id'];
+        $isConsecutive = false;
+        foreach ($pairOptions as $po) {
+            if (($po['key'] ?? '') === $pairKey) {
+                $isConsecutive = true;
+                break;
+            }
+        }
+
         return [
             'docNo' => $history['docNo'],
             'docTitle' => $history['docTitle'],
             'options' => $options,
             'pair_options' => $pairOptions,
             'prior_options' => $newerOptions,
-            'left_id' => $chosen['left_id'],
-            'right_id' => $chosen['right_id'],
+            'left_id' => (int) $left['id'],
+            'right_id' => (int) $right['id'],
             'latest_id' => $latestId,
             'latest_revise_no' => (int) $latest['revise_no'],
             'tabs' => $hasScan ? [['key' => 'masterlist', 'label' => 'Masterlist']] : [],
             'pairs' => $hasScan ? ['masterlist' => $pair] : [],
             'can_compare' => $bothPdf,
             'can_view' => $hasScan,
-            'error' => $hasScan ? null : 'need_scan',
+            'is_consecutive_pair' => $isConsecutive,
+            'pair_key' => $pairKey,
+            'error' => $resolved['error'] ?? ($hasScan ? null : 'need_scan'),
             'left_label' => $leftLabel,
             'right_label' => $rightLabel,
         ];
     }
 
     /**
-     * Pick a consecutive revise_no pair. Defaults to the tip pair (… → latest).
+     * Resolve any two revisions for compare. Prefers the requested IDs (auto-swaps
+     * so left is older), then nearest neighbor, then the tip consecutive pair.
      *
+     * @param  list<array<string,mixed>>  $asc  Revisions ascending by revise_no
+     * @param  array<int,array<string,mixed>>  $byId
      * @param  list<array{left_id:int,right_id:int,left_rev:int,right_rev:int,label:string,key:string}>  $pairOptions
-     * @return array{left_id:int,right_id:int,left_rev:int,right_rev:int,label:string,key:string}
+     * @return array{left:array<string,mixed>,right:array<string,mixed>,error:?string}
      */
-    private static function resolveConsecutivePair(array $pairOptions, ?int $leftId, ?int $rightId): array
-    {
-        $fallback = $pairOptions[count($pairOptions) - 1];
+    private static function resolveRevisionPair(
+        array $asc,
+        array $byId,
+        array $pairOptions,
+        ?int $leftId,
+        ?int $rightId
+    ): array {
+        $fallback = $pairOptions !== []
+            ? $pairOptions[count($pairOptions) - 1]
+            : null;
 
-        if ($leftId && $rightId) {
-            foreach ($pairOptions as $po) {
-                if ((int) $po['left_id'] === $leftId && (int) $po['right_id'] === $rightId) {
-                    return $po;
+        $left = ($leftId && isset($byId[$leftId])) ? $byId[$leftId] : null;
+        $right = ($rightId && isset($byId[$rightId])) ? $byId[$rightId] : null;
+
+        if ($left && $right && (int) $left['id'] === (int) $right['id']) {
+            if ($fallback) {
+                return [
+                    'left' => $byId[(int) $fallback['left_id']],
+                    'right' => $byId[(int) $fallback['right_id']],
+                    'error' => null,
+                ];
+            }
+
+            return ['left' => $left, 'right' => $right, 'error' => 'same_revision'];
+        }
+
+        if ($left && $right) {
+            if (! self::reviewRevIsOlder($left, $right)) {
+                [$left, $right] = [$right, $left];
+            }
+
+            return ['left' => $left, 'right' => $right, 'error' => null];
+        }
+
+        // Only newer chosen → pair with nearest older revision.
+        if ($right && ! $left) {
+            $idx = null;
+            foreach ($asc as $i => $rev) {
+                if ((int) $rev['id'] === (int) $right['id']) {
+                    $idx = $i;
+                    break;
                 }
+            }
+            if ($idx !== null && $idx > 0) {
+                return ['left' => $asc[$idx - 1], 'right' => $right, 'error' => null];
+            }
+            if ($fallback && (int) $fallback['right_id'] === (int) $right['id']) {
+                return [
+                    'left' => $byId[(int) $fallback['left_id']],
+                    'right' => $right,
+                    'error' => null,
+                ];
             }
         }
 
-        // Prefer matching the newer side, then snap older to its predecessor.
-        if ($rightId) {
-            foreach ($pairOptions as $po) {
-                if ((int) $po['right_id'] === $rightId) {
-                    return $po;
+        // Only older chosen → pair with nearest newer revision.
+        if ($left && ! $right) {
+            $idx = null;
+            foreach ($asc as $i => $rev) {
+                if ((int) $rev['id'] === (int) $left['id']) {
+                    $idx = $i;
+                    break;
                 }
+            }
+            if ($idx !== null && $idx < count($asc) - 1) {
+                return ['left' => $left, 'right' => $asc[$idx + 1], 'error' => null];
             }
         }
 
-        if ($leftId) {
-            foreach ($pairOptions as $po) {
-                if ((int) $po['left_id'] === $leftId) {
-                    return $po;
-                }
-            }
+        if ($fallback) {
+            return [
+                'left' => $byId[(int) $fallback['left_id']],
+                'right' => $byId[(int) $fallback['right_id']],
+                'error' => null,
+            ];
         }
 
-        return $fallback;
+        return [
+            'left' => $asc[0],
+            'right' => $asc[count($asc) - 1],
+            'error' => null,
+        ];
     }
 
     private static function reviewRevIsOlder(array $left, array $right): bool
@@ -5732,12 +5855,8 @@ class RegisterQueryHelper
                     'file' => true,
                 ],
                 'edit_url' => route('dcs.register.edit', $m->request_id, false),
-                'stamp_url' => $dashboardSearch
-                    ? null
-                    : route('dcs.stamping.index', self::documentSearchParams($m), false),
-                'inventory_url' => $dashboardSearch
-                    ? null
-                    : route('dcs.database.index', self::documentSearchParams($m), false),
+                'stamp_url' => route('dcs.stamping.index', self::documentSearchParams($m), false),
+                'inventory_url' => route('dcs.database.index', self::documentSearchParams($m), false),
                 'match_request_id' => isset($m->match_request_id) ? (int) $m->match_request_id : (int) $m->request_id,
                 'match_revise_no' => isset($m->match_revise_no) ? (int) $m->match_revise_no : (int) ($m->revise_no ?? 0),
                 'match_masterlist_id' => isset($m->match_masterlist_id) ? (int) $m->match_masterlist_id : (int) $m->id,

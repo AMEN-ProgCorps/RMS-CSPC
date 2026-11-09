@@ -339,7 +339,7 @@ class ServerManagementService
      */
     public function getContainersTelemetry(): array
     {
-        return \Illuminate\Support\Facades\Cache::remember('rms_containers_telemetry_live', 3, function () {
+        $fetcher = function () {
             $metaMap = [
                 'rms_app' => [
                     'name' => 'Application (Nginx + PHP 8.4)',
@@ -526,7 +526,13 @@ class ServerManagementService
             }
 
             return $results;
-        });
+        };
+
+        try {
+            return \Illuminate\Support\Facades\Cache::remember('rms_containers_telemetry_live', 3, $fetcher);
+        } catch (\Throwable) {
+            return $fetcher();
+        }
     }
 
     /**

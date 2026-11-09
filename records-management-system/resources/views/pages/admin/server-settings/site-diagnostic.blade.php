@@ -148,7 +148,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
     </style>
 @endpush
 
-<div class="space-y-6" wire:poll.5s="refreshTelemetry">
+<div class="space-y-6" wire:poll.1s="refreshTelemetry">
     <!-- Header Banner -->
     <div style="background: #ffffff; padding: 24px 28px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
         <div style="display: flex; align-items: center; gap: 16px;">
@@ -171,7 +171,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
         <div style="display: flex; align-items: center; gap: 12px;">
             <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #475569; background: #f8fafc; padding: 7px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
                 <span class="live-pulse-dot"></span>
-                <span>Live Telemetry (5s auto-poll)</span>
+                <span>Live Telemetry (1s live auto-poll)</span>
                 <span style="font-size: 11.5px; font-weight: 700; color: #0f172a; margin-left: 4px; font-family: monospace;">{{ $lastRefreshedAt ?: 'Active' }}</span>
             </div>
 
@@ -267,7 +267,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
         <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div>
                 <h3 style="font-size: 16px; font-weight: 800; color: #0f172a; margin: 0;">Server Telemetry Trend Curves</h3>
-                <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">Last 16 real-time monitoring sampling sequences</p>
+                <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">Live 1-second monitoring sampling sequences</p>
             </div>
             <div style="display: flex; gap: 14px; font-size: 11.5px; font-weight: 700;">
                 <span style="display: flex; align-items: center; gap: 6px; color: #2563eb;">

@@ -759,7 +759,7 @@
                     'active' => request()->routeIs('admin.server-settings.current'),
                 ],
                 [
-                    'label' => 'Site Diagnostic',
+                    'label' => 'Server Diagnostic & Telemetry',
                     'url' => route('admin.server-settings.diagnostic'),
                     'active' => request()->routeIs('admin.server-settings.diagnostic'),
                 ],

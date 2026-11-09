@@ -1,15 +1,29 @@
 {{--
-DCS file: Polls dcs.api.office-intake.print-ready every 2 seconds and replaces the locked Print control. The route must stay on EnforceDcsIntakeAllowlist or an office user gets 403 and the button never unlocks.
+DCS file: Polls dcs.api.office-intake.print-ready and replaces the locked Print control.
+Pauses while the tab is hidden. The route must stay on EnforceDcsIntakeAllowlist.
 --}}
 @if(! ($canPrint ?? false))
 <script>
 (function () {
     var timer = null;
+    var activeMs = 2500;
+    var hiddenMs = 15000;
+
     function control() {
         return document.getElementById('ofiPrintControl');
     }
+    function clearTimer() {
+        if (timer) {
+            clearInterval(timer);
+            timer = null;
+        }
+    }
+    function schedule(ms) {
+        clearTimer();
+        timer = setInterval(tick, ms);
+    }
     function unlock(node) {
-        if (timer) clearInterval(timer);
+        clearTimer();
         var printUrl = node.getAttribute('data-print-url');
         if (!printUrl) return;
         var link = document.createElement('a');
@@ -22,9 +36,10 @@ DCS file: Polls dcs.api.office-intake.print-ready every 2 seconds and replaces t
         if (hint) hint.remove();
     }
     async function tick() {
+        if (typeof document !== 'undefined' && document.hidden) return;
         var node = control();
         if (!node || node.getAttribute('data-locked') !== '1') {
-            if (timer) clearInterval(timer);
+            clearTimer();
             return;
         }
         var statusUrl = node.getAttribute('data-status-url');
@@ -40,7 +55,17 @@ DCS file: Polls dcs.api.office-intake.print-ready every 2 seconds and replaces t
             if (ready.indexOf(String(node.getAttribute('data-intake-id'))) !== -1) unlock(node);
         } catch (e) {}
     }
-    timer = setInterval(tick, 1000);
+
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+            schedule(hiddenMs);
+            return;
+        }
+        schedule(activeMs);
+        tick();
+    });
+
+    schedule(activeMs);
     tick();
 })();
 </script>

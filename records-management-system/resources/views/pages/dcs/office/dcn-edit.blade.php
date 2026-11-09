@@ -49,8 +49,12 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
         </div>
 
         @if($editReason !== '')
-            <div class="ofi-alert err">
-                <strong>RFIO correction note:</strong> {{ $editReason }}
+            <div class="ofi-alert err ofi-correction-alert" role="status">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div class="ofi-alert-body">
+                    <strong>RFIO asked for corrections</strong>
+                    <span>{{ $editReason }}</span>
+                </div>
             </div>
         @endif
 
@@ -200,8 +204,8 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
             </div>
 
             <div class="reg-form-actions ofi-reg-actions">
-                <button type="submit" id="ofiDcnPreviewBtn" class="reg-btn reg-btn-cancel" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.dcn.preview', absolute: false) }}">
-                    Preview form
+                <button type="submit" id="ofiDcnPreviewBtn" class="reg-btn ofi-btn-preview" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.dcn.preview', absolute: false) }}">
+                    <i class="fa-solid fa-eye" aria-hidden="true"></i> Preview form
                 </button>
                 <button type="submit" id="ofiDcnSaveBtn" class="reg-btn reg-btn-save" disabled>
                     <i class="fa-solid fa-paper-plane"></i> Save &amp; resubmit to RFIO

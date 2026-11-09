@@ -11,6 +11,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
 
     public string $search = '';
     public string $actionFilter = '';
+    public string $areaFilter = '';
     public string $dateFilter = '';
     public string $officeFilter = '';
 
@@ -47,6 +48,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
         $this->resetPage();
     }
 
+    public function updatingAreaFilter(): void
+    {
+        $this->resetPage();
+    }
+
     public function updatingDateFilter(): void
     {
         $this->resetPage();
@@ -61,6 +67,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
     {
         $this->search = '';
         $this->actionFilter = '';
+        $this->areaFilter = '';
         $this->dateFilter = '';
         $this->officeFilter = '';
         $this->resetPage();
@@ -126,13 +133,64 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
                         ->orWhere('admin_logs.changes', 'ilike', 'Denied DCS page%')
                         ->orWhere('admin_logs.changes', 'ilike', 'Denied DCS access%');
                 });
+            } elseif ($this->actionFilter === 'office_intake_all') {
+                $query->where(function ($intake) {
+                    $intake->where('admin_logs.changes', 'ilike', '%office DRF%')
+                        ->orWhere('admin_logs.changes', 'ilike', '%office DCN%')
+                        ->orWhere('admin_logs.changes', 'ilike', '%office % #')
+                        ->orWhere('admin_logs.changes', 'ilike', 'Began registration from office%')
+                        ->orWhere('admin_logs.changes', 'ilike', 'Linked office %')
+                        ->orWhere('admin_logs.changes', 'ilike', 'Received signed office%')
+                        ->orWhere('admin_logs.changes', 'ilike', 'Cleared receipt on office%')
+                        ->orWhere('admin_logs.changes', 'ilike', '% — Area: Office Intake%')
+                        ->orWhere('admin_logs.changes', 'ilike', '% — Side: Office Intake%');
+                });
             } else {
                 $query->where('admin_logs.changes', 'ilike', $this->actionFilter . '%');
             }
         }
 
+        if ($this->areaFilter === 'Office Intake') {
+            $query->where(function ($areaQ) {
+                $areaQ->where('admin_logs.changes', 'ilike', '% — Area: Office Intake%')
+                    ->orWhere('admin_logs.changes', 'ilike', '% — Side: Office Intake%')
+                    ->orWhere('admin_logs.changes', 'ilike', '%office DRF%')
+                    ->orWhere('admin_logs.changes', 'ilike', '%office DCN%')
+                    ->orWhere('admin_logs.changes', 'ilike', 'Began registration from office%')
+                    ->orWhere('admin_logs.changes', 'ilike', 'Linked office %')
+                    ->orWhere('admin_logs.changes', 'ilike', 'Received signed office%')
+                    ->orWhere('admin_logs.changes', 'ilike', 'Cleared receipt on office%')
+                    ->orWhere('admin_logs.changes', 'ilike', 'Opened Office %')
+                    ->orWhere('admin_logs.changes', 'ilike', 'Viewed Office %')
+                    ->orWhere('admin_logs.changes', 'ilike', 'Printed Office %');
+            });
+        } elseif ($this->areaFilter === 'DCS') {
+            $query->where(function ($areaQ) {
+                $areaQ->where('admin_logs.changes', 'ilike', '% — Area: DCS%')
+                    ->orWhere('admin_logs.changes', 'ilike', '% — Side: Main DCS%')
+                    ->orWhere('admin_logs.changes', 'ilike', '% — Side: Admin DCS%')
+                    ->orWhere('admin_logs.changes', 'ilike', '% — Side: Super Admin%')
+                    ->orWhere(function ($notIntake) {
+                        $notIntake->where('admin_logs.changes', 'not ilike', '% — Area: Office Intake%')
+                            ->where('admin_logs.changes', 'not ilike', '% — Side: Office Intake%')
+                            ->where('admin_logs.changes', 'not ilike', '%office DRF%')
+                            ->where('admin_logs.changes', 'not ilike', '%office DCN%')
+                            ->where('admin_logs.changes', 'not ilike', 'Began registration from office%')
+                            ->where('admin_logs.changes', 'not ilike', 'Linked office %')
+                            ->where('admin_logs.changes', 'not ilike', 'Received signed office%')
+                            ->where('admin_logs.changes', 'not ilike', 'Cleared receipt on office%')
+                            ->where('admin_logs.changes', 'not ilike', 'Opened Office %')
+                            ->where('admin_logs.changes', 'not ilike', 'Viewed Office %')
+                            ->where('admin_logs.changes', 'not ilike', 'Printed Office %');
+                    });
+            });
+        }
+
         if ($this->officeFilter !== '') {
-            $query->where('office.office_code', $this->officeFilter);
+            $query->where(function ($officeQ) {
+                $officeQ->where('office.office_code', $this->officeFilter)
+                    ->orWhere('admin_logs.changes', 'ilike', '% — Office: ' . $this->officeFilter . '%');
+            });
         }
 
         if ($this->dateFilter !== '') {
@@ -149,6 +207,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
             })->count(),
             'documents' => (clone $base)->where(function ($q) {
                 $q->where('changes', 'like', 'Registered document%')
+                    ->orWhere('changes', 'like', 'Saved draft%')
                     ->orWhere('changes', 'like', 'Updated document%')
                     ->orWhere('changes', 'like', 'Deleted document%')
                     ->orWhere('changes', 'like', 'Restored document%')
@@ -156,8 +215,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
                     ->orWhere('changes', 'like', 'Removed stamp%');
             })->count(),
             'office_intake' => (clone $base)->where(function ($q) {
-                $q->where('changes', 'like', 'Created office DRF%')
-                    ->orWhere('changes', 'like', 'Created office DCN%');
+                $q->where('changes', 'like', '%office DRF%')
+                    ->orWhere('changes', 'like', '%office DCN%')
+                    ->orWhere('changes', 'like', 'Began registration from office%')
+                    ->orWhere('changes', 'like', 'Linked office %')
+                    ->orWhere('changes', 'like', 'Received signed office%')
+                    ->orWhere('changes', 'like', 'Cleared receipt on office%')
+                    ->orWhere('changes', 'like', '% — Area: Office Intake%')
+                    ->orWhere('changes', 'like', '% — Side: Office Intake%');
             })->count(),
             'blocked' => (clone $base)->where(function ($blocked) {
                 $blocked->where('changes', 'ilike', 'Blocked DCS access%')
@@ -210,6 +275,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
         .action-badge.intake { background: rgba(168,85,247,0.12); color: #7e22ce; }
         .action-badge.blocked { background: rgba(239,68,68,0.12); color: #b91c1c; }
         .action-badge.default-badge { background: rgba(100,116,139,0.12); color: #475569; }
+        .area-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 3px 10px; border-radius: 20px;
+            font-size: 11px; font-weight: 700; white-space: nowrap;
+        }
+        .area-badge.office-intake { background: rgba(168,85,247,0.14); color: #6b21a8; }
+        .area-badge.dcs { background: rgba(37,99,235,0.12); color: #1d4ed8; }
         .subsystem-ref {
             display: inline-flex; align-items: center; gap: 6px;
             font-size: 12px; font-weight: 700; color: #1d4ed8;
@@ -219,12 +291,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
     </style>
 @endpush
 
-<div class="activity-logs-container">
+<div class="activity-logs-container" wire:poll.5s>
     <div class="page-header">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
             <div>
                 <h1>DCS Activity Logs</h1>
-                <p>Track who accessed DCS, which office they belong to, and what pages or actions they performed.</p>
+                <p>Every DCS action is logged with the user’s office, and whether it happened in Office Intake or the main DCS. This list refreshes every few seconds.</p>
             </div>
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                 <span class="subsystem-ref">
@@ -303,29 +375,42 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
                     <option value="Viewed ">Page Viewed</option>
                     <option value="Printed ">Printed</option>
                     <option value="Registered document">Registered Document</option>
+                    <option value="Saved draft">Saved Draft</option>
                     <option value="Updated document">Updated Document</option>
                     <option value="Deleted document">Deleted Document</option>
                     <option value="Restored document">Restored Document</option>
                     <option value="Applied stamp">Applied Stamp</option>
                     <option value="Removed stamp">Removed Stamp</option>
+                    <option value="office_intake_all">All Office Intake</option>
                     <option value="Created office DRF">Created Office DRF</option>
+                    <option value="Updated office DRF">Updated Office DRF</option>
                     <option value="Created office DCN">Created Office DCN</option>
+                    <option value="Updated office DCN">Updated Office DCN</option>
+                    <option value="Began registration from office">Began Intake Registration</option>
+                    <option value="Received signed office">Received Signed Intake</option>
+                    <option value="Linked office ">Linked Intake to Registration</option>
                     <option value="blocked">Blocked Access</option>
                     <option value="Exported ">Exported</option>
                     <option value="DCS settings:">Settings Change</option>
                     <option value="calendar">Calendar</option>
                 </select>
 
+                <select class="filter-select" wire:model.live="areaFilter" title="Filter by page area">
+                    <option value="">All Pages</option>
+                    <option value="Office Intake">Office Intake</option>
+                    <option value="DCS">DCS (not Office Intake)</option>
+                </select>
+
                 <select class="filter-select" wire:model.live="officeFilter" title="Filter by office">
                     <option value="">All Offices</option>
                     @foreach($offices as $off)
-                        <option value="{{ $off->office_code }}">{{ $off->office_name }}</option>
+                        <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
                     @endforeach
                 </select>
 
                 <input type="date" class="filter-select" wire:model.live="dateFilter" title="Filter by date" style="min-width: 150px;">
 
-                @if($search !== '' || $actionFilter !== '' || $dateFilter !== '' || $officeFilter !== '')
+                @if($search !== '' || $actionFilter !== '' || $areaFilter !== '' || $dateFilter !== '' || $officeFilter !== '')
                     <button type="button" class="btn-clear-filters" wire:click="clearFilters">
                         <i class="fa-solid fa-filter-circle-xmark"></i> Clear Filters
                     </button>
@@ -338,11 +423,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
                 <table class="logs-table">
                     <thead>
                         <tr>
-                            <th style="width: 16%">TIMESTAMP</th>
-                            <th style="width: 18%">USER</th>
-                            <th style="width: 18%">OFFICE</th>
-                            <th style="width: 14%">ACTION</th>
-                            <th style="width: 34%">CHANGES</th>
+                            <th style="width: 13%">TIMESTAMP</th>
+                            <th style="width: 16%">USER</th>
+                            <th style="width: 14%">PAGE</th>
+                            <th style="width: 15%">OFFICE</th>
+                            <th style="width: 12%">ACTION</th>
+                            <th style="width: 30%">CHANGES</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -350,45 +436,59 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
                             @php
                                 $fullName = trim(($log->first_name ?? '') . ' ' . ($log->last_name ?? ''));
                                 $changes = (string) ($log->changes ?? '');
+                                $parsed = \App\Helpers\RegisterPersistHelper::parseLogContext($changes);
+                                $area = $parsed['area'] ?? 'DCS';
+                                $isOfficeIntake = (bool) ($parsed['is_office_intake'] ?? false);
+                                $actionText = $parsed['action'];
+                                $areaClass = $isOfficeIntake ? 'office-intake' : 'dcs';
                                 $badgeClass = 'default-badge';
                                 $actionIcon = 'fa-bolt';
                                 $actionLabel = 'DCS Activity';
-                                if (str_starts_with($changes, 'Opened ') || str_starts_with($changes, 'Accessed DCS')) {
+                                if (str_starts_with($actionText, 'Opened ') || str_starts_with($actionText, 'Accessed DCS')) {
                                     $badgeClass = 'access'; $actionIcon = 'fa-door-open'; $actionLabel = 'Opened';
-                                } elseif (str_starts_with($changes, 'Viewed ')) {
+                                } elseif (str_starts_with($actionText, 'Viewed ')) {
                                     $badgeClass = 'access'; $actionIcon = 'fa-eye'; $actionLabel = 'Viewed';
-                                } elseif (str_starts_with($changes, 'Printed ')) {
+                                } elseif (str_starts_with($actionText, 'Printed ')) {
                                     $badgeClass = 'access'; $actionIcon = 'fa-print'; $actionLabel = 'Printed';
-                                } elseif (str_starts_with($changes, 'Registered document')) {
-                                    $badgeClass = 'register'; $actionIcon = 'fa-file-circle-plus'; $actionLabel = 'Registered';
-                                } elseif (str_starts_with($changes, 'Updated document')) {
+                                } elseif (str_starts_with($actionText, 'Registered document') || str_starts_with($actionText, 'Saved draft')) {
+                                    $badgeClass = 'register'; $actionIcon = 'fa-file-circle-plus'; $actionLabel = str_starts_with($actionText, 'Saved draft') ? 'Draft' : 'Registered';
+                                } elseif (str_starts_with($actionText, 'Updated document')) {
                                     $badgeClass = 'update'; $actionIcon = 'fa-pen-to-square'; $actionLabel = 'Updated';
-                                } elseif (str_starts_with($changes, 'Deleted document') || str_contains(strtolower($changes), 'deleted calendar')) {
+                                } elseif (str_starts_with($actionText, 'Deleted document') || str_contains(strtolower($actionText), 'deleted calendar')) {
                                     $badgeClass = 'delete'; $actionIcon = 'fa-trash-can'; $actionLabel = 'Deleted';
-                                } elseif (str_starts_with($changes, 'Restored document')) {
+                                } elseif (str_starts_with($actionText, 'Restored document')) {
                                     $badgeClass = 'restore'; $actionIcon = 'fa-rotate-left'; $actionLabel = 'Restored';
-                                } elseif (str_starts_with($changes, 'Applied stamp')) {
+                                } elseif (str_starts_with($actionText, 'Applied stamp')) {
                                     $badgeClass = 'stamp'; $actionIcon = 'fa-stamp'; $actionLabel = 'Stamp Applied';
-                                } elseif (str_starts_with($changes, 'Removed stamp')) {
+                                } elseif (str_starts_with($actionText, 'Removed stamp')) {
                                     $badgeClass = 'stamp'; $actionIcon = 'fa-eraser'; $actionLabel = 'Stamp Removed';
-                                } elseif (str_starts_with($changes, 'Created office DRF') || str_starts_with($changes, 'Created office DCN')) {
+                                } elseif (
+                                    str_contains(strtolower($actionText), 'office drf')
+                                    || str_contains(strtolower($actionText), 'office dcn')
+                                    || str_starts_with($actionText, 'Began registration from office')
+                                    || str_starts_with($actionText, 'Linked office ')
+                                    || str_starts_with($actionText, 'Received signed office')
+                                    || str_starts_with($actionText, 'Cleared receipt on office')
+                                ) {
                                     $badgeClass = 'intake'; $actionIcon = 'fa-building'; $actionLabel = 'Office Intake';
-                                } elseif (str_starts_with($changes, 'Blocked DCS access')
-                                    || str_starts_with($changes, 'Denied admin DCS page')
-                                    || str_starts_with($changes, 'Denied DCS page')
-                                    || str_starts_with($changes, 'Denied DCS access')) {
+                                } elseif (str_starts_with($actionText, 'Blocked DCS access')
+                                    || str_starts_with($actionText, 'Denied admin DCS page')
+                                    || str_starts_with($actionText, 'Denied DCS page')
+                                    || str_starts_with($actionText, 'Denied DCS access')) {
                                     $badgeClass = 'blocked'; $actionIcon = 'fa-ban'; $actionLabel = 'Denied';
-                                } elseif (str_starts_with($changes, 'Exported ')) {
+                                } elseif (str_starts_with($actionText, 'Exported ')) {
                                     $badgeClass = 'export'; $actionIcon = 'fa-file-export'; $actionLabel = 'Exported';
-                                } elseif (str_starts_with($changes, 'DCS settings:')) {
+                                } elseif (str_starts_with($actionText, 'DCS settings:')) {
                                     $badgeClass = 'settings'; $actionIcon = 'fa-sliders'; $actionLabel = 'Settings';
-                                } elseif (str_contains(strtolower($changes), 'calendar')) {
+                                } elseif (str_contains(strtolower($actionText), 'calendar')) {
                                     $badgeClass = 'settings'; $actionIcon = 'fa-calendar'; $actionLabel = 'Calendar';
-                                } elseif (str_starts_with($changes, 'Saved OPCR') || str_contains(strtolower($changes), 'syllabi monitoring')) {
+                                } elseif (str_starts_with($actionText, 'Saved OPCR') || str_contains(strtolower($actionText), 'syllabi monitoring')) {
                                     $badgeClass = 'update'; $actionIcon = 'fa-chart-line'; $actionLabel = 'Report Data';
-                                } elseif (str_contains(strtolower($changes), 'report template')) {
+                                } elseif (str_contains(strtolower($actionText), 'report template')) {
                                     $badgeClass = 'settings'; $actionIcon = 'fa-file-pdf'; $actionLabel = 'Template';
                                 }
+                                $displayOfficeName = $log->office_name ?: ($parsed['office'] ?? null);
+                                $displayOfficeCode = $log->office_code ?: null;
                             @endphp
                             <tr>
                                 <td>
@@ -407,10 +507,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
                                     </div>
                                 </td>
                                 <td>
+                                    <span class="area-badge {{ $areaClass }}">
+                                        @if($isOfficeIntake)
+                                            <i class="fa-solid fa-building" style="font-size: 10px;"></i>
+                                            Office Intake
+                                        @else
+                                            <i class="fa-solid fa-folder-open" style="font-size: 10px;"></i>
+                                            DCS
+                                        @endif
+                                    </span>
+                                </td>
+                                <td>
                                     <div class="admin-name-cell">
-                                        <span class="name" style="font-size: 13px;">{{ $log->office_name ?: 'Unassigned' }}</span>
-                                        @if($log->office_code)
-                                            <span class="email-sub">{{ $log->office_code }}</span>
+                                        <span class="name" style="font-size: 13px;">{{ $displayOfficeName ?: 'Unassigned' }}</span>
+                                        @if($displayOfficeCode)
+                                            <span class="email-sub">{{ $displayOfficeCode }}</span>
                                         @endif
                                     </div>
                                 </td>
@@ -422,13 +533,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
                                 </td>
                                 <td>
                                     <div class="log-description" style="line-height: 1.45;">
-                                        {{ $changes }}
+                                        {{ $actionText }}
                                     </div>
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" style="text-align: center; padding: 56px 24px; color: #94a3b8;">
+                                <td colspan="6" style="text-align: center; padding: 56px 24px; color: #94a3b8;">
                                     <i class="fa-solid fa-box-open" style="font-size: 36px; display: block; margin-bottom: 12px; color: #cbd5e1;"></i>
                                     No DCS activity records found in admin logs.
                                 </td>

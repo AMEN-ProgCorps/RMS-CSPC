@@ -41,24 +41,30 @@ const launchOpts = {
     ],
 };
 
-// Prefer system Chromium (Docker), then env override, then Puppeteer's bundled Chrome.
-const systemChrome = [
+// Linux/system Chromium only — Windows chrome.exe cannot be launched via Puppeteer from WSL.
+const chromeCandidates = [
     process.env.CHROMIUM_PATH,
     process.env.PUPPETEER_EXECUTABLE_PATH,
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
     '/usr/bin/google-chrome',
     '/usr/bin/google-chrome-stable',
-].find((p) => p && fs.existsSync(p));
+];
+try {
+    const bundled = puppeteer.executablePath();
+    if (bundled && fs.existsSync(bundled)) {
+        chromeCandidates.push(bundled);
+    }
+} catch (_) {
+    // puppeteer cache may be absent
+}
 
+const systemChrome = chromeCandidates.find((p) => p && fs.existsSync(p));
 if (systemChrome) {
     launchOpts.executablePath = systemChrome;
 } else {
-    try {
-        launchOpts.executablePath = puppeteer.executablePath();
-    } catch (_) {
-        // puppeteer resolves from PUPPETEER_CACHE_DIR / bundled install
-    }
+    console.error('No Linux Chromium binary for Puppeteer');
+    process.exit(5);
 }
 
 const browser = await puppeteer.launch(launchOpts);
@@ -66,10 +72,13 @@ const browser = await puppeteer.launch(launchOpts);
 try {
     const page = await browser.newPage();
     await page.goto('file://' + absIn, { waitUntil: 'networkidle0', timeout: 60000 });
+    // Letter + zero margins so footer bottom:0.28–0.32in matches on-screen preview.
     await page.pdf({
         path: absOut,
         printBackground: true,
         preferCSSPageSize: true,
+        width: '8.5in',
+        height: '11in',
         margin: { top: '0', right: '0', bottom: '0', left: '0' },
     });
 } finally {

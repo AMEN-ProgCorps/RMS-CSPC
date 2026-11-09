@@ -547,7 +547,8 @@ body {
     border-bottom: 1px solid var(--dcs-border);
 }
 
-.drr-latest-lock {
+.drr-latest-lock,
+.drr-rev-side {
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -572,6 +573,32 @@ body {
     border-color: #bbf7d0;
     background: #f0fdf4;
     color: #166534;
+}
+
+.drr-side-select {
+    min-width: 200px;
+    height: 38px;
+    border: 1.5px solid #cbd5e1;
+    border-radius: var(--dcs-radius-sm);
+    padding: 0 10px;
+    background: #f8fafc;
+    color: #334155;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    cursor: pointer;
+}
+
+.drr-side-select.is-newer {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+    color: #166534;
+}
+
+.drr-side-select:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
 }
 
 .drr-pair-arrow {
@@ -632,6 +659,15 @@ body {
 .drr-compare-legend {
     margin-left: 0;
     margin-bottom: 10px;
+}
+
+.drr-legend-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dcs-muted, #64748b);
+    margin-right: 2px;
 }
 
 .drr-leg {
@@ -1204,18 +1240,38 @@ body {
 }
 
 .drr-page-wrap.is-added-gap,
-.drr-page-wrap.is-removed-gap {
+.drr-page-wrap.is-removed-gap,
+.drr-page-wrap.is-compact-gap {
     background: #f8fafc;
+    outline: none;
 }
 
-.drr-page-wrap.is-added-gap .drr-page-empty {
+.drr-page-wrap.is-compact-gap {
+    min-height: 0;
+}
+
+.drr-page-wrap.is-added-gap .drr-page-empty,
+.drr-page-wrap.is-added-gap .drr-page-empty.is-gap-banner {
     color: #15803d;
     font-weight: 600;
 }
 
-.drr-page-wrap.is-removed-gap .drr-page-empty {
+.drr-page-wrap.is-removed-gap .drr-page-empty,
+.drr-page-wrap.is-removed-gap .drr-page-empty.is-gap-banner {
     color: #b91c1c;
     font-weight: 600;
+}
+
+.drr-page-empty.is-gap-banner {
+    min-height: 48px;
+    padding: 10px 14px;
+    font-size: 0.78rem;
+    border-bottom: 1px dashed var(--dcs-border);
+    background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+}
+
+.drr-page-wrap.is-compact-gap .drr-page-empty {
+    min-height: 48px;
 }
 
 .drr-page-caption {

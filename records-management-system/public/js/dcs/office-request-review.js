@@ -24,6 +24,10 @@
     const unlockBlock = root.querySelector('[data-ofi-unlock-block]');
     const unlockReason = root.querySelector('[data-ofi-unlock-reason]');
     const unlockBtn = root.querySelector('[data-ofi-unlock-btn]');
+    const unlockBtnLabel = root.querySelector('[data-ofi-unlock-btn-label]');
+    const unlockSent = root.querySelector('[data-ofi-unlock-sent]');
+    const unlockSentDetail = root.querySelector('[data-ofi-unlock-sent-detail]');
+    const unlockError = root.querySelector('[data-ofi-unlock-error]');
     const unlockMeta = root.querySelector('[data-ofi-unlock-meta]');
     const notifyBtn = root.querySelector('[data-ofi-notify-btn]');
     const notifyLabel = root.querySelector('[data-ofi-notify-label]');
@@ -87,9 +91,32 @@
         return root.getAttribute('data-pair-notified') !== '0';
     }
 
+    function clearUnlockError() {
+        if (!unlockError) return;
+        unlockError.hidden = true;
+        unlockError.textContent = '';
+    }
+
+    function showUnlockError(message) {
+        const text = String(message || '').trim();
+        if (!text) return;
+        if (unlockError) {
+            unlockError.textContent = text;
+            unlockError.hidden = false;
+        }
+        if (actionError) {
+            actionError.hidden = true;
+            actionError.textContent = '';
+        }
+        if (typeof window.dcsShowToast === 'function') {
+            window.dcsShowToast(text, 'error');
+        }
+    }
+
     function showPanelError(message) {
         const text = String(message || '').trim();
         if (!text) return;
+        clearUnlockError();
         if (actionError) {
             actionError.textContent = text;
             actionError.hidden = false;
@@ -245,15 +272,16 @@
     async function unlockEdit() {
         if (busy) return;
         if (printNotified) {
-            showPanelError('Enable edit is not available after notifying the office that this submission is correct.');
+            showUnlockError('Enable edit is not available after notifying the office that this submission is correct.');
             return;
         }
         const reason = (unlockReason?.value || '').trim();
-        if (reason.length < 3) {
-            showPanelError('Please enter a reason (at least 3 characters) before enabling edit.');
+        if (reason.length < 5) {
+            showUnlockError('Please provide a short reason (at least 5 characters).');
             unlockReason?.focus();
             return;
         }
+        clearUnlockError();
         busy = true;
         if (unlockBtn) unlockBtn.disabled = true;
         try {
@@ -279,15 +307,27 @@
                 } catch (_) { /* ignore */ }
                 throw new Error(message);
             }
-            if (unlockMeta) {
-                unlockMeta.textContent = 'Office can now edit and resubmit this form.';
-                unlockMeta.hidden = false;
+            clearUnlockError();
+            if (unlockReason) unlockReason.disabled = true;
+            if (unlockBtn) {
+                unlockBtn.disabled = true;
+                unlockBtn.classList.add('is-sent');
+                const icon = unlockBtn.querySelector('i');
+                if (icon) icon.className = 'fa-solid fa-lock';
             }
+            if (unlockBtnLabel) unlockBtnLabel.textContent = 'Edit enabled for office';
+            if (unlockSent) {
+                if (unlockSentDetail) {
+                    unlockSentDetail.textContent = 'They can edit and resubmit this form.';
+                }
+                unlockSent.hidden = false;
+            }
+            if (unlockMeta) unlockMeta.hidden = true;
         } catch (err) {
-            showPanelError(err.message || 'Could not enable edit.');
+            showUnlockError(err.message || 'Could not enable edit.');
+            if (unlockBtn && !printNotified) unlockBtn.disabled = false;
         } finally {
             busy = false;
-            if (unlockBtn && !printNotified) unlockBtn.disabled = false;
         }
     }
 
@@ -566,6 +606,10 @@
     check?.addEventListener('change', function () {
         if (this.checked) markReceived();
         else clearReceived();
+    });
+    unlockReason?.addEventListener('input', function () {
+        const len = String(unlockReason.value || '').trim().length;
+        if (len >= 5) clearUnlockError();
     });
     unlockBtn?.addEventListener('click', unlockEdit);
     notifyBtn?.addEventListener('click', notifyPrintReady);

@@ -44,10 +44,18 @@ DCS file: Modal shell for starting or reviewing an office intake from another DC
                     maxlength="1000"
                     placeholder="Describe what is wrong so the office can fix it…"
                 ></textarea>
+                <div class="ofi-alert err ofi-unlock-error" data-ofi-unlock-error hidden role="alert"></div>
                 <button type="button" class="ofi-unlock-btn" data-ofi-unlock-btn>
                     <i class="fa-solid fa-unlock"></i>
-                    Enable edit for office
+                    <span data-ofi-unlock-btn-label>Enable edit for office</span>
                 </button>
+                <div class="ofi-unlock-sent" data-ofi-unlock-sent hidden role="status">
+                    <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+                    <div class="ofi-unlock-sent-body">
+                        <strong>Correction already sent to the office</strong>
+                        <span data-ofi-unlock-sent-detail>They can edit and resubmit this form.</span>
+                    </div>
+                </div>
                 <p class="ofi-receive-meta" data-ofi-unlock-meta hidden></p>
             </div>
 

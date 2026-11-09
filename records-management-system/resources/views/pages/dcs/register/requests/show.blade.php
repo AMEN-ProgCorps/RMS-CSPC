@@ -281,19 +281,35 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                                 rows="3"
                                 maxlength="1000"
                                 placeholder="Describe what is wrong so the office can fix it…"
-                                @disabled($panelNotified)
+                                @disabled($panelNotified || !empty($ap['editUnlocked']))
                             >{{ $ap['editUnlockReason'] ?? '' }}</textarea>
-                            <button type="button" class="ofi-unlock-btn" data-ofi-unlock-btn
-                                @disabled($panelNotified)
-                                title="{{ $panelNotified ? 'Not available after notifying the office that the form is correct.' : '' }}">
-                                <i class="fa-solid fa-{{ $panelNotified ? 'lock' : 'unlock' }}"></i>
-                                Enable edit for office
+                            <div class="ofi-alert err ofi-unlock-error" data-ofi-unlock-error hidden role="alert"></div>
+                            <button type="button" class="ofi-unlock-btn {{ !empty($ap['editUnlocked']) && ! $panelNotified ? 'is-sent' : '' }}" data-ofi-unlock-btn
+                                @disabled($panelNotified || !empty($ap['editUnlocked']))
+                                title="{{ $panelNotified ? 'Not available after notifying the office that the form is correct.' : (!empty($ap['editUnlocked']) ? 'Correction was already sent to the office.' : '') }}">
+                                <i class="fa-solid fa-{{ $panelNotified || !empty($ap['editUnlocked']) ? 'lock' : 'unlock' }}"></i>
+                                <span data-ofi-unlock-btn-label>{{ !empty($ap['editUnlocked']) && ! $panelNotified ? 'Edit enabled for office' : 'Enable edit for office' }}</span>
                             </button>
-                            <p class="ofi-receive-meta" data-ofi-unlock-meta @if(empty($ap['editUnlocked']) && ! $panelNotified) hidden @endif>
+                            <div
+                                class="ofi-unlock-sent"
+                                data-ofi-unlock-sent
+                                role="status"
+                                @if(empty($ap['editUnlocked']) || $panelNotified) hidden @endif
+                            >
+                                <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+                                <div class="ofi-unlock-sent-body">
+                                    <strong>Correction already sent to the office</strong>
+                                    <span data-ofi-unlock-sent-detail>
+                                        They can edit and resubmit this form.
+                                        @if(!empty($ap['editUnlockedAt']))
+                                            Sent {{ $ap['editUnlockedAt'] }}.
+                                        @endif
+                                    </span>
+                                </div>
+                            </div>
+                            <p class="ofi-receive-meta" data-ofi-unlock-meta @if(! $panelNotified) hidden @endif>
                                 @if($panelNotified)
                                     Locked — office was already notified that this submission is correct.
-                                @elseif(!empty($ap['editUnlocked']))
-                                    Office can edit and resubmit this form.
                                 @endif
                             </p>
                         </div>

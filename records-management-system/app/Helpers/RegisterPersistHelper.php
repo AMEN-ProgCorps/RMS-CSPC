@@ -49,6 +49,8 @@ class RegisterPersistHelper
     /**
      * Shared admin_logs entry with Document Control System as what_system reference.
      * Same pattern as RDP/Admin Console activity logging.
+     *
+     * Every DCS line is stamped with Area (Office Intake or DCS) and the actor's office.
      */
     public static function logAdminChange(string $changes, bool $includeOffice = true): void
     {
@@ -83,22 +85,179 @@ class RegisterPersistHelper
         }
     }
 
-    /** Append the acting user's office to a DCS log line when known. */
-    public static function appendOfficeContext(string $changes): string
+    /** True when the current request is under Office Intake pages. */
+    public static function isOfficeIntakeArea(?string $routeName = null, ?string $path = null): bool
     {
-        if (str_contains($changes, ' — Office: ')) {
-            return $changes;
-        }
+        $routeName = $routeName ?? request()?->route()?->getName();
+        $path = ltrim(str_replace('\\', '/', (string) ($path ?? request()?->path() ?? '')), '/');
+        $route = (string) $routeName;
 
-        $office = RegisterQueryHelper::currentOfficeName();
-        if ($office === '—') {
-            return $changes;
-        }
-
-        return $changes . ' — Office: ' . $office;
+        return str_starts_with($path, 'dcs/office')
+            || str_starts_with($route, 'dcs.office.');
     }
 
-    /** Log once per distinct DCS page visit (per session). */
+    /**
+     * Office-intake staff share /dcs dashboard with Admin DCS, but their whole
+     * surface is Office Intake (same blade, conditional content).
+     */
+    public static function actorIsOfficeIntakeUser(): bool
+    {
+        return RegisterQueryHelper::isLimitedDcsUser()
+            && RegisterQueryHelper::canAccessOfficeIntake();
+    }
+
+    /**
+     * Page area for logs: Office Intake or DCS (everything else).
+     */
+    public static function dcsActionArea(?string $routeName = null, ?string $path = null, ?string $changes = null): string
+    {
+        if (self::isOfficeIntakeArea($routeName, $path)) {
+            return 'Office Intake';
+        }
+
+        // Shared dashboard / shell routes used by office-intake users.
+        if (self::actorIsOfficeIntakeUser()) {
+            return 'Office Intake';
+        }
+
+        if ($changes !== null && self::inferIsOfficeIntakeAction($changes)) {
+            return 'Office Intake';
+        }
+
+        return 'DCS';
+    }
+
+    /** @deprecated Use dcsActionArea() — kept for callers that still ask for "side". */
+    public static function dcsActorSide(?string $routeName = null, ?string $path = null): string
+    {
+        return self::dcsActionArea($routeName, $path);
+    }
+
+    /** Office code + name for the signed-in user (empty parts omitted). */
+    public static function dcsActorOfficeLabel(): string
+    {
+        $code = RegisterQueryHelper::currentOfficeCode();
+        $name = RegisterQueryHelper::currentOfficeName();
+        if ($code && $name !== '—') {
+            return $code . ' (' . $name . ')';
+        }
+        if ($code) {
+            return $code;
+        }
+        if ($name !== '—') {
+            return $name;
+        }
+
+        return 'Unassigned';
+    }
+
+    /**
+     * Append Area + Office to a DCS log line.
+     * Format: "… — Area: Office Intake — Office: CCS (College of Computer Studies)"
+     */
+    public static function appendOfficeContext(string $changes): string
+    {
+        $area = self::dcsActionArea(null, null, $changes);
+        $office = self::dcsActorOfficeLabel();
+
+        // Prefer Area; still skip if an older Side tag is already present.
+        if (! str_contains($changes, ' — Area: ') && ! str_contains($changes, ' — Side: ')) {
+            $changes .= ' — Area: ' . $area;
+        }
+
+        if (! str_contains($changes, ' — Office: ')) {
+            $changes .= ' — Office: ' . $office;
+        }
+
+        return $changes;
+    }
+
+    /**
+     * Parse Area / Side / Office suffixes from a log line.
+     * Area is only "Office Intake" or "DCS" (older Side values are normalized).
+     *
+     * @return array{area: string|null, office: string|null, action: string, is_office_intake: bool}
+     */
+    public static function parseLogContext(string $changes): array
+    {
+        $area = null;
+        $office = null;
+        $action = $changes;
+
+        if (preg_match('/ — Area: ([^—]+?)(?= — Office: |$)/u', $changes, $m)) {
+            $area = trim($m[1]);
+        } elseif (preg_match('/ — Side: ([^—]+?)(?= — Office: |$)/u', $changes, $m)) {
+            $area = trim($m[1]);
+        }
+        if (preg_match('/ — Office: (.+)$/u', $changes, $m)) {
+            $office = trim($m[1]);
+        }
+
+        $action = trim((string) preg_replace('/ — Area: .+?(?= — Office: |$)/u', '', $action));
+        $action = trim((string) preg_replace('/ — Side: .+?(?= — Office: |$)/u', '', $action));
+        $action = trim((string) preg_replace('/ — Office: .+$/u', '', $action));
+        if ($action === '') {
+            $action = $changes;
+        }
+
+        $normalized = self::normalizeLogArea($area, $action);
+
+        return [
+            'area' => $normalized,
+            'side' => $normalized, // backward-compatible alias for the UI
+            'office' => $office !== '' ? $office : null,
+            'action' => $action,
+            'is_office_intake' => $normalized === 'Office Intake',
+        ];
+    }
+
+    /** Map stored labels to Office Intake vs DCS. */
+    public static function normalizeLogArea(?string $stored, string $action = ''): ?string
+    {
+        if ($stored === 'Office Intake' || self::inferIsOfficeIntakeAction($action)) {
+            return 'Office Intake';
+        }
+
+        if ($stored !== null && $stored !== '') {
+            // Older Side values (Admin DCS / Main DCS / Super Admin) → DCS
+            return 'DCS';
+        }
+
+        if ($action !== '') {
+            return 'DCS';
+        }
+
+        return null;
+    }
+
+    public static function inferIsOfficeIntakeAction(string $action): bool
+    {
+        $lower = mb_strtolower($action);
+
+        return str_contains($lower, 'office drf')
+            || str_contains($lower, 'office dcn')
+            || str_contains($lower, 'office intake')
+            || str_starts_with($lower, 'began registration from office')
+            || str_starts_with($lower, 'linked office ')
+            || str_starts_with($lower, 'received signed office')
+            || str_starts_with($lower, 'cleared receipt on office')
+            || str_contains($lower, 'opened office ')
+            || str_contains($lower, 'viewed office ')
+            || str_contains($lower, 'printed office ')
+            || str_contains($lower, 'denied admin dcs page (office intake');
+    }
+
+    /** @deprecated Use inferIsOfficeIntakeAction / normalizeLogArea. */
+    public static function inferSideFromAction(string $action): ?string
+    {
+        return self::inferIsOfficeIntakeAction($action) ? 'Office Intake' : 'DCS';
+    }
+
+    /**
+     * Log DCS page visits promptly.
+     * Short per-route cooldown (not once-per-session) so Activity Logs feel live
+     * when users move between Office Intake / DCS pages.
+     */
     public static function logDcsAccess(Request $request): void
     {
         if (! self::shouldLogDcsPageVisit($request)) {
@@ -111,11 +270,13 @@ class RegisterPersistHelper
             return;
         }
 
-        $sessionKey = 'dcs_page_logged.' . ($routeName ?? md5($request->path()));
-        if (session()->get($sessionKey)) {
+        $sessionKey = 'dcs_page_logged_at.' . ($routeName ?? md5($request->path()));
+        $lastAt = (int) session()->get($sessionKey, 0);
+        $cooldownSec = 20;
+        if ($lastAt > 0 && (time() - $lastAt) < $cooldownSec) {
             return;
         }
-        session()->put($sessionKey, true);
+        session()->put($sessionKey, time());
 
         $details = self::dcsPageActionDetails($request, $routeName);
         self::logAdminChange($label . $details);
@@ -198,8 +359,13 @@ class RegisterPersistHelper
 
     private static function dcsPageActionLabel(?string $routeName): ?string
     {
+        if (in_array($routeName, ['dcs', 'dcs.dashboard'], true)) {
+            return self::actorIsOfficeIntakeUser()
+                ? 'Opened Office Intake Dashboard'
+                : 'Opened DCS Dashboard';
+        }
+
         return match ($routeName) {
-            'dcs', 'dcs.dashboard' => 'Opened DCS Dashboard',
             'dcs.register.create' => 'Opened Document Registration',
             'dcs.register.update' => 'Opened Update Documents',
             'dcs.register.edit' => 'Opened Document Editor',
@@ -210,12 +376,18 @@ class RegisterPersistHelper
             'dcs.stamping.index' => 'Opened Document Stamping',
             'dcs.manage-files' => 'Opened Manage Files',
             'dcs.settings.index' => 'Opened DCS Settings',
+            'dcs.office.incoming' => 'Opened Office Incoming',
+            'dcs.office.documents' => 'Opened Office Documents',
+            'dcs.office.random-checks' => 'Opened Office Random Checks',
+            'dcs.office.random-checks.show' => 'Viewed Office Random Check',
             'dcs.office.drf.index' => 'Opened Office DRF List',
             'dcs.office.drf.create' => 'Opened Create Office DRF',
+            'dcs.office.drf.edit' => 'Opened Edit Office DRF',
             'dcs.office.drf.show' => 'Viewed Office DRF',
             'dcs.office.drf.print' => 'Printed Office DRF',
             'dcs.office.dcn.index' => 'Opened Office DCN List',
             'dcs.office.dcn.create' => 'Opened Create Office DCN',
+            'dcs.office.dcn.edit' => 'Opened Edit Office DCN',
             'dcs.office.dcn.show' => 'Viewed Office DCN',
             'dcs.office.dcn.print' => 'Printed Office DCN',
             'dcs.reports.masterlist' => 'Opened Masterlist Report',
@@ -242,12 +414,15 @@ class RegisterPersistHelper
             if ($docNo) {
                 $details = ' — ' . $docNo;
             }
-        } elseif (in_array($routeName, ['dcs.office.drf.show', 'dcs.office.drf.print'], true)) {
-            $id = $request->route('id');
-            if ($id) {
-                $details = ' #' . $id;
-            }
-        } elseif (in_array($routeName, ['dcs.office.dcn.show', 'dcs.office.dcn.print'], true)) {
+        } elseif (in_array($routeName, [
+            'dcs.office.drf.show',
+            'dcs.office.drf.print',
+            'dcs.office.drf.edit',
+            'dcs.office.dcn.show',
+            'dcs.office.dcn.print',
+            'dcs.office.dcn.edit',
+            'dcs.office.random-checks.show',
+        ], true)) {
             $id = $request->route('id');
             if ($id) {
                 $details = ' #' . $id;

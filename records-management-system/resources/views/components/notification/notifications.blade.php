@@ -374,12 +374,12 @@ new class extends Component {
                     || $path === 'dcs/office/dcn'
                     || str_starts_with($path, 'dcs/office/')
                 ) {
-                    $this->redirect($notification->redirect_url, navigate: true);
+                    $this->redirectNotificationUrl((string) $notification->redirect_url);
 
                     return;
                 }
 
-                $this->redirect(route('dcs.office.incoming', absolute: false), navigate: true);
+                $this->redirectNotificationUrl(route('dcs.office.incoming', absolute: false));
 
                 return;
             }
@@ -397,18 +397,94 @@ new class extends Component {
                 return;
             }
 
-            // Full load so reports.css replaces leftover dashboard `header {}` styles.
-            if (
-                $path === 'dcs/monitoring/distribution-retrieval'
-                || str_starts_with($path, 'dcs/monitoring/distribution-retrieval')
-            ) {
-                $this->redirect($notification->redirect_url, navigate: false);
-
-                return;
-            }
-
-            $this->redirect($notification->redirect_url, navigate: true);
+            $this->redirectNotificationUrl((string) $notification->redirect_url);
         }
+    }
+
+    /**
+     * Redirect from a notification click.
+     * Cross-subsystem targets (DCS ↔ DTS ↔ RDP ↔ Admin) always full-load so layout
+     * CSS/headers do not stack (e.g. DCS yellow logo over DTS branding).
+     */
+    private function redirectNotificationUrl(string $url): void
+    {
+        $this->redirect($url, navigate: ! $this->notificationNeedsFullPageLoad($url));
+    }
+
+    /**
+     * True when the notification target uses a different app layout/CSS bundle
+     * than the page the user is currently on.
+     */
+    private function notificationNeedsFullPageLoad(string $redirectUrl): bool
+    {
+        $targetPath = ltrim((string) (parse_url($redirectUrl, PHP_URL_PATH) ?? ''), '/');
+        $targetSystem = $this->subsystemFromPath($targetPath);
+        $currentSystem = $this->currentSubsystem();
+
+        if ($targetSystem !== null && $currentSystem !== null && $targetSystem !== $currentSystem) {
+            return true;
+        }
+
+        // Same-system pages that still ship a different stylesheet/header treatment.
+        if (
+            $targetPath === 'dcs/monitoring/distribution-retrieval'
+            || str_starts_with($targetPath, 'dcs/monitoring/distribution-retrieval')
+        ) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function currentSubsystem(): ?string
+    {
+        $candidates = [
+            (string) request()->headers->get('referer'),
+            (string) url()->previous(),
+            (string) request()->url(),
+        ];
+
+        foreach ($candidates as $url) {
+            if ($url === '') {
+                continue;
+            }
+            $path = ltrim((string) (parse_url($url, PHP_URL_PATH) ?? ''), '/');
+            // Livewire update posts are not useful for layout detection.
+            if ($path === 'livewire/update' || str_starts_with($path, 'livewire/')) {
+                continue;
+            }
+            $system = $this->subsystemFromPath($path);
+            if ($system !== null) {
+                return $system;
+            }
+        }
+
+        return null;
+    }
+
+    private function subsystemFromPath(string $path): ?string
+    {
+        $path = ltrim($path, '/');
+        if ($path === 'dcs' || str_starts_with($path, 'dcs/')) {
+            return 'dcs';
+        }
+        if ($path === 'dts' || str_starts_with($path, 'dts/')) {
+            return 'dts';
+        }
+        if ($path === 'rdp' || str_starts_with($path, 'rdp/')) {
+            return 'rdp';
+        }
+        if ($path === 'admin' || str_starts_with($path, 'admin/')) {
+            return 'admin';
+        }
+        if ($path === 'portal' || str_starts_with($path, 'portal/')) {
+            return 'portal';
+        }
+        if ($path === 'profile' || str_starts_with($path, 'profile/')) {
+            return 'profile';
+        }
+
+        return null;
     }
 
     /**
@@ -417,22 +493,7 @@ new class extends Component {
      */
     private function isOnDcsPage(): bool
     {
-        $candidates = [
-            (string) request()->headers->get('referer'),
-            (string) url()->previous(),
-        ];
-
-        foreach ($candidates as $url) {
-            if ($url === '') {
-                continue;
-            }
-            $path = ltrim((string) (parse_url($url, PHP_URL_PATH) ?? ''), '/');
-            if ($path === 'dcs' || str_starts_with($path, 'dcs/')) {
-                return true;
-            }
-        }
-
-        return request()->is('dcs', 'dcs/*');
+        return $this->currentSubsystem() === 'dcs';
     }
 
     /**

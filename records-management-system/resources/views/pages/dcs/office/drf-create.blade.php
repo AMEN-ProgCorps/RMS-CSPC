@@ -185,6 +185,16 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             </div>
         @endif
 
+        @if(($fromDcnId ?? 0) > 0)
+            <div class="ofi-alert ok" role="status">
+                <strong>Continuing from DCN #{{ $fromDcnId }}.</strong>
+                Title and originator are prefilled. Confirm document type and distribution offices, then save this DRF so RFIO receives one combined DCN + DRF notice.
+                <div style="margin-top:8px;">
+                    <a href="{{ route('dcs.office.dcn.show', $fromDcnId, absolute: false) }}" class="ofi-dash-link">Open saved DCN <i class="fa-solid fa-arrow-right"></i></a>
+                </div>
+            </div>
+        @endif
+
         <form method="POST" action="{{ route('dcs.office.drf.store', absolute: false) }}" id="ofiDrfForm">
             @csrf
             @if(($fromDcnId ?? 0) > 0)

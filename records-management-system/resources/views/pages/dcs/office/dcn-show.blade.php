@@ -102,28 +102,44 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
         @endif
 
         @if(($canEdit ?? false) && ($editReason ?? '') !== '')
-            <div class="ofi-alert err">
-                <strong>RFIO asked for corrections:</strong> {{ $editReason }}
+            <div class="ofi-alert err ofi-correction-alert" role="status">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div class="ofi-alert-body">
+                    <strong>RFIO asked for corrections</strong>
+                    <span>{{ $editReason }}</span>
+                </div>
             </div>
         @endif
 
         @unless($canPrint ?? false)
-            <div class="ofi-alert" id="ofiPrintHint">
-                <i class="fa-solid fa-print"></i>
-                {{ $printHint }}
+            <div class="ofi-alert ofi-print-hint-alert" id="ofiPrintHint" role="status">
+                <i class="fa-solid fa-print" aria-hidden="true"></i>
+                <div class="ofi-alert-body">
+                    <strong>Print is locked</strong>
+                    <span>{{ $printHint }}</span>
+                </div>
             </div>
         @endunless
 
-        <div class="ofi-lock-banner {{ ($isRegistered ?? false) ? 'is-registered' : (($canEdit ?? false) ? 'is-edit' : '') }}">
+        <div class="ofi-lock-banner {{ ($isRegistered ?? false) ? 'is-registered' : (($canEdit ?? false) ? 'is-edit' : '') }}" role="status">
             @if($isRegistered ?? false)
-                <i class="fa-solid fa-circle-check"></i>
-                <span>This document has been registered / controlled by RFIO.</span>
+                <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+                <div class="ofi-lock-banner-body">
+                    <strong>Registered by RFIO</strong>
+                    <span>This document has been registered / controlled by RFIO.</span>
+                </div>
             @elseif($canEdit ?? false)
-                <i class="fa-solid fa-unlock"></i>
-                <span>RFIO enabled editing so you can correct and resubmit this form.</span>
+                <i class="fa-solid fa-unlock" aria-hidden="true"></i>
+                <div class="ofi-lock-banner-body">
+                    <strong>Editing enabled</strong>
+                    <span>RFIO enabled editing so you can correct and resubmit this form.</span>
+                </div>
             @else
-                <i class="fa-solid fa-lock"></i>
-                <span>{{ $immutableMessage }}</span>
+                <i class="fa-solid fa-lock" aria-hidden="true"></i>
+                <div class="ofi-lock-banner-body">
+                    <strong>View only</strong>
+                    <span>{{ $immutableMessage }}</span>
+                </div>
             @endif
         </div>
 

@@ -34,6 +34,13 @@ class DcsAuditService
             }
 
             if (Schema::hasTable('dcs_activity_events')) {
+                $meta = array_merge([
+                    'area' => RegisterPersistHelper::dcsActionArea(),
+                    'is_office_intake' => RegisterPersistHelper::isOfficeIntakeArea(),
+                    'office' => RegisterPersistHelper::dcsActorOfficeLabel(),
+                    'office_code' => \App\Helpers\RegisterQueryHelper::currentOfficeCode(),
+                ], $meta);
+
                 $event = [
                     'user_id' => $userId,
                     'action' => $action,

@@ -180,6 +180,10 @@ class DcsNotificationService
     ): void {
         $docNo = trim($docNo);
         $title = trim((string) $docTitle);
+        // Placeholder / request codes are not real document numbers — omit them.
+        if ($docNo !== '' && preg_match('/^(DCS-)?REQ-\d+$/i', $docNo)) {
+            $docNo = '';
+        }
         $revSuffix = $revNo !== null && $revNo > 0 ? ", Rev {$revNo}" : '';
 
         if ($title !== '' && $docNo !== '') {

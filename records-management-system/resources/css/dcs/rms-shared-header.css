@@ -19,6 +19,17 @@ header.rms-app-header {
     padding: 0 0 0 var(--padding-header);
 }
 
+/*
+ * DTS/RDP dashboard shell: header must stay in document flow.
+ * Fixed + section offset caused body overflow (page scrollbar) and clipped
+ * .nav-header-container. DCS keeps position: fixed above.
+ */
+body:has(> section) > header.rms-app-header {
+    position: relative;
+    top: auto;
+    left: auto;
+}
+
 header.rms-app-header .cspc-logo {
     width: 70px;
     height: 70px;

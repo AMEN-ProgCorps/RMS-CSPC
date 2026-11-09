@@ -390,18 +390,21 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         }
         .ml-empty { text-align: center; font-style: italic; padding: 0.2in; }
 
+        /* Footer band — same geometry for on-screen preview and PDF export. */
         .ml-footer {
             position: absolute;
             left: 0;
             right: 0;
             bottom: 0.28in;
+            width: 8.5in;
         }
         .ml-footer-line {
             width: 7.4in;
             height: 0;
             border: 0;
             border-top: 1.5pt solid #0070C0;
-            margin: 0 0.58in 0.04in 0.52in;
+            margin: 0 0.58in 0.06in 0.52in;
+            padding: 0;
         }
         /* Table footer — works in browser preview and Dompdf (flex wraps "Page 1 of 1"). */
         .ml-ft {
@@ -422,11 +425,12 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             line-height: 1;
         }
         .ml-ft-date { width: 38%; text-align: left; font-weight: 400; }
-        .ml-ft-rev { width: 24%; text-align: center; }
-        .ml-ft-page { width: 38%; text-align: right; }
+        .ml-ft-rev { width: 24%; text-align: center; font-weight: 400; }
+        .ml-ft-page { width: 38%; text-align: right; font-weight: 400; }
         .ml-ft-date strong,
         .ml-ft-rev strong,
-        .ml-ft-page b {
+        .ml-ft-page b,
+        .ml-ft-page strong {
             font-family: Arial, Helvetica, sans-serif !important;
             font-weight: 700 !important;
         }
@@ -446,33 +450,45 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             font-weight: 700 !important;
             line-height: 1 !important;
         }
-        .ml-sheet.is-internal-forms .ml-footer { bottom: 0.32in; }
+        .ml-sheet.is-internal-forms .ml-footer { bottom: 0.28in; }
         .ml-sheet.is-internal-forms .ml-footer-line {
             width: 7.49in;
-            margin: 0 0.49in 0.05in 0.52in;
+            margin: 0 0.49in 0.06in 0.52in;
         }
         .ml-sheet.is-internal-forms .ml-ft { width: 7.49in; margin: 0 0.49in 0 0.52in; }
 
-        body.is-pdf { background: #fff !important; }
+        /*
+         * Legacy is-pdf branch (non-Chromium). Keep sheet at 11in so footer
+         * bottom:0.28in lands like the on-screen preview.
+         */
+        body.is-pdf {
+            background: #fff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
         body.is-pdf .print-toolbar { display: none !important; }
         body.is-pdf .ml-sheet {
             margin: 0 !important;
             box-shadow: none !important;
             width: 8.5in !important;
-            height: 10.55in !important;
-            min-height: 0 !important;
-            max-height: 10.55in !important;
+            height: 11in !important;
+            min-height: 11in !important;
+            max-height: 11in !important;
             overflow: hidden !important;
             page-break-before: avoid !important;
             page-break-after: avoid !important;
-            page-break-inside: auto !important;
+            page-break-inside: avoid !important;
             break-before: avoid !important;
             break-after: avoid !important;
-            break-inside: auto !important;
+            break-inside: avoid !important;
         }
         body.is-pdf .ml-sheet:not(.is-last) {
             page-break-after: always !important;
             break-after: page !important;
+        }
+        body.is-pdf .ml-sheet.is-last {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
         }
         body.is-pdf .pdf-hdr,
         body.is-pdf .pdf-rule,
@@ -486,63 +502,93 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             width: 7.42in;
             margin: 0.22in 0.54in 0;
         }
+        /* Match preview seal crop: logo.png is 500×500 with ~272×272 seal. */
         body.is-pdf .pdf-logo {
-            width: 0.78in;
-            vertical-align: middle;
-        }
-        body.is-pdf .pdf-logo img {
             width: 0.63in;
             height: 0.65in;
+            vertical-align: top;
+            padding: 0;
+            overflow: hidden;
+            line-height: 0;
+        }
+        body.is-pdf .pdf-logo img {
+            display: block;
+            width: 1.158in;
+            height: 1.195in;
+            margin-left: -0.264in;
+            margin-top: -0.272in;
+            border: 0;
         }
         body.is-pdf .pdf-org {
             vertical-align: middle;
             font-family: Verdana, Geneva, sans-serif;
             font-size: 10pt;
-            line-height: 1.25;
+            line-height: 1;
             color: #000;
+            padding: 0.12in 0 0 0.09in;
         }
-        body.is-pdf .pdf-org b {
+        body.is-pdf .pdf-org .pdf-name {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 10pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            display: block;
+            margin: 0.07in 0;
         }
         body.is-pdf .pdf-rule {
             width: 7.42in;
-            margin: 0.04in 0.54in 0;
+            margin: 0.02in 0.54in 0;
         }
         body.is-pdf .pdf-line {
             border-bottom: 1.5pt solid #0070C0;
-            height: 8px;
+            height: 4px;
         }
         body.is-pdf .pdf-code {
-            width: 1.2in;
+            width: 1.15in;
             text-align: right;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 9pt;
             font-weight: 700;
             white-space: nowrap;
             vertical-align: bottom;
-            padding-left: 8px;
+            padding-left: 0.11in;
+            padding-bottom: 0;
         }
         body.is-pdf .pdf-title {
-            margin: 0.12in 0.56in 0;
+            margin: 0.14in 0.56in 0;
             text-align: center;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 16pt;
             font-weight: 700;
-            line-height: 1.1;
+            line-height: 1;
+            text-transform: uppercase;
         }
         body.is-pdf .pdf-asof {
-            margin: 0.05in 0.56in 0;
+            margin: 0.06in 0.56in 0;
             text-align: center;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11pt;
             font-weight: 700;
             font-style: italic;
-            line-height: 1.1;
+            line-height: 1;
         }
+        /* Match preview filter row (boxed for Forms/Logbooks). */
         body.is-pdf .pdf-filters {
             width: 7.36in;
-            margin: 0.1in 0.56in 0.1in;
+            margin: 0.24in 0.56in 0.13in;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        body.is-pdf .pdf-filters.is-with-asof {
+            margin-top: 0.10in;
+        }
+        body.is-pdf .pdf-filters.has-box {
+            width: 7.38in;
+            margin: 0.24in 0.56in 0.11in;
+            border: 0.5pt solid #000;
+        }
+        body.is-pdf .pdf-filters.has-rule {
+            margin-bottom: 0.02in;
         }
         body.is-pdf .pdf-filters td {
             width: 25%;
@@ -551,45 +597,80 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             font-weight: 700;
             line-height: 1;
             vertical-align: middle;
+            text-align: left;
+            padding: 0;
+        }
+        body.is-pdf .pdf-filters.has-box td {
+            text-align: center;
+            padding: 0.06in 0;
+        }
+        body.is-pdf .pdf-filter-rule {
+            width: 7.38in;
+            height: 0;
+            border: 0;
+            border-top: 0.5pt solid #000;
+            margin: 0 0.56in 0.11in;
         }
         body.is-pdf .pdf-cb {
             display: inline-block;
-            width: 10px;
-            height: 10px;
+            width: 0.1in;
+            height: 0.1in;
             border: 1px solid #000;
             text-align: center;
             font-size: 8pt;
-            line-height: 9px;
-            margin-right: 4px;
+            line-height: 0.09in;
+            margin-right: 0.05in;
             font-weight: 700;
         }
+        /* Two-table layout like preview: header band, then 0.18in gap, then body. */
         body.is-pdf .pdf-table {
             width: 7.36in;
             margin: 0 0.56in;
             border: 0.5pt solid #000;
+            border-collapse: separate;
+            border-spacing: 0;
             table-layout: fixed;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 10pt;
-            line-height: 1.05;
+            line-height: 1;
+        }
+        body.is-pdf .pdf-table.pdf-thead {
+            margin-bottom: 0;
+        }
+        body.is-pdf .pdf-thead-gap {
+            width: 7.36in;
+            height: 0.18in;
+            margin: 0 0.56in;
+            border: 0;
+            line-height: 0;
+            font-size: 0;
+            overflow: hidden;
         }
         body.is-pdf .pdf-table th {
             background: #8db3e2;
-            border: 0.5pt solid #000;
+            border: 0;
+            border-right: 0.5pt solid #000;
+            border-bottom: 0.5pt solid #000;
             font-size: 10pt;
             font-weight: 700;
             text-align: center;
             vertical-align: middle;
-            height: 0.42in;
-            padding: 2px;
+            height: 0.49in;
+            padding: 0 2px;
         }
+        body.is-pdf .pdf-table th:last-child { border-right: 0; }
         body.is-pdf .pdf-table td {
-            border: 0.5pt solid #000;
+            border: 0;
+            border-right: 0.5pt solid #000;
+            border-bottom: 0.5pt solid #000;
             text-align: center;
             vertical-align: middle;
-            padding: 3px 3px;
+            padding: 0.05in 0.04in;
             font-size: 10pt;
             line-height: 1;
         }
+        body.is-pdf .pdf-table td:last-child { border-right: 0; }
+        body.is-pdf .pdf-table tr:last-child td { border-bottom: 0; }
         body.is-pdf .pdf-table td.is-title,
         body.is-pdf .pdf-table td.is-center { text-align: center; }
         body.is-pdf .pdf-table td.is-originator { text-align: left; vertical-align: top; line-height: 1; }
@@ -601,10 +682,12 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             line-height: 1;
             font-weight: 400;
         }
-        body.is-pdf .pdf-table td.is-doc-no { font-weight: 700; }
+        body.is-pdf .pdf-table td.is-doc-no,
+        body.is-pdf .pdf-table td.is-doc-no b { font-weight: 700; }
         body.is-pdf .pdf-table tr.series-sep td {
             background: #8db3e2 !important;
             border-right: 0 !important;
+            border-bottom: 0.5pt solid #000 !important;
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 10pt !important;
             line-height: 1 !important;
@@ -613,22 +696,48 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
         }
-        body.is-pdf .pdf-ft {
+        /* Same footer band as preview (.ml-footer / .ml-ft). */
+        body.is-pdf .pdf-footer {
             position: absolute;
-            left: 0.55in;
-            bottom: 0.32in;
-            width: 7.4in;
+            left: 0;
+            right: 0;
+            bottom: 0.28in;
+            width: 8.5in;
         }
-        body.is-pdf .pdf-ft td {
+        body.is-pdf .pdf-footer-line {
+            width: 7.4in;
+            height: 0;
+            border: 0;
             border-top: 1.5pt solid #0070C0;
-            padding-top: 4px;
+            margin: 0 0.58in 0.04in 0.52in;
+        }
+        body.is-pdf .pdf-ft {
+            width: 7.4in;
+            margin: 0 0.58in 0 0.52in;
+            border-collapse: collapse;
+            table-layout: fixed;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 9pt;
             line-height: 1;
-            vertical-align: top;
+            color: #000;
         }
-        body.is-pdf .pdf-ft .c { text-align: center; }
-        body.is-pdf .pdf-ft .r { text-align: right; }
+        body.is-pdf .pdf-ft td {
+            border: 0;
+            padding: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 9pt;
+            line-height: 1;
+            vertical-align: baseline;
+            white-space: nowrap;
+        }
+        body.is-pdf .pdf-ft .l { width: 38%; text-align: left; font-weight: 400; }
+        body.is-pdf .pdf-ft .c { width: 24%; text-align: center; }
+        body.is-pdf .pdf-ft .r { width: 38%; text-align: right; }
+        body.is-pdf .pdf-ft b,
+        body.is-pdf .pdf-ft strong {
+            font-family: Arial, Helvetica, sans-serif;
+            font-weight: 700;
+        }
 
         @media print {
             html, body {
@@ -642,10 +751,10 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             .ml-sheet {
                 margin: 0 !important;
                 box-shadow: none !important;
-                /* Slightly under letter height so Chromium does not spill a blank page */
-                height: 10.95in !important;
-                min-height: 10.95in !important;
-                max-height: 10.95in !important;
+                /* Same 11in sheet as on-screen preview so footer bottom:0.32in matches. */
+                height: 11in !important;
+                min-height: 11in !important;
+                max-height: 11in !important;
                 page-break-after: auto !important;
                 break-after: auto !important;
             }
@@ -656,6 +765,12 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             .ml-sheet.is-last {
                 page-break-after: avoid !important;
                 break-after: avoid !important;
+            }
+            .ml-footer {
+                bottom: 0.28in !important;
+            }
+            .ml-footer-line {
+                margin: 0 0.58in 0.06in 0.52in !important;
             }
         }
 
@@ -671,9 +786,9 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         body.is-print-export .ml-sheet {
             margin: 0 !important;
             box-shadow: none !important;
-            height: 10.95in !important;
-            min-height: 10.95in !important;
-            max-height: 10.95in !important;
+            height: 11in !important;
+            min-height: 11in !important;
+            max-height: 11in !important;
             page-break-after: auto !important;
             break-after: auto !important;
         }
@@ -685,9 +800,134 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             page-break-after: avoid !important;
             break-after: avoid !important;
         }
+        body.is-print-export .ml-footer {
+            bottom: 0.28in !important;
+        }
+        body.is-print-export .ml-footer-line {
+            margin: 0 0.58in 0.06in 0.52in !important;
+            border-top: 1.5pt solid #0070C0 !important;
+        }
+
+        /*
+         * Dompdf renders the SAME .ml-* markup as the browser preview.
+         * Flex/calc are limited in Dompdf — override only those pieces.
+         */
+        body.is-dompdf {
+            background: #fff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        body.is-dompdf .print-toolbar { display: none !important; }
+        body.is-dompdf .ml-sheet {
+            margin: 0 !important;
+            box-shadow: none !important;
+            width: 8.5in !important;
+            height: 11in !important;
+            min-height: 11in !important;
+            max-height: 11in !important;
+            overflow: hidden !important;
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+        }
+        body.is-dompdf .ml-sheet:not(.is-last) {
+            page-break-after: always !important;
+            break-after: page !important;
+        }
+        body.is-dompdf .ml-sheet.is-last {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+        }
+        /* calc() is unreliable in Dompdf — fixed seal crop matching preview. */
+        body.is-dompdf .ml-logo {
+            width: 1.158in !important;
+            height: 1.195in !important;
+            min-width: 1.158in !important;
+            min-height: 1.195in !important;
+            max-width: none !important;
+            max-height: none !important;
+            margin-left: -0.264in !important;
+            margin-top: -0.272in !important;
+        }
+        body.is-dompdf .ml-filters {
+            display: table !important;
+            width: 7.38in !important;
+            table-layout: fixed !important;
+            border-collapse: separate !important;
+        }
+        body.is-dompdf .ml-filters.has-box {
+            border: 0.5pt solid #000 !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            padding: 0.06in 0 !important;
+        }
+        body.is-dompdf .ml-fi {
+            display: table-cell !important;
+            width: 25% !important;
+            margin-left: 0 !important;
+            text-align: center !important;
+            vertical-align: middle !important;
+        }
+        body.is-dompdf .ml-fi.is-external,
+        body.is-dompdf .ml-fi.is-forms,
+        body.is-dompdf .ml-fi.is-logbooks {
+            margin-left: 0 !important;
+        }
+        body.is-dompdf .ml-cb {
+            display: inline-block !important;
+            width: 0.1in !important;
+            height: 0.1in !important;
+            line-height: 0.09in !important;
+            vertical-align: middle !important;
+        }
+        body.is-dompdf .ml-hdr-text {
+            display: block !important;
+        }
+        body.is-dompdf .ml-hdr-text > div {
+            display: block !important;
+            margin: 0.02in 0 !important;
+        }
+        body.is-dompdf .ml-hdr-rule {
+            display: table !important;
+            width: 7.32in !important;
+            table-layout: fixed !important;
+            transform: none !important;
+            height: auto !important;
+        }
+        body.is-dompdf .ml-hdr-rule-line {
+            display: table-cell !important;
+            width: auto !important;
+            height: 1.5pt !important;
+            background: #0070C0 !important;
+            vertical-align: middle !important;
+        }
+        body.is-dompdf .ml-hdr-code {
+            display: table-cell !important;
+            width: 1.15in !important;
+            text-align: right !important;
+            vertical-align: middle !important;
+            padding-left: 0.11in !important;
+            white-space: nowrap !important;
+        }
+        body.is-dompdf .ml-footer {
+            position: absolute !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0.28in !important;
+            width: 8.5in !important;
+        }
+        body.is-dompdf .ml-ft {
+            width: 7.4in !important;
+            margin: 0 0.58in 0 0.52in !important;
+            font-size: 9pt !important;
+        }
+        body.is-dompdf .ml-footer-line {
+            width: 7.4in !important;
+            margin: 0 0.58in 0.06in 0.52in !important;
+            border-top: 1.5pt solid #0070C0 !important;
+        }
     </style>
 </head>
-<body class="{{ !empty($isPdf) ? 'is-pdf' : '' }}{{ !empty($forcePrintLayout) ? ' is-print-export' : '' }}">
+<body class="{{ !empty($isPdf) ? 'is-pdf' : '' }}{{ !empty($forcePrintLayout) ? ' is-print-export' : '' }}{{ !empty($isDompdf) ? ' is-dompdf' : '' }}">
     @if(empty($embed))
     <div class="print-toolbar" id="toolbar">
         <button class="btn-pdf" type="button" id="btnPdf" title="Opens the print dialog — choose Save as PDF for a file identical to this preview">Save as PDF</button>
@@ -724,6 +964,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         @endphp
         <div class="ml-sheet {{ $loop->last ? 'is-last' : '' }} {{ $activeSub === 'internal_forms' ? 'is-internal-forms' : '' }}">
             @if(!empty($isPdf))
+                {{-- Dompdf fallback: table layout that mirrors the Chromium preview markup. --}}
                 <table class="pdf-hdr">
                     <tr>
                         <td class="pdf-logo">
@@ -732,8 +973,8 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                             @endif
                         </td>
                         <td class="pdf-org">
-                            {{ $republic ?? 'Republic of the Philippines' }}<br>
-                            <b>{{ $institutionName ?? 'CAMARINES SUR POLYTECHNIC COLLEGES' }}</b><br>
+                            {{ $republic ?? 'Republic of the Philippines' }}
+                            <span class="pdf-name">{{ $institutionName ?? 'Camarines Sur Polytechnic Colleges' }}</span>
                             {{ $institutionAddress ?? 'Nabua, Camarines Sur' }}
                         </td>
                     </tr>
@@ -741,14 +982,14 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                 <table class="pdf-rule">
                     <tr>
                         <td class="pdf-line"></td>
-                        <td class="pdf-code">{{ $letterNumber }}</td>
+                        <td class="pdf-code"><b>{{ $letterNumber }}</b></td>
                     </tr>
                 </table>
                 <div class="pdf-title">DOCUMENT MASTERLIST</div>
                 @if($showAsOf)
                     <div class="pdf-asof">As of {{ $asOfLabel }}</div>
                 @endif
-                <table class="pdf-filters">
+                <table class="pdf-filters {{ $showAsOf ? 'is-with-asof' : '' }}{{ $showFilterRule ? ' has-rule' : '' }}{{ $showFilterBox ? ' has-box' : '' }}">
                     <tr>
                         <td><span class="pdf-cb">{{ $checkedType === 'internal' ? '/' : '' }}</span>Internal</td>
                         <td><span class="pdf-cb">{{ $checkedType === 'external' ? '/' : '' }}</span>External</td>
@@ -756,6 +997,30 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                         <td><span class="pdf-cb">{{ $checkedType === 'logbooks' ? '/' : '' }}</span>Logbooks</td>
                     </tr>
                 </table>
+                @if($showFilterRule)
+                    <div class="pdf-filter-rule"></div>
+                @endif
+                <table class="pdf-table pdf-thead">
+                    <colgroup>
+                        <col style="width:0.44in">
+                        <col style="width:1.38in">
+                        <col style="width:0.39in">
+                        <col style="width:2.3in">
+                        <col style="width:1.13in">
+                        <col style="width:1.17in">
+                        <col style="width:0.55in">
+                    </colgroup>
+                    <tr>
+                        <th>Item<br>No.</th>
+                        <th>Doc. No.</th>
+                        <th>Rev<br>No.</th>
+                        <th>Document Title</th>
+                        <th>Effectivity<br>Date</th>
+                        <th>Originator</th>
+                        <th>No.<br>of pages</th>
+                    </tr>
+                </table>
+                <div class="pdf-thead-gap"></div>
                 <table class="pdf-table">
                     <colgroup>
                         <col style="width:0.44in">
@@ -766,17 +1031,6 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                         <col style="width:1.17in">
                         <col style="width:0.55in">
                     </colgroup>
-                    <thead>
-                        <tr>
-                            <th>Item<br>No.</th>
-                            <th>Doc. No.</th>
-                            <th>Rev<br>No.</th>
-                            <th>Document Title</th>
-                            <th>Effectivity<br>Date</th>
-                            <th>Originator</th>
-                            <th>No.<br>of pages</th>
-                        </tr>
-                    </thead>
                     <tbody>
                         @forelse($pageRows as $row)
                             @php
@@ -797,7 +1051,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                             @endif
                             <tr>
                                 <td>{{ $item !== '' && $item !== null ? $item : '' }}</td>
-                                <td class="is-doc-no is-center">{{ is_array($row) ? ($row['doc_no'] ?? '—') : ($row->doc_no ?? '—') }}</td>
+                                <td class="is-doc-no is-center"><b>{{ is_array($row) ? ($row['doc_no'] ?? '—') : ($row->doc_no ?? '—') }}</b></td>
                                 <td class="is-center">{{ is_array($row) ? ($row['rev_no'] ?? '—') : ($row->rev_no ?? '—') }}</td>
                                 <td class="is-title is-center">{{ is_array($row) ? ($row['doc_title'] ?? '—') : ($row->doc_title ?? '—') }}</td>
                                 <td class="is-center">{{ is_array($row) ? ($row['effectivity_date'] ?? '—') : ($row->effectivity_date ?? '—') }}</td>
@@ -815,13 +1069,16 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                         @endforelse
                     </tbody>
                 </table>
-                <table class="pdf-ft">
-                    <tr>
-                        <td>Effectivity Date: <b>{{ $footerEffectivity }}</b></td>
-                        <td class="c">Rev. <b>{{ $footerRev }}</b></td>
-                        <td class="r">Page&nbsp;<b>{{ $pageNo }}</b>&nbsp;of&nbsp;<b>{{ $totalPages }}</b></td>
-                    </tr>
-                </table>
+                <div class="pdf-footer">
+                    <div class="pdf-footer-line"></div>
+                    <table class="pdf-ft">
+                        <tr>
+                            <td class="l">Effectivity Date: <b>{{ $footerEffectivity }}</b></td>
+                            <td class="c">Rev. <b>{{ $footerRev }}</b></td>
+                            <td class="r">Page&nbsp;<b>{{ $pageNo }}</b>&nbsp;of&nbsp;<b>{{ $totalPages }}</b></td>
+                        </tr>
+                    </table>
+                </div>
             @else
             <div class="ml-hdr">
                 @if($logoSrc)
@@ -918,7 +1175,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                     <tr>
                         <td class="ml-ft-date">Effectivity Date: <strong>{{ $footerEffectivity }}</strong></td>
                         <td class="ml-ft-rev">Rev. <strong>{{ $footerRev }}</strong></td>
-                        <td class="ml-ft-page">Page&nbsp;<b>{{ $pageNo }}</b>&nbsp;of&nbsp;<b>{{ $totalPages }}</b></td>
+                        <td class="ml-ft-page">Page <strong>{{ $pageNo }}</strong> of <strong>{{ $totalPages }}</strong></td>
                     </tr>
                 </table>
             </div>

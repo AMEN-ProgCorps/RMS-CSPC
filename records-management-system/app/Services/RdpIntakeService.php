@@ -405,6 +405,7 @@ class RdpIntakeService
                 'updated_at' => now(),
             ]);
             if (class_exists(\App\Helpers\OfficeIntakeHelper::class)) {
+                \App\Helpers\OfficeIntakeHelper::bumpOfficeInventoryCache();
                 \App\Helpers\OfficeIntakeHelper::notifyPendingIntakeRegistrationAfterAppraisal($requestId);
             }
         }
@@ -417,6 +418,7 @@ class RdpIntakeService
             return;
         }
         if (class_exists(\App\Helpers\OfficeIntakeHelper::class)) {
+            \App\Helpers\OfficeIntakeHelper::bumpOfficeInventoryCache();
             \App\Helpers\OfficeIntakeHelper::notifyPendingIntakeRegistrationAfterAppraisal($requestId);
         }
     }

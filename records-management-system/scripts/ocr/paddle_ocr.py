@@ -103,12 +103,17 @@ def visual_text_width(text: str) -> float:
 
 
 def split_phrase_geometry(geom: dict[str, float], parts: list[str]) -> list[dict[str, float]]:
-    """Split one Paddle phrase box into word boxes, retaining space gaps."""
+    """Split one Paddle phrase box into word boxes using glyph-weighted widths.
+
+    Prefers character-width proportions over equal splits so highlight boxes
+    stay aligned with printed words (reduces drift on long OCR phrases).
+    """
     if not parts:
         return []
 
     weights = [visual_text_width(part) for part in parts]
-    gap = 0.30
+    # Slightly larger gap weight reduces bleed between adjacent word highlights.
+    gap = 0.38
     total = sum(weights) + gap * max(len(parts) - 1, 0)
     if total <= 0:
         return []
@@ -118,11 +123,13 @@ def split_phrase_geometry(geom: dict[str, float], parts: list[str]) -> list[dict
     boxes = []
     for index, weight in enumerate(weights):
         word_w = max(unit * weight, 0.002)
+        # Keep a tiny inset so neighboring words do not paint over each other.
+        inset = min(word_w * 0.02, 0.0015)
         boxes.append(
             {
-                "x": cursor,
+                "x": cursor + inset,
                 "y": geom["y"],
-                "w": max(word_w * 0.98, 0.002),
+                "w": max(word_w - inset * 2, 0.002),
                 "h": geom["h"],
             }
         )
@@ -130,7 +137,68 @@ def split_phrase_geometry(geom: dict[str, float], parts: list[str]) -> list[dict
     return boxes
 
 
-def run_paddle(image_path: str):
+def _norm_poly(box, img_w: int, img_h: int) -> list[list[float]]:
+    """Normalize a polygon / box into [[x,y], ...] pixel points."""
+    if box is None:
+        return [[0, 0], [1, 0], [1, 1], [0, 1]]
+    if isinstance(box, dict):
+        x = float(box.get("x", 0))
+        y = float(box.get("y", 0))
+        w = float(box.get("w", 1))
+        h = float(box.get("h", 1))
+        # Already normalized 0–1?
+        if 0 <= x <= 1.5 and 0 <= y <= 1.5 and w <= 1.5 and h <= 1.5:
+            return [
+                [x * img_w, y * img_h],
+                [(x + w) * img_w, y * img_h],
+                [(x + w) * img_w, (y + h) * img_h],
+                [x * img_w, (y + h) * img_h],
+            ]
+        return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
+    if isinstance(box, (list, tuple)) and len(box) >= 4:
+        first = box[0]
+        if isinstance(first, (list, tuple)) and len(first) >= 2:
+            return [[float(p[0]), float(p[1])] for p in box[:4]]
+        if len(box) == 4 and all(isinstance(v, (int, float)) for v in box):
+            x0, y0, x1, y1 = map(float, box)
+            return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+    return [[0, 0], [1, 0], [1, 1], [0, 1]]
+
+
+def _word_boxes_from_predict_page(page: dict, img_w: int, img_h: int) -> list[tuple]:
+    """Prefer true per-word boxes when PaddleOCR 3.x exposes them."""
+    texts = page.get("rec_texts") or page.get("texts") or []
+    scores = page.get("rec_scores") or page.get("scores") or []
+    # Word-level sources (prefer these over line/phrase polys).
+    word_polys = (
+        page.get("rec_word_boxes")
+        or page.get("word_boxes")
+        or page.get("rec_boxes")
+        or None
+    )
+    line_polys = page.get("dt_polys") or page.get("rec_polys") or page.get("boxes") or []
+    rows = []
+    for i, text in enumerate(texts):
+        text = str(text or "").strip()
+        if not text:
+            continue
+        conf = float(scores[i]) if i < len(scores) else 1.0
+        parts = [p for p in text.split() if p]
+        if word_polys is not None and i < len(word_polys):
+            entry = word_polys[i]
+            # Some builds return a list of word polys for one recognition line.
+            if isinstance(entry, (list, tuple)) and parts and len(entry) == len(parts):
+                for part, wbox in zip(parts, entry):
+                    rows.append((_norm_poly(wbox, img_w, img_h), part, conf, True))
+                continue
+            rows.append((_norm_poly(entry, img_w, img_h), text, conf, False))
+            continue
+        box = line_polys[i] if i < len(line_polys) else [[0, 0], [1, 0], [1, 1], [0, 1]]
+        rows.append((_norm_poly(box, img_w, img_h), text, conf, False))
+    return rows
+
+
+def run_paddle(image_path: str, img_w: int = 1, img_h: int = 1):
     try:
         from paddleocr import PaddleOCR
     except ImportError as exc:
@@ -158,7 +226,8 @@ def run_paddle(image_path: str):
                 text = (meta[0] if isinstance(meta, (list, tuple)) else str(meta)).strip()
                 conf = float(meta[1]) if isinstance(meta, (list, tuple)) and len(meta) > 1 else 1.0
                 if text:
-                    rows.append((box, text, conf))
+                    # (box, text, conf, is_true_word_box)
+                    rows.append((box, text, conf, False))
             return rows
 
         # PaddleOCR 3.x fallback
@@ -166,16 +235,8 @@ def run_paddle(image_path: str):
             result = ocr.predict(image_path)
             rows = []
             for page in result or []:
-                texts = page.get("rec_texts") or page.get("texts") or []
-                scores = page.get("rec_scores") or page.get("scores") or []
-                polys = page.get("dt_polys") or page.get("rec_polys") or page.get("boxes") or []
-                for i, text in enumerate(texts):
-                    text = str(text or "").strip()
-                    if not text:
-                        continue
-                    box = polys[i] if i < len(polys) else [[0, 0], [1, 0], [1, 1], [0, 1]]
-                    conf = float(scores[i]) if i < len(scores) else 1.0
-                    rows.append((box, text, conf))
+                if isinstance(page, dict):
+                    rows.extend(_word_boxes_from_predict_page(page, img_w, img_h))
             return rows
 
     fail("Unsupported PaddleOCR API (expected .ocr or .predict)")
@@ -196,13 +257,18 @@ def main() -> None:
     img_h = max(img_h, 1)
 
     try:
-        rows = run_paddle(image_path)
+        rows = run_paddle(image_path, img_w, img_h)
     except Exception as exc:  # noqa: BLE001 — surface to PHP
         fail(str(exc))
 
     words = []
     lines = []
-    for box, text, conf01 in rows:
+    for row in rows:
+        if len(row) >= 4:
+            box, text, conf01, is_true_word = row[0], row[1], row[2], bool(row[3])
+        else:
+            box, text, conf01 = row[0], row[1], row[2]
+            is_true_word = False
         conf = max(0.0, min(100.0, float(conf01) * 100.0))
         if conf < 20:
             continue
@@ -211,6 +277,12 @@ def main() -> None:
         if geom["w"] > 0.48 and len(text) < 22:
             continue
         if geom["h"] > 0.09 and len(text) < 14:
+            continue
+
+        # True word boxes from the engine — keep as-is (stable highlight geometry).
+        if is_true_word:
+            words.append({"t": text, **geom, "conf": conf})
+            lines.append({"t": text, **geom})
             continue
 
         # Paddle line boxes ≈ word/phrase boxes; split into word tokens for highlighting.
@@ -442,9 +514,30 @@ def infer_layout_structure(lines: list[dict], words: list[dict]) -> dict:
             for w in f.get("words", []):
                 sig_line_ids.add(id(w))
 
+    # --- Header / letterhead band (top ~6%) — typed so body matching never absorbs it ---
+    header_lines = [
+        ln
+        for ln in body_lines
+        if float(ln.get("y", 0)) < 0.06 and str(ln.get("t", "")).strip()
+    ]
+    if header_lines:
+        hbox = _union_box([_line_box(ln) for ln in header_lines])
+        blocks.append(
+            {
+                "type": "header",
+                "text": " ".join(str(ln.get("t", "")).strip() for ln in header_lines),
+                "box": hbox,
+                "words": _words_in_box(words, hbox),
+                "lines": [str(ln.get("t", "")).strip() for ln in header_lines],
+            }
+        )
+    header_ids = {id(ln) for ln in header_lines}
+
     # --- Paragraph / title blocks (cluster by vertical gaps) ---
     para_lines = []
     for ln in body_lines:
+        if id(ln) in header_ids:
+            continue
         t = str(ln.get("t", "")).strip()
         if not t:
             continue

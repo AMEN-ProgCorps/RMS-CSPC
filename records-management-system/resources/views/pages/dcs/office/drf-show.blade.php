@@ -85,6 +85,15 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
     $drfDate = $drf->drf_date
         ? \App\Helpers\RegisterQueryHelper::formatSmartDate($drf->drf_date)
         : '—';
+    $docTypeId = (int) ($drf->doc_type_id ?? 0);
+    $subTypeId = (int) ($drf->sub_type_id ?? 0);
+    $docTypeName = $docTypeId > 0
+        ? trim((string) (\Illuminate\Support\Facades\DB::table('dcs_doc_types')->where('id', $docTypeId)->value('doc_type_name') ?? ''))
+        : '';
+    $subTypeName = $subTypeId > 0
+        ? trim((string) (\Illuminate\Support\Facades\DB::table('dcs_doc_types')->where('id', $subTypeId)->value('doc_type_name') ?? ''))
+        : '';
+    $showCatalogTypes = $kind === 'internal' && ($docTypeName !== '' || $subTypeName !== '');
 @endphp
 
 <div class="ofi-page" @if(!($canPrint ?? false)) wire:poll.1s @endif>
@@ -124,28 +133,44 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
         @endif
 
         @if(($canEdit ?? false) && ($editReason ?? '') !== '')
-            <div class="ofi-alert err">
-                <strong>RFIO asked for corrections:</strong> {{ $editReason }}
+            <div class="ofi-alert err ofi-correction-alert" role="status">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div class="ofi-alert-body">
+                    <strong>RFIO asked for corrections</strong>
+                    <span>{{ $editReason }}</span>
+                </div>
             </div>
         @endif
 
         @unless($canPrint ?? false)
-            <div class="ofi-alert" id="ofiPrintHint">
-                <i class="fa-solid fa-print"></i>
-                {{ $printHint }}
+            <div class="ofi-alert ofi-print-hint-alert" id="ofiPrintHint" role="status">
+                <i class="fa-solid fa-print" aria-hidden="true"></i>
+                <div class="ofi-alert-body">
+                    <strong>Print is locked</strong>
+                    <span>{{ $printHint }}</span>
+                </div>
             </div>
         @endunless
 
-        <div class="ofi-lock-banner {{ ($isRegistered ?? false) ? 'is-registered' : (($canEdit ?? false) ? 'is-edit' : '') }}">
+        <div class="ofi-lock-banner {{ ($isRegistered ?? false) ? 'is-registered' : (($canEdit ?? false) ? 'is-edit' : '') }}" role="status">
             @if($isRegistered ?? false)
-                <i class="fa-solid fa-circle-check"></i>
-                <span>This document has been registered / controlled by RFIO.</span>
+                <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+                <div class="ofi-lock-banner-body">
+                    <strong>Registered by RFIO</strong>
+                    <span>This document has been registered / controlled by RFIO.</span>
+                </div>
             @elseif($canEdit ?? false)
-                <i class="fa-solid fa-unlock"></i>
-                <span>RFIO enabled editing so you can correct and resubmit this form.</span>
+                <i class="fa-solid fa-unlock" aria-hidden="true"></i>
+                <div class="ofi-lock-banner-body">
+                    <strong>Editing enabled</strong>
+                    <span>RFIO enabled editing so you can correct and resubmit this form.</span>
+                </div>
             @else
-                <i class="fa-solid fa-lock"></i>
-                <span>{{ $immutableMessage }}</span>
+                <i class="fa-solid fa-lock" aria-hidden="true"></i>
+                <div class="ofi-lock-banner-body">
+                    <strong>View only</strong>
+                    <span>{{ $immutableMessage }}</span>
+                </div>
             @endif
         </div>
 
@@ -241,6 +266,22 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                             <span class="ofi-doc-type-badge @if(!empty($badge['active'])) is-active @endif">{{ $badge['label'] }}</span>
                         @endforeach
                     </div>
+                    @if($showCatalogTypes)
+                        <div class="ofi-readonly-type-meta" aria-label="Document type and sub-type">
+                            @if($docTypeName !== '')
+                                <div class="ofi-readonly-type-card">
+                                    <span class="ofi-readonly-type-label">Document type</span>
+                                    <div class="ofi-readonly-type-value">{{ $docTypeName }}</div>
+                                </div>
+                            @endif
+                            @if($subTypeName !== '')
+                                <div class="ofi-readonly-type-card">
+                                    <span class="ofi-readonly-type-label">Sub-type</span>
+                                    <div class="ofi-readonly-type-value">{{ $subTypeName }}</div>
+                                </div>
+                            @endif
+                        </div>
+                    @endif
                 </div>
 
                 <div class="reg-field">

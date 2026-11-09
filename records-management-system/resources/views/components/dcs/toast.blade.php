@@ -138,22 +138,7 @@ DCS file: DCS toast. Same look on every DCS screen.
         Livewire.on('office-incoming-count', function (payload) {
             var data = Array.isArray(payload) ? payload[0] : payload;
             var count = Math.max(0, parseInt((data && data.count != null) ? data.count : (data ?? 0), 10) || 0);
-            var badge = document.getElementById('ofiIncomingBadge')
-                || document.querySelector('[data-ofi-incoming-badge]');
-            if (badge) {
-                badge.textContent = String(count);
-                if (count > 0) {
-                    badge.hidden = false;
-                    badge.style.display = '';
-                } else {
-                    badge.hidden = true;
-                    badge.style.display = 'none';
-                }
-            }
-            // Dashboard Incoming tile — update without remorphing .ofi-page.
-            document.querySelectorAll('[data-ofi-incoming-stat]').forEach(function (el) {
-                el.textContent = String(count);
-            });
+            window.__dcsApplyIncomingCount(count);
         });
         Livewire.on('office-request-count', function (payload) {
             var data = Array.isArray(payload) ? payload[0] : payload;
@@ -192,6 +177,49 @@ DCS file: DCS toast. Same look on every DCS screen.
                 }
             });
         });
+    });
+
+    window.__dcsApplyIncomingCount = function (count) {
+        count = Math.max(0, parseInt(count, 10) || 0);
+        var badge = document.getElementById('ofiIncomingBadge')
+            || document.querySelector('[data-ofi-incoming-badge]');
+        if (badge) {
+            badge.textContent = String(count);
+            if (count > 0) {
+                badge.hidden = false;
+                badge.style.display = '';
+            } else {
+                badge.hidden = true;
+                badge.style.display = 'none';
+            }
+        }
+        document.querySelectorAll('[data-ofi-incoming-stat]').forEach(function (el) {
+            el.textContent = String(count);
+        });
+    };
+
+    // Chrome back/forward cache freezes the page; refresh Incoming badge from the API.
+    var attentionUrl = @json(route('dcs.api.office-intake.attention', absolute: false));
+    var syncIncomingBadge = function () {
+        if (!document.getElementById('ofiIncomingBadge') && !document.querySelector('[data-ofi-incoming-badge]')) {
+            return;
+        }
+        fetch(attentionUrl + (attentionUrl.indexOf('?') >= 0 ? '&' : '?') + 'fresh=1', {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin',
+            cache: 'no-store',
+        }).then(function (res) {
+            return res.ok ? res.json() : null;
+        }).then(function (data) {
+            if (!data) return;
+            window.__dcsApplyIncomingCount(data.incoming_total);
+        }).catch(function () {});
+    };
+    window.addEventListener('pageshow', function (event) {
+        if (event.persisted) syncIncomingBadge();
+    });
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) syncIncomingBadge();
     });
 })();
 </script>

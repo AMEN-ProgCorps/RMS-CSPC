@@ -63,36 +63,32 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 20px;
+    gap: clamp(18px, 3vw, 36px);
     margin-bottom: clamp(20px, 2vw, 28px);
     position: relative;
     z-index: 70;
-    overflow: visible;
-    padding: 18px 18px 18px 22px;
-    border-radius: var(--dcs-radius-lg, 12px);
+    overflow: hidden;
+    padding: clamp(20px, 2.2vw, 28px) clamp(22px, 2.4vw, 32px);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     background:
-        linear-gradient(135deg, rgba(0, 0, 128, 0.96) 0%, rgba(4, 56, 153, 0.94) 48%, rgba(0, 43, 122, 0.96) 100%);
-    box-shadow: 0 10px 28px rgba(0, 0, 128, 0.18);
-}
-
-.dash-welcome-bar::before {
-    content: '';
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 5px;
-    border-radius: var(--dcs-radius-lg, 12px) 0 0 var(--dcs-radius-lg, 12px);
-    background: var(--dcs-gold, #FFB800);
+        radial-gradient(120% 140% at 100% 0%, rgba(255, 184, 0, 0.16) 0%, rgba(255, 184, 0, 0) 42%),
+        radial-gradient(90% 120% at 0% 100%, rgba(96, 165, 250, 0.18) 0%, rgba(96, 165, 250, 0) 46%),
+        linear-gradient(135deg, #000080 0%, #043899 52%, #001f63 100%);
+    box-shadow:
+        0 14px 34px rgba(0, 20, 80, 0.22),
+        inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .dash-welcome-bar::after {
     content: '';
     position: absolute;
-    right: 18%;
-    top: -48px;
-    width: 180px;
-    height: 180px;
+    right: -40px;
+    bottom: -70px;
+    width: 220px;
+    height: 220px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(255, 184, 0, 0.18) 0%, rgba(255, 184, 0, 0) 70%);
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 68%);
     pointer-events: none;
 }
 
@@ -105,21 +101,21 @@ body {
 }
 
 .dash-welcome-bar .header-greeting {
-    color: rgba(255, 255, 255, 0.72);
-    font-size: 0.78rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
 }
 
 .dash-welcome-bar .page-title {
     color: #fff;
-    font-size: clamp(1.35rem, 1.1rem + 0.8vw, 1.75rem);
+    font-size: clamp(1.45rem, 1.15rem + 1vw, 1.95rem);
     font-weight: 750;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.03em;
     margin: 0;
-    line-height: 1.25;
+    line-height: 1.2;
 }
 
 .dash-welcome-name {
@@ -127,44 +123,75 @@ body {
 }
 
 .dash-welcome-sub {
-    margin: 8px 0 0;
-    color: rgba(255, 255, 255, 0.78);
-    font-size: 0.86rem;
-    line-height: 1.45;
-    max-width: 46ch;
+    margin: 10px 0 0;
+    color: rgba(255, 255, 255, 0.76);
+    font-size: 0.92rem;
+    line-height: 1.5;
+    max-width: 48ch;
 }
 
 .dash-welcome-calendar.dash-calendar-trigger {
     position: relative;
     z-index: 2;
     flex: 0 0 auto;
-    align-self: stretch;
-    background: rgba(255, 255, 255, 0.12);
-    border: 1px solid rgba(255, 255, 255, 0.22);
+    align-self: center;
+    gap: 14px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
     color: #fff;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    padding: 4px 0;
+    font-size: 1.05rem;
+    line-height: 1.25;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 .dash-welcome-calendar.dash-calendar-trigger:hover,
 .dash-welcome-calendar.dash-calendar-trigger[aria-expanded="true"] {
-    background: rgba(255, 255, 255, 0.18);
-    border-color: rgba(255, 184, 0, 0.65);
-    box-shadow: 0 0 0 3px rgba(255, 184, 0, 0.18);
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.dash-welcome-calendar.dash-calendar-trigger:hover .dash-calendar-trigger-date,
+.dash-welcome-calendar.dash-calendar-trigger[aria-expanded="true"] .dash-calendar-trigger-date {
+    color: #fff;
+}
+
+.dash-welcome-calendar.dash-calendar-trigger:hover .dash-calendar-chevron,
+.dash-welcome-calendar.dash-calendar-trigger[aria-expanded="true"] .dash-calendar-chevron {
+    color: var(--dcs-gold, #FFB800);
+}
+
+.dash-welcome-calendar.dash-calendar-trigger > i.fa-calendar {
+    color: var(--dcs-gold, #FFB800);
+    font-size: 1.2rem;
+}
+
+.dash-welcome-calendar .dash-calendar-trigger-text {
+    gap: 12px;
 }
 
 .dash-welcome-calendar .dash-calendar-trigger-date {
-    color: rgba(255, 255, 255, 0.88);
+    color: rgba(255, 255, 255, 0.94);
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
 }
 
 .dash-welcome-calendar .dash-calendar-trigger-time {
     color: var(--dcs-gold, #FFB800);
     border-left-color: rgba(255, 255, 255, 0.28);
+    font-size: 1.05rem;
+    font-weight: 750;
+    padding-left: 12px;
 }
 
 .dash-welcome-calendar .dash-calendar-chevron {
-    color: rgba(255, 255, 255, 0.8);
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 0.82rem;
 }
 
 .dashboard-header {
@@ -1067,6 +1094,213 @@ body.dash-cl-open {
     margin-bottom: 14px;
     flex-wrap: wrap;
 }
+
+.dash-access-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: clamp(18px, 2vw, 24px);
+    margin-bottom: clamp(8px, 1vw, 12px);
+}
+.dash-access-card {
+    background: var(--dash-surface);
+    border: 1px solid var(--dash-border);
+    border-radius: var(--dash-radius);
+    box-shadow: var(--dash-shadow);
+    padding: 16px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 220px;
+}
+.dash-access-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.dash-access-head h2 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--dcs-header, #000080);
+}
+.dash-access-head p {
+    margin: 2px 0 0;
+    font-size: 0.75rem;
+    color: #64748b;
+}
+.dash-access-count {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 8px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+.dash-access-drafts .dash-access-count {
+    background: #fff7ed;
+    color: #c2410c;
+}
+.dash-access-cal-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #475569;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.dash-access-cal-btn:hover {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+}
+.dash-access-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+}
+.dash-access-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 8px;
+    border-radius: 12px;
+    text-decoration: none;
+    color: inherit;
+    border: 1px solid transparent;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.dash-access-item:hover {
+    background: #f8fafc;
+    border-color: #e2e8f0;
+}
+.dash-access-item.is-static {
+    grid-template-columns: auto 1fr;
+    cursor: default;
+}
+.dash-access-item.is-static:hover {
+    background: transparent;
+    border-color: transparent;
+}
+.dash-access-item-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.78rem;
+}
+.dash-access-item-icon.is-dcn {
+    background: #f5f3ff;
+    color: #6d28d9;
+}
+.dash-access-item-icon.is-draft {
+    background: #fff7ed;
+    color: #c2410c;
+}
+.dash-access-item-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+.dash-access-item-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+.dash-access-item-kind {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #94a3b8;
+}
+.dash-access-item-copy strong {
+    font-size: 0.84rem;
+    color: #0f172a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dash-access-item-copy span:last-child {
+    font-size: 0.72rem;
+    color: #64748b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dash-access-item > .fa-chevron-right {
+    color: #cbd5e1;
+    font-size: 0.7rem;
+}
+.dash-access-foot {
+    margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--dash-accent, #043899);
+    text-decoration: none;
+}
+.dash-access-foot:hover { text-decoration: underline; }
+.dash-access-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    padding: 18px 8px;
+}
+.dash-access-empty i { font-size: 1.1rem; }
+.dash-access-holiday {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+    background: #fef2f2;
+    color: #b91c1c;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+.dash-access-upcoming-label {
+    margin: 0 0 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #94a3b8;
+}
+
+@media (max-width: 1100px) {
+    .dash-access-row { grid-template-columns: 1fr; }
+}
 .dash-queue-chip {
     display: inline-flex;
     align-items: center;
@@ -1125,6 +1359,35 @@ body.dash-cl-open {
     border-color: #ddd6fe;
 }
 .dash-queue-chip.is-request-dcn strong { color: #5b21b6; }
+.dash-queue-chip.is-request-all {
+    color: #0f766e;
+    background: #f0fdfa;
+    border-color: #99f6e4;
+}
+.dash-queue-chip.is-request-all strong { color: #115e59; }
+.dash-queue-chip.is-stamping {
+    color: #9a3412;
+    background: #fff7ed;
+    border-color: #fed7aa;
+}
+.dash-queue-chip.is-stamping strong { color: #9a3412; font-size: 0.92rem; }
+.dash-queue-chip.is-settings {
+    color: #475569;
+    background: #f8fafc;
+    border-color: #e2e8f0;
+}
+.dash-queue-chip.is-settings strong { color: #334155; font-size: 0.92rem; }
+.dash-search-hint {
+    position: absolute;
+    right: 56px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #94a3b8;
+    pointer-events: none;
+    white-space: nowrap;
+}
 .dash-search-actions {
     display: flex;
     gap: 10px;
@@ -1453,6 +1716,24 @@ body.dash-cl-open {
 .stat-box:hover .stat-icon-wrap {
     background: #f4f5f7;
 }
+
+.stat-box[data-accent]::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--dash-accent, #043899);
+}
+.stat-box[data-accent="slate"]::before { background: #64748b; }
+.stat-box[data-accent="slate"] .stat-icon-wrap { color: #64748b; }
+.stat-box[data-accent="navy"]::before { background: #1e3a8a; }
+.stat-box[data-accent="navy"] .stat-icon-wrap { color: #1e3a8a; }
+.stat-box[data-accent="red"]::before { background: #b91c1c; }
+.stat-box[data-accent="red"] .stat-icon-wrap { color: #b91c1c; }
+.stat-box[data-accent="green"]::before { background: #047857; }
+.stat-box[data-accent="green"] .stat-icon-wrap { color: #047857; }
 
 .stat-body {
     flex: 1;
@@ -2652,13 +2933,21 @@ body.dash-cl-open {
     .dash-welcome-bar {
         flex-direction: column;
         align-items: stretch;
-        gap: 14px;
-        padding: 16px;
+        gap: 16px;
+        padding: 18px 18px;
+        overflow: hidden;
     }
 
     .dash-welcome-calendar.dash-calendar-trigger {
-        width: 100%;
-        justify-content: space-between;
+        width: auto;
+        align-self: flex-start;
+        justify-content: flex-start;
+        font-size: 0.98rem;
+    }
+
+    .dash-welcome-calendar .dash-calendar-trigger-date,
+    .dash-welcome-calendar .dash-calendar-trigger-time {
+        font-size: 0.98rem;
     }
 
     .dash-search-bar {

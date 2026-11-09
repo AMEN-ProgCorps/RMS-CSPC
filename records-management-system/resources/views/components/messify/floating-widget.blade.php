@@ -1,4 +1,11 @@
 @auth
+{{-- Always define stubs so onclick handlers never throw ReferenceError before the widget script loads. --}}
+<script>
+    window.toggleMessifyWidget = window.toggleMessifyWidget || function () {};
+    window.reloadMessifyIframe = window.reloadMessifyIframe || function () {};
+    window.hideMessifyLoader = window.hideMessifyLoader || function () {};
+    window.updateMessifyUnreadBadge = window.updateMessifyUnreadBadge || function () {};
+</script>
 @php
     // Hide the widget entirely while the Messify subsystem is deactivated
     // (Admin > Subsystems > Activate/Deactivate) — same flag the portal uses.
@@ -29,11 +36,11 @@
 
             <div style="display: flex; align-items: center; gap: 8px;">
                 <!-- Refresh Button -->
-                <button type="button" onclick="reloadMessifyIframe()" title="Reload Chatify" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
+                <button type="button" onclick="typeof window.reloadMessifyIframe==='function'&&window.reloadMessifyIframe()" title="Reload Chatify" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
                     <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 </button>
                 <!-- Minimize Button -->
-                <button type="button" onclick="toggleMessifyWidget()" title="Minimize" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
+                <button type="button" onclick="typeof window.toggleMessifyWidget==='function'&&window.toggleMessifyWidget()" title="Minimize" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
                     <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </button>
             </div>
@@ -56,9 +63,9 @@
               style="display: none; position: absolute; top: -4px; right: -4px; background: #ef4444; color: #ffffff; font-size: 11px; font-weight: 700; min-width: 22px; height: 22px; border-radius: 11px; padding: 0 6px; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.5), 0 0 0 2px #ffffff; align-items: center; justify-content: center; z-index: 10; pointer-events: none; animation: messify-badge-pop 0.3s ease-out;">
             0
         </span>
-        <button id="messify-widget-btn" 
-                type="button" 
-                onclick="toggleMessifyWidget()" 
+        <button id="messify-widget-btn"
+                type="button"
+                onclick="typeof window.toggleMessifyWidget==='function'&&window.toggleMessifyWidget()"
                 title="Chatify Messages"
                 class="rms-messify-fab">
             

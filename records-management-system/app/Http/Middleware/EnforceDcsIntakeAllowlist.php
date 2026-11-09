@@ -42,6 +42,8 @@ class EnforceDcsIntakeAllowlist
         'dcs.office.random-checks.show',
         'dcs.api.office.revisable-documents',
         'dcs.api.office-intake.print-ready',
+        'dcs.api.office-intake.printed',
+        'dcs.api.office-intake.attention',
     ];
 
     public function handle(Request $request, Closure $next): Response

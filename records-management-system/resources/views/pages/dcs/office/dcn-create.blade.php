@@ -196,14 +196,17 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                     <input type="checkbox" id="ofiAlsoCreateDrf" name="alsoCreateDrf" value="1" @checked(old('alsoCreateDrf'))>
                     <span>Also create a Document Request Form (DRF) for this change after save</span>
                 </label>
+                <p class="ofi-also-drf-hint" id="ofiAlsoCreateDrfHint" hidden>
+                    After save you will continue straight to a prefilled New DRF for this change. RFIO is notified once both forms are submitted.
+                </p>
             </div>
 
             <div class="reg-form-actions ofi-reg-actions">
-                <button type="submit" id="ofiDcnPreviewBtn" class="reg-btn reg-btn-cancel" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.dcn.preview', absolute: false) }}">
-                    Preview form
+                <button type="submit" id="ofiDcnPreviewBtn" class="reg-btn ofi-btn-preview" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.dcn.preview', absolute: false) }}">
+                    <i class="fa-solid fa-eye" aria-hidden="true"></i> Preview form
                 </button>
                 <button type="submit" id="ofiDcnSaveBtn" class="reg-btn reg-btn-save" disabled>
-                    <i class="fa-solid fa-lock"></i> Save (cannot edit later)
+                    <i class="fa-solid fa-lock"></i> <span id="ofiDcnSaveLabel">Save (cannot edit later)</span>
                 </button>
             </div>
         </form>
@@ -216,8 +219,21 @@ window.__ofiPrevDcnSignatories = @json($prevDcnSignatories ?? ['reviewers' => []
     const form = document.getElementById('ofiDcnForm');
     const confirmBox = document.getElementById('ofiConfirmData');
     const saveBtn = document.getElementById('ofiDcnSaveBtn');
+    const saveLabel = document.getElementById('ofiDcnSaveLabel');
+    const alsoDrf = document.getElementById('ofiAlsoCreateDrf');
+    const alsoHint = document.getElementById('ofiAlsoCreateDrfHint');
     const confirmed = document.getElementById('dcnDocNoConfirmed');
     if (!form || !confirmBox || !saveBtn) return;
+
+    function syncAlsoDrf() {
+        const on = !!(alsoDrf && alsoDrf.checked);
+        if (alsoHint) alsoHint.hidden = !on;
+        if (saveLabel) {
+            saveLabel.textContent = on
+                ? 'Save DCN, then continue to DRF'
+                : 'Save (cannot edit later)';
+        }
+    }
 
     function syncConfirm() {
         saveBtn.disabled = !confirmBox.checked;
@@ -225,7 +241,9 @@ window.__ofiPrevDcnSignatories = @json($prevDcnSignatories ?? ['reviewers' => []
     }
 
     confirmBox.addEventListener('change', syncConfirm);
+    if (alsoDrf) alsoDrf.addEventListener('change', syncAlsoDrf);
     syncConfirm();
+    syncAlsoDrf();
 
     form.addEventListener('submit', function (e) {
         if (e.submitter && e.submitter.id === 'ofiDcnPreviewBtn') return;
@@ -250,8 +268,11 @@ window.__ofiPrevDcnSignatories = @json($prevDcnSignatories ?? ['reviewers' => []
             form.reportValidity();
             return;
         }
+        const continueDrf = !!(alsoDrf && alsoDrf.checked);
         saveBtn.disabled = true;
-        saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+        saveBtn.innerHTML = continueDrf
+            ? '<i class="fa-solid fa-spinner fa-spin"></i> Saving DCN…'
+            : '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
     });
 })();
 </script>

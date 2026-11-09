@@ -939,6 +939,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
             <div class="reg-modal-body reg-modal-body--compare">
                 <div class="reg-compare-legend" data-drr-compare-legend="1" aria-label="Highlight legend">
+                    <span class="drr-legend-label">Legend:</span>
                     <span class="reg-compare-leg reg-compare-leg-del"><i class="drr-leg-swatch is-del" aria-hidden="true"></i>Removed</span>
                     <span class="reg-compare-leg reg-compare-leg-ins"><i class="drr-leg-swatch is-ins" aria-hidden="true"></i>Added</span>
                     <span class="reg-compare-leg reg-compare-leg-chg"><i class="drr-leg-swatch is-chg" aria-hidden="true"></i>Changed</span>
@@ -963,6 +964,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
 <script>
 window.__registerCatalog = @json($catalog);
+/* Livewire can re-inject this script via Element.replaceWith; skip redeclare. */
+if (window.__dcsRegisterScriptLoaded) {
+    /* already booted */
+} else {
+window.__dcsRegisterScriptLoaded = true;
 
 /** Safe Alpine root state — Livewire can race ahead of Alpine init on ?type=new. */
 function getRegisterAlpineData(rootId) {
@@ -11041,6 +11047,7 @@ window.toggleOfficeSeeMore = function (btn) {
 document.addEventListener('DOMContentLoaded', function () {
     refreshOfficeSeeMore();
 });
+} /* end __dcsRegisterScriptLoaded guard */
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
 @include('pages.dcs.register.partials.scan-name-preview')

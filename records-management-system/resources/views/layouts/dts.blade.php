@@ -100,14 +100,14 @@
         }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    @vite(['resources/css/dashboard.css', 'resources/css/notifications.css', 'resources/js/dashboard.js'])
+    @vite(['resources/css/dashboard.css', 'resources/css/dcs/rms-shared-header.css', 'resources/css/notifications.css', 'resources/js/dashboard.js'])
     <title>CSPC - Document Tracking System</title>
     @stack('styles')
     <!-- Dynamic QR Code Print Modal Script -->
     <script src="{{ asset('js/qr-print-modal.js') }}?v={{ file_exists(public_path('js/qr-print-modal.js')) ? filemtime(public_path('js/qr-print-modal.js')) : time() }}"></script>
 </head>
 <body data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
-    <header>
+    <header class="rms-app-header">
         <div class="cspc-logo">
             <img class="ico" src="{{ asset('images/cspc.png') }}" alt="CSPC">
         </div>

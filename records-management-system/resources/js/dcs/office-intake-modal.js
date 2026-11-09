@@ -155,21 +155,40 @@
             // Hide return-for-correction while "already received" is checked.
             const showUnlock = !!data.canUnlockEdit && !registered && !received;
             els.unlockBlock.hidden = !showUnlock;
-            if (els.unlockMeta) {
+            const unlockSent = root.querySelector('[data-ofi-unlock-sent]');
+            const unlockSentDetail = root.querySelector('[data-ofi-unlock-sent-detail]');
+            const unlockBtnLabel = root.querySelector('[data-ofi-unlock-btn-label]');
+            if (unlockSent) {
                 if (data.editUnlocked && showUnlock) {
-                    const bits = ['Edit already enabled for the office'];
-                    if (data.editUnlockReason) bits.push(data.editUnlockReason);
-                    els.unlockMeta.textContent = bits.join(' — ');
-                    els.unlockMeta.hidden = false;
-                } else if (!showUnlock) {
-                    els.unlockMeta.hidden = true;
+                    const detail = [];
+                    detail.push('They can edit and resubmit this form.');
+                    if (data.editUnlockedAt) detail.push('Sent ' + data.editUnlockedAt + '.');
+                    if (data.editUnlockReason) detail.push('Reason: ' + data.editUnlockReason);
+                    if (unlockSentDetail) unlockSentDetail.textContent = detail.join(' ');
+                    unlockSent.hidden = false;
                 } else {
-                    els.unlockMeta.hidden = true;
-                    els.unlockMeta.textContent = '';
+                    unlockSent.hidden = true;
                 }
+            }
+            if (els.unlockMeta) {
+                els.unlockMeta.hidden = true;
+                els.unlockMeta.textContent = '';
             }
             if (els.unlockBtn) {
                 els.unlockBtn.disabled = !!data.editUnlocked;
+                els.unlockBtn.classList.toggle('is-sent', !!data.editUnlocked && showUnlock);
+                const icon = els.unlockBtn.querySelector('i');
+                if (icon) {
+                    icon.className = data.editUnlocked ? 'fa-solid fa-lock' : 'fa-solid fa-unlock';
+                }
+            }
+            if (unlockBtnLabel) {
+                unlockBtnLabel.textContent = data.editUnlocked
+                    ? 'Edit enabled for office'
+                    : 'Enable edit for office';
+            }
+            if (els.unlockReason) {
+                els.unlockReason.disabled = !!data.editUnlocked;
             }
         }
 
@@ -304,12 +323,20 @@
         if (els.unlockReason) {
             els.unlockReason.value = reason;
         }
+        const unlockError = root.querySelector('[data-ofi-unlock-error]');
         if (reason.length < 5) {
-            if (els.unlockMeta) {
-                els.unlockMeta.textContent = 'Enter a reason (at least 5 characters).';
+            if (unlockError) {
+                unlockError.textContent = 'Please provide a short reason (at least 5 characters).';
+                unlockError.hidden = false;
+            } else if (els.unlockMeta) {
+                els.unlockMeta.textContent = 'Please provide a short reason (at least 5 characters).';
                 els.unlockMeta.hidden = false;
             }
             return;
+        }
+        if (unlockError) {
+            unlockError.hidden = true;
+            unlockError.textContent = '';
         }
 
         unlockingEdit = true;
@@ -341,10 +368,6 @@
             const data = await response.json();
             currentPayload = Object.assign({}, currentPayload, data, { editUnlocked: true });
             renderFooter(currentPayload);
-            if (els.unlockMeta) {
-                els.unlockMeta.textContent = 'Office can now edit and resubmit this form.';
-                els.unlockMeta.hidden = false;
-            }
         } catch (error) {
             if (els.unlockMeta) {
                 els.unlockMeta.textContent = error.message || 'Could not enable edit. Please try again.';
@@ -453,6 +476,14 @@
 
         root.querySelector('[data-ofi-receive-proceed]')?.addEventListener('click', proceedToRegistration);
         root.querySelector('[data-ofi-unlock-btn]')?.addEventListener('click', unlockForEdit);
+        root.querySelector('[data-ofi-unlock-reason]')?.addEventListener('input', () => {
+            const unlockError = root.querySelector('[data-ofi-unlock-error]');
+            const reason = String(root.querySelector('[data-ofi-unlock-reason]')?.value || '').trim();
+            if (reason.length >= 5 && unlockError) {
+                unlockError.hidden = true;
+                unlockError.textContent = '';
+            }
+        });
     }
 
     function bindGlobalListeners() {

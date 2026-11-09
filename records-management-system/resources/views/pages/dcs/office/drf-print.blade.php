@@ -6,6 +6,7 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title></title>
     <style>
         /*
@@ -880,6 +881,9 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
     $printReadyUrl = $printReadyId > 0
         ? route('dcs.api.office-intake.print-ready', ['type' => 'drf', 'ids' => $printReadyId], false)
         : '';
+    $markPrintedUrl = ($printReadyId > 0 && $allowPrint && ! $viewerMode)
+        ? route('dcs.api.office-intake.printed', ['type' => 'drf', 'id' => $printReadyId], false)
+        : '';
 @endphp
 @if($viewerMode)
 <script>
@@ -1246,9 +1250,38 @@ function ofiFitDocTitles() {
     });
 }
 
+var ofiPrintedMarked = false;
+function ofiMarkPrinted() {
+    var url = @json($markPrintedUrl);
+    if (!url || ofiPrintedMarked) return;
+    ofiPrintedMarked = true;
+    var tokenEl = document.querySelector('meta[name="csrf-token"]');
+    var token = tokenEl ? tokenEl.getAttribute('content') : '';
+    try {
+        if (navigator.sendBeacon && token) {
+            var body = new FormData();
+            body.append('_token', token);
+            if (navigator.sendBeacon(url, body)) return;
+        }
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': token || '',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            credentials: 'same-origin',
+            keepalive: true
+        }).catch(function () { ofiPrintedMarked = false; });
+    } catch (e) {
+        ofiPrintedMarked = false;
+    }
+}
+
 function ofiPrintClean() {
     ofiFitDocTitles();
     ofiFitSigText();
+    ofiMarkPrinted();
     var prevTitle = document.title;
     var prevPath = window.location.pathname + window.location.search + window.location.hash;
     var restored = false;
@@ -1258,6 +1291,7 @@ function ofiPrintClean() {
         document.title = prevTitle;
         try { history.replaceState(null, '', prevPath); } catch (e) {}
         window.removeEventListener('afterprint', restore);
+        ofiMarkPrinted();
     }
     document.title = '\u00A0';
     try { history.replaceState(null, '', '/'); } catch (e) {}

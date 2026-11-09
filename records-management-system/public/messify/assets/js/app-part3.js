@@ -2503,7 +2503,6 @@
         if (!gcHasMore) showNoMoreOlderNotice();
         applyAdminBadges();
         applyEmojiOnly();
-        trimWindowFromBottom(MAX_WINDOW);
 
         const restoreFn = (typeof restoreScrollAnchor === 'function') ? restoreScrollAnchor : (window.restoreScrollAnchor ? window.restoreScrollAnchor : null);
         if (anchor && restoreFn) {
@@ -2516,6 +2515,7 @@
           }
         }
 
+        trimWindowFromBottom(MAX_WINDOW);
         if (gcHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         attachImageLoadListeners();
         return;
@@ -2832,7 +2832,6 @@
         if (!dmHasMore) showNoMoreOlderNotice();
         applyAdminBadges();
         applyEmojiOnly();
-        trimWindowFromBottom(MAX_WINDOW);
 
         const restoreFn = (typeof restoreScrollAnchor === 'function') ? restoreScrollAnchor : (window.restoreScrollAnchor ? window.restoreScrollAnchor : null);
         if (anchor && restoreFn) {
@@ -2845,6 +2844,7 @@
           }
         }
 
+        trimWindowFromBottom(MAX_WINDOW);
         if (dmHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         attachImageLoadListeners();
         return;
@@ -4502,7 +4502,7 @@
         }
         _verifySearchTimer = setTimeout(() => {
           resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">Searching…</div>';
-          fetch('search_users_verify.php?q=' + encodeURIComponent(q))
+          fetch('search_users_verify.php?q=' + encodeURIComponent(q) + '&_t=' + Date.now(), { cache: 'no-store' })
             .then(r => r.json())
             .then(data => {
               const users = (data.users || []).slice(0, 1);
@@ -4512,6 +4512,27 @@
               }
               resultsEl.innerHTML = '';
               users.forEach(u => {
+                const targetId = Number(u.account_id);
+                const isVerified = Boolean(u.is_messify_verified === true || u.is_messify_verified === 1 || u.is_messify_verified === '1' || u.is_messify_verified === 't');
+                u.is_messify_verified = isVerified;
+
+                // Keep local state synchronized with authoritative DB state
+                if (!Number.isNaN(targetId) && targetId > 0 && typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) {
+                  if (isVerified) {
+                    verifiedAccountIds.add(targetId);
+                  } else {
+                    verifiedAccountIds.delete(targetId);
+                  }
+                  window.verifiedAccountIds = Array.from(verifiedAccountIds);
+                }
+                if (typeof allUsersData !== 'undefined' && Array.isArray(allUsersData)) {
+                  const foundUser = allUsersData.find(usr => !usr.is_office_gc && !usr.is_custom_gc && Number(usr.account_id) === targetId);
+                  if (foundUser) foundUser.is_messify_verified = isVerified;
+                }
+                if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
+                if (typeof applyHeaderAdminBadge === 'function') applyHeaderAdminBadge();
+                if (typeof applyAdminBadges === 'function') applyAdminBadges();
+
                 const row = document.createElement('div');
                 row.dataset.accountId = u.account_id;
                 row.setAttribute('data-account-id', u.account_id);
@@ -4529,7 +4550,7 @@
                 nameTextSpan.title = u.full_name;
                 nameSpan.appendChild(nameTextSpan);
 
-                if (u.is_messify_verified) {
+                if (isVerified) {
                   const b = document.createElement('span');
                   b.className = 'verified-badge';
                   b.style.cssText = 'flex-shrink:0;';
@@ -4542,7 +4563,7 @@
                 label.style.cssText = 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;';
                 const chk = document.createElement('input');
                 chk.type = 'checkbox';
-                chk.checked = !!u.is_messify_verified;
+                chk.checked = isVerified;
                 chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
                 const slider = document.createElement('span');
                 slider.className = 'slider-bg';
@@ -5559,9 +5580,11 @@
     // Growth at or below the visible area is left alone — that's normal
     // content arriving and shouldn't move anything.
     const scrollAnchorHeights = new WeakMap();
+    window.scrollAnchorHeights = scrollAnchorHeights;
     const scrollAnchorObserver = ('ResizeObserver' in window) ? new ResizeObserver(function(entries) {
       if (!chatBox) return;
       const chatRect = chatBox.getBoundingClientRect();
+      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || userScrolledUp;
       entries.forEach(function(entry) {
         const el = entry.target;
         const newHeight = entry.contentRect.height;
@@ -5576,8 +5599,10 @@
         // (since chatBox sits below the page top), causing phantom scrollTop bumps.
         if (!el.isConnected) return;
         const elRect = el.getBoundingClientRect();
-        if (elRect.bottom <= chatRect.top + 2) {
-          chatBox.scrollTop += delta;
+        const prevBottom = elRect.bottom - delta;
+        const threshold = viewingOlder ? (chatRect.height * 0.65) : 4;
+        if (prevBottom <= chatRect.top + threshold) {
+          chatBox.scrollTop = Math.max(0, chatBox.scrollTop + delta);
         }
       });
     }) : null;
@@ -5589,7 +5614,10 @@
       chatBox.querySelectorAll('img:not(.avatar-img)').forEach(img => {
         if (img.dataset.scrollListener) return;
         img.dataset.scrollListener = '1';
-        if (scrollAnchorObserver) scrollAnchorObserver.observe(img);
+        if (scrollAnchorObserver) {
+          scrollAnchorHeights.set(img, img.getBoundingClientRect().height);
+          scrollAnchorObserver.observe(img);
+        }
         img.addEventListener('load', () => {
           if (!viewingOlder && isAtBottom() && shouldAutoScroll) {
             scrollToBottom(true, true);
@@ -6731,6 +6759,20 @@
           }
         });
       }
+      if (Array.isArray(window.currentOfficeMembers)) {
+        window.currentOfficeMembers.forEach(m => { m.is_messify_verified = false; });
+      }
+      if (Array.isArray(window.activeCustomGcMembers)) {
+        window.activeCustomGcMembers.forEach(m => { m.is_messify_verified = false; });
+      }
+      if (window._gcSelectedMembers && typeof window._gcSelectedMembers.forEach === 'function') {
+        window._gcSelectedMembers.forEach(m => { m.is_messify_verified = false; });
+      }
+      if (typeof dmMessageCache !== 'undefined' && dmMessageCache && typeof dmMessageCache.clear === 'function') {
+        dmMessageCache.clear();
+      }
+      if (typeof globalChatCache !== 'undefined') globalChatCache = '';
+      if (typeof globalChatPrefetchedData !== 'undefined') globalChatPrefetchedData = null;
 
       // Remove verified check badges from user messages in the chat box
       document.querySelectorAll('.message-sender .verified-badge').forEach(b => b.remove());

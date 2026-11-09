@@ -214,7 +214,21 @@ function gcChatImageTag(string $uploadsDir, string $fn, string $style): string
     $fnEsc  = htmlspecialchars($fn, ENT_QUOTES);
     $thumb  = ImageProcessor::thumbFilenameFor($uploadsDir, $fn);
     $srcUrl = $thumb !== null ? 'uploads/' . rawurlencode($thumb) : $fnUrl;
-    return "<img src='{$srcUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' loading='lazy' decoding='async' draggable='false' style='{$style}' />";
+    $diskFile = $uploadsDir . ($thumb !== null ? $thumb : $fn);
+    $dimAttrs = '';
+    if (is_file($diskFile)) {
+        $info = @getimagesize($diskFile);
+        if (is_array($info) && !empty($info[0]) && !empty($info[1])) {
+            $w = (int) $info[0];
+            $h = (int) $info[1];
+            $scale = min(240 / max($w, 1), 260 / max($h, 1), 1.0);
+            $dw = max(1, (int) round($w * $scale));
+            $dh = max(1, (int) round($h * $scale));
+            $dimAttrs = " width='{$dw}' height='{$dh}'";
+            $style .= "aspect-ratio:{$dw}/{$dh};";
+        }
+    }
+    return "<img src='{$srcUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}'{$dimAttrs} loading='eager' decoding='async' draggable='false' style='{$style}' />";
 }
 }
 
@@ -265,7 +279,7 @@ for ($i = 0; $i < $msgCount; $i++) {
     // Verified badge markup — driven by is_messify_verified from DB
     // (also doubles as the avatar_url lookup below, via UserResolver's cache)
     if (!isset($verifiedIds[$senderId])) {
-        $verifiedIds[$senderId] = (bool) ($senderInfo['is_messify_verified'] ?? false);
+        $verifiedIds[$senderId] = UserResolver::parsePgBool($senderInfo['is_messify_verified'] ?? false);
     }
     $avatarInner = UserResolver::avatarInner($senderId, $initials);
     $adminBadge = '';

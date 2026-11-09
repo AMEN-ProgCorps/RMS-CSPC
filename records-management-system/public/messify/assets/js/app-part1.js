@@ -70,6 +70,16 @@
       const appContainer = document.getElementById('appContainer') || document.querySelector('.app-container');
       if (active) {
         if (appContainer) appContainer.classList.add('no-chat-selected');
+        if (typeof isMobileViewport === 'function' && isMobileViewport()) {
+          if (sidebar) sidebar.classList.add('open');
+          if (backButton) backButton.style.display = 'none';
+          if (chatBox) {
+            const dropOverlay = document.getElementById('dropOverlay');
+            chatBox.innerHTML = '';
+            if (dropOverlay) chatBox.prepend(dropOverlay);
+          }
+          return;
+        }
         if (chatBox) {
           const dropOverlay = document.getElementById('dropOverlay');
           chatBox.innerHTML = getNoChatSelectedHtml();
@@ -1927,12 +1937,19 @@
         if (!activeDM && !activeAdminConv && !isGlobalChat) {
           if (sidebar) sidebar.classList.add('open');
           if (backButton) backButton.style.display = 'none';
+          const emptyState = chatBox ? chatBox.querySelector('#noChatSelectedState') : null;
+          if (emptyState) emptyState.remove();
         } else {
           if (sidebar) sidebar.classList.remove('open');
           if (backButton) backButton.style.display = 'inline-flex';
         }
       } else {
         if (backButton) backButton.style.display = 'none';
+        if (!activeDM && !activeAdminConv && !isGlobalChat) {
+          if (chatBox && !chatBox.querySelector('#noChatSelectedState')) {
+            setNoChatSelected(true);
+          }
+        }
       }
     }
     let lastMessifyWindowWidth = window.innerWidth;
@@ -2041,7 +2058,20 @@
       allUsersData.forEach(user => {
         delete user.is_currently_online;
         delete user.status;
+        if (!user.is_office_gc && !user.is_custom_gc && user.account_id !== undefined && user.account_id !== null) {
+          const uid = Number(user.account_id);
+          if (!Number.isNaN(uid) && uid > 0 && typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) {
+            if (user.is_messify_verified) {
+              verifiedAccountIds.add(uid);
+            } else {
+              verifiedAccountIds.delete(uid);
+            }
+          }
+        }
       });
+      if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) {
+        window.verifiedAccountIds = Array.from(verifiedAccountIds);
+      }
 
       // Re-apply WS presence state now that the fields above are gone —
       // applyWsPresenceToAllUsers() is a no-op until hasReceivedPresenceSnapshot
@@ -3557,10 +3587,11 @@
         if (existing) {
           const prevST = chatBox.scrollTop;
           const prevSH = chatBox.scrollHeight;
+          const wasAbove = existing.offsetTop < prevST;
           existing.remove();
-          if (userScrolledUp) {
+          if (userScrolledUp && wasAbove) {
             const diff = chatBox.scrollHeight - prevSH;
-            if (diff !== 0) chatBox.scrollTop = prevST + diff;
+            if (diff !== 0) chatBox.scrollTop = Math.max(0, prevST + diff);
           }
         }
         return;
@@ -3601,10 +3632,11 @@
         if (!hasPendingSend && existing) {
           const prevST = chatBox.scrollTop;
           const prevSH = chatBox.scrollHeight;
+          const wasAbove = existing.offsetTop < prevST;
           existing.remove();
-          if (userScrolledUp) {
+          if (userScrolledUp && wasAbove) {
             const diff = chatBox.scrollHeight - prevSH;
-            if (diff !== 0) chatBox.scrollTop = prevST + diff;
+            if (diff !== 0) chatBox.scrollTop = Math.max(0, prevST + diff);
           }
         }
         return;
@@ -3618,6 +3650,7 @@
       const preScrollTop    = chatBox.scrollTop;
       const preScrollHeight = chatBox.scrollHeight;
       const wasNearBottom   = !userScrolledUp && ((preScrollHeight - preScrollTop - chatBox.clientHeight) <= 40);
+      const existingWasAbove = existing ? (existing.offsetTop < preScrollTop) : false;
 
       const indicator = existing || document.createElement('div');
       indicator.className = 'seen-indicator';
@@ -3629,9 +3662,12 @@
         if (wasNearBottom) {
           chatBox.scrollTop = chatBox.scrollHeight;
         } else if (userScrolledUp) {
-          const heightDiff = chatBox.scrollHeight - preScrollHeight;
-          if (heightDiff !== 0) {
-            chatBox.scrollTop = preScrollTop + heightDiff;
+          const newIsAbove = indicator.offsetTop < preScrollTop;
+          if (existingWasAbove || newIsAbove) {
+            const heightDiff = chatBox.scrollHeight - preScrollHeight;
+            if (heightDiff !== 0) {
+              chatBox.scrollTop = Math.max(0, preScrollTop + heightDiff);
+            }
           }
         }
       }
@@ -4291,10 +4327,12 @@
       }
 
       // Find the first message whose bottom edge is at or below the current viewport top
+      const chatRect = chatBox.getBoundingClientRect();
       let anchorEl = null;
       for (let i = 0; i < messages.length; i++) {
         const el = messages[i];
-        if ((el.offsetTop + el.offsetHeight) >= scrollTop + 2) {
+        const rect = el.getBoundingClientRect();
+        if (rect.bottom >= chatRect.top + 2) {
           anchorEl = el;
           break;
         }
@@ -4306,6 +4344,7 @@
         msgId: anchorEl.getAttribute('data-msg-id'),
         prevOffsetTop: anchorEl.offsetTop,
         offsetFromTop: anchorEl.offsetTop - scrollTop,
+        prevRelTop: anchorEl.getBoundingClientRect().top - chatRect.top,
         prevScrollTop: scrollTop,
         prevScrollHeight: prevScrollHeight
       };
@@ -4322,8 +4361,13 @@
         anchorInfo.msgId ? chatBox.querySelector(`.message-container[data-msg-id="${anchorInfo.msgId}"]`) : null
       );
 
-      // Preferred: Pin to the exact anchor element using DOM offsetTop
-      if (anchorEl && typeof anchorInfo.offsetFromTop === 'number') {
+      // Preferred: Pin to the exact anchor element using subpixel-accurate relative bounding rect or offsetTop
+      if (anchorEl && typeof anchorInfo.prevRelTop === 'number') {
+        const newRelTop = anchorEl.getBoundingClientRect().top - chatBox.getBoundingClientRect().top;
+        const delta = newRelTop - anchorInfo.prevRelTop;
+        chatBox.scrollTop = Math.max(0, chatBox.scrollTop + delta);
+        restored = true;
+      } else if (anchorEl && typeof anchorInfo.offsetFromTop === 'number') {
         const targetScrollTop = anchorEl.offsetTop - anchorInfo.offsetFromTop;
         if (targetScrollTop >= 0) {
           chatBox.scrollTop = targetScrollTop;
@@ -4347,11 +4391,13 @@
       // generate phantom delta adjustments (detached el.getBoundingClientRect().bottom
       // is 0, which always passes the "above viewport" test and falsely bumps scrollTop).
       if (prependedItems && prependedItems.length > 0 && typeof scrollAnchorObserver !== 'undefined' && scrollAnchorObserver) {
+        const heightsMap = (typeof scrollAnchorHeights !== 'undefined' && scrollAnchorHeights) ? scrollAnchorHeights : window.scrollAnchorHeights;
         prependedItems.forEach(item => {
           if (!item.querySelectorAll || !item.isConnected) return;
           item.querySelectorAll('img:not(.avatar-img)').forEach(img => {
             if (!img.dataset.scrollListener) {
               img.dataset.scrollListener = '1';
+              if (heightsMap) heightsMap.set(img, img.getBoundingClientRect().height);
               scrollAnchorObserver.observe(img);
             }
           });
@@ -5362,13 +5408,13 @@
             account_id: u1Id,
             full_name: conv?.name1 || ('User #' + u1Id),
             role_name: conv?.u1_office || '',
-            is_messify_verified: true,
+            is_messify_verified: Boolean(typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.has(Number(u1Id))),
           },
           {
             account_id: u2Id,
             full_name: conv?.name2 || ('User #' + u2Id),
             role_name: conv?.u2_office || '',
-            is_messify_verified: true,
+            is_messify_verified: Boolean(typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.has(Number(u2Id))),
           }
         ];
         renderOfficeMembersList(dmMbrs, silent, null);
@@ -6126,7 +6172,6 @@
           if (!adminConvHasMore) showNoMoreOlderNotice();
           applyAdminBadges();
           applyEmojiOnly();
-          trimWindowFromBottom(MAX_WINDOW);
 
           const restoreFn = (typeof restoreScrollAnchor === 'function') ? restoreScrollAnchor : (window.restoreScrollAnchor ? window.restoreScrollAnchor : null);
           if (anchor && restoreFn) {
@@ -6139,6 +6184,7 @@
             }
           }
 
+          trimWindowFromBottom(MAX_WINDOW);
           if (adminConvHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           attachImageLoadListeners();
           return;

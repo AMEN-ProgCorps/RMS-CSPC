@@ -78,6 +78,21 @@ class UserResolver
     }
 
     /**
+     * Safely parse a PostgreSQL boolean value ('t', 'f', true, false, 1, 0, etc.).
+     * Necessary because in PHP, (bool)'f' === true and filter_var('t', FILTER_VALIDATE_BOOLEAN) === false.
+     */
+    public static function parsePgBool(mixed $val, bool $default = false): bool
+    {
+        if ($val === null) {
+            return $default;
+        }
+        if (is_bool($val)) {
+            return $val;
+        }
+        return in_array($val, [true, 1, '1', 't', 'true', 'TRUE', 'on', 'ON', 'yes', 'YES'], true);
+    }
+
+    /**
      * Return full user info for display in the user list sidebar.
      *
      * @return array{account_id:int, full_name:string, office_id:int|null, is_currently_online:bool, last_online_time:string|null}|null
@@ -98,7 +113,7 @@ class UserResolver
             'office_id'           => isset($row['office_id']) ? (int) $row['office_id'] : null,
             'office_name'         => $row['office_name'] ?? null,
             'office_code'         => $row['office_code'] ?? null,
-            'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
+            'is_currently_online' => self::parsePgBool($row['is_currently_online'] ?? false),
             'last_online_time'    => $row['last_online_time'] ?? null,
             'allow_typing_preview' => (isset($row['allow_typing_preview']) && $row['allow_typing_preview'] !== null)
                 ? (!in_array($row['allow_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
@@ -106,7 +121,7 @@ class UserResolver
             'allow_see_typing_preview' => (isset($row['allow_see_typing_preview']) && $row['allow_see_typing_preview'] !== null)
                 ? (!in_array($row['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
                 : true,
-            'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false),
+            'is_messify_verified' => self::parsePgBool($row['is_messify_verified'] ?? false),
             'avatar_url'          => $row['avatar_url'] ?? null,
         ];
     }
@@ -166,7 +181,7 @@ class UserResolver
                 'office_id'           => isset($row['office_id']) ? (int) $row['office_id'] : null,
                 'office_name'         => $row['office_name'] ?? null,
                 'office_code'         => $row['office_code'] ?? null,
-                'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
+                'is_currently_online' => self::parsePgBool($row['is_currently_online'] ?? false),
                 'last_online_time'    => $row['last_online_time'] ?? null,
                 'allow_typing_preview' => (isset($row['allow_typing_preview']) && $row['allow_typing_preview'] !== null)
                     ? (!in_array($row['allow_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
@@ -174,7 +189,7 @@ class UserResolver
                 'allow_see_typing_preview' => (isset($row['allow_see_typing_preview']) && $row['allow_see_typing_preview'] !== null)
                     ? (!in_array($row['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
                     : true,
-                'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false),
+                'is_messify_verified' => self::parsePgBool($row['is_messify_verified'] ?? false),
                 'avatar_url'          => $row['avatar_url'] ?? null,
             ];
         }
@@ -414,9 +429,9 @@ class UserResolver
                     'office_id'           => isset($row['office_id']) ? (int) $row['office_id'] : null,
                     'office_name'         => $row['office_name'] ?? null,
                     'office_code'         => $row['office_code'] ?? null,
-                    'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
+                    'is_currently_online' => self::parsePgBool($row['is_currently_online'] ?? false),
                     'last_online_time'    => $row['last_online_time'] ?? null,
-                    'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false),
+                    'is_messify_verified' => self::parsePgBool($row['is_messify_verified'] ?? false),
                     'avatar_url'          => $row['avatar_url'] ?? null,
                 ];
             }
@@ -491,7 +506,7 @@ class UserResolver
                 'full_name'           => $r['full_name'],
                 'email'               => $r['email'],
                 'avatar_url'          => $r['avatar_url'] ?? null,
-                'is_currently_online' => (bool) ($r['is_currently_online'] ?? false),
+                'is_currently_online' => self::parsePgBool($r['is_currently_online'] ?? false),
                 'office_name'         => null,
             ];
         }, $rows);

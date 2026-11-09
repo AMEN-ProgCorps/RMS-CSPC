@@ -155,7 +155,7 @@ if ($searchQuery !== '') {
             'allow_see_typing_preview' => (isset($user['allow_see_typing_preview']) && $user['allow_see_typing_preview'] !== null)
                 ? (!in_array($user['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
                 : true,
-            'is_messify_verified' => (bool) ($user['is_messify_verified'] ?? false),
+            'is_messify_verified' => UserResolver::parsePgBool($user['is_messify_verified'] ?? false),
             'avatar_url'          => $user['avatar_url'] ?? null,
         ];
     }
@@ -210,7 +210,7 @@ if ($searchQuery !== '') {
             'allow_see_typing_preview' => (isset($userInfo['allow_see_typing_preview']) && $userInfo['allow_see_typing_preview'] !== null)
                 ? (!in_array($userInfo['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
                 : true,
-            'is_messify_verified' => (bool) ($userInfo['is_messify_verified'] ?? false),
+            'is_messify_verified' => UserResolver::parsePgBool($userInfo['is_messify_verified'] ?? false),
             'avatar_url'          => $userInfo['avatar_url'] ?? null,
         ];
     }

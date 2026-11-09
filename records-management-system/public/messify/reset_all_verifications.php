@@ -10,6 +10,7 @@
 require_once __DIR__ . '/bootstrap.php';
 
 header('Content-Type: application/json');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 session_start();
 Auth::require();
 session_write_close();
@@ -23,9 +24,25 @@ if (!Auth::isAdmin()) {
 
 try {
     $pdo = Database::getConnection();
+    $tbl = Database::t('account_details');
     $verCol = Database::verifiedColumn();
+
+    $colStmt = $pdo->prepare("
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = :tbl
+          AND column_name IN ('is_messify_verified', 'is_chatify_verified')
+    ");
+    $colStmt->execute([':tbl' => $tbl]);
+    $cols = $colStmt->fetchAll(PDO::FETCH_COLUMN);
+    if (empty($cols)) {
+        $cols = [$verCol];
+    }
+
+    $setParts = array_map(fn($c) => "{$c} = FALSE", $cols);
+    $whereParts = array_map(fn($c) => "{$c} IS DISTINCT FROM FALSE", $cols);
     $stmt = $pdo->prepare(
-        'UPDATE ' . Database::t('account_details') . ' SET ' . $verCol . ' = FALSE WHERE ' . $verCol . ' = TRUE'
+        'UPDATE ' . $tbl . ' SET ' . implode(', ', $setParts) . ' WHERE ' . implode(' OR ', $whereParts)
     );
     $stmt->execute();
     $count = $stmt->rowCount();

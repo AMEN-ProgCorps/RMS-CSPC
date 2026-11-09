@@ -156,8 +156,21 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                             }
                             $savedDocTypeId = (string) old('docTypeId', (string) ($drf->doc_type_id ?? ''));
                             $savedSubTypeId = (string) old('subTypeId', (string) ($drf->sub_type_id ?? ''));
-                            $showCatalogTypes = $docTypeKind === 'internal'
-                                && (trim((string) ($docTypeName ?? '')) !== '' || trim((string) ($subTypeName ?? '')) !== '');
+                            $lockedDocTypeDisplay = trim((string) ($docTypeName ?? ''));
+                            $lockedSubTypeDisplay = trim((string) ($subTypeName ?? ''));
+                            if ($lockedDocTypeDisplay === '' && ! empty($lockedTypeLabel)) {
+                                $lockedDocTypeDisplay = trim((string) $lockedTypeLabel);
+                            }
+                            if ($lockedDocTypeDisplay === '') {
+                                $lockedDocTypeDisplay = match ($docTypeKind) {
+                                    'external' => 'External',
+                                    'internal' => 'Internal',
+                                    default => collect($optInRadios)->firstWhere('slug', $docTypeKind)['label'] ?? ucfirst((string) $docTypeKind),
+                                };
+                            }
+                            if ($lockedSubTypeDisplay === '') {
+                                $lockedSubTypeDisplay = '—';
+                            }
                         @endphp
                         {{-- Edit keeps type/sub-type fixed; values are submitted as hidden fields. --}}
                         <input type="hidden" name="docTypeKind" value="{{ $docTypeKind }}">
@@ -176,24 +189,30 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                                 <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === $opt['slug'])> {{ $opt['label'] }}</label>
                             @endforeach
                         </div>
-                        @if($showCatalogTypes)
-                            <div class="ofi-readonly-type-meta" aria-label="Document type and sub-type">
-                                @if(trim((string) ($docTypeName ?? '')) !== '')
-                                    <div class="ofi-readonly-type-card">
-                                        <span class="ofi-readonly-type-label">Document type</span>
-                                        <div class="ofi-readonly-type-value">{{ $docTypeName }}</div>
-                                    </div>
-                                @endif
-                                @if(trim((string) ($subTypeName ?? '')) !== '')
-                                    <div class="ofi-readonly-type-card">
-                                        <span class="ofi-readonly-type-label">Sub-type</span>
-                                        <div class="ofi-readonly-type-value">{{ $subTypeName }}</div>
-                                    </div>
-                                @endif
+                        <div class="reg-grid-2 ofi-locked-type-grid" aria-label="Document type and sub-type">
+                            <div class="reg-field">
+                                <label for="ofiLockedDocType">Document type</label>
+                                <input
+                                    id="ofiLockedDocType"
+                                    type="text"
+                                    class="ofi-input-locked"
+                                    value="{{ $lockedDocTypeDisplay }}"
+                                    disabled
+                                    readonly
+                                >
                             </div>
-                        @elseif(!empty($lockedTypeLabel))
-                            <p class="ofi-hint">Document type: {{ $lockedTypeLabel }}</p>
-                        @endif
+                            <div class="reg-field">
+                                <label for="ofiLockedSubType">Sub-type</label>
+                                <input
+                                    id="ofiLockedSubType"
+                                    type="text"
+                                    class="ofi-input-locked"
+                                    value="{{ $lockedSubTypeDisplay }}"
+                                    disabled
+                                    readonly
+                                >
+                            </div>
+                        </div>
                         <p class="ofi-hint">Document type and sub-type cannot be changed while correcting this request.</p>
                         @include('pages.dcs.office.partials.drf-syllabi-context', [
                             'syllabiContextVisible' => (bool) ($isSyllabiLikeEdit ?? false),

@@ -6,6 +6,7 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title></title>
     <style>
         /*
@@ -637,6 +638,9 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
     $printReadyUrl = $printReadyId > 0
         ? route('dcs.api.office-intake.print-ready', ['type' => 'dcn', 'ids' => $printReadyId], false)
         : '';
+    $markPrintedUrl = ($printReadyId > 0 && $allowPrint && ! $viewerMode)
+        ? route('dcs.api.office-intake.printed', ['type' => 'dcn', 'id' => $printReadyId], false)
+        : '';
 @endphp
 @if($viewerMode)
 <script>
@@ -702,10 +706,55 @@ window.print = function () {};
         @if($isReviewer)
             <a href="{{ route('dcs.requests.index', absolute: false) }}" class="btn-close" style="text-decoration:none;display:inline-flex;align-items:center;">Back to Request</a>
         @endif
-        <button type="button" class="btn-print" onclick="document.title=''; window.print();">Print</button>
+        <button type="button" class="btn-print" onclick="ofiPrintClean()">Print</button>
         <button type="button" class="btn-close" onclick="window.close()">Close</button>
     @endif
 </div>
+<script>
+var ofiPrintedMarked = false;
+function ofiMarkPrinted() {
+    var url = @json($markPrintedUrl);
+    if (!url || ofiPrintedMarked) return;
+    ofiPrintedMarked = true;
+    var tokenEl = document.querySelector('meta[name="csrf-token"]');
+    var token = tokenEl ? tokenEl.getAttribute('content') : '';
+    try {
+        if (navigator.sendBeacon && token) {
+            var body = new FormData();
+            body.append('_token', token);
+            if (navigator.sendBeacon(url, body)) return;
+        }
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': token || '',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            credentials: 'same-origin',
+            keepalive: true
+        }).catch(function () { ofiPrintedMarked = false; });
+    } catch (e) {
+        ofiPrintedMarked = false;
+    }
+}
+function ofiPrintClean() {
+    ofiMarkPrinted();
+    var prevTitle = document.title;
+    var restored = false;
+    function restore() {
+        if (restored) return;
+        restored = true;
+        document.title = prevTitle;
+        window.removeEventListener('afterprint', restore);
+        ofiMarkPrinted();
+    }
+    document.title = '';
+    window.addEventListener('afterprint', restore);
+    window.print();
+    setTimeout(restore, 1500);
+}
+</script>
 
 <div class="sheet">
     <header class="hdr-band">

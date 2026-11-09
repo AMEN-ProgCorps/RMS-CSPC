@@ -52,7 +52,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $dcnRows = OfficeIntakeHelper::listMyDcn();
             $docGroups = OfficeIntakeHelper::officeDocumentGroups(null, false, 'received');
             $docTotal = OfficeIntakeHelper::officeDocumentTotal(null, 'received');
-            $incomingTotal = OfficeIntakeHelper::officeIncomingAttentionTotal();
+            $attentionPayload = OfficeIntakeHelper::officeDashboardAttentionPayload();
+            $incomingTotal = (int) ($attentionPayload['incoming_total'] ?? 0);
+
+            $pipelineCounts = function ($rows): array {
+                return [
+                    'total' => $rows->count(),
+                    'registered' => $rows->where('pipeline_status', 'registered')->count(),
+                    'correction' => $rows->where('pipeline_status', 'correction')->count(),
+                    'print_ready' => $rows->where('pipeline_status', 'print_ready')->count(),
+                    'printed' => $rows->where('pipeline_status', 'printed')->count(),
+                    'submitted' => $rows->where('pipeline_status', 'submitted')->count(),
+                ];
+            };
+
+            $drfPipeline = $pipelineCounts($drfRows);
+            $dcnPipeline = $pipelineCounts($dcnRows);
 
             return [
                 'isDcsPathPending' => false,
@@ -66,8 +81,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'officeDocTotal' => $docTotal,
                 'officeIncomingTotal' => $incomingTotal,
                 'officeDocGroups' => $docGroups,
-                'recentDrf' => $drfRows->take(4)->values(),
-                'recentDcn' => $dcnRows->take(4)->values(),
+                'officeDrfPipeline' => $drfPipeline,
+                'officeDcnPipeline' => $dcnPipeline,
+                'officeAttention' => collect($attentionPayload['items'] ?? [])->map(fn ($item) => (object) $item)->values(),
+                'officeAttentionTotal' => (int) ($attentionPayload['total'] ?? 0),
+                'officeAttentionUrl' => route('dcs.api.office-intake.attention', absolute: false),
+                'recentDrf' => $drfRows->take(5)->values(),
+                'recentDcn' => $dcnRows->take(5)->values(),
                 'headerDate' => $headerDate,
                 'headerTime' => $headerTime,
                 'stats' => [],
@@ -192,7 +212,35 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </div>
 </div>
 @elseif(!empty($isLimitedDcs))
-<div class="ofi-page ofi-dash" x-data="ofiDashboardClock()">
+@php
+    $drfPipe = $officeDrfPipeline ?? ['total' => 0, 'registered' => 0, 'correction' => 0, 'print_ready' => 0, 'submitted' => 0];
+    $dcnPipe = $officeDcnPipeline ?? ['total' => 0, 'registered' => 0, 'correction' => 0, 'print_ready' => 0, 'submitted' => 0];
+    $attention = $officeAttention ?? collect();
+    $attentionTotal = (int) ($officeAttentionTotal ?? $attention->count());
+    $statusLabel = [
+        'registered' => 'Registered',
+        'correction' => 'Needs correction',
+        'print_ready' => 'Ready to print',
+        'printed' => 'Printed',
+        'submitted' => 'Awaiting RFIO',
+    ];
+@endphp
+<div
+    class="ofi-page ofi-dash"
+    x-data="ofiDashboardClock(@js([
+        'attentionUrl' => $officeAttentionUrl ?? route('dcs.api.office-intake.attention', absolute: false),
+        'attentionTotal' => (int) $attentionTotal,
+        'attentionItems' => collect($attention)->map(fn ($item) => [
+            'kind' => $item->kind ?? '',
+            'type' => $item->type ?? '',
+            'title' => $item->title ?? '',
+            'meta' => $item->meta ?? '',
+            'meta_label' => $item->meta_label ?? null,
+            'href' => $item->href ?? '#',
+        ])->values()->all(),
+        'headerTime' => $headerTime ?? '',
+    ]))"
+>
     <div class="ofi-inner ofi-inner-wide">
         <div class="ofi-dash-hero">
             <div class="ofi-dash-hero-copy">
@@ -262,99 +310,178 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </a>
         </section>
 
-        <section class="ofi-dash-panel">
-            <div class="ofi-dash-panel-head">
-                <div>
-                    <h2>Masterlist by type</h2>
-                    <p>Open a type to view the latest documents your office has received.</p>
-                </div>
-                <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}" class="ofi-dash-link">View all</a>
-            </div>
-            <div class="ofi-dash-type-grid">
-                @foreach($officeDocGroups as $group)
-                    <a
-                        href="{{ route('dcs.office.documents', ['type' => $group['key']], absolute: false) }}"
-                        class="ofi-dash-type {{ $group['count'] < 1 ? 'is-empty' : '' }}"
-                    >
-                        <span class="ofi-dash-type-label">{{ $group['label'] }}</span>
-                        <strong class="ofi-dash-type-count">{{ $group['count'] }}</strong>
-                        <span class="ofi-dash-type-meta">{{ $group['count'] === 1 ? 'document' : 'documents' }}</span>
-                    </a>
-                @endforeach
-            </div>
-        </section>
-
-        <div class="ofi-dash-split">
-            <section class="ofi-dash-panel">
-                <div class="ofi-dash-panel-head">
-                    <div>
-                        <h2>Recent DRF</h2>
-                        <p>Latest Document Request Forms from your account.</p>
+        <div class="ofi-dash-layout">
+            <div class="ofi-dash-main">
+                <section class="ofi-dash-panel ofi-dash-attention" x-show="attentionTotal > 0" x-cloak>
+                    <div class="ofi-dash-panel-head">
+                        <div>
+                            <h2>Needs your action</h2>
+                            <p>
+                                <span x-text="attentionTotal"></span>
+                                <span x-text="attentionTotal === 1 ? ' item' : ' items'"></span>
+                                waiting — corrections, print unlocks, receipt, or appraisal.
+                            </p>
+                        </div>
+                        <span class="ofi-dash-attention-count" x-text="attentionTotal"></span>
                     </div>
-                    <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="ofi-dash-link">See all</a>
-                </div>
-                @if($recentDrf->isEmpty())
-                    <div class="ofi-dash-empty">
-                        <p>No DRF yet.</p>
-                        <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DRF</a>
-                    </div>
-                @else
-                    <ul class="ofi-dash-list">
-                        @foreach($recentDrf as $row)
+                    <ul class="ofi-dash-attention-list">
+                        <template x-for="item in attentionItems" :key="(item.kind || '') + ':' + (item.type || '') + ':' + (item.href || '') + ':' + (item.title || '')">
                             <li>
-                                <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}">
-                                    <span class="ofi-dash-list-title">{{ $row->doc_title ?: 'Untitled DRF' }}</span>
-                                    <span class="ofi-dash-list-meta">
-                                        {{ $row->drf_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->drf_date) : 'No date' }}
-                                        @if(!empty($row->is_registered))
-                                            · Registered
-                                        @elseif(!empty($row->drf_no))
-                                            · {{ $row->drf_no }}
-                                        @endif
+                                <a :href="item.href" class="ofi-dash-attention-item" :class="'is-' + attentionKindClass(item.kind)">
+                                    <span class="ofi-dash-attention-icon" aria-hidden="true">
+                                        <i :class="attentionIcon(item.kind)"></i>
                                     </span>
+                                    <span class="ofi-dash-attention-copy">
+                                        <span class="ofi-dash-attention-kind" x-text="attentionKindLabel(item)"></span>
+                                        <strong x-text="item.title"></strong>
+                                        <template x-if="item.meta_label">
+                                            <span class="ofi-dash-attention-meta-label" x-text="item.meta_label"></span>
+                                        </template>
+                                        <span class="ofi-dash-attention-meta" x-text="item.meta"></span>
+                                    </span>
+                                    <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
                                 </a>
                             </li>
-                        @endforeach
+                        </template>
                     </ul>
-                @endif
-            </section>
+                </section>
 
-            <section class="ofi-dash-panel">
-                <div class="ofi-dash-panel-head">
-                    <div>
-                        <h2>Recent DCN</h2>
-                        <p>Latest Document Change Notices from your account.</p>
+                <section class="ofi-dash-panel ofi-dash-types-panel">
+                    <div class="ofi-dash-panel-head">
+                        <div>
+                            <h2>Masterlist by type</h2>
+                            <p>Jump into controlled documents your office has already received.</p>
+                        </div>
+                        <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}" class="ofi-dash-link">View all <i class="fa-solid fa-arrow-right"></i></a>
                     </div>
-                    <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="ofi-dash-link">See all</a>
-                </div>
-                @if($recentDcn->isEmpty())
-                    <div class="ofi-dash-empty">
-                        <p>No DCN yet.</p>
-                        <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DCN</a>
-                    </div>
-                @else
-                    <ul class="ofi-dash-list">
-                        @foreach($recentDcn as $row)
-                            <li>
-                                <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}">
-                                    <span class="ofi-dash-list-title">{{ $row->originator_name ?? ($row->dcn_no ?: 'Untitled DCN') }}</span>
-                                    <span class="ofi-dash-list-meta">
-                                        {{ $row->dcn_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->dcn_date) : 'No date' }}
-                                        @if(!empty($row->dcn_no)) · {{ $row->dcn_no }} @endif
-                                    </span>
-                                </a>
-                            </li>
+                    <div class="ofi-dash-type-grid">
+                        @foreach($officeDocGroups as $group)
+                            @php
+                                $typeIcon = match ($group['key'] ?? '') {
+                                    'internal', 'internal_docs' => 'fa-building',
+                                    'internal_forms' => 'fa-clipboard-list',
+                                    'external', 'external_docs' => 'fa-globe',
+                                    'forms' => 'fa-file-lines',
+                                    'logbooks' => 'fa-book-open',
+                                    default => 'fa-folder',
+                                };
+                                $share = $officeDocTotal > 0 ? (int) round(($group['count'] / max(1, $officeDocTotal)) * 100) : 0;
+                            @endphp
+                            <a
+                                href="{{ route('dcs.office.documents', ['type' => $group['key']], absolute: false) }}"
+                                class="ofi-dash-type {{ $group['count'] < 1 ? 'is-empty' : '' }}"
+                            >
+                                <span class="ofi-dash-type-icon"><i class="fa-solid {{ $typeIcon }}"></i></span>
+                                <span class="ofi-dash-type-copy">
+                                    <span class="ofi-dash-type-label">{{ $group['label'] }}</span>
+                                    <span class="ofi-dash-type-meta">{{ $group['count'] === 1 ? '1 document' : $group['count'].' documents' }}</span>
+                                    <span class="ofi-dash-type-bar" aria-hidden="true"><span style="width: {{ $share }}%"></span></span>
+                                </span>
+                                <strong class="ofi-dash-type-count">{{ $group['count'] }}</strong>
+                            </a>
                         @endforeach
-                    </ul>
-                @endif
-            </section>
+                    </div>
+                </section>
+
+                <div class="ofi-dash-split">
+                    <section class="ofi-dash-panel ofi-dash-activity">
+                        <div class="ofi-dash-panel-head">
+                            <div>
+                                <h2>Recent DRF</h2>
+                                <p>{{ (int) $drfPipe['submitted'] + (int) $drfPipe['correction'] + (int) $drfPipe['print_ready'] + (int) ($drfPipe['printed'] ?? 0) }} still in progress · {{ (int) $drfPipe['registered'] }} registered</p>
+                            </div>
+                            <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="ofi-dash-link">See all <i class="fa-solid fa-arrow-right"></i></a>
+                        </div>
+                        @if($recentDrf->isEmpty())
+                            <div class="ofi-dash-empty">
+                                <div class="ofi-dash-empty-icon"><i class="fa-regular fa-file-lines"></i></div>
+                                <p>No DRF yet. Create one to start a request for RFIO.</p>
+                                <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DRF</a>
+                            </div>
+                        @else
+                            <ul class="ofi-dash-list">
+                                @foreach($recentDrf as $row)
+                                    @php $pipe = $row->pipeline_status ?? (!empty($row->is_registered) ? 'registered' : 'submitted'); @endphp
+                                    <li>
+                                        <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}">
+                                            <span class="ofi-dash-list-mark is-drf" aria-hidden="true"><i class="fa-regular fa-file-lines"></i></span>
+                                            <span class="ofi-dash-list-main">
+                                                <span class="ofi-dash-list-title">{{ $row->doc_title ?: 'Untitled DRF' }}</span>
+                                                <span class="ofi-dash-list-meta">
+                                                    <span class="ofi-dash-list-date">{{ $row->drf_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->drf_date) : 'No date' }}</span>
+                                                    @if(!empty($row->registered_doc_no))
+                                                        <span class="ofi-dash-list-sep">·</span>
+                                                        <span>{{ $row->registered_doc_no }}</span>
+                                                    @elseif(!empty($row->drf_no))
+                                                        <span class="ofi-dash-list-sep">·</span>
+                                                        <span>{{ $row->drf_no }}</span>
+                                                    @endif
+                                                </span>
+                                            </span>
+                                            <span class="ofi-dash-status is-{{ $pipe }}">{{ $statusLabel[$pipe] ?? 'Submitted' }}</span>
+                                            <i class="fa-solid fa-chevron-right ofi-dash-list-chevron" aria-hidden="true"></i>
+                                        </a>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+                    </section>
+
+                    <section class="ofi-dash-panel ofi-dash-activity">
+                        <div class="ofi-dash-panel-head">
+                            <div>
+                                <h2>Recent DCN</h2>
+                                <p>{{ (int) $dcnPipe['submitted'] + (int) $dcnPipe['correction'] + (int) $dcnPipe['print_ready'] + (int) ($dcnPipe['printed'] ?? 0) }} still in progress · {{ (int) $dcnPipe['registered'] }} registered</p>
+                            </div>
+                            <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="ofi-dash-link">See all <i class="fa-solid fa-arrow-right"></i></a>
+                        </div>
+                        @if($recentDcn->isEmpty())
+                            <div class="ofi-dash-empty">
+                                <div class="ofi-dash-empty-icon"><i class="fa-solid fa-file-pen"></i></div>
+                                <p>No DCN yet. Create one when a controlled document needs revision.</p>
+                                <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DCN</a>
+                            </div>
+                        @else
+                            <ul class="ofi-dash-list">
+                                @foreach($recentDcn as $row)
+                                    @php $pipe = $row->pipeline_status ?? (!empty($row->is_registered) ? 'registered' : 'submitted'); @endphp
+                                    <li>
+                                        <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}">
+                                            <span class="ofi-dash-list-mark is-dcn" aria-hidden="true"><i class="fa-solid fa-file-pen"></i></span>
+                                            <span class="ofi-dash-list-main">
+                                                <span class="ofi-dash-list-title">{{ $row->document_title ?? $row->originator_name ?? ($row->dcn_no ?: 'Untitled DCN') }}</span>
+                                                <span class="ofi-dash-list-meta">
+                                                    <span class="ofi-dash-list-date">{{ $row->dcn_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->dcn_date) : 'No date' }}</span>
+                                                    @if(!empty($row->registered_doc_no))
+                                                        <span class="ofi-dash-list-sep">·</span>
+                                                        <span>{{ $row->registered_doc_no }}</span>
+                                                    @elseif(!empty($row->document_no))
+                                                        <span class="ofi-dash-list-sep">·</span>
+                                                        <span>{{ $row->document_no }}</span>
+                                                    @elseif(!empty($row->dcn_no))
+                                                        <span class="ofi-dash-list-sep">·</span>
+                                                        <span>{{ $row->dcn_no }}</span>
+                                                    @endif
+                                                </span>
+                                            </span>
+                                            <span class="ofi-dash-status is-{{ $pipe }}">{{ $statusLabel[$pipe] ?? 'Submitted' }}</span>
+                                            <i class="fa-solid fa-chevron-right ofi-dash-list-chevron" aria-hidden="true"></i>
+                                        </a>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+                    </section>
+                </div>
+            </div>
+
         </div>
 
-        <section class="ofi-dash-panel ofi-dash-steps">
+        <section class="ofi-dash-panel ofi-dash-guide">
             <div class="ofi-dash-panel-head">
                 <div>
-                    <h2>How office intake works</h2>
-                    <p>Follow these steps when submitting forms to RFIO.</p>
+                    <h2>How intake works</h2>
+                    <p>Three stages from draft to RFIO registration.</p>
                 </div>
             </div>
             <ol class="ofi-dash-step-list">
@@ -362,21 +489,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <span class="ofi-dash-step-num">1</span>
                     <div>
                         <strong>Create the form</strong>
-                        <p>Fill out a new DRF or DCN for your office.</p>
+                        <p>Fill out a new DRF or DCN for your office and submit it to RFIO for review.</p>
                     </div>
                 </li>
                 <li>
                     <span class="ofi-dash-step-num">2</span>
                     <div>
                         <strong>Print and sign</strong>
-                        <p>Print stays locked until RFIO confirms the form and notifies you. After that notice, print the form and have it signed.</p>
+                        <p>Print stays locked until RFIO confirms the form. Then print and have it signed.</p>
                     </div>
                 </li>
                 <li>
                     <span class="ofi-dash-step-num">3</span>
                     <div>
                         <strong>Submit to RFIO</strong>
-                        <p>Bring the signed copy to Records &amp; Freedom of Information for registration.</p>
+                        <p>Bring the signed hard copy to Records for registration on the masterlist.</p>
                     </div>
                 </li>
             </ol>
@@ -1032,9 +1159,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 <script>
 (() => {
     const register = () => {
-    Alpine.data('ofiDashboardClock', () => ({
-        nowClock: @json($headerTime ?? ''),
+    Alpine.data('ofiDashboardClock', (seed = {}) => ({
+        nowClock: seed.headerTime || @json($headerTime ?? ''),
+        attentionUrl: seed.attentionUrl || '',
+        attentionTotal: Number(seed.attentionTotal || 0),
+        attentionItems: Array.isArray(seed.attentionItems) ? seed.attentionItems : [],
         _timer: null,
+        _attentionTimer: null,
+        _attentionBusy: false,
         tick() {
             try {
                 this.nowClock = new Date().toLocaleTimeString([], {
@@ -1048,12 +1180,61 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 this.nowClock = n.toLocaleTimeString();
             }
         },
+        attentionKindClass(kind) {
+            if (kind === 'incoming_receive' || kind === 'incoming_appraise') return 'incoming';
+            return kind || 'incoming';
+        },
+        attentionIcon(kind) {
+            if (kind === 'correction') return 'fa-solid fa-pen-to-square';
+            if (kind === 'print_ready') return 'fa-solid fa-print';
+            if (kind === 'incoming_appraise') return 'fa-solid fa-clipboard-check';
+            return 'fa-solid fa-inbox';
+        },
+        attentionKindLabel(item) {
+            const kind = item && item.kind ? item.kind : '';
+            let label = 'Incoming';
+            if (kind === 'correction') label = 'Needs correction';
+            else if (kind === 'print_ready') label = 'Ready to print';
+            else if (kind === 'incoming_receive') label = 'Needs to be received';
+            else if (kind === 'incoming_appraise') label = 'Needs to be appraised';
+            const type = item && item.type ? String(item.type).toLowerCase() : '';
+            if (type === 'drf' || type === 'dcn') label += ' · ' + type.toUpperCase();
+            return label;
+        },
+        async refreshAttention() {
+            if (!this.attentionUrl || this._attentionBusy) return;
+            this._attentionBusy = true;
+            try {
+                const res = await fetch(this.attentionUrl, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                this.attentionTotal = Number(data.total || 0);
+                this.attentionItems = Array.isArray(data.items) ? data.items : [];
+                const incoming = Number(data.incoming_total || 0);
+                document.querySelectorAll('[data-ofi-incoming-stat]').forEach((el) => {
+                    el.textContent = String(incoming);
+                });
+            } catch (e) {
+                // Keep last known list when polling fails.
+            } finally {
+                this._attentionBusy = false;
+            }
+        },
         init() {
             this.tick();
             this._timer = setInterval(() => this.tick(), 1000);
+            if (this.attentionUrl) {
+                this.refreshAttention();
+                this._attentionTimer = setInterval(() => this.refreshAttention(), 2500);
+            }
         },
         destroy() {
             if (this._timer) clearInterval(this._timer);
+            if (this._attentionTimer) clearInterval(this._attentionTimer);
         },
     }));
 

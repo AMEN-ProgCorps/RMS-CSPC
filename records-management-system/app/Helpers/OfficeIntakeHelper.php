@@ -256,6 +256,7 @@ class OfficeIntakeHelper
         if (! Schema::hasTable('dcs_office_intake_drf')) {
             return collect();
         }
+        self::ensureOfficePrintedColumns('dcs_office_intake_drf');
 
         $cols = [
             'drf.id',
@@ -283,6 +284,15 @@ class OfficeIntakeHelper
         if (Schema::hasColumn('dcs_office_intake_drf', 'rfio_print_notified_at')) {
             $cols[] = 'drf.rfio_print_notified_at';
         }
+        if (Schema::hasColumn('dcs_office_intake_drf', 'office_printed_at')) {
+            $cols[] = 'drf.office_printed_at';
+        }
+        if (Schema::hasColumn('dcs_office_intake_drf', 'edit_unlocked_at')) {
+            $cols[] = 'drf.edit_unlocked_at';
+        }
+        if (Schema::hasColumn('dcs_office_intake_drf', 'edit_unlock_reason')) {
+            $cols[] = 'drf.edit_unlock_reason';
+        }
 
         self::reconcileClaimedIntakesWithRegistrations();
 
@@ -299,6 +309,7 @@ class OfficeIntakeHelper
             $submission = self::intakeSubmissionMeta($row, 'drf', (int) $row->id);
             $row->submitting_office = $submission['office'];
             $row->submitter_name = $submission['submitter'];
+            $row->pipeline_status = self::intakePipelineStatus($row);
 
             return $row;
         });
@@ -310,6 +321,7 @@ class OfficeIntakeHelper
         if (! Schema::hasTable('dcs_office_intake_dcn')) {
             return collect();
         }
+        self::ensureOfficePrintedColumns('dcs_office_intake_dcn');
 
         $cols = array_values(array_filter([
             'dcn.id',
@@ -326,6 +338,9 @@ class OfficeIntakeHelper
             Schema::hasColumn('dcs_office_intake_dcn', 'registered_request_id') ? 'dcn.registered_request_id' : null,
             Schema::hasColumn('dcs_office_intake_dcn', 'expects_drf') ? 'dcn.expects_drf' : null,
             Schema::hasColumn('dcs_office_intake_dcn', 'rfio_print_notified_at') ? 'dcn.rfio_print_notified_at' : null,
+            Schema::hasColumn('dcs_office_intake_dcn', 'office_printed_at') ? 'dcn.office_printed_at' : null,
+            Schema::hasColumn('dcs_office_intake_dcn', 'edit_unlocked_at') ? 'dcn.edit_unlocked_at' : null,
+            Schema::hasColumn('dcs_office_intake_dcn', 'edit_unlock_reason') ? 'dcn.edit_unlock_reason' : null,
         ]));
 
         self::reconcileClaimedIntakesWithRegistrations();
@@ -347,9 +362,242 @@ class OfficeIntakeHelper
             $row->submitting_office = $submission['office'];
             $row->submitter_name = $submission['submitter'];
             $row->linked_drf_id = $linkedDrfIds[(int) $row->id] ?? null;
+            $row->pipeline_status = self::intakePipelineStatus($row);
 
             return $row;
         });
+    }
+
+    /**
+     * Office-dashboard pipeline chip for an intake row.
+     * registered > correction > print_ready > printed > submitted
+     */
+    public static function intakePipelineStatus(?object $row): string
+    {
+        if ($row === null) {
+            return 'submitted';
+        }
+        if (! empty($row->is_registered)) {
+            return 'registered';
+        }
+        if (! empty($row->edit_unlocked_at)) {
+            return 'correction';
+        }
+        if (! empty($row->rfio_print_notified_at)) {
+            return ! empty($row->office_printed_at) ? 'printed' : 'print_ready';
+        }
+
+        return 'submitted';
+    }
+
+    /**
+     * Mark that the submitting office has printed this unlocked form.
+     * Clears the dashboard "Ready to print" action item.
+     *
+     * @return array{ok: bool, type: string, id: int, printed_at: string|null}
+     */
+    public static function markOfficeIntakePrinted(string $type, int $id): array
+    {
+        self::assertCanAccessIntake();
+        $type = strtolower($type);
+        abort_unless(in_array($type, ['drf', 'dcn'], true), 404);
+
+        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        self::ensureOfficePrintedColumns($table);
+        $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
+        abort_unless($record, 404);
+        if ($type === 'dcn') {
+            self::assertOwnsDcn($record);
+        } else {
+            self::assertOwnsDrf($record);
+        }
+
+        abort_if(self::isIntakeRegistered($type, $id), 422, 'This submission is already registered.');
+        abort_unless(self::officeMayPrintIntake($record), 422, 'Print is still locked for this form.');
+
+        $now = now();
+        $userId = (int) auth()->id();
+        $printedAt = $record->office_printed_at ?? null;
+
+        // RFIO review print must not clear the office dashboard action item.
+        if (RegisterQueryHelper::canBrowseAllOfficeIntake() && ! RegisterQueryHelper::isLimitedDcsUser()) {
+            return [
+                'ok' => true,
+                'type' => $type,
+                'id' => $id,
+                'printed_at' => $printedAt
+                    ? \Carbon\Carbon::parse($printedAt)->timezone('Asia/Manila')->format('M d, Y g:i A')
+                    : null,
+                'skipped' => true,
+            ];
+        }
+
+        if (Schema::hasColumn($table, 'office_printed_at') && empty($printedAt)) {
+            $update = ['updated_at' => $now];
+            $update['office_printed_at'] = $now;
+            if (Schema::hasColumn($table, 'office_printed_by')) {
+                $update['office_printed_by'] = $userId > 0 ? $userId : null;
+            }
+            DB::table($table)->where('id', $id)->update($update);
+            $printedAt = $now;
+            RegisterPersistHelper::logAdminChange(
+                'Office printed '.strtoupper($type).' #'.$id
+            );
+        }
+
+        return [
+            'ok' => true,
+            'type' => $type,
+            'id' => $id,
+            'printed_at' => $printedAt
+                ? \Carbon\Carbon::parse($printedAt)->timezone('Asia/Manila')->format('M d, Y g:i A')
+                : null,
+        ];
+    }
+
+    /** Ensure print-tracking columns exist when migrate was not run yet. */
+    private static function ensureOfficePrintedColumns(string $table): void
+    {
+        if (! Schema::hasTable($table)) {
+            return;
+        }
+        if (Schema::hasColumn($table, 'office_printed_at') && Schema::hasColumn($table, 'office_printed_by')) {
+            return;
+        }
+
+        try {
+            Schema::table($table, function ($blueprint) use ($table) {
+                if (! Schema::hasColumn($table, 'office_printed_at')) {
+                    $blueprint->timestamp('office_printed_at')->nullable();
+                }
+                if (! Schema::hasColumn($table, 'office_printed_by')) {
+                    $blueprint->unsignedInteger('office_printed_by')->nullable();
+                }
+            });
+        } catch (\Throwable) {
+            // Another request may have added the columns first.
+        }
+    }
+
+    /**
+     * Office dashboard "Needs your action" payload (shared by page + polling API).
+     *
+     * @return array{
+     *   total: int,
+     *   incoming_total: int,
+     *   items: list<array{
+     *     kind: string,
+     *     type: string,
+     *     title: string,
+     *     meta: string,
+     *     meta_label: ?string,
+     *     href: string
+     *   }>
+     * }
+     */
+    public static function officeDashboardAttentionPayload(): array
+    {
+        self::assertCanAccessIntake();
+
+        $drfRows = self::listMyDrf();
+        $dcnRows = self::listMyDcn();
+        $incomingBreakdown = self::officeIncomingAttentionBreakdown();
+        $incomingPending = (int) ($incomingBreakdown['pending'] ?? 0);
+        $incomingAppraisable = (int) ($incomingBreakdown['appraisable'] ?? 0);
+        $incomingTotal = (int) ($incomingBreakdown['total'] ?? 0);
+
+        $items = collect();
+        foreach ($drfRows as $row) {
+            if (($row->pipeline_status ?? '') === 'correction') {
+                $reason = trim((string) ($row->edit_unlock_reason ?? ''));
+                $items->push([
+                    'kind' => 'correction',
+                    'type' => 'drf',
+                    'title' => $row->doc_title ?: ($row->drf_no ?: 'Untitled DRF'),
+                    'meta' => $reason !== '' ? $reason : 'RFIO asked for corrections. Open the form, fix the noted items, then resubmit.',
+                    'meta_label' => $reason !== '' ? 'RFIO correction message' : 'What to do',
+                    'href' => route('dcs.office.drf.edit', $row->id, absolute: false),
+                    'sort' => strtotime((string) ($row->edit_unlocked_at ?? $row->created_at ?? 'now')) ?: 0,
+                ]);
+            } elseif (($row->pipeline_status ?? '') === 'print_ready') {
+                $items->push([
+                    'kind' => 'print_ready',
+                    'type' => 'drf',
+                    'title' => $row->doc_title ?: ($row->drf_no ?: 'Untitled DRF'),
+                    'meta' => 'Print is unlocked — print, sign, then submit to RFIO',
+                    'meta_label' => null,
+                    'href' => route('dcs.office.drf.show', $row->id, absolute: false),
+                    'sort' => strtotime((string) ($row->rfio_print_notified_at ?? $row->created_at ?? 'now')) ?: 0,
+                ]);
+            }
+        }
+        foreach ($dcnRows as $row) {
+            if (($row->pipeline_status ?? '') === 'correction') {
+                $reason = trim((string) ($row->edit_unlock_reason ?? ''));
+                $items->push([
+                    'kind' => 'correction',
+                    'type' => 'dcn',
+                    'title' => $row->document_title
+                        ?? $row->originator_name
+                        ?? ($row->dcn_no ?: 'Untitled DCN'),
+                    'meta' => $reason !== '' ? $reason : 'RFIO asked for corrections. Open the form, fix the noted items, then resubmit.',
+                    'meta_label' => $reason !== '' ? 'RFIO correction message' : 'What to do',
+                    'href' => route('dcs.office.dcn.edit', $row->id, absolute: false),
+                    'sort' => strtotime((string) ($row->edit_unlocked_at ?? $row->created_at ?? 'now')) ?: 0,
+                ]);
+            } elseif (($row->pipeline_status ?? '') === 'print_ready') {
+                $items->push([
+                    'kind' => 'print_ready',
+                    'type' => 'dcn',
+                    'title' => $row->document_title
+                        ?? $row->originator_name
+                        ?? ($row->dcn_no ?: 'Untitled DCN'),
+                    'meta' => 'Print is unlocked — print, sign, then submit to RFIO',
+                    'meta_label' => null,
+                    'href' => route('dcs.office.dcn.show', $row->id, absolute: false),
+                    'sort' => strtotime((string) ($row->rfio_print_notified_at ?? $row->created_at ?? 'now')) ?: 0,
+                ]);
+            }
+        }
+        if ($incomingPending > 0) {
+            $items->push([
+                'kind' => 'incoming_receive',
+                'type' => 'incoming',
+                'title' => $incomingPending === 1
+                    ? '1 document needs to be received'
+                    : $incomingPending.' documents need to be received',
+                'meta' => 'Open Incoming and confirm receipt so these move to your office masterlist.',
+                'meta_label' => 'Action needed',
+                'href' => route('dcs.office.incoming', absolute: false),
+                'sort' => PHP_INT_MAX,
+            ]);
+        }
+        if ($incomingAppraisable > 0) {
+            $items->push([
+                'kind' => 'incoming_appraise',
+                'type' => 'incoming',
+                'title' => $incomingAppraisable === 1
+                    ? '1 document needs to be appraised'
+                    : $incomingAppraisable.' documents need to be appraised',
+                'meta' => 'Already received — finish Appraisal so Save and Appraise copies leave Incoming.',
+                'meta_label' => 'Action needed',
+                'href' => route('dcs.office.incoming', absolute: false),
+                'sort' => PHP_INT_MAX - 1,
+            ]);
+        }
+
+        $sorted = $items->sortByDesc('sort')->values();
+        $shown = $sorted->take(8)->map(function (array $item) {
+            unset($item['sort']);
+
+            return $item;
+        })->values()->all();
+
+        return [
+            'total' => $sorted->count(),
+            'incoming_total' => $incomingTotal,
+            'items' => $shown,
+        ];
     }
 
     /**
@@ -5431,6 +5679,7 @@ class OfficeIntakeHelper
         $type = strtolower($type);
         abort_unless(in_array($type, ['drf', 'dcn'], true), 404);
         $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        self::ensureOfficePrintedColumns($table);
         $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
         abort_unless($record, 404);
         abort_if(self::isIntakeRegistered($type, $id), 422, 'This submission is already registered.');
@@ -5442,11 +5691,19 @@ class OfficeIntakeHelper
         $now = now();
         $userId = (int) auth()->id();
         if (Schema::hasColumn($table, 'rfio_print_notified_at')) {
-            DB::table($table)->where('id', $id)->update([
+            $update = [
                 'rfio_print_notified_at' => $now,
                 'rfio_print_notified_by' => $userId > 0 ? $userId : null,
                 'updated_at' => $now,
-            ]);
+            ];
+            // A fresh print notice means the office still needs to print again.
+            if (Schema::hasColumn($table, 'office_printed_at')) {
+                $update['office_printed_at'] = null;
+            }
+            if (Schema::hasColumn($table, 'office_printed_by')) {
+                $update['office_printed_by'] = null;
+            }
+            DB::table($table)->where('id', $id)->update($update);
         }
 
         $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
@@ -6558,36 +6815,47 @@ class OfficeIntakeHelper
         );
     }
 
-    public static function officeIncomingAttentionTotal(?int $officeId = null): int
+    /**
+     * Incoming attention split for the office dashboard.
+     *
+     * @return array{pending: int, appraisable: int, total: int}
+     */
+    public static function officeIncomingAttentionBreakdown(?int $officeId = null): array
     {
         $pending = self::officeDocumentTotal($officeId, 'pending');
-        $perms = auth()->user()?->permissions;
-        if (! $perms || (! $perms->is_sadm && ! $perms->can_access_rdp)) {
-            return $pending;
-        }
-
-        // Match Incoming page: only count held docs that have an RDP appraisal link.
-        $heldRows = self::listOfficeDocuments('all', $officeId, 'received_for_appraisal');
-        if ($heldRows === []) {
-            return $pending;
-        }
-        $urls = \App\Services\RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
-            RegisterQueryHelper::currentOfficeCode(),
-            $heldRows
-        );
         $appraisable = 0;
-        foreach ($heldRows as $row) {
-            $requestId = (int) ($row['request_id'] ?? 0);
-            $docNo = trim((string) ($row['doc_no'] ?? ''));
-            $url = ($docNo !== '' ? ($urls[$docNo] ?? null) : null)
-                ?? ($urls['request:'.$requestId] ?? null)
-                ?? ($urls[\App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo)] ?? null);
-            if ($url) {
-                $appraisable++;
+        $perms = auth()->user()?->permissions;
+        if ($perms && ($perms->is_sadm || $perms->can_access_rdp)) {
+            // Match Incoming page: only count held docs that have an RDP appraisal link.
+            $heldRows = self::listOfficeDocuments('all', $officeId, 'received_for_appraisal');
+            if ($heldRows !== []) {
+                $urls = \App\Services\RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
+                    RegisterQueryHelper::currentOfficeCode(),
+                    $heldRows
+                );
+                foreach ($heldRows as $row) {
+                    $requestId = (int) ($row['request_id'] ?? 0);
+                    $docNo = trim((string) ($row['doc_no'] ?? ''));
+                    $url = ($docNo !== '' ? ($urls[$docNo] ?? null) : null)
+                        ?? ($urls['request:'.$requestId] ?? null)
+                        ?? ($urls[\App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo)] ?? null);
+                    if ($url) {
+                        $appraisable++;
+                    }
+                }
             }
         }
 
-        return $pending + $appraisable;
+        return [
+            'pending' => $pending,
+            'appraisable' => $appraisable,
+            'total' => $pending + $appraisable,
+        ];
+    }
+
+    public static function officeIncomingAttentionTotal(?int $officeId = null): int
+    {
+        return (int) (self::officeIncomingAttentionBreakdown($officeId)['total'] ?? 0);
     }
 
     /** True when this registration was created from an office DRF/DCN request. */

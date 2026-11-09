@@ -309,11 +309,23 @@ function timingSafeEqual(a, b) {
   }
 }
 
+// Track accounts marked online via RMS login/heartbeat pushes so presence_snapshot
+// includes users who are active in Main RMS even before opening a WS connection,
+// and track token revocation cutoffs so pre-logout tokens can't reconnect after logout.
+const rmsOnlineAccounts = new Set();
+const accountRevokedUntilExpires = new Map();
+
 // Verify HMAC token issued by PHP
 function verifyToken(accountId, expires, token) {
   const currentTimestamp = Math.floor(Date.now() / 1000);
-  if (currentTimestamp > parseInt(expires)) {
+  const expInt = parseInt(expires, 10);
+  if (!expInt || currentTimestamp > expInt) {
     log(`Token expired: token expires at ${expires}, current time is ${currentTimestamp}`);
+    return false;
+  }
+  const minAllowedExpires = accountRevokedUntilExpires.get(Number(accountId));
+  if (minAllowedExpires && expInt <= minAllowedExpires) {
+    log(`Token revoked by logout/kick for account_id=${accountId}`);
     return false;
   }
   const payload = accountId + '|' + expires;
@@ -425,8 +437,11 @@ function handleInternalPush(req, res) {
       if (pAccId > 0) {
         if (eventData.status === 'offline') {
           const ts = Number(eventData.timestamp) || Math.floor(Date.now() / 1000);
+          rmsOnlineAccounts.delete(pAccId);
           recordLastSeen(pAccId, ts);
         } else if (eventData.status === 'online') {
+          rmsOnlineAccounts.add(pAccId);
+          accountRevokedUntilExpires.delete(pAccId);
           lastSeenTimestamps.delete(pAccId);
         }
       }
@@ -444,6 +459,8 @@ function handleInternalPush(req, res) {
         if (!id || seen.has(id)) continue;
         seen.add(id);
 
+        rmsOnlineAccounts.delete(id);
+        accountRevokedUntilExpires.set(id, offlineTimestamp + 905);
         recordLastSeen(id, offlineTimestamp);
 
         const set = accountSockets.get(id);
@@ -614,9 +631,13 @@ wss.on('connection', (ws) => {
         // above). This is what lets the frontend render "Active X ago" for
         // someone who was already offline before this client connected,
         // without needing a separate database fetch.
+        const combinedOnline = Array.from(new Set([
+          ...accountSockets.keys(),
+          ...rmsOnlineAccounts
+        ]));
         safeSend(ws, JSON.stringify({
           type: 'presence_snapshot',
-          online_accounts: Array.from(accountSockets.keys()),
+          online_accounts: combinedOnline,
           last_seen: Object.fromEntries(lastSeenTimestamps)
         }));
 
@@ -1088,6 +1109,7 @@ wss.on('connection', (ws) => {
       // If user now has 0 remaining connected sockets, broadcast offline presence to all
       if (!accountSockets.has(state.accountId)) {
         const offlineTimestamp = Math.floor(Date.now() / 1000);
+        rmsOnlineAccounts.delete(state.accountId);
 
         // Record this in memory so any client that connects/refreshes AFTER
         // this moment still gets an accurate "Active X ago" via the next

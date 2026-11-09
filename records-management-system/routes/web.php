@@ -156,9 +156,9 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
             ->update($updateData);
 
         try {
-            $messifyBootstrap = public_path('messify/bootstrap.php');
-            if (is_file($messifyBootstrap)) {
-                require_once $messifyBootstrap;
+            $wsPushFile = public_path('messify/core/WsPush.php');
+            if (is_file($wsPushFile)) {
+                require_once $wsPushFile;
                 if (class_exists('WsPush')) {
                     \WsPush::broadcast('presence', [
                         'account_id' => (int) $accountDetail->account_id,
@@ -1231,9 +1231,9 @@ Route::get('/logout', function () {
 
         // Immediately broadcast offline presence & force-disconnect all Messify WebSocket connections
         try {
-            $messifyBootstrap = public_path('messify/bootstrap.php');
-            if (is_file($messifyBootstrap)) {
-                require_once $messifyBootstrap;
+            $wsPushFile = public_path('messify/core/WsPush.php');
+            if (is_file($wsPushFile)) {
+                require_once $wsPushFile;
                 if (class_exists('WsPush')) {
                     \WsPush::forceDisconnect((int) $user->id, 'logged_out');
                 }

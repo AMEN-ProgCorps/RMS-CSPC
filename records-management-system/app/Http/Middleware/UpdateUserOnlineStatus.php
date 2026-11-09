@@ -130,9 +130,9 @@ class UpdateUserOnlineStatus
 
                 try {
                     DB::table('sessions')->where('user_id', $user->id)->delete();
-                    $messifyBootstrap = public_path('messify/bootstrap.php');
-                    if (is_file($messifyBootstrap)) {
-                        require_once $messifyBootstrap;
+                    $wsPushFile = public_path('messify/core/WsPush.php');
+                    if (is_file($wsPushFile)) {
+                        require_once $wsPushFile;
                         if (class_exists('WsPush')) {
                             \WsPush::forceDisconnect((int) $user->id, 'logged_out');
                         }
@@ -180,9 +180,9 @@ class UpdateUserOnlineStatus
 
                     try {
                         DB::table('sessions')->where('user_id', $user->id)->delete();
-                        $messifyBootstrap = public_path('messify/bootstrap.php');
-                        if (is_file($messifyBootstrap)) {
-                            require_once $messifyBootstrap;
+                        $wsPushFile = public_path('messify/core/WsPush.php');
+                        if (is_file($wsPushFile)) {
+                            require_once $wsPushFile;
                             if (class_exists('WsPush')) {
                                 \WsPush::forceDisconnect((int) $user->id, 'logged_out');
                             }
@@ -200,12 +200,28 @@ class UpdateUserOnlineStatus
             // C. Refresh activity for a real request, or for a poll while the browser
             // still reports the user as active (including inside a preview iframe).
             if (! $isBackgroundPoll || $clientFresh) {
+                $wasOffline = $details && ! $details->is_currently_online;
                 DB::table($accDetailsTbl)
                     ->where('account_id', $user->id)
                     ->update([
                         'is_currently_online' => true,
                         'last_online_time' => $now,
                     ]);
+                if ($wasOffline) {
+                    try {
+                        $wsPushFile = public_path('messify/core/WsPush.php');
+                        if (is_file($wsPushFile)) {
+                            require_once $wsPushFile;
+                            if (class_exists('WsPush')) {
+                                \WsPush::broadcast('presence', [
+                                    'account_id' => (int) $user->id,
+                                    'status'     => 'online',
+                                    'timestamp'  => time(),
+                                ]);
+                            }
+                        }
+                    } catch (\Throwable) {}
+                }
             }
         }
 

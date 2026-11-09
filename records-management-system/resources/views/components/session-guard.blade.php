@@ -72,9 +72,9 @@ new class extends Component {
             } catch (\Throwable) {}
 
             try {
-                $messifyBootstrap = public_path('messify/bootstrap.php');
-                if (is_file($messifyBootstrap)) {
-                    require_once $messifyBootstrap;
+                $wsPushFile = public_path('messify/core/WsPush.php');
+                if (is_file($wsPushFile)) {
+                    require_once $wsPushFile;
                     if (class_exists('WsPush')) {
                         \WsPush::forceDisconnect((int) $user->id, 'logged_out');
                     }

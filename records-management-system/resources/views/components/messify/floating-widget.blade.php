@@ -449,7 +449,6 @@ body.report-widget-open #messify-global-widget {
     let messifyLoadedOnce = false;
 
     function speculatePreloadMessifyIframe() {
-        if (!isTabletOrDesktop()) return;
         const iframe = document.getElementById('messify-iframe');
         if (iframe && (!iframe.src || iframe.src.includes('about:blank') || iframe.src === '')) {
             const loader = document.getElementById('messify-iframe-loader');
@@ -461,8 +460,14 @@ body.report-widget-open #messify-global-widget {
     function closeMessifyIframeSocket() {
         try {
             const iframe = document.getElementById('messify-iframe');
-            if (iframe && iframe.contentWindow && iframe.contentWindow.ws) {
-                iframe.contentWindow.ws.close(1000, 'Logout');
+            if (iframe) {
+                if (iframe.contentWindow) {
+                    iframe.contentWindow.sessionKicked = true;
+                    if (iframe.contentWindow.ws) {
+                        try { iframe.contentWindow.ws.close(1000, 'Logout'); } catch (e) {}
+                    }
+                }
+                iframe.src = 'about:blank';
             }
         } catch (e) {}
     }
@@ -480,7 +485,7 @@ body.report-widget-open #messify-global-widget {
         }
         document.addEventListener('click', function(e) {
             const logoutTrigger = e.target && e.target.closest
-                ? e.target.closest('a[href*="/logout"], button[onclick*="/logout"], .subSystem--logout, form[action*="/logout"] button')
+                ? e.target.closest('a[href*="/logout"], button[onclick*="/logout"], .subSystem--logout, button.logout, [wire\\:click="logout"], [wire\\:click*="logout"], form[action*="/logout"] button')
                 : null;
             if (logoutTrigger) {
                 closeMessifyIframeSocket();
@@ -493,6 +498,7 @@ body.report-widget-open #messify-global-widget {
         if (!isTabletOrDesktop()) {
             isOpen = false;
             setWidgetVisibility(false, false);
+            setTimeout(speculatePreloadMessifyIframe, 400);
             // Still poll unread so system/distribution popouts work on mobile.
             updateUnreadBadge();
             return;

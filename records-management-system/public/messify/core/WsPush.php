@@ -8,6 +8,13 @@
 // a live socket keeps working until its own token happens to lapse.
 // =============================================================================
 
+if (!defined('WS_INTERNAL_PUSH_URL') || !defined('INTERNAL_PUSH_SECRET')) {
+    $dbConfig = __DIR__ . '/../config/db.php';
+    if (is_file($dbConfig)) {
+        require_once $dbConfig;
+    }
+}
+
 class WsPush
 {
     /**

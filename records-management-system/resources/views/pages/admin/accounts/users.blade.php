@@ -328,6 +328,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                     if ($this->selectedUserId !== auth()->id()) {
                         $details->force_logout_at = now();
                         $details->is_currently_online = false;
+                        $details->last_online_time = now();
                         $details->save();
 
                         try {
@@ -359,18 +360,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             });
 
             try {
-                if (file_exists(public_path('messify/core/WsPush.php'))) {
-                    require_once public_path('messify/bootstrap.php');
-                    \WsPush::broadcast('users_changed', [
-                        'account_id' => $this->selectedUserId,
-                        'office_id'  => $this->officeId,
-                    ]);
-                } elseif (file_exists(public_path('messify/core/WsPush.php'))) {
-                    require_once public_path('messify/bootstrap.php');
-                    \WsPush::broadcast('users_changed', [
-                        'account_id' => $this->selectedUserId,
-                        'office_id'  => $this->officeId,
-                    ]);
+                $wsPushFile = public_path('messify/core/WsPush.php');
+                if (is_file($wsPushFile)) {
+                    require_once $wsPushFile;
+                    if (class_exists('WsPush')) {
+                        if ($this->selectedUserId && $this->selectedUserId !== auth()->id()) {
+                            \WsPush::forceDisconnect((int) $this->selectedUserId, 'kicked');
+                        }
+                        \WsPush::broadcast('users_changed', [
+                            'account_id' => $this->selectedUserId,
+                            'office_id'  => $this->officeId,
+                        ]);
+                    }
                 }
             } catch (\Throwable) {}
 
@@ -394,6 +395,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             return;
         }
 
+        $targetUserId = (int) $this->selectedUserId;
+
         try {
             DB::transaction(function () {
                 $user = \App\Models\User::findOrFail($this->selectedUserId);
@@ -403,6 +406,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                 DB::table($accDetailsTbl)->where('account_id', $this->selectedUserId)->update([
                     'force_logout_at' => now(),
                     'is_currently_online' => false,
+                    'last_online_time' => now(),
                 ]);
 
                 try {
@@ -422,12 +426,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             });
 
             try {
-                if (file_exists(public_path('messify/core/WsPush.php'))) {
-                    require_once public_path('messify/bootstrap.php');
-                    \WsPush::broadcast('users_changed', ['account_id' => $this->selectedUserId]);
-                } elseif (file_exists(public_path('messify/core/WsPush.php'))) {
-                    require_once public_path('messify/bootstrap.php');
-                    \WsPush::broadcast('users_changed', ['account_id' => $this->selectedUserId]);
+                $wsPushFile = public_path('messify/core/WsPush.php');
+                if (is_file($wsPushFile)) {
+                    require_once $wsPushFile;
+                    if (class_exists('WsPush')) {
+                        if ($targetUserId > 0) {
+                            \WsPush::forceDisconnect($targetUserId, 'kicked');
+                        }
+                        \WsPush::broadcast('users_changed', ['account_id' => $targetUserId]);
+                    }
                 }
             } catch (\Throwable) {}
         } catch (\Exception $e) {

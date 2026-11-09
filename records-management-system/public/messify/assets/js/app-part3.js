@@ -6125,8 +6125,38 @@
     // as an HTTP fallback for the window where the WS itself is down.
     let sessionKicked = false;
     function showSessionKickedOverlay(reason) {
-      if (sessionKicked) return;
+      if (sessionKicked || window.sessionKicked) return;
       sessionKicked = true;
+      window.sessionKicked = true;
+
+      if (typeof wsReconnectTimer !== 'undefined' && wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
+      }
+      if (typeof stopPollingFallback === 'function') {
+        stopPollingFallback();
+      }
+      if (ws) {
+        ws.onclose = null;
+        ws.onerror = null;
+        try { ws.close(1000, 'Session ended'); } catch (e) {}
+        ws = null;
+      }
+
+      // If running inside the floating widget iframe on Main RMS, unload immediately
+      // so the hidden/embedded iframe never holds or reconnects a WebSocket.
+      if (window.self !== window.top) {
+        try { window.location.replace('about:blank'); } catch (e) {}
+        return;
+      }
+
+      // If the user explicitly logged out of Main RMS, redirect any open Chatify tab
+      // immediately to logout.php so the session is torn down right away.
+      if (reason === 'logged_out') {
+        window.location.replace('logout.php');
+        return;
+      }
+
       const isKicked = reason === 'kicked';
       const title = isKicked ? 'Logged in on another device' : 'Session expired';
       const body  = isKicked

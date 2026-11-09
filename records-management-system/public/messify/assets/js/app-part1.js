@@ -232,6 +232,9 @@
     const WS_MAX_DELAY = 30000;
 
     function connectWebSocket() {
+      if (window.sessionKicked || (typeof sessionKicked !== 'undefined' && sessionKicked)) {
+        return;
+      }
       if (ws) {
         // Prevent onclose trigger loop when closing manually
         ws.onclose = null;
@@ -1563,10 +1566,23 @@
         }
       };
 
-      ws.onclose = function() {
-        console.warn('WebSocket connection lost.');
+      ws.onclose = function(event) {
+        console.warn('WebSocket connection lost.', event ? event.code : '');
         showTypingIndicator('', false);
         ws = null;
+
+        if (window.sessionKicked || (typeof sessionKicked !== 'undefined' && sessionKicked) || (event && (event.code === 4002 || event.code === 4003))) {
+          window.sessionKicked = true;
+          if (wsReconnectTimer) {
+            clearTimeout(wsReconnectTimer);
+            wsReconnectTimer = null;
+          }
+          stopPollingFallback();
+          if (typeof showSessionKickedOverlay === 'function') {
+            showSessionKickedOverlay('logged_out');
+          }
+          return;
+        }
         
         // Start polling fallback immediately when connection is lost
         startPollingFallback();
@@ -2060,17 +2076,23 @@
         }
       }
 
-      // Preserve DB online indicator in db_is_currently_online as a fallback if
-      // the WebSocket snapshot hasn't arrived yet, and sync verified badges.
+      // Preserve DB online indicator in db_is_currently_online and sync verified badges.
+      // If the DB explicitly reports is_currently_online === false (e.g. user logged out
+      // of Main RMS), also clear them from onlineAccountsSet so they never stay stuck online.
       allUsersData.forEach(user => {
         user.db_is_currently_online = Boolean(user.is_currently_online);
         if (!user.is_office_gc && !user.is_custom_gc && user.account_id !== undefined && user.account_id !== null) {
           const uid = Number(user.account_id);
-          if (!Number.isNaN(uid) && uid > 0 && typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) {
-            if (user.is_messify_verified) {
-              verifiedAccountIds.add(uid);
-            } else {
-              verifiedAccountIds.delete(uid);
+          if (!Number.isNaN(uid) && uid > 0) {
+            if (!user.db_is_currently_online) {
+              onlineAccountsSet.delete(uid);
+            }
+            if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) {
+              if (user.is_messify_verified) {
+                verifiedAccountIds.add(uid);
+              } else {
+                verifiedAccountIds.delete(uid);
+              }
             }
           }
         }

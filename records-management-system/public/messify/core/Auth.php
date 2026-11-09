@@ -64,6 +64,12 @@ class Auth
                     if (($_SESSION['office_id'] ?? null) !== $freshOfficeId) {
                         $_SESSION['office_id'] = $freshOfficeId;
                     }
+                    $nowTs = time();
+                    if (!isset($_SESSION['last_presence_db_sync']) || ($nowTs - (int)$_SESSION['last_presence_db_sync']) >= 20) {
+                        $_SESSION['last_presence_db_sync'] = $nowTs;
+                        $upd = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = TRUE, last_online_time = :now WHERE account_id = :id');
+                        $upd->execute([':now' => gmdate('Y-m-d H:i:s'), ':id' => $laravelUserId]);
+                    }
                 } catch (Throwable $e) {
                     // Non-fatal
                 }

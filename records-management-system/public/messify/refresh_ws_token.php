@@ -45,6 +45,8 @@ try {
         $_SESSION['office_id'] = $freshOfficeId;
         session_write_close();
     }
+    $upd = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = TRUE, last_online_time = :now WHERE account_id = :id');
+    $upd->execute([':now' => gmdate('Y-m-d H:i:s'), ':id' => $accountId]);
 } catch (Throwable $e) {}
 
 $ws_expires = time() + 900; // matches index.php's initial bootstrap lifetime

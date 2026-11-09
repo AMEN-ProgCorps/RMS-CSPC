@@ -48,26 +48,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         if (RegisterQueryHelper::isLimitedDcsUser() && RegisterQueryHelper::canAccessOfficeIntake()) {
-            $drfRows = OfficeIntakeHelper::listMyDrf();
-            $dcnRows = OfficeIntakeHelper::listMyDcn();
             $docGroups = OfficeIntakeHelper::officeDocumentGroups(null, false, 'received');
             $docTotal = OfficeIntakeHelper::officeDocumentTotal(null, 'received');
+            $drfPipeline = OfficeIntakeHelper::officeIntakePipelineCounts('drf');
+            $dcnPipeline = OfficeIntakeHelper::officeIntakePipelineCounts('dcn');
+            $recentDrf = OfficeIntakeHelper::listMyDrf([
+                'limit' => 5,
+                'with_submission' => false,
+            ]);
+            $recentDcn = OfficeIntakeHelper::listMyDcn([
+                'limit' => 5,
+                'with_submission' => false,
+            ]);
             $attentionPayload = OfficeIntakeHelper::officeDashboardAttentionPayload();
             $incomingTotal = (int) ($attentionPayload['incoming_total'] ?? 0);
-
-            $pipelineCounts = function ($rows): array {
-                return [
-                    'total' => $rows->count(),
-                    'registered' => $rows->where('pipeline_status', 'registered')->count(),
-                    'correction' => $rows->where('pipeline_status', 'correction')->count(),
-                    'print_ready' => $rows->where('pipeline_status', 'print_ready')->count(),
-                    'printed' => $rows->where('pipeline_status', 'printed')->count(),
-                    'submitted' => $rows->where('pipeline_status', 'submitted')->count(),
-                ];
-            };
-
-            $drfPipeline = $pipelineCounts($drfRows);
-            $dcnPipeline = $pipelineCounts($dcnRows);
 
             return [
                 'isDcsPathPending' => false,
@@ -76,8 +70,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     ?? auth()->user()?->details?->office?->office_code
                     ?? 'Your office',
                 'userDisplayName' => $userDisplayName,
-                'officeDrfCount' => $drfRows->count(),
-                'officeDcnCount' => $dcnRows->count(),
+                'officeDrfCount' => (int) ($drfPipeline['total'] ?? 0),
+                'officeDcnCount' => (int) ($dcnPipeline['total'] ?? 0),
                 'officeDocTotal' => $docTotal,
                 'officeIncomingTotal' => $incomingTotal,
                 'officeDocGroups' => $docGroups,
@@ -86,8 +80,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'officeAttention' => collect($attentionPayload['items'] ?? [])->map(fn ($item) => (object) $item)->values(),
                 'officeAttentionTotal' => (int) ($attentionPayload['total'] ?? 0),
                 'officeAttentionUrl' => route('dcs.api.office-intake.attention', absolute: false),
-                'recentDrf' => $drfRows->take(5)->values(),
-                'recentDcn' => $dcnRows->take(5)->values(),
+                'recentDrf' => $recentDrf->values(),
+                'recentDcn' => $recentDcn->values(),
                 'headerDate' => $headerDate,
                 'headerTime' => $headerTime,
                 'stats' => [],
@@ -1203,6 +1197,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         },
         async refreshAttention() {
             if (!this.attentionUrl || this._attentionBusy) return;
+            if (typeof document !== 'undefined' && document.hidden) return;
             this._attentionBusy = true;
             try {
                 const res = await fetch(this.attentionUrl, {
@@ -1229,12 +1224,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             this._timer = setInterval(() => this.tick(), 1000);
             if (this.attentionUrl) {
                 this.refreshAttention();
-                this._attentionTimer = setInterval(() => this.refreshAttention(), 2500);
+                this._attentionTimer = setInterval(() => this.refreshAttention(), 12000);
+                this._attentionVisibility = () => {
+                    if (!document.hidden) this.refreshAttention();
+                };
+                document.addEventListener('visibilitychange', this._attentionVisibility);
             }
         },
         destroy() {
             if (this._timer) clearInterval(this._timer);
             if (this._attentionTimer) clearInterval(this._attentionTimer);
+            if (this._attentionVisibility) {
+                document.removeEventListener('visibilitychange', this._attentionVisibility);
+            }
         },
     }));
 

@@ -250,122 +250,359 @@ class OfficeIntakeHelper
         return redirect()->back()->with('error', self::IMMUTABLE_MESSAGE);
     }
 
-    /** @return \Illuminate\Support\Collection<int, object> */
-    public static function listMyDrf()
+    /**
+     * @param  array{limit?: int|null, with_submission?: bool, action_only?: bool}  $options
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    public static function listMyDrf(array $options = [])
     {
-        if (! Schema::hasTable('dcs_office_intake_drf')) {
-            return collect();
-        }
-        self::ensureOfficePrintedColumns('dcs_office_intake_drf');
-
-        $cols = [
-            'drf.id',
-            'drf.drf_no',
-            'drf.drf_date',
-            'drf.doc_title',
-            'drf.created_at',
-            'drf.created_by',
-        ];
-        if (Schema::hasColumn('dcs_office_intake_drf', 'originator_name')) {
-            $cols[] = 'drf.originator_name';
-        }
-        if (Schema::hasColumn('dcs_office_intake_drf', 'rfio_received_at')) {
-            $cols[] = 'drf.rfio_received_at';
-        }
-        if (Schema::hasColumn('dcs_office_intake_drf', 'rfio_registered_at')) {
-            $cols[] = 'drf.rfio_registered_at';
-        }
-        if (Schema::hasColumn('dcs_office_intake_drf', 'rfio_claimed_at')) {
-            $cols[] = 'drf.rfio_claimed_at';
-        }
-        if (Schema::hasColumn('dcs_office_intake_drf', 'registered_request_id')) {
-            $cols[] = 'drf.registered_request_id';
-        }
-        if (Schema::hasColumn('dcs_office_intake_drf', 'rfio_print_notified_at')) {
-            $cols[] = 'drf.rfio_print_notified_at';
-        }
-        if (Schema::hasColumn('dcs_office_intake_drf', 'office_printed_at')) {
-            $cols[] = 'drf.office_printed_at';
-        }
-        if (Schema::hasColumn('dcs_office_intake_drf', 'edit_unlocked_at')) {
-            $cols[] = 'drf.edit_unlocked_at';
-        }
-        if (Schema::hasColumn('dcs_office_intake_drf', 'edit_unlock_reason')) {
-            $cols[] = 'drf.edit_unlock_reason';
-        }
-
-        self::reconcileClaimedIntakesWithRegistrations();
-
-        $query = DB::table('dcs_office_intake_drf as drf');
-        self::applyOwnOfficeIntakeScope($query, 'drf', 'drf');
-
-        $rows = $query->orderByDesc('drf.id')->get($cols);
-
-        return $rows->map(function ($row) {
-            $meta = self::intakeRegistrationMeta('drf', $row);
-            $row->is_registered = $meta['is_registered'];
-            $row->registered_doc_no = $meta['doc_no'];
-            $row->registered_doc_title = $meta['doc_title'];
-            $submission = self::intakeSubmissionMeta($row, 'drf', (int) $row->id);
-            $row->submitting_office = $submission['office'];
-            $row->submitter_name = $submission['submitter'];
-            $row->pipeline_status = self::intakePipelineStatus($row);
-
-            return $row;
-        });
+        return self::loadMyIntakeRows('drf', $options);
     }
 
-    /** @return \Illuminate\Support\Collection<int, object> */
-    public static function listMyDcn()
+    /**
+     * @param  array{limit?: int|null, with_submission?: bool, action_only?: bool}  $options
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    public static function listMyDcn(array $options = [])
     {
-        if (! Schema::hasTable('dcs_office_intake_dcn')) {
+        return self::loadMyIntakeRows('dcn', $options);
+    }
+
+    /** @return \Illuminate\Contracts\Pagination\LengthAwarePaginator */
+    public static function paginateMyDrf(int $perPage = 25, bool $withSubmissionMeta = false)
+    {
+        return self::paginateMyIntakeRows('drf', $perPage, $withSubmissionMeta);
+    }
+
+    /** @return \Illuminate\Contracts\Pagination\LengthAwarePaginator */
+    public static function paginateMyDcn(int $perPage = 25, bool $withSubmissionMeta = false)
+    {
+        return self::paginateMyIntakeRows('dcn', $perPage, $withSubmissionMeta);
+    }
+
+    /**
+     * Dashboard pipeline chips without loading full list UIs.
+     *
+     * @return array{total: int, registered: int, correction: int, print_ready: int, printed: int, submitted: int}
+     */
+    public static function officeIntakePipelineCounts(string $type): array
+    {
+        $type = strtolower($type) === 'dcn' ? 'dcn' : 'drf';
+        $userId = (int) auth()->id();
+
+        return self::rememberOfficeInventory(
+            'pipeline.'.$type.'.'.$userId,
+            function () use ($type) {
+                $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+                $alias = $type;
+                $empty = [
+                    'total' => 0,
+                    'registered' => 0,
+                    'correction' => 0,
+                    'print_ready' => 0,
+                    'printed' => 0,
+                    'submitted' => 0,
+                ];
+                if (! Schema::hasTable($table)) {
+                    return $empty;
+                }
+
+                self::ensureOfficePrintedColumns($table);
+                self::reconcileClaimedIntakesWithRegistrations();
+
+                $cols = [$alias.'.id', $alias.'.created_by'];
+                foreach ([
+                    'registered_request_id',
+                    'rfio_registered_at',
+                    'edit_unlocked_at',
+                    'rfio_print_notified_at',
+                    'office_printed_at',
+                ] as $column) {
+                    if (Schema::hasColumn($table, $column)) {
+                        $cols[] = $alias.'.'.$column;
+                    }
+                }
+
+                $query = DB::table($table.' as '.$alias);
+                self::applyOwnOfficeIntakeScope($query, $alias, $type);
+                $rows = $query->get($cols);
+                $rows = self::enrichIntakeListRows($type, $rows, false);
+
+                $counts = $empty;
+                $counts['total'] = $rows->count();
+                foreach ($rows as $row) {
+                    $status = (string) ($row->pipeline_status ?? 'submitted');
+                    if (isset($counts[$status])) {
+                        $counts[$status]++;
+                    } else {
+                        $counts['submitted']++;
+                    }
+                }
+
+                return $counts;
+            },
+            20
+        );
+    }
+
+    /**
+     * @param  array{limit?: int|null, with_submission?: bool, action_only?: bool}  $options
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    private static function loadMyIntakeRows(string $type, array $options = [])
+    {
+        $type = strtolower($type) === 'dcn' ? 'dcn' : 'drf';
+        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        $alias = $type;
+        if (! Schema::hasTable($table)) {
             return collect();
         }
-        self::ensureOfficePrintedColumns('dcs_office_intake_dcn');
 
-        $cols = array_values(array_filter([
-            'dcn.id',
-            'dcn.dcn_no',
-            'dcn.dcn_date',
-            Schema::hasColumn('dcs_office_intake_dcn', 'originator_name') ? 'dcn.originator_name' : null,
-            Schema::hasColumn('dcs_office_intake_dcn', 'document_title') ? 'dcn.document_title' : null,
-            Schema::hasColumn('dcs_office_intake_dcn', 'document_no') ? 'dcn.document_no' : null,
-            'dcn.created_at',
-            'dcn.created_by',
-            Schema::hasColumn('dcs_office_intake_dcn', 'rfio_received_at') ? 'dcn.rfio_received_at' : null,
-            Schema::hasColumn('dcs_office_intake_dcn', 'rfio_registered_at') ? 'dcn.rfio_registered_at' : null,
-            Schema::hasColumn('dcs_office_intake_dcn', 'rfio_claimed_at') ? 'dcn.rfio_claimed_at' : null,
-            Schema::hasColumn('dcs_office_intake_dcn', 'registered_request_id') ? 'dcn.registered_request_id' : null,
-            Schema::hasColumn('dcs_office_intake_dcn', 'expects_drf') ? 'dcn.expects_drf' : null,
-            Schema::hasColumn('dcs_office_intake_dcn', 'rfio_print_notified_at') ? 'dcn.rfio_print_notified_at' : null,
-            Schema::hasColumn('dcs_office_intake_dcn', 'office_printed_at') ? 'dcn.office_printed_at' : null,
-            Schema::hasColumn('dcs_office_intake_dcn', 'edit_unlocked_at') ? 'dcn.edit_unlocked_at' : null,
-            Schema::hasColumn('dcs_office_intake_dcn', 'edit_unlock_reason') ? 'dcn.edit_unlock_reason' : null,
-        ]));
-
+        self::ensureOfficePrintedColumns($table);
         self::reconcileClaimedIntakesWithRegistrations();
 
-        $query = DB::table('dcs_office_intake_dcn as dcn');
-        self::applyOwnOfficeIntakeScope($query, 'dcn', 'dcn');
+        $query = DB::table($table.' as '.$alias);
+        self::applyOwnOfficeIntakeScope($query, $alias, $type);
+        self::applyIntakeActionOnlyFilter($query, $alias, $table, ! empty($options['action_only']));
 
-        $rows = $query->orderByDesc('dcn.id')->get($cols);
-        $linkedDrfIds = self::linkedDrfIdsForOfficeDcns(
-            $rows->pluck('id')->map(fn ($id) => (int) $id)->all()
+        $limit = isset($options['limit']) ? (int) $options['limit'] : null;
+        if ($limit !== null && $limit > 0) {
+            $query->limit($limit);
+        }
+
+        $rows = $query->orderByDesc($alias.'.id')->get(self::intakeListColumns($type));
+
+        return self::enrichIntakeListRows(
+            $type,
+            $rows,
+            array_key_exists('with_submission', $options) ? (bool) $options['with_submission'] : true
         );
+    }
 
-        return $rows->map(function ($row) use ($linkedDrfIds) {
-            $meta = self::intakeRegistrationMeta('dcn', $row);
-            $row->is_registered = $meta['is_registered'];
-            $row->registered_doc_no = $meta['doc_no'];
-            $row->registered_doc_title = $meta['doc_title'];
-            $submission = self::intakeSubmissionMeta($row, 'dcn', (int) $row->id);
-            $row->submitting_office = $submission['office'];
-            $row->submitter_name = $submission['submitter'];
-            $row->linked_drf_id = $linkedDrfIds[(int) $row->id] ?? null;
+    /** @return \Illuminate\Contracts\Pagination\LengthAwarePaginator */
+    private static function paginateMyIntakeRows(string $type, int $perPage = 25, bool $withSubmissionMeta = false)
+    {
+        $type = strtolower($type) === 'dcn' ? 'dcn' : 'drf';
+        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        $alias = $type;
+        $perPage = max(10, min(100, $perPage));
+
+        if (! Schema::hasTable($table)) {
+            return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage);
+        }
+
+        self::ensureOfficePrintedColumns($table);
+        self::reconcileClaimedIntakesWithRegistrations();
+
+        $query = DB::table($table.' as '.$alias);
+        self::applyOwnOfficeIntakeScope($query, $alias, $type);
+        $paginator = $query->orderByDesc($alias.'.id')->paginate($perPage, self::intakeListColumns($type));
+        $enriched = self::enrichIntakeListRows($type, collect($paginator->items()), $withSubmissionMeta);
+        $paginator->setCollection($enriched);
+
+        return $paginator;
+    }
+
+    /** @return list<string> */
+    private static function intakeListColumns(string $type): array
+    {
+        $type = strtolower($type) === 'dcn' ? 'dcn' : 'drf';
+        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        $alias = $type;
+
+        if ($type === 'drf') {
+            $cols = [
+                'drf.id',
+                'drf.drf_no',
+                'drf.drf_date',
+                'drf.doc_title',
+                'drf.created_at',
+                'drf.created_by',
+            ];
+            if (Schema::hasColumn($table, 'originator_name')) {
+                $cols[] = 'drf.originator_name';
+            }
+        } else {
+            $cols = array_values(array_filter([
+                'dcn.id',
+                'dcn.dcn_no',
+                'dcn.dcn_date',
+                Schema::hasColumn($table, 'originator_name') ? 'dcn.originator_name' : null,
+                Schema::hasColumn($table, 'document_title') ? 'dcn.document_title' : null,
+                Schema::hasColumn($table, 'document_no') ? 'dcn.document_no' : null,
+                'dcn.created_at',
+                'dcn.created_by',
+                Schema::hasColumn($table, 'expects_drf') ? 'dcn.expects_drf' : null,
+            ]));
+        }
+
+        foreach ([
+            'rfio_received_at',
+            'rfio_registered_at',
+            'rfio_claimed_at',
+            'registered_request_id',
+            'rfio_print_notified_at',
+            'office_printed_at',
+            'edit_unlocked_at',
+            'edit_unlock_reason',
+        ] as $column) {
+            if (Schema::hasColumn($table, $column)) {
+                $cols[] = $alias.'.'.$column;
+            }
+        }
+
+        return $cols;
+    }
+
+    private static function applyIntakeActionOnlyFilter($query, string $alias, string $table, bool $actionOnly): void
+    {
+        if (! $actionOnly) {
+            return;
+        }
+
+        $query->where(function ($q) use ($alias, $table) {
+            $hasUnlock = Schema::hasColumn($table, 'edit_unlocked_at');
+            $hasPrint = Schema::hasColumn($table, 'rfio_print_notified_at');
+            $hasPrinted = Schema::hasColumn($table, 'office_printed_at');
+
+            if ($hasUnlock) {
+                $q->whereNotNull($alias.'.edit_unlocked_at');
+            }
+            if ($hasPrint) {
+                $q->orWhere(function ($printQ) use ($alias, $hasPrinted) {
+                    $printQ->whereNotNull($alias.'.rfio_print_notified_at');
+                    if ($hasPrinted) {
+                        $printQ->whereNull($alias.'.office_printed_at');
+                    }
+                });
+            }
+            if (! $hasUnlock && ! $hasPrint) {
+                $q->whereRaw('1 = 0');
+            }
+        });
+
+        // Skip finished registrations so attention stays small.
+        if (Schema::hasColumn($table, 'rfio_registered_at')) {
+            $query->whereNull($alias.'.rfio_registered_at');
+        }
+    }
+
+    /**
+     * Batch-enrich intake list rows (registration + optional submission meta).
+     *
+     * @param  \Illuminate\Support\Collection<int, object>  $rows
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    private static function enrichIntakeListRows(string $type, $rows, bool $withSubmissionMeta = true)
+    {
+        $type = strtolower($type) === 'dcn' ? 'dcn' : 'drf';
+        if ($rows->isEmpty()) {
+            return collect();
+        }
+
+        $ids = $rows->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $requestIds = $rows
+            ->pluck('registered_request_id')
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        $draftByRequest = [];
+        if ($requestIds !== [] && Schema::hasTable('dcs_document_requests') && Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $draftByRequest = DB::table('dcs_document_requests')
+                ->whereIn('id', $requestIds)
+                ->pluck('is_draft', 'id')
+                ->map(fn ($value) => (bool) $value)
+                ->all();
+        }
+
+        $mlByRequest = [];
+        if ($requestIds !== [] && Schema::hasTable('dcs_masterlist_registration')) {
+            $mlRows = DB::table('dcs_masterlist_registration')
+                ->whereIn('request_id', $requestIds)
+                ->orderByDesc('id')
+                ->get(['request_id', 'doc_no', 'doc_title']);
+            foreach ($mlRows as $ml) {
+                $rid = (int) $ml->request_id;
+                if (! isset($mlByRequest[$rid])) {
+                    $mlByRequest[$rid] = $ml;
+                }
+            }
+        }
+
+        $officesByParent = [];
+        $people = collect();
+        if ($withSubmissionMeta) {
+            $userIds = $rows->pluck('created_by')->map(fn ($id) => (int) $id)->filter()->unique()->values()->all();
+            $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+            $accDetails = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+            $linkTable = $type === 'dcn' ? self::DCN_OFFICES_TABLE : self::DRF_OFFICES_TABLE;
+            $linkFk = $type === 'dcn' ? 'office_intake_dcn_id' : 'office_intake_drf_id';
+
+            if (Schema::hasTable($linkTable) && $ids !== []) {
+                $officeRows = DB::table($linkTable.' as d')
+                    ->leftJoin($officeTable.' as o', 'o.id', '=', 'd.office_id')
+                    ->whereIn('d.'.$linkFk, $ids)
+                    ->orderBy('o.office_name')
+                    ->get(['d.'.$linkFk.' as parent_id', 'o.office_name', 'o.office_code']);
+                foreach ($officeRows as $office) {
+                    $label = trim((string) ($office->office_name ?? '')) ?: trim((string) ($office->office_code ?? ''));
+                    if ($label === '') {
+                        continue;
+                    }
+                    $officesByParent[(int) $office->parent_id][$label] = $label;
+                }
+            }
+
+            if ($userIds !== []) {
+                $people = DB::table($accDetails.' as ad')
+                    ->leftJoin($officeTable.' as o', 'o.id', '=', 'ad.office_id')
+                    ->whereIn('ad.account_id', $userIds)
+                    ->get(['ad.account_id', 'ad.first_name', 'ad.last_name', 'o.office_name', 'o.office_code'])
+                    ->keyBy(fn ($row) => (int) $row->account_id);
+            }
+        }
+
+        $linkedDrfIds = $type === 'dcn' ? self::linkedDrfIdsForOfficeDcns($ids) : [];
+
+        return $rows->map(function ($row) use ($type, $draftByRequest, $mlByRequest, $withSubmissionMeta, $officesByParent, $people, $linkedDrfIds) {
+            $registeredAt = $row->rfio_registered_at ?? null;
+            $registeredRequestId = (int) ($row->registered_request_id ?? 0);
+            $isDraft = $registeredRequestId > 0 && ! empty($draftByRequest[$registeredRequestId]);
+            $isRegistered = (! empty($registeredAt) || $registeredRequestId > 0) && ! $isDraft;
+
+            $ml = $isRegistered && $registeredRequestId > 0 ? ($mlByRequest[$registeredRequestId] ?? null) : null;
+            $row->is_registered = $isRegistered;
+            $row->registered_doc_no = $ml ? trim((string) ($ml->doc_no ?? '')) : '';
+            $row->registered_doc_title = $ml ? trim((string) ($ml->doc_title ?? '')) : '';
+
+            if ($withSubmissionMeta) {
+                $id = (int) $row->id;
+                $person = $people->get((int) ($row->created_by ?? 0));
+                $office = implode(', ', array_values($officesByParent[$id] ?? []));
+                if ($office === '' && $person) {
+                    $office = trim((string) ($person->office_name ?? '')) ?: trim((string) ($person->office_code ?? ''));
+                }
+                $submitter = $person
+                    ? trim(trim((string) ($person->first_name ?? '')).' '.trim((string) ($person->last_name ?? '')))
+                    : '';
+                $row->submitting_office = $office !== '' ? $office : 'Unknown office';
+                $row->submitter_name = $submitter !== '' ? $submitter : 'Unknown submitter';
+            } else {
+                $row->submitting_office = $row->submitting_office ?? '';
+                $row->submitter_name = $row->submitter_name ?? '';
+            }
+
+            if ($type === 'dcn') {
+                $row->linked_drf_id = $linkedDrfIds[(int) $row->id] ?? null;
+            }
+
             $row->pipeline_status = self::intakePipelineStatus($row);
 
             return $row;
-        });
+        })->values();
     }
 
     /**
@@ -443,6 +680,7 @@ class OfficeIntakeHelper
             RegisterPersistHelper::logAdminChange(
                 'Office printed '.strtoupper($type).' #'.$id
             );
+            self::bumpOfficeInventoryCache();
         }
 
         return [
@@ -482,6 +720,8 @@ class OfficeIntakeHelper
     /**
      * Office dashboard "Needs your action" payload (shared by page + polling API).
      *
+     * @param  \Illuminate\Support\Collection<int, object>|null  $drfRows
+     * @param  \Illuminate\Support\Collection<int, object>|null  $dcnRows
      * @return array{
      *   total: int,
      *   incoming_total: int,
@@ -495,12 +735,46 @@ class OfficeIntakeHelper
      *   }>
      * }
      */
-    public static function officeDashboardAttentionPayload(): array
+    public static function officeDashboardAttentionPayload($drfRows = null, $dcnRows = null): array
     {
         self::assertCanAccessIntake();
+        $userId = (int) auth()->id();
 
-        $drfRows = self::listMyDrf();
-        $dcnRows = self::listMyDcn();
+        // When callers already have rows, build immediately (no second cache key miss).
+        if ($drfRows !== null || $dcnRows !== null) {
+            return self::buildOfficeDashboardAttentionPayload(
+                $drfRows ?? collect(),
+                $dcnRows ?? collect()
+            );
+        }
+
+        return self::rememberOfficeInventory(
+            'attention.'.$userId,
+            function () {
+                $drfRows = self::loadMyIntakeRows('drf', [
+                    'action_only' => true,
+                    'with_submission' => false,
+                    'limit' => 40,
+                ]);
+                $dcnRows = self::loadMyIntakeRows('dcn', [
+                    'action_only' => true,
+                    'with_submission' => false,
+                    'limit' => 40,
+                ]);
+
+                return self::buildOfficeDashboardAttentionPayload($drfRows, $dcnRows);
+            },
+            8
+        );
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, object>  $drfRows
+     * @param  \Illuminate\Support\Collection<int, object>  $dcnRows
+     * @return array{total: int, incoming_total: int, items: list<array<string, mixed>>}
+     */
+    private static function buildOfficeDashboardAttentionPayload($drfRows, $dcnRows): array
+    {
         $incomingBreakdown = self::officeIncomingAttentionBreakdown();
         $incomingPending = (int) ($incomingBreakdown['pending'] ?? 0);
         $incomingAppraisable = (int) ($incomingBreakdown['appraisable'] ?? 0);
@@ -2170,6 +2444,7 @@ class OfficeIntakeHelper
         RegisterPersistHelper::logAdminChange(
             'Created office DRF #' . $id . ': ' . $data['drfTitle']
         );
+        self::bumpOfficeInventoryCache();
 
         \App\Services\DcsAuditService::log(
             'office.drf.create',
@@ -2423,6 +2698,7 @@ class OfficeIntakeHelper
             . ($docNo !== '' ? ' for ' . $docNo : '')
             . ($docTitle !== '' ? ': ' . $docTitle : '')
         );
+        self::bumpOfficeInventoryCache();
 
         \App\Services\DcsAuditService::log(
             'office.dcn.create',
@@ -2581,6 +2857,7 @@ class OfficeIntakeHelper
         RegisterPersistHelper::logAdminChange(
             'Updated office DRF #' . $id . ': ' . (string) ($data['drfTitle'] ?? '')
         );
+        self::bumpOfficeInventoryCache();
         \App\Services\DcsAuditService::log(
             'office.drf.update',
             'review_intake',
@@ -2707,6 +2984,7 @@ class OfficeIntakeHelper
             . ($docNo !== '' ? ' for ' . $docNo : '')
             . ($docTitle !== '' ? ': ' . $docTitle : '')
         );
+        self::bumpOfficeInventoryCache();
         \App\Services\DcsAuditService::log(
             'office.dcn.update',
             'review_intake',
@@ -5647,6 +5925,7 @@ class OfficeIntakeHelper
             'edit_unlock_reason' => mb_substr($reason, 0, 1000),
             'updated_at' => $now,
         ]);
+        self::bumpOfficeInventoryCache();
 
         $formLabel = $type === 'dcn' ? 'Document Change Notice' : 'Document Request Form';
         $title = trim((string) ($type === 'dcn' ? ($record->document_title ?? '') : ($record->doc_title ?? '')));
@@ -5704,6 +5983,7 @@ class OfficeIntakeHelper
                 $update['office_printed_by'] = null;
             }
             DB::table($table)->where('id', $id)->update($update);
+            self::bumpOfficeInventoryCache();
         }
 
         $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
@@ -6822,35 +7102,43 @@ class OfficeIntakeHelper
      */
     public static function officeIncomingAttentionBreakdown(?int $officeId = null): array
     {
-        $pending = self::officeDocumentTotal($officeId, 'pending');
-        $appraisable = 0;
-        $perms = auth()->user()?->permissions;
-        if ($perms && ($perms->is_sadm || $perms->can_access_rdp)) {
-            // Match Incoming page: only count held docs that have an RDP appraisal link.
-            $heldRows = self::listOfficeDocuments('all', $officeId, 'received_for_appraisal');
-            if ($heldRows !== []) {
-                $urls = \App\Services\RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
-                    RegisterQueryHelper::currentOfficeCode(),
-                    $heldRows
-                );
-                foreach ($heldRows as $row) {
-                    $requestId = (int) ($row['request_id'] ?? 0);
-                    $docNo = trim((string) ($row['doc_no'] ?? ''));
-                    $url = ($docNo !== '' ? ($urls[$docNo] ?? null) : null)
-                        ?? ($urls['request:'.$requestId] ?? null)
-                        ?? ($urls[\App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo)] ?? null);
-                    if ($url) {
-                        $appraisable++;
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+
+        return self::rememberOfficeInventory(
+            'incoming.attention.'.(int) ($officeId ?? 0),
+            function () use ($officeId) {
+                $pending = self::officeDocumentTotal($officeId, 'pending');
+                $appraisable = 0;
+                $perms = auth()->user()?->permissions;
+                if ($perms && ($perms->is_sadm || $perms->can_access_rdp)) {
+                    // Match Incoming page: only count held docs that have an RDP appraisal link.
+                    $heldRows = self::listOfficeDocuments('all', $officeId, 'received_for_appraisal');
+                    if ($heldRows !== []) {
+                        $urls = \App\Services\RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
+                            RegisterQueryHelper::currentOfficeCode(),
+                            $heldRows
+                        );
+                        foreach ($heldRows as $row) {
+                            $requestId = (int) ($row['request_id'] ?? 0);
+                            $docNo = trim((string) ($row['doc_no'] ?? ''));
+                            $url = ($docNo !== '' ? ($urls[$docNo] ?? null) : null)
+                                ?? ($urls['request:'.$requestId] ?? null)
+                                ?? ($urls[\App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo)] ?? null);
+                            if ($url) {
+                                $appraisable++;
+                            }
+                        }
                     }
                 }
-            }
-        }
 
-        return [
-            'pending' => $pending,
-            'appraisable' => $appraisable,
-            'total' => $pending + $appraisable,
-        ];
+                return [
+                    'pending' => $pending,
+                    'appraisable' => $appraisable,
+                    'total' => $pending + $appraisable,
+                ];
+            },
+            15
+        );
     }
 
     public static function officeIncomingAttentionTotal(?int $officeId = null): int

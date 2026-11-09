@@ -9,8 +9,11 @@ use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
+use Livewire\WithPagination;
 
 new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Component {
+    use WithPagination;
+
     public function mount(): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
@@ -23,7 +26,7 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
     public function with(): array
     {
         return [
-            'rows' => OfficeIntakeHelper::listMyDcn(),
+            'rows' => OfficeIntakeHelper::paginateMyDcn(25, false),
             'isLimited' => RegisterQueryHelper::isLimitedDcsUser(),
             'isReviewer' => false,
         ];
@@ -115,6 +118,18 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                     @endforelse
                 </tbody>
             </table>
+            @if(method_exists($rows, 'hasPages') && $rows->hasPages())
+                <div class="ofi-pagination" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 4px 4px;flex-wrap:wrap;">
+                    <span style="font-size:12.5px;color:#64748b;">
+                        Showing {{ $rows->firstItem() }}–{{ $rows->lastItem() }} of {{ $rows->total() }}
+                    </span>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <button type="button" class="ofi-btn" wire:click="previousPage" @disabled($rows->onFirstPage())>Previous</button>
+                        <span style="font-size:12.5px;color:#475569;">Page {{ $rows->currentPage() }} / {{ $rows->lastPage() }}</span>
+                        <button type="button" class="ofi-btn" wire:click="nextPage" @disabled(! $rows->hasMorePages())>Next</button>
+                    </div>
+                </div>
+            @endif
         </div>
     </div>
 </div>

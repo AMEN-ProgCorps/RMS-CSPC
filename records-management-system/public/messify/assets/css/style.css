@@ -3017,6 +3017,14 @@
         transform: translate3d(0, 0, 0);
       }
 
+      .main-wrapper:has(.app-container.no-chat-selected) .sidebar {
+        transform: translate3d(0, 0, 0);
+      }
+
+      #noChatSelectedState {
+        display: none !important;
+      }
+
       .app-container {
         height: 100%;
         height: 100dvh;

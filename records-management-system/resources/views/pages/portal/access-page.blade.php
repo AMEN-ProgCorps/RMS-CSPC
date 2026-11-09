@@ -131,12 +131,39 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
     {
         $user = Auth::user();
         if ($user) {
-            \Illuminate\Support\Facades\DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details')
-                ->where('account_id', $user->id)
-                ->update([
-                    'is_currently_online' => false,
-                    'last_online_time'    => now(),
+            $secLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+            $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+            try {
+                \Illuminate\Support\Facades\DB::table($secLogsTbl)->insert([
+                    'status'      => 3, // Logout
+                    'account'     => $user->id,
+                    'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
+                    'time'        => now(),
                 ]);
+            } catch (\Throwable) {}
+
+            try {
+                \Illuminate\Support\Facades\DB::table($accDetailsTbl)
+                    ->where('account_id', $user->id)
+                    ->update([
+                        'is_currently_online' => false,
+                        'last_online_time'    => now(),
+                    ]);
+                \Illuminate\Support\Facades\DB::table('sessions')->where('user_id', $user->id)->delete();
+            } catch (\Throwable) {}
+
+            try {
+                $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                    ? public_path('chatify/core/WsPush.php')
+                    : public_path('messify/core/WsPush.php');
+                if (is_file($wsPushFile)) {
+                    require_once $wsPushFile;
+                    if (class_exists('WsPush')) {
+                        \WsPush::forceDisconnect((int) $user->id, 'logged_out');
+                    }
+                }
+            } catch (\Throwable) {}
         }
 
         Auth::logout();
@@ -159,7 +186,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         $rdpActive = in_array('Records Disposition Program', $activeSubsystems);
         $dcsActive = in_array('Document Control System', $activeSubsystems);
         $adminActive = in_array('Admin Console', $activeSubsystems);
-        $messifyActive = in_array('Messify', $activeSubsystems);
+        $messifyActive = in_array('Messify', $activeSubsystems) || in_array('Chatify', $activeSubsystems);
 
         // Personal / Left-side subsystems
         $personalItems = [];
@@ -175,10 +202,10 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             $personalItems[] = [
                 'id' => 'messify',
                 'route' => route('open-chat'),
-                'label' => 'Messify',
+                'label' => 'Chatify',
                 'target' => '_blank',
                 'is_desktop_only' => false,
-                'unread_count' => 0, // Exception: Messify has its own floating widget
+                'unread_count' => 0, // Exception: Chatify has its own floating widget
             ];
         }
         if ($perms?->is_sadm && $adminActive) {
@@ -226,7 +253,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         }
 
         // Dynamic subsystems in DB
-        $knownNames = ['Document Tracking System', 'Records Disposition Program', 'Document Control System', 'Admin Console', 'Messify', 'Profile Manager'];
+        $knownNames = ['Document Tracking System', 'Records Disposition Program', 'Document Control System', 'Admin Console', 'Messify', 'Chatify', 'Profile Manager'];
         $extraSubsystems = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
             ->where('is_active', true)
             ->whereNotIn('subsystem_name', $knownNames)

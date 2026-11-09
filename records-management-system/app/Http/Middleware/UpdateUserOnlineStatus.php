@@ -99,7 +99,7 @@ class UpdateUserOnlineStatus
                     ], 401);
                 }
 
-                if ($request->is('open-chat', 'messify*')) {
+                if ($request->is('open-chat', 'messify*', 'chatify*')) {
                     return response('<!DOCTYPE html><html><head><script>if(window.top){window.top.location.href="' . route('login') . '";}</script></head><body></body></html>', 401)
                         ->header('Content-Type', 'text/html');
                 }
@@ -125,7 +125,21 @@ class UpdateUserOnlineStatus
                     ->update([
                         'force_logout_at' => null,
                         'is_currently_online' => false,
+                        'last_online_time' => $now,
                     ]);
+
+                try {
+                    DB::table('sessions')->where('user_id', $user->id)->delete();
+                    $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                        ? public_path('chatify/core/WsPush.php')
+                        : public_path('messify/core/WsPush.php');
+                    if (is_file($wsPushFile)) {
+                        require_once $wsPushFile;
+                        if (class_exists('WsPush')) {
+                            \WsPush::forceDisconnect((int) $user->id, 'logged_out');
+                        }
+                    }
+                } catch (\Throwable) {}
 
                 Auth::logout();
                 $request->session()->invalidate();
@@ -161,7 +175,23 @@ class UpdateUserOnlineStatus
 
                     DB::table($accDetailsTbl)
                         ->where('account_id', $user->id)
-                        ->update(['is_currently_online' => false]);
+                        ->update([
+                            'is_currently_online' => false,
+                            'last_online_time' => $now,
+                        ]);
+
+                    try {
+                        DB::table('sessions')->where('user_id', $user->id)->delete();
+                        $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                        ? public_path('chatify/core/WsPush.php')
+                        : public_path('messify/core/WsPush.php');
+                        if (is_file($wsPushFile)) {
+                            require_once $wsPushFile;
+                            if (class_exists('WsPush')) {
+                                \WsPush::forceDisconnect((int) $user->id, 'logged_out');
+                            }
+                        }
+                    } catch (\Throwable) {}
 
                     Auth::logout();
                     $request->session()->invalidate();
@@ -174,12 +204,30 @@ class UpdateUserOnlineStatus
             // C. Refresh activity for a real request, or for a poll while the browser
             // still reports the user as active (including inside a preview iframe).
             if (! $isBackgroundPoll || $clientFresh) {
+                $wasOffline = $details && ! $details->is_currently_online;
                 DB::table($accDetailsTbl)
                     ->where('account_id', $user->id)
                     ->update([
                         'is_currently_online' => true,
                         'last_online_time' => $now,
                     ]);
+                if ($wasOffline) {
+                    try {
+                        $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                        ? public_path('chatify/core/WsPush.php')
+                        : public_path('messify/core/WsPush.php');
+                        if (is_file($wsPushFile)) {
+                            require_once $wsPushFile;
+                            if (class_exists('WsPush')) {
+                                \WsPush::broadcast('presence', [
+                                    'account_id' => (int) $user->id,
+                                    'status'     => 'online',
+                                    'timestamp'  => time(),
+                                ]);
+                            }
+                        }
+                    } catch (\Throwable) {}
+                }
             }
         }
 

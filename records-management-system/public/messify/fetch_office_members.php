@@ -27,6 +27,7 @@ if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret)
 }
 
 header('Content-Type: application/json');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
 $officeId = isset($_GET['office_id']) ? (int) $_GET['office_id'] : 0;
 $convId   = trim($_GET['conv_id'] ?? '');
@@ -108,7 +109,7 @@ try {
         if ($fullName === '') {
             $fullName = $row['email'] ?? ('User #' . $row['account_id']);
         }
-        $isSadm = (!empty($row['is_sadm']) || (int)$row['account_id'] === 1);
+        $isSadm = (UserResolver::parsePgBool($row['is_sadm'] ?? false) || (int)$row['account_id'] === 1);
 
         $members[] = [
             'account_id'          => (int) $row['account_id'],
@@ -118,9 +119,9 @@ try {
             'email'               => $row['email'] ?? '',
             'username'            => $row['email'] ?? '',
             'avatar_url'          => $row['avatar_url'] ?? null,
-            'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
+            'is_currently_online' => UserResolver::parsePgBool($row['is_currently_online'] ?? false),
             'last_online_time'    => $row['last_online_time'] ?? null,
-            'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false) || $isSadm,
+            'is_messify_verified' => UserResolver::parsePgBool($row['is_messify_verified'] ?? false),
             'is_super_admin'      => $isSadm,
             'role_name'           => $isSadm ? 'Super Admin' : ($row['role_name'] ?? 'Member'),
         ];

@@ -56,7 +56,7 @@ foreach ($matched as $user) {
         'account_id'          => $accId,
         'full_name'           => $user['full_name'],
         'avatar_url'          => $user['avatar_url'] ?? null,
-        'is_messify_verified' => (bool) ($user['is_messify_verified'] ?? false),
+        'is_messify_verified' => UserResolver::parsePgBool($user['is_messify_verified'] ?? false),
     ];
     if (count($users) >= 3) {
         break;

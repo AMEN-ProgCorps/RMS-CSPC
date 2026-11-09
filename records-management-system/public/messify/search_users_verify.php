@@ -13,6 +13,7 @@
 require_once __DIR__ . '/bootstrap.php';
 
 header('Content-Type: application/json');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 session_start();
 Auth::require();
 session_write_close();
@@ -42,7 +43,7 @@ if (!empty($matched)) {
     $users[] = [
         'account_id'          => (int) $user['account_id'],
         'full_name'           => $user['full_name'],
-        'is_messify_verified' => filter_var($user['is_messify_verified'] ?? false, FILTER_VALIDATE_BOOLEAN),
+        'is_messify_verified' => UserResolver::parsePgBool($user['is_messify_verified'] ?? false),
     ];
 }
 

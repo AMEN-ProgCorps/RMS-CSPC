@@ -1,0 +1,40 @@
+    /* Blur backdrop effect */
+    .modal-blur-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 99998;
+      display: none;
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    .modal-blur-overlay.active {
+      display: block;
+    }
+
+    /* Modal styling with higher z-index */
+    #legalAuthModal {
+      z-index: 99999 !important;
+    }
+
+    /* Ensure modal content stays clear */
+    #legalAuthModal .modal-content {
+      background: var(--bg-primary, #ffffff);
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    /* Prevent body scroll when modal is open */
+    body.modal-open {
+      overflow: hidden !important;
+    }

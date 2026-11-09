@@ -78,6 +78,53 @@ class UserResolver
     }
 
     /**
+     * Safely parse a PostgreSQL boolean value ('t', 'f', true, false, 1, 0, etc.).
+     * Necessary because in PHP, (bool)'f' === true and filter_var('t', FILTER_VALIDATE_BOOLEAN) === false.
+     */
+    public static function parsePgBool(mixed $val, bool $default = false): bool
+    {
+        if ($val === null) {
+            return $default;
+        }
+        if (is_bool($val)) {
+            return $val;
+        }
+        return in_array($val, [true, 1, '1', 't', 'true', 'TRUE', 'on', 'ON', 'yes', 'YES'], true);
+    }
+
+    /**
+     * Resolve whether a user row should be considered currently online from DB state,
+     * requiring both `is_currently_online = TRUE` and a recent `last_online_time`
+     * within the last 16 minutes so stale rows never appear perpetually online.
+     */
+    public static function resolveOnlineStatus(array $row): bool
+    {
+        if (!self::parsePgBool($row['is_currently_online'] ?? false)) {
+            return false;
+        }
+        $lastTime = $row['last_online_time'] ?? null;
+        if ($lastTime === null || $lastTime === '') {
+            return true;
+        }
+        if (is_numeric($lastTime)) {
+            $ts = (int) $lastTime;
+            if ($ts > 2000000000) {
+                $ts = (int) floor($ts / 1000);
+            }
+        } else {
+            $str = trim((string) $lastTime);
+            if (!str_ends_with($str, 'Z') && !preg_match('/[+\-]\d{2}:\d{2}$/', $str)) {
+                $str .= ' UTC';
+            }
+            $ts = strtotime($str);
+        }
+        if (!$ts) {
+            return true;
+        }
+        return (time() - $ts) <= 960;
+    }
+
+    /**
      * Return full user info for display in the user list sidebar.
      *
      * @return array{account_id:int, full_name:string, office_id:int|null, is_currently_online:bool, last_online_time:string|null}|null
@@ -98,7 +145,7 @@ class UserResolver
             'office_id'           => isset($row['office_id']) ? (int) $row['office_id'] : null,
             'office_name'         => $row['office_name'] ?? null,
             'office_code'         => $row['office_code'] ?? null,
-            'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
+            'is_currently_online' => self::resolveOnlineStatus($row),
             'last_online_time'    => $row['last_online_time'] ?? null,
             'allow_typing_preview' => (isset($row['allow_typing_preview']) && $row['allow_typing_preview'] !== null)
                 ? (!in_array($row['allow_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
@@ -106,7 +153,7 @@ class UserResolver
             'allow_see_typing_preview' => (isset($row['allow_see_typing_preview']) && $row['allow_see_typing_preview'] !== null)
                 ? (!in_array($row['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
                 : true,
-            'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false),
+            'is_messify_verified' => self::parsePgBool($row['is_messify_verified'] ?? false),
             'avatar_url'          => $row['avatar_url'] ?? null,
         ];
     }
@@ -166,7 +213,7 @@ class UserResolver
                 'office_id'           => isset($row['office_id']) ? (int) $row['office_id'] : null,
                 'office_name'         => $row['office_name'] ?? null,
                 'office_code'         => $row['office_code'] ?? null,
-                'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
+                'is_currently_online' => self::resolveOnlineStatus($row),
                 'last_online_time'    => $row['last_online_time'] ?? null,
                 'allow_typing_preview' => (isset($row['allow_typing_preview']) && $row['allow_typing_preview'] !== null)
                     ? (!in_array($row['allow_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
@@ -174,7 +221,7 @@ class UserResolver
                 'allow_see_typing_preview' => (isset($row['allow_see_typing_preview']) && $row['allow_see_typing_preview'] !== null)
                     ? (!in_array($row['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
                     : true,
-                'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false),
+                'is_messify_verified' => self::parsePgBool($row['is_messify_verified'] ?? false),
                 'avatar_url'          => $row['avatar_url'] ?? null,
             ];
         }
@@ -414,9 +461,9 @@ class UserResolver
                     'office_id'           => isset($row['office_id']) ? (int) $row['office_id'] : null,
                     'office_name'         => $row['office_name'] ?? null,
                     'office_code'         => $row['office_code'] ?? null,
-                    'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
+                    'is_currently_online' => self::resolveOnlineStatus($row),
                     'last_online_time'    => $row['last_online_time'] ?? null,
-                    'is_messify_verified' => (bool) ($row['is_messify_verified'] ?? false),
+                    'is_messify_verified' => self::parsePgBool($row['is_messify_verified'] ?? false),
                     'avatar_url'          => $row['avatar_url'] ?? null,
                 ];
             }
@@ -455,7 +502,8 @@ class UserResolver
                            (ad.first_name || ' ' || ad.last_name) AS full_name,
                            ad.email,
                            ad.avatar_url,
-                           ad.is_currently_online
+                           ad.is_currently_online,
+                           ad.last_online_time
                     FROM {$accountsTable} ad
                     WHERE ad.account_id IN ({$placeholders})
                       AND ad.account_id != ?
@@ -468,7 +516,8 @@ class UserResolver
                            (ad.first_name || ' ' || ad.last_name) AS full_name,
                            ad.email,
                            ad.avatar_url,
-                           ad.is_currently_online
+                           ad.is_currently_online,
+                           ad.last_online_time
                     FROM {$accountsTable} ad
                     WHERE ad.account_id IN ({$placeholders})
                       AND ad.account_id != ?
@@ -491,7 +540,7 @@ class UserResolver
                 'full_name'           => $r['full_name'],
                 'email'               => $r['email'],
                 'avatar_url'          => $r['avatar_url'] ?? null,
-                'is_currently_online' => (bool) ($r['is_currently_online'] ?? false),
+                'is_currently_online' => self::resolveOnlineStatus($r),
                 'office_name'         => null,
             ];
         }, $rows);

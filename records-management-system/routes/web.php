@@ -155,6 +155,24 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
             ->where('account_id', $accountDetail->account_id)
             ->update($updateData);
 
+        try {
+            $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                ? public_path('chatify/core/WsPush.php')
+                : public_path('messify/core/WsPush.php');
+            if (is_file($wsPushFile)) {
+                require_once $wsPushFile;
+                if (class_exists('WsPush')) {
+                    \WsPush::broadcast('presence', [
+                        'account_id' => (int) $accountDetail->account_id,
+                        'status'     => 'online',
+                        'timestamp'  => time(),
+                    ]);
+                }
+            }
+        } catch (\Throwable $e) {
+            // Non-fatal
+        }
+
         return redirect('/portal');
     } catch (\Throwable $e) {
         $msg = $e->getMessage() ?: get_class($e);
@@ -259,6 +277,7 @@ Volt::route('/tracked', 'pages.portal.tracked')
 Route::middleware(['auth'])
     ->group(function () {
     Route::get('/open-chat', [ChatController::class, 'openChat'])->name('open-chat');
+    Route::get('/chatify/open-chat', [ChatController::class, 'openChat'])->name('chatify.open-chat');
     Route::get('/messify/open-chat', [ChatController::class, 'openChat'])->name('messify.open-chat');
     Route::get('/chat/unread-count', function () {
         $user = Auth::user();
@@ -445,7 +464,7 @@ Route::middleware(['auth'])
             \Illuminate\Support\Facades\DB::table($accDetailsTbl)
                 ->where('account_id', $user->id)
                 ->update([
-                    'is_currently_online' => false,
+                    'last_online_time' => now(),
                 ]);
         }
         return response()->json(['status' => 'closed']);
@@ -1231,14 +1250,37 @@ Route::get('/logout', function () {
                 'is_currently_online' => false,
                 'last_online_time'    => now(),
             ]);
-            // Invalidate the user's chat session in the XAMPP chat system
+
         try {
-            \Illuminate\Support\Facades\Http::timeout(3)->post(url('/messify/invalidate_chat_session.php'), [
+            \Illuminate\Support\Facades\DB::table('sessions')->where('user_id', $user->id)->delete();
+        } catch (\Throwable $e) {}
+
+        // Immediately broadcast offline presence & force-disconnect all Messify WebSocket connections
+        try {
+            $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                ? public_path('chatify/core/WsPush.php')
+                : public_path('messify/core/WsPush.php');
+            if (is_file($wsPushFile)) {
+                require_once $wsPushFile;
+                if (class_exists('WsPush')) {
+                    \WsPush::forceDisconnect((int) $user->id, 'logged_out');
+                }
+            }
+        } catch (\Throwable $e) {
+            // Non-fatal
+        }
+
+        // Also keep HTTP fallback for standalone XAMPP setups
+        try {
+            $targetUrl = is_dir(public_path('chatify'))
+                ? 'http://127.0.0.1/chatify/invalidate_chat_session.php'
+                : 'http://127.0.0.1/messify/invalidate_chat_session.php';
+            \Illuminate\Support\Facades\Http::timeout(2)->post($targetUrl, [
                 'account_id' => $user->id,
                 'secret'     => env('CHAT_SHARED_SECRET', '7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd'),
             ]);
-        } catch (\Exception $e) {
-            // Non-fatal — chat session will expire naturally
+        } catch (\Throwable $e) {
+            // Non-fatal — chat session already invalidated via WsPush above
         }
     }
 

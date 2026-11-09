@@ -70,6 +70,16 @@
       const appContainer = document.getElementById('appContainer') || document.querySelector('.app-container');
       if (active) {
         if (appContainer) appContainer.classList.add('no-chat-selected');
+        if (typeof isMobileViewport === 'function' && isMobileViewport()) {
+          if (sidebar) sidebar.classList.add('open');
+          if (backButton) backButton.style.display = 'none';
+          if (chatBox) {
+            const dropOverlay = document.getElementById('dropOverlay');
+            chatBox.innerHTML = '';
+            if (dropOverlay) chatBox.prepend(dropOverlay);
+          }
+          return;
+        }
         if (chatBox) {
           const dropOverlay = document.getElementById('dropOverlay');
           chatBox.innerHTML = getNoChatSelectedHtml();
@@ -222,6 +232,9 @@
     const WS_MAX_DELAY = 30000;
 
     function connectWebSocket() {
+      if (window.sessionKicked || (typeof sessionKicked !== 'undefined' && sessionKicked)) {
+        return;
+      }
       if (ws) {
         // Prevent onclose trigger loop when closing manually
         ws.onclose = null;
@@ -643,7 +656,7 @@
                   const msgEl = item._msgEl || item.querySelector('.user-last-msg');
                   if (msgEl) {
                     const count = match.msgCount;
-                    msgEl.textContent = count > 99 ? '99+ messages' : (count === 1 ? '1 message' : count + ' messages');
+                    msgEl.textContent = count > 99 ? '99+ messages' : (count === 1 ? '1 message' : (count === 0 ? 'No messages' : count + ' messages'));
                   }
                 }
               } else if (adminSpyTargetUser) {
@@ -1553,10 +1566,23 @@
         }
       };
 
-      ws.onclose = function() {
-        console.warn('WebSocket connection lost.');
+      ws.onclose = function(event) {
+        console.warn('WebSocket connection lost.', event ? event.code : '');
         showTypingIndicator('', false);
         ws = null;
+
+        if (window.sessionKicked || (typeof sessionKicked !== 'undefined' && sessionKicked) || (event && (event.code === 4002 || event.code === 4003))) {
+          window.sessionKicked = true;
+          if (wsReconnectTimer) {
+            clearTimeout(wsReconnectTimer);
+            wsReconnectTimer = null;
+          }
+          stopPollingFallback();
+          if (typeof showSessionKickedOverlay === 'function') {
+            showSessionKickedOverlay('logged_out');
+          }
+          return;
+        }
         
         // Start polling fallback immediately when connection is lost
         startPollingFallback();
@@ -1580,40 +1606,62 @@
     // Real-Time WebSocket Presence & Active Status Plumbing
     const onlineAccountsSet = new Set();
     let hasReceivedPresenceSnapshot = false;
+    let activeDMUserObj = null;
+
+    function parseOnlineTimestamp(val) {
+      if (!val) return 0;
+      if (typeof val === 'number') {
+        return val > 2000000000 ? Math.floor(val / 1000) : Math.floor(val);
+      }
+      if (typeof val === 'string') {
+        const str = val.trim();
+        if (!str) return 0;
+        if (/^\d+$/.test(str)) {
+          const n = parseInt(str, 10);
+          return n > 2000000000 ? Math.floor(n / 1000) : n;
+        }
+        // SQL datetime string "YYYY-MM-DD HH:MM:SS" stored as UTC — append Z
+        // so JS doesn't interpret it as local time (+08:00).
+        let iso = str.replace(' ', 'T');
+        if (!iso.endsWith('Z') && !/[+\-]\d{2}:\d{2}$/.test(iso)) {
+          iso += 'Z';
+        }
+        const d = new Date(iso);
+        if (!isNaN(d.getTime())) {
+          return Math.floor(d.getTime() / 1000);
+        }
+      }
+      return 0;
+    }
+
+    function getBestLastOnlineTime(accId, user) {
+      const wsVal = wsLastOnlineTime.get(Number(accId));
+      const dbVal = user ? user.last_online_time : null;
+      const wsTs = parseOnlineTimestamp(wsVal);
+      const dbTs = parseOnlineTimestamp(dbVal);
+      if (wsTs && dbTs) return Math.max(wsTs, dbTs);
+      return wsTs || dbTs || 0;
+    }
+
+    function isUserCurrentlyOnline(accId, user) {
+      const id = Number(accId);
+      if (hasReceivedPresenceSnapshot && ws && ws.readyState === WebSocket.OPEN) {
+        return onlineAccountsSet.has(id);
+      }
+      if (onlineAccountsSet.has(id)) {
+        return true;
+      }
+      return Boolean(user && (user.is_currently_online || user.db_is_currently_online));
+    }
 
     function formatActiveStatus(isOnline, lastOnlineTime) {
       if (isOnline) {
         return 'Active now';
       }
-      if (!lastOnlineTime) {
+      const ts = parseOnlineTimestamp(lastOnlineTime);
+      if (!ts) {
         return 'Offline';
       }
-
-      let ts = 0;
-      if (typeof lastOnlineTime === 'number') {
-        ts = lastOnlineTime;
-        if (ts > 2000000000) ts = Math.floor(ts / 1000);
-      } else if (typeof lastOnlineTime === 'string') {
-        const str = lastOnlineTime.trim();
-        if (/^\d+$/.test(str)) {
-          ts = parseInt(str, 10);
-          if (ts > 2000000000) ts = Math.floor(ts / 1000);
-        } else {
-          // SQL datetime string "YYYY-MM-DD HH:MM:SS" stored as UTC — must append Z
-          // so JS doesn't interpret it as local time (which is +08:00 here, causing
-          // an 8-hour offset making "just now" show as "8 hours ago").
-          let iso = str.replace(' ', 'T');
-          if (!iso.endsWith('Z') && !/[+\-]\d{2}:\d{2}$/.test(iso)) {
-            iso += 'Z';
-          }
-          const d = new Date(iso);
-          if (!isNaN(d.getTime())) {
-            ts = Math.floor(d.getTime() / 1000);
-          }
-        }
-      }
-
-      if (!ts) return 'Offline';
 
       const now = Math.floor(Date.now() / 1000);
       const diffSec = Math.max(0, now - ts);
@@ -1622,7 +1670,8 @@
       const diffDay = Math.floor(diffHour / 24);
 
       if (diffSec < 60) {
-        return `Active ${diffSec} ${diffSec === 1 ? 'second' : 'seconds'} ago`;
+        const sec = Math.max(1, diffSec);
+        return `Active ${sec} ${sec === 1 ? 'second' : 'seconds'} ago`;
       } else if (diffMin < 60) {
         return `Active ${diffMin} ${diffMin === 1 ? 'minute' : 'minutes'} ago`;
       } else if (diffHour < 24) {
@@ -1657,6 +1706,10 @@
     }
 
     function shouldMarkReadNow() {
+      // 0. Super Admin Spy Mode guard: NEVER mark messages as read while in spy mode or viewing an admin conv!
+      if (typeof isAdminAllChatsView !== 'undefined' && isAdminAllChatsView) return false;
+      if (typeof activeAdminConv !== 'undefined' && activeAdminConv) return false;
+
       // 1. Must have an active DM
       if (!activeDM) return false;
 
@@ -1712,7 +1765,10 @@
         headerEl.classList.remove('is-global-chat');
       }
       if (!user && activeDMAccountId) {
-        user = allUsersData.find(u => Number(u.account_id) === Number(activeDMAccountId));
+        user = allUsersData.find(u => Number(u.account_id) === Number(activeDMAccountId)) || activeDMUserObj;
+      }
+      if (user && activeDMAccountId && Number(user.account_id) === Number(activeDMAccountId)) {
+        activeDMUserObj = user;
       }
       if (!user) {
         el.textContent = '';
@@ -1720,23 +1776,8 @@
       }
 
       const accId = Number(user.account_id);
-
-      // Fully WS-driven now — no fallback to the DB-fetched
-      // is_currently_online/last_online_time fields. Before the WS
-      // connection has delivered its first presence_snapshot we genuinely
-      // don't know this user's status yet, so say so rather than guessing
-      // from a value that (per the earlier bug) can be stale for anyone
-      // who didn't log out cleanly.
-      if (!hasReceivedPresenceSnapshot) {
-        el.textContent = 'Connecting…';
-        return;
-      }
-
-      const isOnline = onlineAccountsSet.has(accId);
-      // last-seen time also comes only from WS data now: either a
-      // presence:offline event received live this session, or the
-      // last_seen map handed over in presence_snapshot for someone who
-      const lastTime = isOnline ? null : (wsLastOnlineTime.get(accId) || user.last_online_time || user.lastTimestamp);
+      const isOnline = isUserCurrentlyOnline(accId, user);
+      const lastTime = isOnline ? null : getBestLastOnlineTime(accId, user);
       el.textContent = formatActiveStatus(isOnline, lastTime);
     }
     window.updateHeaderActiveStatus = updateHeaderActiveStatus;
@@ -1755,21 +1796,21 @@
       const isOnline = (data.status === 'online' || data.type === 'user_online');
       if (isOnline) {
         onlineAccountsSet.add(accId);
+        wsLastOnlineTime.delete(accId);
       } else {
         onlineAccountsSet.delete(accId);
+        const offlineTs = parseOnlineTimestamp(data.timestamp) || Math.floor(Date.now() / 1000);
+        wsLastOnlineTime.set(accId, offlineTs);
       }
 
-      const user = allUsersData.find(u => Number(u.account_id) === accId);
+      const user = allUsersData.find(u => Number(u.account_id) === accId)
+        || (activeDMUserObj && Number(activeDMUserObj.account_id) === accId ? activeDMUserObj : null);
       if (user) {
         user.status = isOnline ? 'online' : 'offline';
         user.is_currently_online = isOnline;
-        if (!isOnline && data.timestamp) {
-          user.last_online_time = data.timestamp;
-          // Persist in map so fetchUsers() re-fetches can't overwrite it
-          wsLastOnlineTime.set(accId, data.timestamp);
-        }
-        if (isOnline) {
-          wsLastOnlineTime.delete(accId);
+        user.db_is_currently_online = isOnline;
+        if (!isOnline) {
+          user.last_online_time = wsLastOnlineTime.get(accId);
         }
 
         const item = sidebarUserItems.get(user.username);
@@ -1799,14 +1840,14 @@
         data.online_accounts.forEach(id => onlineAccountsSet.add(Number(id)));
       }
 
-      // Last-seen times for accounts that were ALREADY offline before this
-      // client connected — sourced entirely from the WS server's in-memory
-      // record (see server.js), not from the DB. Without this, someone who
-      // went offline before we connected would have no "Active X ago" data
-      // at all this session.
       if (data.last_seen && typeof data.last_seen === 'object') {
         Object.keys(data.last_seen).forEach(id => {
-          wsLastOnlineTime.set(Number(id), data.last_seen[id]);
+          const numId = Number(id);
+          const snapTs = parseOnlineTimestamp(data.last_seen[id]);
+          const existingTs = parseOnlineTimestamp(wsLastOnlineTime.get(numId));
+          if (snapTs >= existingTs) {
+            wsLastOnlineTime.set(numId, snapTs);
+          }
         });
       }
 
@@ -1815,8 +1856,9 @@
         const isOnline = onlineAccountsSet.has(accId);
         user.status = isOnline ? 'online' : 'offline';
         user.is_currently_online = isOnline;
-        if (!isOnline && wsLastOnlineTime.has(accId)) {
-          user.last_online_time = wsLastOnlineTime.get(accId);
+        if (!isOnline) {
+          const bestTs = getBestLastOnlineTime(accId, user);
+          if (bestTs) user.last_online_time = bestTs;
         }
 
         const item = sidebarUserItems.get(user.username);
@@ -1927,12 +1969,19 @@
         if (!activeDM && !activeAdminConv && !isGlobalChat) {
           if (sidebar) sidebar.classList.add('open');
           if (backButton) backButton.style.display = 'none';
+          const emptyState = chatBox ? chatBox.querySelector('#noChatSelectedState') : null;
+          if (emptyState) emptyState.remove();
         } else {
           if (sidebar) sidebar.classList.remove('open');
           if (backButton) backButton.style.display = 'inline-flex';
         }
       } else {
         if (backButton) backButton.style.display = 'none';
+        if (!activeDM && !activeAdminConv && !isGlobalChat) {
+          if (chatBox && !chatBox.querySelector('#noChatSelectedState')) {
+            setNoChatSelected(true);
+          }
+        }
       }
     }
     let lastMessifyWindowWidth = window.innerWidth;
@@ -1964,20 +2013,15 @@
     const wsLastOnlineTime = new Map();
 
     function applyWsPresenceToAllUsers() {
-      if (!hasReceivedPresenceSnapshot) return;
       allUsersData.forEach(user => {
         const accId = Number(user.account_id);
-        const isOnline = onlineAccountsSet.has(accId);
+        const isOnline = isUserCurrentlyOnline(accId, user);
         user.status = isOnline ? 'online' : 'offline';
         user.is_currently_online = isOnline;
-        // Last-seen time is WS-only from here on — either a live
-        // presence:offline event this session, or the last_seen map handed
-        // over in presence_snapshot. If neither has an entry (e.g. this
-        // account hasn't disconnected since the WS server last restarted),
-        // we deliberately have no last-seen time rather than falling back
-        // to the DB-fetched last_online_time, which is what used to cause
-        // stale/incorrect "Active X ago" text.
-        user.last_online_time = isOnline ? null : (wsLastOnlineTime.get(accId) || user.last_online_time || null);
+        if (!isOnline) {
+          const bestTs = getBestLastOnlineTime(accId, user);
+          if (bestTs) user.last_online_time = bestTs;
+        }
       });
     }
 
@@ -2036,22 +2080,39 @@
         }
       }
 
-      // Online presence is WS-driven, but we preserve last_online_time from the DB
-      // so users who went offline before the WS session display their actual active status.
+      // Preserve DB online indicator in db_is_currently_online and sync verified badges.
+      // If the DB explicitly reports is_currently_online === false (e.g. user logged out
+      // of Main RMS), also clear them from onlineAccountsSet so they never stay stuck online.
       allUsersData.forEach(user => {
-        delete user.is_currently_online;
-        delete user.status;
+        user.db_is_currently_online = Boolean(user.is_currently_online);
+        if (!user.is_office_gc && !user.is_custom_gc && user.account_id !== undefined && user.account_id !== null) {
+          const uid = Number(user.account_id);
+          if (!Number.isNaN(uid) && uid > 0) {
+            if (!user.db_is_currently_online) {
+              onlineAccountsSet.delete(uid);
+            }
+            if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) {
+              if (user.is_messify_verified) {
+                verifiedAccountIds.add(uid);
+              } else {
+                verifiedAccountIds.delete(uid);
+              }
+            }
+          }
+        }
       });
+      if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) {
+        window.verifiedAccountIds = Array.from(verifiedAccountIds);
+      }
 
-      // Re-apply WS presence state now that the fields above are gone —
-      // applyWsPresenceToAllUsers() is a no-op until hasReceivedPresenceSnapshot
-      // is true, at which point it's the only thing that ever sets
-      // status/is_currently_online/last_online_time again.
       applyWsPresenceToAllUsers();
 
       if (activeDM) {
         const activeUser = (allUsersData || []).find(u => u.username === activeDM);
-        if (activeUser) activeUser.unreadCount = 0;
+        if (activeUser) {
+          activeUser.unreadCount = 0;
+          activeDMUserObj = activeUser;
+        }
       }
 
       // Sort: newly-added custom GCs rise to the top, rest sorted by lastTimestamp
@@ -2100,20 +2161,8 @@
       // flow as selectGlobalChat), so pre-fetching snapshots nobody reads
       // anymore would just be wasted requests.
 
-      // Deferred restore: spy-mode exit sets this when allUsersData was empty at
-      // exit time.  Now that we have a fresh user list, open the DM immediately.
-      if (pendingRestoreDM) {
-        const pending = pendingRestoreDM;
-        pendingRestoreDM = null;
-        const matchedUser = allUsersData.find(u => u.username === pending);
-        if (matchedUser) {
-          selectDM(matchedUser);
-          return;
-        }
-        // User genuinely not in the list — show empty state
-        setNoChatSelected(true);
-        return;
-      }
+      // When spy mode is toggled, conversations are never auto-restored.
+      pendingRestoreDM = null;
 
       if (!hasAutoSelected) {
         hasAutoSelected = true;
@@ -2445,12 +2494,14 @@
 
       allUsersData.forEach((u, index) => {
         let isThisActive = false;
-        if (u.is_office_gc) {
+        if (typeof isAdminAllChatsView !== 'undefined' && isAdminAllChatsView) {
+          isThisActive = false;
+        } else if (u.is_office_gc) {
           isThisActive = (isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv);
         } else if (u.is_custom_gc) {
           isThisActive = (isGlobalChat && window.activeChannel === 'gc' && !activeDM && !activeAdminConv && window.activeCustomGc && (Number(window.activeCustomGc.gc_id) === Number(u.gc_id) || window.activeCustomGc.conv_id === u.conv_id));
         } else {
-          isThisActive = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+          isThisActive = (!activeAdminConv && ((activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM)));
         }
 
         if (isThisActive) u.unreadCount = 0;
@@ -2527,6 +2578,9 @@
         const isNewlyAdded = u.is_custom_gc && !isThisActive && (u.is_newly_added || (window.newlyAddedGcIds && window.newlyAddedGcIds.has(Number(u.gc_id)))) && !_openedGcIdsSet.has(Number(u.gc_id));
         const newClassName = 'user-item' + (isThisActive ? ' active' : '') + (hasUnread ? ' has-unread' : '') + (isNewlyAdded ? ' newly-added-gc' : '') + (u.is_custom_gc ? ' custom-gc-item' : (u.is_office_gc ? ' office-gc-item' : ''));
         if (item.className !== newClassName) item.className = newClassName;
+        if (!isThisActive && item.classList.contains('active')) {
+          item.classList.remove('active');
+        }
 
         if (u.is_office_gc || u.is_custom_gc) {
           if (dot) dot.style.display = 'none';
@@ -2546,13 +2600,10 @@
             avatar.dataset.initials = u.name;
             avatar.dataset.avatarUrl = u.avatar_url || '';
           }
-          if (hasReceivedPresenceSnapshot) {
-            const isWsOnline = onlineAccountsSet.has(Number(u.account_id));
-            u.status = isWsOnline ? 'online' : 'offline';
-            u.is_currently_online = isWsOnline;
-          }
-          const effectiveStatus = hasReceivedPresenceSnapshot ? u.status : 'offline';
-          const newDotClass = 'status-dot ' + (effectiveStatus || 'offline');
+          const isOnlineNow = isUserCurrentlyOnline(u.account_id, u);
+          u.status = isOnlineNow ? 'online' : 'offline';
+          u.is_currently_online = isOnlineNow;
+          const newDotClass = 'status-dot ' + (isOnlineNow ? 'online' : 'offline');
           if (dot && dot.className !== newDotClass) dot.className = newDotClass;
         }
 
@@ -2717,6 +2768,12 @@
         notice.style.cssText = 'padding:10px 16px;font-size:12px;color:var(--text-secondary);text-align:center;font-weight:500;border-top:1px dashed var(--border-color);margin-top:4px;';
         notice.textContent = 'Enter a more specific search term.';
         sidebarUsers.appendChild(notice);
+      }
+
+      if (!activeDM && !activeDMAccountId && !isGlobalChat && !window.activeChannel) {
+        document.getElementById('globalChatItem')?.classList.remove('active');
+        document.getElementById('officeChatItem')?.classList.remove('active');
+        document.querySelectorAll('#customGcSection .user-item').forEach(el => el.classList.remove('active'));
       }
     }
 
@@ -3470,6 +3527,8 @@
     let lastMarkedReadMsgId = null;
 
     function markRead(targetUsername, explicitMsgId = null) {
+      if (typeof isAdminAllChatsView !== 'undefined' && isAdminAllChatsView) return;
+      if (typeof activeAdminConv !== 'undefined' && activeAdminConv) return;
       if (!targetUsername) return;
       const isGc = typeof targetUsername === 'string' && (targetUsername.startsWith('gc_') || targetUsername.startsWith('office_'));
       const u = allUsersData.find(x =>
@@ -3557,10 +3616,11 @@
         if (existing) {
           const prevST = chatBox.scrollTop;
           const prevSH = chatBox.scrollHeight;
+          const wasAbove = existing.offsetTop < prevST;
           existing.remove();
-          if (userScrolledUp) {
+          if (userScrolledUp && wasAbove) {
             const diff = chatBox.scrollHeight - prevSH;
-            if (diff !== 0) chatBox.scrollTop = prevST + diff;
+            if (diff !== 0) chatBox.scrollTop = Math.max(0, prevST + diff);
           }
         }
         return;
@@ -3601,10 +3661,11 @@
         if (!hasPendingSend && existing) {
           const prevST = chatBox.scrollTop;
           const prevSH = chatBox.scrollHeight;
+          const wasAbove = existing.offsetTop < prevST;
           existing.remove();
-          if (userScrolledUp) {
+          if (userScrolledUp && wasAbove) {
             const diff = chatBox.scrollHeight - prevSH;
-            if (diff !== 0) chatBox.scrollTop = prevST + diff;
+            if (diff !== 0) chatBox.scrollTop = Math.max(0, prevST + diff);
           }
         }
         return;
@@ -3618,6 +3679,7 @@
       const preScrollTop    = chatBox.scrollTop;
       const preScrollHeight = chatBox.scrollHeight;
       const wasNearBottom   = !userScrolledUp && ((preScrollHeight - preScrollTop - chatBox.clientHeight) <= 40);
+      const existingWasAbove = existing ? (existing.offsetTop < preScrollTop) : false;
 
       const indicator = existing || document.createElement('div');
       indicator.className = 'seen-indicator';
@@ -3629,9 +3691,12 @@
         if (wasNearBottom) {
           chatBox.scrollTop = chatBox.scrollHeight;
         } else if (userScrolledUp) {
-          const heightDiff = chatBox.scrollHeight - preScrollHeight;
-          if (heightDiff !== 0) {
-            chatBox.scrollTop = preScrollTop + heightDiff;
+          const newIsAbove = indicator.offsetTop < preScrollTop;
+          if (existingWasAbove || newIsAbove) {
+            const heightDiff = chatBox.scrollHeight - preScrollHeight;
+            if (heightDiff !== 0) {
+              chatBox.scrollTop = Math.max(0, preScrollTop + heightDiff);
+            }
           }
         }
       }
@@ -3721,6 +3786,7 @@
       if (_hEl) _hEl.classList.remove('is-global-chat');
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
+      activeDMUserObj = u;
       activeAdminConv = null;
       u.unreadCount = 0;
 
@@ -4291,10 +4357,12 @@
       }
 
       // Find the first message whose bottom edge is at or below the current viewport top
+      const chatRect = chatBox.getBoundingClientRect();
       let anchorEl = null;
       for (let i = 0; i < messages.length; i++) {
         const el = messages[i];
-        if ((el.offsetTop + el.offsetHeight) >= scrollTop + 2) {
+        const rect = el.getBoundingClientRect();
+        if (rect.bottom >= chatRect.top + 2) {
           anchorEl = el;
           break;
         }
@@ -4306,6 +4374,7 @@
         msgId: anchorEl.getAttribute('data-msg-id'),
         prevOffsetTop: anchorEl.offsetTop,
         offsetFromTop: anchorEl.offsetTop - scrollTop,
+        prevRelTop: anchorEl.getBoundingClientRect().top - chatRect.top,
         prevScrollTop: scrollTop,
         prevScrollHeight: prevScrollHeight
       };
@@ -4322,8 +4391,13 @@
         anchorInfo.msgId ? chatBox.querySelector(`.message-container[data-msg-id="${anchorInfo.msgId}"]`) : null
       );
 
-      // Preferred: Pin to the exact anchor element using DOM offsetTop
-      if (anchorEl && typeof anchorInfo.offsetFromTop === 'number') {
+      // Preferred: Pin to the exact anchor element using subpixel-accurate relative bounding rect or offsetTop
+      if (anchorEl && typeof anchorInfo.prevRelTop === 'number') {
+        const newRelTop = anchorEl.getBoundingClientRect().top - chatBox.getBoundingClientRect().top;
+        const delta = newRelTop - anchorInfo.prevRelTop;
+        chatBox.scrollTop = Math.max(0, chatBox.scrollTop + delta);
+        restored = true;
+      } else if (anchorEl && typeof anchorInfo.offsetFromTop === 'number') {
         const targetScrollTop = anchorEl.offsetTop - anchorInfo.offsetFromTop;
         if (targetScrollTop >= 0) {
           chatBox.scrollTop = targetScrollTop;
@@ -4347,11 +4421,13 @@
       // generate phantom delta adjustments (detached el.getBoundingClientRect().bottom
       // is 0, which always passes the "above viewport" test and falsely bumps scrollTop).
       if (prependedItems && prependedItems.length > 0 && typeof scrollAnchorObserver !== 'undefined' && scrollAnchorObserver) {
+        const heightsMap = (typeof scrollAnchorHeights !== 'undefined' && scrollAnchorHeights) ? scrollAnchorHeights : window.scrollAnchorHeights;
         prependedItems.forEach(item => {
           if (!item.querySelectorAll || !item.isConnected) return;
           item.querySelectorAll('img:not(.avatar-img)').forEach(img => {
             if (!img.dataset.scrollListener) {
               img.dataset.scrollListener = '1';
+              if (heightsMap) heightsMap.set(img, img.getBoundingClientRect().height);
               scrollAnchorObserver.observe(img);
             }
           });
@@ -5362,13 +5438,13 @@
             account_id: u1Id,
             full_name: conv?.name1 || ('User #' + u1Id),
             role_name: conv?.u1_office || '',
-            is_messify_verified: true,
+            is_messify_verified: Boolean(typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.has(Number(u1Id))),
           },
           {
             account_id: u2Id,
             full_name: conv?.name2 || ('User #' + u2Id),
             role_name: conv?.u2_office || '',
-            is_messify_verified: true,
+            is_messify_verified: Boolean(typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds && verifiedAccountIds.has(Number(u2Id))),
           }
         ];
         renderOfficeMembersList(dmMbrs, silent, null);
@@ -6126,7 +6202,6 @@
           if (!adminConvHasMore) showNoMoreOlderNotice();
           applyAdminBadges();
           applyEmojiOnly();
-          trimWindowFromBottom(MAX_WINDOW);
 
           const restoreFn = (typeof restoreScrollAnchor === 'function') ? restoreScrollAnchor : (window.restoreScrollAnchor ? window.restoreScrollAnchor : null);
           if (anchor && restoreFn) {
@@ -6139,6 +6214,7 @@
             }
           }
 
+          trimWindowFromBottom(MAX_WINDOW);
           if (adminConvHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           attachImageLoadListeners();
           return;
@@ -6505,26 +6581,50 @@
       if (chatBox) {
         setNoChatSelected(true);
       }
-      const gcItem = document.getElementById('globalChatItem');
-      if (gcItem) gcItem.classList.remove('active');
-      const ocItem = document.getElementById('officeChatItem');
-      if (ocItem) ocItem.classList.remove('active');
-
-      if (typeof sidebarUserItems !== 'undefined' && sidebarUserItems) {
-        sidebarUserItems.forEach(item => item.classList.remove('active'));
-      }
-      if (typeof adminConvItems !== 'undefined' && adminConvItems) {
-        adminConvItems.forEach(item => item.classList.remove('active'));
-      }
-      document.querySelectorAll('#customGcSection .user-item').forEach(item => item.classList.remove('active'));
+      clearSidebarActiveHighlights();
       
       renderSidebarUsers();
       if (serverIsAdmin) renderAdminConvs();
+      clearSidebarActiveHighlights();
       fetchUsers();
       if ((typeof serverIsAdmin !== 'undefined' ? serverIsAdmin : isAdmin) && typeof adminSpyTargetUser !== 'undefined' && adminSpyTargetUser) {
         fetchAdminConvs('', 0, false, adminSpyTargetUser.account_id);
       }
     }
+
+    function clearSidebarActiveHighlights() {
+      try {
+        document.querySelectorAll('.user-item.active, #globalChatItem.active, #officeChatItem.active, .custom-gc-item.active, .office-gc-item.active, .admin-conv-item.active, .admin-user-item.active').forEach(el => {
+          el.classList.remove('active');
+        });
+        const gc = document.getElementById('globalChatItem');
+        if (gc) gc.classList.remove('active');
+        const oc = document.getElementById('officeChatItem');
+        if (oc) oc.classList.remove('active');
+        if (typeof sidebarUserItems !== 'undefined' && sidebarUserItems) {
+          sidebarUserItems.forEach(item => {
+            if (item && item.classList) item.classList.remove('active');
+          });
+        }
+        if (typeof adminConvItems !== 'undefined' && adminConvItems) {
+          adminConvItems.forEach(item => {
+            if (item && item.classList) item.classList.remove('active');
+          });
+        }
+        document.querySelectorAll('#customGcSection .user-item').forEach(item => {
+          item.classList.remove('active');
+        });
+        document.querySelectorAll('#sidebarUsers .user-item').forEach(item => {
+          item.classList.remove('active');
+        });
+        document.querySelectorAll('#adminConvsList .user-item').forEach(item => {
+          item.classList.remove('active');
+        });
+      } catch (e) {
+        console.error('Error in clearSidebarActiveHighlights:', e);
+      }
+    }
+    window.clearSidebarActiveHighlights = clearSidebarActiveHighlights;
 
     backButton.addEventListener('click', resetToHome);
 

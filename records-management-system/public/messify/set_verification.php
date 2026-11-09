@@ -10,6 +10,7 @@
 require_once __DIR__ . '/bootstrap.php';
 
 header('Content-Type: application/json');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 session_start();
 Auth::require();
 session_write_close();
@@ -25,7 +26,7 @@ $body = (string) file_get_contents('php://input');
 $data = json_decode($body, true);
 
 $targetAccountId = isset($data['account_id']) ? (int) $data['account_id'] : 0;
-$isVerified      = isset($data['is_verified']) ? (bool) $data['is_verified'] : false;
+$isVerified      = isset($data['is_verified']) ? UserResolver::parsePgBool($data['is_verified']) : false;
 
 if ($targetAccountId <= 0) {
     http_response_code(400);
@@ -35,9 +36,25 @@ if ($targetAccountId <= 0) {
 
 try {
     $pdo  = Database::getConnection();
+    $tbl  = Database::t('account_details');
     $verCol = Database::verifiedColumn();
+
+    // Update all existing verification columns in account_details so both legacy and current columns stay in sync
+    $colStmt = $pdo->prepare("
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = :tbl
+          AND column_name IN ('is_messify_verified', 'is_chatify_verified')
+    ");
+    $colStmt->execute([':tbl' => $tbl]);
+    $cols = $colStmt->fetchAll(PDO::FETCH_COLUMN);
+    if (empty($cols)) {
+        $cols = [$verCol];
+    }
+
+    $setParts = array_map(fn($c) => "{$c} = :v", $cols);
     $stmt = $pdo->prepare(
-        'UPDATE ' . Database::t('account_details') . ' SET ' . $verCol . ' = :v WHERE account_id = :id'
+        'UPDATE ' . $tbl . ' SET ' . implode(', ', $setParts) . ' WHERE account_id = :id'
     );
     $stmt->bindValue(':v',   $isVerified, PDO::PARAM_BOOL);
     $stmt->bindValue(':id',  $targetAccountId, PDO::PARAM_INT);

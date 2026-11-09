@@ -36,11 +36,13 @@ if ($accountId <= 0) {
 // Update is_currently_online status in database
 try {
     $pdo = Database::getConnection();
-    $stmt = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = 0, last_online_time = :now WHERE account_id = :id');
+    $stmt = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = FALSE, last_online_time = :now WHERE account_id = :id');
     $stmt->execute([
         ':now' => gmdate('Y-m-d H:i:s'),
         ':id'  => $accountId
     ]);
+    $stmtSess = $pdo->prepare('DELETE FROM sessions WHERE user_id = :uid');
+    $stmtSess->execute([':uid' => $accountId]);
 } catch (Throwable $e) {
     // Non-fatal
 }

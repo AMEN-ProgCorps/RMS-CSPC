@@ -8,6 +8,13 @@
 // a live socket keeps working until its own token happens to lapse.
 // =============================================================================
 
+if (!defined('WS_INTERNAL_PUSH_URL') || !defined('INTERNAL_PUSH_SECRET')) {
+    $dbConfig = __DIR__ . '/../config/db.php';
+    if (is_file($dbConfig)) {
+        require_once $dbConfig;
+    }
+}
+
 class WsPush
 {
     /**
@@ -62,6 +69,15 @@ class WsPush
      */
     public static function forceDisconnect(int $accountId, string $reason = 'logged_out'): void
     {
+        // Immediately broadcast offline presence to all connected clients
+        // so the sidebar dot and chat header update in real time without
+        // waiting for socket teardown or heartbeat timeouts.
+        self::broadcast('presence', [
+            'account_id' => $accountId,
+            'status'     => 'offline',
+            'timestamp'  => time(),
+        ]);
+
         self::send([
             'secret'           => INTERNAL_PUSH_SECRET,
             'type'             => 'session_kicked',

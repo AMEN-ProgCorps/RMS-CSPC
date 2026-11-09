@@ -129,8 +129,42 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
 
         .telemetry-svg {
             width: 100%;
-            height: 80px;
+            height: 235px;
             overflow: visible;
+        }
+        .telemetry-grid-line {
+            stroke: #e2e8f0;
+            stroke-width: 1;
+        }
+        .telemetry-grid-line.major {
+            stroke: #cbd5e1;
+            stroke-width: 1.2;
+        }
+        .telemetry-axis-label {
+            fill: #94a3b8;
+            font-size: 9px;
+            font-weight: 600;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            text-anchor: end;
+            dominant-baseline: central;
+        }
+        .telemetry-time-label {
+            fill: #94a3b8;
+            font-size: 9px;
+            font-weight: 600;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            text-anchor: middle;
+        }
+
+        [data-theme="dark"] .telemetry-grid-line {
+            stroke: #1e293b !important;
+        }
+        [data-theme="dark"] .telemetry-grid-line.major {
+            stroke: #334155 !important;
+        }
+        [data-theme="dark"] .telemetry-axis-label,
+        [data-theme="dark"] .telemetry-time-label {
+            fill: #64748b !important;
         }
         @keyframes livePulse {
             0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
@@ -284,28 +318,39 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px;">
             @php
-                // Helper to render responsive SVG polyline and gradient path
+                // Helper to render responsive SVG polyline and exact 20x20 square grid
                 $buildSvgGraph = function(array $history, string $color, string $gradId) {
-                    $w = 340;
-                    $h = 80;
-                    $padX = 10;
-                    $count = max(1, count($history));
-                    $step = ($w - ($padX * 2)) / max(1, $count - 1);
+                    $gridLeft = 42;
+                    $gridRight = 342;
+                    $gridTop = 15;
+                    $gridBottom = 215;
+                    $step = 20; // 20px x 20px square grid cells
+
+                    $count = count($history);
+                    $samples = $history;
+                    if ($count < 16) {
+                        $firstVal = $history[0] ?? 0;
+                        $pad = array_fill(0, 16 - $count, $firstVal);
+                        $samples = array_merge($pad, $history);
+                    } elseif ($count > 16) {
+                        $samples = array_slice($history, -16);
+                    }
+
                     $coords = [];
                     $pointsStr = '';
 
-                    foreach ($history as $idx => $val) {
-                        $x = round($padX + ($idx * $step), 1);
+                    foreach ($samples as $idx => $val) {
+                        $x = $gridLeft + ($idx * $step);
                         $clampedVal = max(0, min(100, $val));
-                        $y = round(70 - (($clampedVal / 100) * 58), 1);
+                        $y = round($gridBottom - (($clampedVal / 100) * ($gridBottom - $gridTop)), 1);
                         $coords[] = [$x, $y];
                         $pointsStr .= "{$x},{$y} ";
                     }
 
                     $pointsStr = trim($pointsStr);
-                    $first = $coords[0] ?? [$padX, 70];
-                    $last = $coords[count($coords) - 1] ?? [$w - $padX, 70];
-                    $fillPath = "M {$padX},70 L {$first[0]},{$first[1]} L {$pointsStr} L {$last[0]},70 Z";
+                    $first = $coords[0] ?? [$gridLeft, $gridBottom];
+                    $last = $coords[count($coords) - 1] ?? [$gridRight, $gridBottom];
+                    $fillPath = "M {$gridLeft},{$gridBottom} L {$first[0]},{$first[1]} L {$pointsStr} L {$last[0]},{$gridBottom} Z";
 
                     return [
                         'points' => $pointsStr,
@@ -319,77 +364,161 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
                 $cpuGraph = $buildSvgGraph($cpuHistory, '#2563eb', 'cpuGrad');
                 $ramGraph = $buildSvgGraph($ramHistory, '#10b981', 'ramGrad');
                 $diskGraph = $buildSvgGraph($diskHistory, '#8b5cf6', 'diskGrad');
+                $elevations = [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0];
             @endphp
 
             <!-- 1. CPU Telemetry Line Graph -->
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                     <div>
                         <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">CPU Activity Trend</span>
-                        <div style="font-size: 18px; font-weight: 800; color: #2563eb;">{{ $cpuGraph['current'] }}%</div>
+                        <div style="font-size: 20px; font-weight: 800; color: #2563eb;">{{ $cpuGraph['current'] }}%</div>
                     </div>
-                    <span style="font-size: 11px; color: #64748b;">Peak: {{ max($cpuHistory ?: [0]) }}%</span>
+                    <span style="font-size: 11px; color: #64748b; background: #ffffff; border: 1px solid #e2e8f0; padding: 2px 8px; border-radius: 6px;">Peak: {{ max($cpuHistory ?: [0]) }}%</span>
                 </div>
-                <svg class="telemetry-svg" viewBox="0 0 340 80" preserveAspectRatio="none">
+                <svg class="telemetry-svg" viewBox="0 0 365 240" preserveAspectRatio="xMidYMid meet">
                     <defs>
                         <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stop-color="#2563eb" stop-opacity="0.3"/>
+                            <stop offset="0%" stop-color="#2563eb" stop-opacity="0.25"/>
                             <stop offset="100%" stop-color="#2563eb" stop-opacity="0.0"/>
                         </linearGradient>
                     </defs>
-                    <!-- Background Gridline -->
-                    <line x1="10" y1="41" x2="330" y2="41" stroke="#e2e8f0" stroke-dasharray="3,3" stroke-width="1"/>
-                    <line x1="10" y1="70" x2="330" y2="70" stroke="#e2e8f0" stroke-width="1"/>
+
+                    <!-- Horizontal Grid Lines & 0%-100% Elevation Labels -->
+                    @foreach($elevations as $elev)
+                        @php
+                            $y = 15 + ((100 - $elev) * 2);
+                            $isMajor = ($elev === 0 || $elev === 50 || $elev === 100);
+                        @endphp
+                        <text x="36" y="{{ $y }}" class="telemetry-axis-label">{{ $elev }}%</text>
+                        <line x1="42" y1="{{ $y }}" x2="342" y2="{{ $y }}" class="telemetry-grid-line {{ $isMajor ? 'major' : '' }}" stroke-dasharray="{{ $isMajor ? 'none' : '2,2' }}"/>
+                    @endforeach
+
+                    <!-- Vertical Grid Lines (Exact 20x20 Squares) -->
+                    @for($vx = 42; $vx <= 342; $vx += 20)
+                        @php
+                            $isBound = ($vx === 42 || $vx === 342);
+                        @endphp
+                        <line x1="{{ $vx }}" y1="15" x2="{{ $vx }}" y2="215" class="telemetry-grid-line {{ $isBound ? 'major' : '' }}" stroke-dasharray="{{ $isBound ? 'none' : '2,2' }}"/>
+                    @endfor
+
+                    <!-- Time Markers at Bottom -->
+                    <text x="42" y="230" class="telemetry-time-label">-15s</text>
+                    <text x="142" y="230" class="telemetry-time-label">-10s</text>
+                    <text x="242" y="230" class="telemetry-time-label">-5s</text>
+                    <text x="342" y="230" class="telemetry-time-label" font-weight="700">Live</text>
+
+                    <!-- Gradient Fill Area -->
                     <path d="{{ $cpuGraph['fill'] }}" fill="url(#cpuGrad)"/>
-                    <polyline fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="{{ $cpuGraph['points'] }}"/>
+
+                    <!-- Polyline Curve -->
+                    <polyline fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" points="{{ $cpuGraph['points'] }}"/>
+
+                    <!-- Live Pulse Head Circle -->
                     <circle cx="{{ $cpuGraph['lastX'] }}" cy="{{ $cpuGraph['lastY'] }}" r="4" fill="#2563eb" stroke="#ffffff" stroke-width="2"/>
                 </svg>
             </div>
 
             <!-- 2. RAM Telemetry Line Graph -->
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                     <div>
                         <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Memory Allocation Trend</span>
-                        <div style="font-size: 18px; font-weight: 800; color: #10b981;">{{ $ramGraph['current'] }}%</div>
+                        <div style="font-size: 20px; font-weight: 800; color: #10b981;">{{ $ramGraph['current'] }}%</div>
                     </div>
-                    <span style="font-size: 11px; color: #64748b;">Peak: {{ max($ramHistory ?: [0]) }}%</span>
+                    <span style="font-size: 11px; color: #64748b; background: #ffffff; border: 1px solid #e2e8f0; padding: 2px 8px; border-radius: 6px;">Peak: {{ max($ramHistory ?: [0]) }}%</span>
                 </div>
-                <svg class="telemetry-svg" viewBox="0 0 340 80" preserveAspectRatio="none">
+                <svg class="telemetry-svg" viewBox="0 0 365 240" preserveAspectRatio="xMidYMid meet">
                     <defs>
                         <linearGradient id="ramGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stop-color="#10b981" stop-opacity="0.3"/>
+                            <stop offset="0%" stop-color="#10b981" stop-opacity="0.25"/>
                             <stop offset="100%" stop-color="#10b981" stop-opacity="0.0"/>
                         </linearGradient>
                     </defs>
-                    <line x1="10" y1="41" x2="330" y2="41" stroke="#e2e8f0" stroke-dasharray="3,3" stroke-width="1"/>
-                    <line x1="10" y1="70" x2="330" y2="70" stroke="#e2e8f0" stroke-width="1"/>
+
+                    <!-- Horizontal Grid Lines & 0%-100% Elevation Labels -->
+                    @foreach($elevations as $elev)
+                        @php
+                            $y = 15 + ((100 - $elev) * 2);
+                            $isMajor = ($elev === 0 || $elev === 50 || $elev === 100);
+                        @endphp
+                        <text x="36" y="{{ $y }}" class="telemetry-axis-label">{{ $elev }}%</text>
+                        <line x1="42" y1="{{ $y }}" x2="342" y2="{{ $y }}" class="telemetry-grid-line {{ $isMajor ? 'major' : '' }}" stroke-dasharray="{{ $isMajor ? 'none' : '2,2' }}"/>
+                    @endforeach
+
+                    <!-- Vertical Grid Lines (Exact 20x20 Squares) -->
+                    @for($vx = 42; $vx <= 342; $vx += 20)
+                        @php
+                            $isBound = ($vx === 42 || $vx === 342);
+                        @endphp
+                        <line x1="{{ $vx }}" y1="15" x2="{{ $vx }}" y2="215" class="telemetry-grid-line {{ $isBound ? 'major' : '' }}" stroke-dasharray="{{ $isBound ? 'none' : '2,2' }}"/>
+                    @endfor
+
+                    <!-- Time Markers at Bottom -->
+                    <text x="42" y="230" class="telemetry-time-label">-15s</text>
+                    <text x="142" y="230" class="telemetry-time-label">-10s</text>
+                    <text x="242" y="230" class="telemetry-time-label">-5s</text>
+                    <text x="342" y="230" class="telemetry-time-label" font-weight="700">Live</text>
+
+                    <!-- Gradient Fill Area -->
                     <path d="{{ $ramGraph['fill'] }}" fill="url(#ramGrad)"/>
-                    <polyline fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="{{ $ramGraph['points'] }}"/>
+
+                    <!-- Polyline Curve -->
+                    <polyline fill="none" stroke="#10b981" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" points="{{ $ramGraph['points'] }}"/>
+
+                    <!-- Live Pulse Head Circle -->
                     <circle cx="{{ $ramGraph['lastX'] }}" cy="{{ $ramGraph['lastY'] }}" r="4" fill="#10b981" stroke="#ffffff" stroke-width="2"/>
                 </svg>
             </div>
 
             <!-- 3. Disk Storage Trend -->
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                     <div>
                         <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Disk Capacity Curve</span>
-                        <div style="font-size: 18px; font-weight: 800; color: #8b5cf6;">{{ $diskGraph['current'] }}%</div>
+                        <div style="font-size: 20px; font-weight: 800; color: #8b5cf6;">{{ $diskGraph['current'] }}%</div>
                     </div>
-                    <span style="font-size: 11px; color: #64748b;">Available: {{ $metrics['disk']['free_gb'] ?? 0 }} GB</span>
+                    <span style="font-size: 11px; color: #64748b; background: #ffffff; border: 1px solid #e2e8f0; padding: 2px 8px; border-radius: 6px;">Available: {{ $metrics['disk']['free_gb'] ?? 0 }} GB</span>
                 </div>
-                <svg class="telemetry-svg" viewBox="0 0 340 80" preserveAspectRatio="none">
+                <svg class="telemetry-svg" viewBox="0 0 365 240" preserveAspectRatio="xMidYMid meet">
                     <defs>
                         <linearGradient id="diskGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.3"/>
+                            <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.25"/>
                             <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.0"/>
                         </linearGradient>
                     </defs>
-                    <line x1="10" y1="41" x2="330" y2="41" stroke="#e2e8f0" stroke-dasharray="3,3" stroke-width="1"/>
-                    <line x1="10" y1="70" x2="330" y2="70" stroke="#e2e8f0" stroke-width="1"/>
+
+                    <!-- Horizontal Grid Lines & 0%-100% Elevation Labels -->
+                    @foreach($elevations as $elev)
+                        @php
+                            $y = 15 + ((100 - $elev) * 2);
+                            $isMajor = ($elev === 0 || $elev === 50 || $elev === 100);
+                        @endphp
+                        <text x="36" y="{{ $y }}" class="telemetry-axis-label">{{ $elev }}%</text>
+                        <line x1="42" y1="{{ $y }}" x2="342" y2="{{ $y }}" class="telemetry-grid-line {{ $isMajor ? 'major' : '' }}" stroke-dasharray="{{ $isMajor ? 'none' : '2,2' }}"/>
+                    @endforeach
+
+                    <!-- Vertical Grid Lines (Exact 20x20 Squares) -->
+                    @for($vx = 42; $vx <= 342; $vx += 20)
+                        @php
+                            $isBound = ($vx === 42 || $vx === 342);
+                        @endphp
+                        <line x1="{{ $vx }}" y1="15" x2="{{ $vx }}" y2="215" class="telemetry-grid-line {{ $isBound ? 'major' : '' }}" stroke-dasharray="{{ $isBound ? 'none' : '2,2' }}"/>
+                    @endfor
+
+                    <!-- Time Markers at Bottom -->
+                    <text x="42" y="230" class="telemetry-time-label">-15s</text>
+                    <text x="142" y="230" class="telemetry-time-label">-10s</text>
+                    <text x="242" y="230" class="telemetry-time-label">-5s</text>
+                    <text x="342" y="230" class="telemetry-time-label" font-weight="700">Live</text>
+
+                    <!-- Gradient Fill Area -->
                     <path d="{{ $diskGraph['fill'] }}" fill="url(#diskGrad)"/>
-                    <polyline fill="none" stroke="#8b5cf6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="{{ $diskGraph['points'] }}"/>
+
+                    <!-- Polyline Curve -->
+                    <polyline fill="none" stroke="#8b5cf6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" points="{{ $diskGraph['points'] }}"/>
+
+                    <!-- Live Pulse Head Circle -->
                     <circle cx="{{ $diskGraph['lastX'] }}" cy="{{ $diskGraph['lastY'] }}" r="4" fill="#8b5cf6" stroke="#ffffff" stroke-width="2"/>
                 </svg>
             </div>

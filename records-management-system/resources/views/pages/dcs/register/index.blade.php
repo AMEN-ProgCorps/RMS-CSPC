@@ -964,6 +964,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
 <script>
 window.__registerCatalog = @json($catalog);
+/* Livewire can re-inject this script via Element.replaceWith; skip redeclare. */
+if (window.__dcsRegisterScriptLoaded) {
+    /* already booted */
+} else {
+window.__dcsRegisterScriptLoaded = true;
 
 /** Safe Alpine root state — Livewire can race ahead of Alpine init on ?type=new. */
 function getRegisterAlpineData(rootId) {
@@ -11042,6 +11047,7 @@ window.toggleOfficeSeeMore = function (btn) {
 document.addEventListener('DOMContentLoaded', function () {
     refreshOfficeSeeMore();
 });
+} /* end __dcsRegisterScriptLoaded guard */
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
 @include('pages.dcs.register.partials.scan-name-preview')

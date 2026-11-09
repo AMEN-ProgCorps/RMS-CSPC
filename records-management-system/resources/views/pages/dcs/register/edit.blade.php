@@ -1199,6 +1199,11 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
 
 
 <script>
+/* Livewire can re-inject this script via Element.replaceWith; skip redeclare. */
+if (window.__dcsEditRegisterScriptLoaded) {
+    /* already booted */
+} else {
+window.__dcsEditRegisterScriptLoaded = true;
 
 /** Safe Alpine root state — Livewire can race ahead of Alpine init. */
 function getRegisterAlpineData(rootId) {
@@ -9211,6 +9216,7 @@ document.addEventListener('DOMContentLoaded', function () {
     refreshOfficeSeeMore();
 });
 
+} /* end __dcsEditRegisterScriptLoaded guard */
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
 @include('pages.dcs.register.partials.scan-name-preview')

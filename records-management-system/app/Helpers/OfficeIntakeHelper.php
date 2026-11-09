@@ -611,6 +611,12 @@ class OfficeIntakeHelper
             }
         }
 
+        // Prefer explicit RFIO registration stamp. Draft-linked request ids alone
+        // never reach here; non-draft linked rows stay registered for legacy data.
+        if (empty($registeredAt) && $registeredRequestId < 1) {
+            return $empty;
+        }
+
         $docNo = '';
         $docTitle = '';
         if ($registeredRequestId > 0 && Schema::hasTable('dcs_masterlist_registration')) {
@@ -4440,15 +4446,13 @@ class OfficeIntakeHelper
             return true;
         }
 
-        if (! empty($record->rfio_registered_at)) {
-            if ((int) ($record->request_id ?? 0) > 0) {
-                self::detachIntakeFromControlledRequest($type, $id);
-            }
-
-            return true;
+        // Same rules as intakeRegistrationMeta: draft-linked intakes are NOT registered yet.
+        $meta = self::intakeRegistrationMeta($type, $record);
+        if (! empty($meta['is_registered']) && ! empty($record->rfio_registered_at) && (int) ($record->request_id ?? 0) > 0) {
+            self::detachIntakeFromControlledRequest($type, $id);
         }
 
-        return (int) ($record->registered_request_id ?? 0) > 0;
+        return ! empty($meta['is_registered']);
     }
 
     /**

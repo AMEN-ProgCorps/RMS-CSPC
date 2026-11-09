@@ -49,8 +49,12 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
         </div>
 
         @if($editReason !== '')
-            <div class="ofi-alert err">
-                <strong>RFIO correction note:</strong> {{ $editReason }}
+            <div class="ofi-alert err ofi-correction-alert" role="status">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div class="ofi-alert-body">
+                    <strong>RFIO asked for corrections</strong>
+                    <span>{{ $editReason }}</span>
+                </div>
             </div>
         @endif
 

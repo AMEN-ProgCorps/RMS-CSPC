@@ -55,9 +55,13 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             ];
         }
 
+        $docTypeId = (int) ($drf->doc_type_id ?? 0);
         $subTypeId = (int) ($drf->sub_type_id ?? 0);
+        $docTypeName = $docTypeId > 0
+            ? trim((string) (\Illuminate\Support\Facades\DB::table('dcs_doc_types')->where('id', $docTypeId)->value('doc_type_name') ?? ''))
+            : '';
         $subTypeName = $subTypeId > 0
-            ? (string) (\Illuminate\Support\Facades\DB::table('dcs_doc_types')->where('id', $subTypeId)->value('doc_type_name') ?? '')
+            ? trim((string) (\Illuminate\Support\Facades\DB::table('dcs_doc_types')->where('id', $subTypeId)->value('doc_type_name') ?? ''))
             : '';
 
         return [
@@ -74,6 +78,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             'optInTypeRadios' => OfficeIntakeHelper::enabledOfficeDrfTypeRadios(),
             'syllabiCatalog' => OfficeIntakeHelper::officeDrfSyllabiCatalog((int) ($drf->id ?? 0)),
             'isSyllabiLikeEdit' => RegisterQueryHelper::isSyllabiLikeName($subTypeName),
+            'docTypeName' => $docTypeName,
             'subTypeName' => $subTypeName,
             'userOfficeId' => $office['id'],
             'userOfficeCode' => $office['code'],
@@ -93,8 +98,12 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
         </div>
 
         @if($editReason !== '')
-            <div class="ofi-alert err">
-                <strong>RFIO correction note:</strong> {{ $editReason }}
+            <div class="ofi-alert err ofi-correction-alert" role="status">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div class="ofi-alert-body">
+                    <strong>RFIO asked for corrections</strong>
+                    <span>{{ $editReason }}</span>
+                </div>
             </div>
         @endif
 
@@ -147,65 +156,45 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                             }
                             $savedDocTypeId = (string) old('docTypeId', (string) ($drf->doc_type_id ?? ''));
                             $savedSubTypeId = (string) old('subTypeId', (string) ($drf->sub_type_id ?? ''));
+                            $showCatalogTypes = $docTypeKind === 'internal'
+                                && (trim((string) ($docTypeName ?? '')) !== '' || trim((string) ($subTypeName ?? '')) !== '');
                         @endphp
-                        {{-- Preserve catalog parent/sub on edit (edit UI does not re-pick them). --}}
-                        @if($docTypeKind === 'internal' || ($lockDocType ?? false))
-                            @if($savedDocTypeId !== '' && $optInDocTypeId === '')
-                                <input type="hidden" name="docTypeId" value="{{ $savedDocTypeId }}">
-                            @endif
-                            @if($savedSubTypeId !== '')
-                                <input type="hidden" name="subTypeId" id="drfSubTypeId" value="{{ $savedSubTypeId }}">
-                            @endif
+                        {{-- Edit keeps type/sub-type fixed; values are submitted as hidden fields. --}}
+                        <input type="hidden" name="docTypeKind" value="{{ $docTypeKind }}">
+                        @if($optInDocTypeId !== '')
+                            <input type="hidden" name="docTypeId" value="{{ $optInDocTypeId }}">
+                        @elseif($savedDocTypeId !== '')
+                            <input type="hidden" name="docTypeId" value="{{ $savedDocTypeId }}">
                         @endif
-                        @if($lockDocType ?? false)
-                            <input type="hidden" name="docTypeKind" value="{{ $docTypeKind }}">
-                            @if($optInDocTypeId !== '')
-                                <input type="hidden" name="docTypeId" value="{{ $optInDocTypeId }}">
-                            @endif
-                            <div class="ofi-radio-row">
-                                <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === 'internal')> Internal</label>
-                                <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === 'external')> External</label>
-                                @foreach($optInRadios as $opt)
-                                    <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === $opt['slug'])> {{ $opt['label'] }}</label>
-                                @endforeach
-                            </div>
-                            <p class="ofi-hint">This follows the document being revised and cannot be changed.</p>
-                        @else
-                            <div class="ofi-radio-row">
-                                <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked($docTypeKind === 'internal')> Internal</label>
-                                <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" @checked($docTypeKind === 'external')> External</label>
-                                @foreach($optInRadios as $opt)
-                                    <label class="ofi-radio">
-                                        <input
-                                            type="radio"
-                                            name="docTypeKind"
-                                            value="{{ $opt['slug'] }}"
-                                            data-optin-doc-type-id="{{ $opt['id'] }}"
-                                            @checked($docTypeKind === $opt['slug'])
-                                        > {{ $opt['label'] }}
-                                    </label>
-                                @endforeach
-                            </div>
-                            <input type="hidden" id="drfOptInDocTypeId" name="docTypeId" value="{{ $optInDocTypeId }}" @disabled(! in_array($docTypeKind, ['forms', 'logbooks'], true))>
-                            @if(!empty($subTypeName))
-                                <p class="ofi-hint">Sub-type: {{ $subTypeName }}</p>
-                            @endif
-                            <script>
-                                document.addEventListener('DOMContentLoaded', function () {
-                                    const form = document.querySelector('form');
-                                    const hidden = document.getElementById('drfOptInDocTypeId');
-                                    if (!form || !hidden) return;
-                                    form.querySelectorAll('input[name="docTypeKind"]').forEach(function (radio) {
-                                        radio.addEventListener('change', function () {
-                                            const v = radio.value;
-                                            const isOptIn = v === 'forms' || v === 'logbooks';
-                                            hidden.disabled = !isOptIn;
-                                            hidden.value = isOptIn ? (radio.getAttribute('data-optin-doc-type-id') || '') : '';
-                                        });
-                                    });
-                                });
-                            </script>
+                        @if($savedSubTypeId !== '')
+                            <input type="hidden" name="subTypeId" id="drfSubTypeId" value="{{ $savedSubTypeId }}">
                         @endif
+                        <div class="ofi-radio-row">
+                            <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === 'internal')> Internal</label>
+                            <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === 'external')> External</label>
+                            @foreach($optInRadios as $opt)
+                                <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === $opt['slug'])> {{ $opt['label'] }}</label>
+                            @endforeach
+                        </div>
+                        @if($showCatalogTypes)
+                            <div class="ofi-readonly-type-meta" aria-label="Document type and sub-type">
+                                @if(trim((string) ($docTypeName ?? '')) !== '')
+                                    <div class="ofi-readonly-type-card">
+                                        <span class="ofi-readonly-type-label">Document type</span>
+                                        <div class="ofi-readonly-type-value">{{ $docTypeName }}</div>
+                                    </div>
+                                @endif
+                                @if(trim((string) ($subTypeName ?? '')) !== '')
+                                    <div class="ofi-readonly-type-card">
+                                        <span class="ofi-readonly-type-label">Sub-type</span>
+                                        <div class="ofi-readonly-type-value">{{ $subTypeName }}</div>
+                                    </div>
+                                @endif
+                            </div>
+                        @elseif(!empty($lockedTypeLabel))
+                            <p class="ofi-hint">Document type: {{ $lockedTypeLabel }}</p>
+                        @endif
+                        <p class="ofi-hint">Document type and sub-type cannot be changed while correcting this request.</p>
                         @include('pages.dcs.office.partials.drf-syllabi-context', [
                             'syllabiContextVisible' => (bool) ($isSyllabiLikeEdit ?? false),
                             'subTypeName' => $subTypeName ?? '',

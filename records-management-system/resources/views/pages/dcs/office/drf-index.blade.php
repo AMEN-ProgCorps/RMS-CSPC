@@ -110,7 +110,15 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                     @empty
                         <tr>
                             <td colspan="{{ ($isReviewer ?? false) ? 8 : 6 }}" class="ofi-empty">
-                                {{ ($isReviewer ?? false) ? 'No office DRF submissions yet.' : 'No Document Request Forms yet.' }}
+                                <div class="ofi-empty-stack">
+                                    <span>{{ ($isReviewer ?? false) ? 'No office DRF submissions yet.' : 'No Document Request Forms yet.' }}</span>
+                                    @unless($isReviewer ?? false)
+                                        <span>Create a DRF for RFIO, or continue from a saved DCN that still needs its request form.</span>
+                                        <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-empty-cta">
+                                            <i class="fa-solid fa-plus"></i> New Document Request Form
+                                        </a>
+                                    @endunless
+                                </div>
                             </td>
                         </tr>
                     @endforelse

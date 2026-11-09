@@ -1040,6 +1040,17 @@ Route::middleware(['auth'])
             })->name('api.office-intake.attention');
 
             Route::middleware(['dcs.full'])->group(function () {
+                Route::get('/api/dashboard/request-attention', function () {
+                    if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+                        return response()->json(['total' => 0, 'items' => []], 403);
+                    }
+
+                    return response()->json([
+                        'total' => OfficeIntakeHelper::pendingOfficeRequestTotal(),
+                        'items' => OfficeIntakeHelper::dashboardRequestAttentionItems(6),
+                    ]);
+                })->name('api.dashboard.request-attention');
+
                 Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {
                     return response()->json(RegisterQueryHelper::documentChecklistPreview($id, $type));
                 })->whereIn('type', ['drf', 'dcn', 'masterlist', 'approval', 'distribution', 'retrieval', 'file']);

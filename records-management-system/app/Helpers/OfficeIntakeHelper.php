@@ -310,36 +310,68 @@ class OfficeIntakeHelper
                 self::ensureOfficePrintedColumns($table);
                 self::reconcileClaimedIntakesWithRegistrations();
 
-                $cols = [$alias.'.id', $alias.'.created_by'];
-                foreach ([
-                    'registered_request_id',
-                    'rfio_registered_at',
-                    'edit_unlocked_at',
-                    'rfio_print_notified_at',
-                    'office_printed_at',
-                ] as $column) {
-                    if (Schema::hasColumn($table, $column)) {
-                        $cols[] = $alias.'.'.$column;
-                    }
-                }
-
                 $query = DB::table($table.' as '.$alias);
                 self::applyOwnOfficeIntakeScope($query, $alias, $type);
-                $rows = $query->get($cols);
-                $rows = self::enrichIntakeListRows($type, $rows, false);
 
-                $counts = $empty;
-                $counts['total'] = $rows->count();
-                foreach ($rows as $row) {
-                    $status = (string) ($row->pipeline_status ?? 'submitted');
-                    if (isset($counts[$status])) {
-                        $counts[$status]++;
-                    } else {
-                        $counts['submitted']++;
-                    }
+                $hasReqId = Schema::hasColumn($table, 'registered_request_id');
+                $hasRegisteredAt = Schema::hasColumn($table, 'rfio_registered_at');
+                $hasUnlock = Schema::hasColumn($table, 'edit_unlocked_at');
+                $hasPrint = Schema::hasColumn($table, 'rfio_print_notified_at');
+                $hasPrinted = Schema::hasColumn($table, 'office_printed_at');
+                $hasDraftCol = $hasReqId
+                    && Schema::hasTable('dcs_document_requests')
+                    && Schema::hasColumn('dcs_document_requests', 'is_draft');
+
+                if ($hasDraftCol) {
+                    $query->leftJoin('dcs_document_requests as ofi_pipe_req', 'ofi_pipe_req.id', '=', $alias.'.registered_request_id');
                 }
 
-                return $counts;
+                $isDraft = $hasDraftCol
+                    ? '(COALESCE('.$alias.'.registered_request_id, 0) > 0 AND COALESCE(ofi_pipe_req.is_draft, false) = true)'
+                    : 'false';
+                $looksRegistered = 'false';
+                if ($hasRegisteredAt && $hasReqId) {
+                    $looksRegistered = '('.$alias.'.rfio_registered_at IS NOT NULL OR COALESCE('.$alias.'.registered_request_id, 0) > 0)';
+                } elseif ($hasRegisteredAt) {
+                    $looksRegistered = '('.$alias.'.rfio_registered_at IS NOT NULL)';
+                } elseif ($hasReqId) {
+                    $looksRegistered = '(COALESCE('.$alias.'.registered_request_id, 0) > 0)';
+                }
+                $isRegistered = '('.$looksRegistered.' AND NOT '.$isDraft.')';
+                $isCorrection = $hasUnlock
+                    ? '(NOT '.$isRegistered.' AND '.$alias.'.edit_unlocked_at IS NOT NULL)'
+                    : 'false';
+                $isPrintNotified = $hasPrint
+                    ? '(NOT '.$isRegistered.' AND NOT '.$isCorrection.' AND '.$alias.'.rfio_print_notified_at IS NOT NULL)'
+                    : 'false';
+                $isPrintReady = $hasPrinted
+                    ? '('.$isPrintNotified.' AND '.$alias.'.office_printed_at IS NULL)'
+                    : $isPrintNotified;
+                $isPrinted = $hasPrinted
+                    ? '('.$isPrintNotified.' AND '.$alias.'.office_printed_at IS NOT NULL)'
+                    : 'false';
+
+                $row = $query->selectRaw('COUNT(*)::int as total')
+                    ->selectRaw('COUNT(*) FILTER (WHERE '.$isRegistered.')::int as registered')
+                    ->selectRaw('COUNT(*) FILTER (WHERE '.$isCorrection.')::int as correction')
+                    ->selectRaw('COUNT(*) FILTER (WHERE '.$isPrintReady.')::int as print_ready')
+                    ->selectRaw('COUNT(*) FILTER (WHERE '.$isPrinted.')::int as printed')
+                    ->first();
+
+                $total = (int) ($row->total ?? 0);
+                $registered = (int) ($row->registered ?? 0);
+                $correction = (int) ($row->correction ?? 0);
+                $printReady = (int) ($row->print_ready ?? 0);
+                $printed = (int) ($row->printed ?? 0);
+
+                return [
+                    'total' => $total,
+                    'registered' => $registered,
+                    'correction' => $correction,
+                    'print_ready' => $printReady,
+                    'printed' => $printed,
+                    'submitted' => max(0, $total - $registered - $correction - $printReady - $printed),
+                ];
             },
             20
         );

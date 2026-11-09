@@ -1035,6 +1035,36 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-also-drf-check {
     margin-top: 10px;
 }
+.ofi-also-drf-hint {
+    margin: 8px 0 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1e3a8a;
+    font-size: 12.5px;
+    line-height: 1.45;
+}
+.ofi-empty-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #0d2a7a;
+    text-decoration: none;
+}
+.ofi-empty-cta:hover {
+    text-decoration: underline;
+}
+.ofi-empty-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 8px 0;
+}
 
 body.ofi-docno-use-open {
     overflow: hidden;

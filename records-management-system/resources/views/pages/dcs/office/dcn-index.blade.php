@@ -112,7 +112,15 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                     @empty
                         <tr>
                             <td colspan="{{ ($isReviewer ?? false) ? 8 : 6 }}" class="ofi-empty">
-                                {{ ($isReviewer ?? false) ? 'No office DCN submissions yet.' : 'No Document Change Notices yet. Create one to get started.' }}
+                                <div class="ofi-empty-stack">
+                                    <span>{{ ($isReviewer ?? false) ? 'No office DCN submissions yet.' : 'No Document Change Notices yet.' }}</span>
+                                    @unless($isReviewer ?? false)
+                                        <span>Start a DCN for a registered document. You can also create the matching DRF right after save.</span>
+                                        <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-empty-cta">
+                                            <i class="fa-solid fa-plus"></i> New Document Change Notice
+                                        </a>
+                                    @endunless
+                                </div>
                             </td>
                         </tr>
                     @endforelse

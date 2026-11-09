@@ -23,13 +23,13 @@
         <div style="background: #0f172a; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255, 255, 255, 0.1); user-select: none;">
             <div style="display: flex; align-items: center; gap: 10px;">
                 <div style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></div>
-                <span style="color: #f8fafc; font-weight: 600; font-size: 14px; letter-spacing: 0.2px;">Messify</span>
+                <span style="color: #f8fafc; font-weight: 600; font-size: 14px; letter-spacing: 0.2px;">Chatify</span>
                 <span style="background: rgba(255, 255, 255, 0.15); color: #94a3b8; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px;">Live</span>
             </div>
 
             <div style="display: flex; align-items: center; gap: 8px;">
                 <!-- Refresh Button -->
-                <button type="button" onclick="reloadMessifyIframe()" title="Reload Messify" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
+                <button type="button" onclick="reloadMessifyIframe()" title="Reload Chatify" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
                     <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 </button>
                 <!-- Minimize Button -->
@@ -43,7 +43,7 @@
         <div style="flex: 1; position: relative; background: #0f172a;">
             <div id="messify-iframe-loader" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0f172a; color: #94a3b8; font-size: 13px; font-weight: 500; gap: 10px; z-index: 2;">
                 <div style="width: 28px; height: 28px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #3b82f6; border-radius: 50%; animation: messify-spin 0.8s linear infinite;"></div>
-                <span>Connecting to Messify...</span>
+                <span>Connecting to Chatify...</span>
             </div>
             <iframe id="messify-iframe" data-src="{{ route('open-chat') }}" style="width: 100%; height: 100%; border: none; display: block;" onload="typeof hideMessifyLoader === 'function' && hideMessifyLoader()" allow="autoplay; clipboard-write"></iframe>
         </div>
@@ -59,7 +59,7 @@
         <button id="messify-widget-btn" 
                 type="button" 
                 onclick="toggleMessifyWidget()" 
-                title="Messify Messages"
+                title="Chatify Messages"
                 class="rms-messify-fab">
             
             <span class="rms-messify-fab-icon">
@@ -74,7 +74,7 @@
                 </svg>
             </span>
 
-            <span id="messify-widget-btn-label" class="rms-messify-fab-label">Messify</span>
+            <span id="messify-widget-btn-label" class="rms-messify-fab-label">Chatify</span>
         </button>
     </div>
 </div>
@@ -846,12 +846,12 @@ body.report-widget-open #messify-global-widget {
                 iconChat.style.display = 'none';
                 iconClose.style.display = 'block';
             }
-            btn.setAttribute('title', 'Minimize Messify');
+            btn.setAttribute('title', 'Minimize Chatify');
         } else {
             document.body.classList.remove('messify-widget-open');
             window.dispatchEvent(new CustomEvent('rms-widget-closed', { detail: { widget: 'messify' } }));
             const labelEl = document.getElementById('messify-widget-btn-label');
-            if (labelEl) labelEl.textContent = 'Messify';
+            if (labelEl) labelEl.textContent = 'Chatify';
 
             try {
                 if (iframe && iframe.contentWindow && typeof iframe.contentWindow.resetToHome === 'function') {
@@ -878,7 +878,7 @@ body.report-widget-open #messify-global-widget {
                 iconChat.style.display = 'block';
                 iconClose.style.display = 'none';
             }
-            btn.setAttribute('title', 'Messify Messages');
+            btn.setAttribute('title', 'Chatify Messages');
         }
     }
 

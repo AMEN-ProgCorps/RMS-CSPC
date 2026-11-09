@@ -3,11 +3,19 @@
     const adminKeyToggleBtn = document.getElementById('adminKeyToggleBtn');
     const ownSidebarSearch = document.getElementById('ownSidebarSearch');
     let isAdminAllChatsView = (localStorage.getItem('__adminAllChatsView__') === '1');
-    let preSpyDM = localStorage.getItem('__preSpyDM__') || null;        // activeDM to restore when leaving the all-conversations spy view
-    let preSpyIsGlobal = (localStorage.getItem('__preSpyIsGlobal__') === '1'); // isGlobalChat to restore when leaving the all-conversations spy view
-    let preSpyChannel = localStorage.getItem('__preSpyChannel__') || null;
+    let preSpyDM = null;
+    let preSpyIsGlobal = false;
+    let preSpyChannel = null;
+    try {
+      localStorage.removeItem('__preSpyDM__');
+      localStorage.removeItem('__preSpyChannel__');
+      localStorage.removeItem('__preSpyIsGlobal__');
+    } catch (e) {}
 
     function applyAdminAllChatsView() {
+      if (typeof clearSidebarActiveHighlights === 'function') {
+        clearSidebarActiveHighlights();
+      }
       if (adminEyeToggleBtn) {
         adminEyeToggleBtn.classList.toggle('active', isAdminAllChatsView);
       }
@@ -36,9 +44,11 @@
       if (spyNotice) spyNotice.style.display = isAdminAllChatsView ? 'flex' : 'none';
 
       if (isAdminAllChatsView) {
+        if (typeof clearSidebarActiveHighlights === 'function') clearSidebarActiveHighlights();
         fetchAdminConvs(adminSearchInput ? adminSearchInput.value.trim() : '', 0, false);
       } else {
         renderAdminConvs();
+        if (typeof clearSidebarActiveHighlights === 'function') clearSidebarActiveHighlights();
       }
       if (typeof updateOfficeInfoButtonVisibility === 'function') updateOfficeInfoButtonVisibility();
     }
@@ -46,57 +56,104 @@
     if (adminEyeToggleBtn) {
       if (isAdmin) adminEyeToggleBtn.style.display = 'inline-flex';
       adminEyeToggleBtn.addEventListener('click', () => {
+        // Cancel any pending mark_read network timers immediately
+        if (typeof markReadHttpDebounceTimer !== 'undefined' && markReadHttpDebounceTimer) {
+          clearTimeout(markReadHttpDebounceTimer);
+          markReadHttpDebounceTimer = null;
+        }
+
         const turningOn = !isAdminAllChatsView;
 
         if (turningOn) {
-          // Entering spy view — remember activeDM, channel, and isGlobalChat to restore upon exit
-          preSpyDM = activeDM;
-          preSpyChannel = window.activeChannel || null;
-          preSpyIsGlobal = (window.activeChannel === 'global' && isGlobalChat);
-          localStorage.setItem('__preSpyDM__', activeDM || '');
-          localStorage.setItem('__preSpyChannel__', preSpyChannel || '');
-          localStorage.setItem('__preSpyIsGlobal__', preSpyIsGlobal ? '1' : '0');
-
           isAdminAllChatsView = true;
           localStorage.setItem('__adminAllChatsView__', '1');
 
-          // Close/clear previously opened conversation
+          // Close and reset any active conversation — never auto-restore
           activeDM = null;
           activeDMAccountId = null;
+          if (typeof activeDMUserObj !== 'undefined') activeDMUserObj = null;
           isGlobalChat = false;
           window.activeChannel = null;
+          if (typeof activeChannel !== 'undefined') activeChannel = null;
           window.activeCustomGc = null;
           activeAdminConv = null;
+          pendingRestoreDM = null;
+          preSpyDM = null;
+          preSpyChannel = null;
+          preSpyIsGlobal = false;
+          localStorage.removeItem('activeDM');
+          localStorage.removeItem('__preSpyDM__');
+          localStorage.removeItem('__preSpyChannel__');
+          localStorage.removeItem('__preSpyIsGlobal__');
+          localStorage.removeItem('activeSpyConv');
+
+          if (typeof clearSidebarActiveHighlights === 'function') {
+            clearSidebarActiveHighlights();
+          } else {
+            document.querySelectorAll('.user-item.active, #globalChatItem.active, #officeChatItem.active, .custom-gc-item.active, .office-gc-item.active, .admin-conv-item.active, .admin-user-item.active').forEach(el => el.classList.remove('active'));
+          }
+
           updateClearChatButtonVisibility();
           if (typeof updateOfficeInfoButtonVisibility === 'function') updateOfficeInfoButtonVisibility();
           if (typeof hideEditBanner === 'function') hideEditBanner();
           if (typeof hideReplyBanner === 'function') hideReplyBanner();
-          localStorage.removeItem('activeSpyConv');
           
           chatHeaderTitle.textContent = '';
           applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
           applyHeaderAvatar(null);
           if (typeof updateHeaderActiveStatus === 'function') updateHeaderActiveStatus();
           if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
+          if (typeof clearSidebarActiveHighlights === 'function') {
+            clearSidebarActiveHighlights();
+          } else {
+            document.querySelectorAll('.user-item.active, #globalChatItem.active, #officeChatItem.active, .custom-gc-item.active, .office-gc-item.active, .admin-conv-item.active, .admin-user-item.active').forEach(el => el.classList.remove('active'));
+          }
           removePaginationBtn();
-          if (typeof setNoChatSelected === 'function') setNoChatSelected(true); else chatBox.innerHTML = '<div class="empty-chat"></div>';
+          if (typeof setNoChatSelected === 'function') {
+            setNoChatSelected(true);
+          } else {
+            chatBox.innerHTML = '<div class="empty-chat"></div>';
+          }
 
           applyAdminAllChatsView();
+          if (typeof clearSidebarActiveHighlights === 'function') {
+            clearSidebarActiveHighlights();
+          }
         } else {
-          // Leaving spy view — restore the admin's conversation
-
-          // Abort any in-flight spy-conv XHR so its response cannot
-          // reach the DOM after we switch back to normal mode.
+          // Leaving spy view — do NOT restore any previous conversation; always show "No chat selected"
           if (adminConvXhr) { try { adminConvXhr.abort(); } catch(e){} adminConvXhr = null; }
           isLoadingAdminConv = false;
 
           isAdminAllChatsView = false;
           localStorage.setItem('__adminAllChatsView__', '0');
+
+          activeDM = null;
+          activeDMAccountId = null;
+          if (typeof activeDMUserObj !== 'undefined') activeDMUserObj = null;
+          isGlobalChat = false;
+          window.activeChannel = null;
+          if (typeof activeChannel !== 'undefined') activeChannel = null;
+          window.activeCustomGc = null;
           activeAdminConv = null;
+          pendingRestoreDM = null;
+          preSpyDM = null;
+          preSpyChannel = null;
+          preSpyIsGlobal = false;
+          localStorage.removeItem('activeDM');
+          localStorage.removeItem('__preSpyDM__');
+          localStorage.removeItem('__preSpyChannel__');
+          localStorage.removeItem('__preSpyIsGlobal__');
+          localStorage.removeItem('activeSpyConv');
+
+          if (typeof clearSidebarActiveHighlights === 'function') {
+            clearSidebarActiveHighlights();
+          } else {
+            document.querySelectorAll('.user-item.active, #globalChatItem.active, #officeChatItem.active, .custom-gc-item.active, .office-gc-item.active, .admin-conv-item.active, .admin-user-item.active').forEach(el => el.classList.remove('active'));
+          }
+
           updateClearChatButtonVisibility();
           if (typeof hideEditBanner === 'function') hideEditBanner();
           if (typeof hideReplyBanner === 'function') hideReplyBanner();
-          localStorage.removeItem('activeSpyConv');
 
           // Reset all admin spy mode state & search inputs fully
           adminSpyType = 'none';
@@ -109,66 +166,30 @@
           if (adminSearchInput) adminSearchInput.value = '';
           if (adminSearchTimeout) { clearTimeout(adminSearchTimeout); adminSearchTimeout = null; }
 
-          // Wipe chatBox innerHTML so reconcilePoll doesn't retain old spy-mode DOM nodes
+          // Wipe chatBox innerHTML and always show No Chat Selected
           chatBox.innerHTML = '';
           isFirstLoad = true;
+
+          chatHeaderTitle.textContent = '';
+          applyHeaderAdminBadge();
+          applyHeaderAvatar(null);
+          removePaginationBtn();
+          if (typeof setNoChatSelected === 'function') {
+            setNoChatSelected(true);
+          } else {
+            chatBox.innerHTML = '<div class="empty-chat"></div>';
+          }
 
           if (typeof updateHeaderActiveStatus === 'function') updateHeaderActiveStatus();
           if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
 
           applyAdminAllChatsView();
-
-          // Determine which conversation to restore.
-          // Priority: in-memory preSpyDM/channel → localStorage → default.
-          let savedAdminDM = preSpyDM || localStorage.getItem('__preSpyDM__') || null;
-          let savedChannel = preSpyChannel || localStorage.getItem('__preSpyChannel__') || null;
-          let savedIsOffice = (savedChannel === 'office');
-          let savedIsGlobal = (savedChannel === 'global' || (!savedChannel && preSpyIsGlobal));
-
-          if (!savedAdminDM && !savedIsGlobal && !savedIsOffice) {
-            const locDM = localStorage.getItem('activeDM');
-            if (locDM === '__global__') savedIsGlobal = true;
-            else if (locDM === '__office__') savedIsOffice = true;
-            else if (locDM && !locDM.startsWith('__admin__')) savedAdminDM = locDM;
-          }
-
-          if (savedIsOffice) {
-            const hasOffice = !!(window.currentOfficeInfo && window.currentOfficeInfo.office_id && Number(window.currentOfficeInfo.office_id) > 0);
-            if (hasOffice && typeof selectOfficeChat === 'function') {
-              selectOfficeChat();
-            } else {
-              localStorage.removeItem('activeDM');
-              selectGlobalChat();
-            }
-          } else if (savedIsGlobal) {
-            selectGlobalChat();
-          } else if (savedAdminDM && savedAdminDM !== '' && !savedAdminDM.startsWith('__admin__')) {
-            const matchedUser = (allUsersData || []).find(u => u.username === savedAdminDM);
-            if (matchedUser) {
-              selectDM(matchedUser);
-            } else {
-              // allUsersData is empty — defer until fetchUsers() repopulates it
-              pendingRestoreDM = savedAdminDM;
-              chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
-              fetchUsers();
-            }
+          if (typeof clearSidebarActiveHighlights === 'function') {
+            clearSidebarActiveHighlights();
           } else {
-            activeDM = null; activeDMAccountId = null;
-            localStorage.removeItem('activeDM');
-            chatHeaderTitle.textContent = '';
-            applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge
-            applyHeaderAvatar(null);
-            removePaginationBtn();
-            if (typeof setNoChatSelected === 'function') setNoChatSelected(true); else chatBox.innerHTML = '<div class="empty-chat"></div>';
+            document.querySelectorAll('.user-item.active, #globalChatItem.active, #officeChatItem.active, .custom-gc-item.active, .office-gc-item.active, .admin-conv-item.active, .admin-user-item.active').forEach(el => el.classList.remove('active'));
           }
 
-          // Clean up pre-spy state
-          preSpyDM = null;
-          preSpyChannel = null;
-          preSpyIsGlobal = false;
-          localStorage.removeItem('__preSpyDM__');
-          localStorage.removeItem('__preSpyChannel__');
-          localStorage.removeItem('__preSpyIsGlobal__');
           if (typeof updateOfficeInfoButtonVisibility === 'function') updateOfficeInfoButtonVisibility();
         }
       });

@@ -1706,6 +1706,10 @@
     }
 
     function shouldMarkReadNow() {
+      // 0. Super Admin Spy Mode guard: NEVER mark messages as read while in spy mode or viewing an admin conv!
+      if (typeof isAdminAllChatsView !== 'undefined' && isAdminAllChatsView) return false;
+      if (typeof activeAdminConv !== 'undefined' && activeAdminConv) return false;
+
       // 1. Must have an active DM
       if (!activeDM) return false;
 
@@ -2157,20 +2161,8 @@
       // flow as selectGlobalChat), so pre-fetching snapshots nobody reads
       // anymore would just be wasted requests.
 
-      // Deferred restore: spy-mode exit sets this when allUsersData was empty at
-      // exit time.  Now that we have a fresh user list, open the DM immediately.
-      if (pendingRestoreDM) {
-        const pending = pendingRestoreDM;
-        pendingRestoreDM = null;
-        const matchedUser = allUsersData.find(u => u.username === pending);
-        if (matchedUser) {
-          selectDM(matchedUser);
-          return;
-        }
-        // User genuinely not in the list — show empty state
-        setNoChatSelected(true);
-        return;
-      }
+      // When spy mode is toggled, conversations are never auto-restored.
+      pendingRestoreDM = null;
 
       if (!hasAutoSelected) {
         hasAutoSelected = true;
@@ -2502,12 +2494,14 @@
 
       allUsersData.forEach((u, index) => {
         let isThisActive = false;
-        if (u.is_office_gc) {
+        if (typeof isAdminAllChatsView !== 'undefined' && isAdminAllChatsView) {
+          isThisActive = false;
+        } else if (u.is_office_gc) {
           isThisActive = (isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv);
         } else if (u.is_custom_gc) {
           isThisActive = (isGlobalChat && window.activeChannel === 'gc' && !activeDM && !activeAdminConv && window.activeCustomGc && (Number(window.activeCustomGc.gc_id) === Number(u.gc_id) || window.activeCustomGc.conv_id === u.conv_id));
         } else {
-          isThisActive = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+          isThisActive = (!activeAdminConv && ((activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM)));
         }
 
         if (isThisActive) u.unreadCount = 0;
@@ -2584,6 +2578,9 @@
         const isNewlyAdded = u.is_custom_gc && !isThisActive && (u.is_newly_added || (window.newlyAddedGcIds && window.newlyAddedGcIds.has(Number(u.gc_id)))) && !_openedGcIdsSet.has(Number(u.gc_id));
         const newClassName = 'user-item' + (isThisActive ? ' active' : '') + (hasUnread ? ' has-unread' : '') + (isNewlyAdded ? ' newly-added-gc' : '') + (u.is_custom_gc ? ' custom-gc-item' : (u.is_office_gc ? ' office-gc-item' : ''));
         if (item.className !== newClassName) item.className = newClassName;
+        if (!isThisActive && item.classList.contains('active')) {
+          item.classList.remove('active');
+        }
 
         if (u.is_office_gc || u.is_custom_gc) {
           if (dot) dot.style.display = 'none';
@@ -2771,6 +2768,12 @@
         notice.style.cssText = 'padding:10px 16px;font-size:12px;color:var(--text-secondary);text-align:center;font-weight:500;border-top:1px dashed var(--border-color);margin-top:4px;';
         notice.textContent = 'Enter a more specific search term.';
         sidebarUsers.appendChild(notice);
+      }
+
+      if (!activeDM && !activeDMAccountId && !isGlobalChat && !window.activeChannel) {
+        document.getElementById('globalChatItem')?.classList.remove('active');
+        document.getElementById('officeChatItem')?.classList.remove('active');
+        document.querySelectorAll('#customGcSection .user-item').forEach(el => el.classList.remove('active'));
       }
     }
 
@@ -3524,6 +3527,8 @@
     let lastMarkedReadMsgId = null;
 
     function markRead(targetUsername, explicitMsgId = null) {
+      if (typeof isAdminAllChatsView !== 'undefined' && isAdminAllChatsView) return;
+      if (typeof activeAdminConv !== 'undefined' && activeAdminConv) return;
       if (!targetUsername) return;
       const isGc = typeof targetUsername === 'string' && (targetUsername.startsWith('gc_') || targetUsername.startsWith('office_'));
       const u = allUsersData.find(x =>
@@ -6576,26 +6581,50 @@
       if (chatBox) {
         setNoChatSelected(true);
       }
-      const gcItem = document.getElementById('globalChatItem');
-      if (gcItem) gcItem.classList.remove('active');
-      const ocItem = document.getElementById('officeChatItem');
-      if (ocItem) ocItem.classList.remove('active');
-
-      if (typeof sidebarUserItems !== 'undefined' && sidebarUserItems) {
-        sidebarUserItems.forEach(item => item.classList.remove('active'));
-      }
-      if (typeof adminConvItems !== 'undefined' && adminConvItems) {
-        adminConvItems.forEach(item => item.classList.remove('active'));
-      }
-      document.querySelectorAll('#customGcSection .user-item').forEach(item => item.classList.remove('active'));
+      clearSidebarActiveHighlights();
       
       renderSidebarUsers();
       if (serverIsAdmin) renderAdminConvs();
+      clearSidebarActiveHighlights();
       fetchUsers();
       if ((typeof serverIsAdmin !== 'undefined' ? serverIsAdmin : isAdmin) && typeof adminSpyTargetUser !== 'undefined' && adminSpyTargetUser) {
         fetchAdminConvs('', 0, false, adminSpyTargetUser.account_id);
       }
     }
+
+    function clearSidebarActiveHighlights() {
+      try {
+        document.querySelectorAll('.user-item.active, #globalChatItem.active, #officeChatItem.active, .custom-gc-item.active, .office-gc-item.active, .admin-conv-item.active, .admin-user-item.active').forEach(el => {
+          el.classList.remove('active');
+        });
+        const gc = document.getElementById('globalChatItem');
+        if (gc) gc.classList.remove('active');
+        const oc = document.getElementById('officeChatItem');
+        if (oc) oc.classList.remove('active');
+        if (typeof sidebarUserItems !== 'undefined' && sidebarUserItems) {
+          sidebarUserItems.forEach(item => {
+            if (item && item.classList) item.classList.remove('active');
+          });
+        }
+        if (typeof adminConvItems !== 'undefined' && adminConvItems) {
+          adminConvItems.forEach(item => {
+            if (item && item.classList) item.classList.remove('active');
+          });
+        }
+        document.querySelectorAll('#customGcSection .user-item').forEach(item => {
+          item.classList.remove('active');
+        });
+        document.querySelectorAll('#sidebarUsers .user-item').forEach(item => {
+          item.classList.remove('active');
+        });
+        document.querySelectorAll('#adminConvsList .user-item').forEach(item => {
+          item.classList.remove('active');
+        });
+      } catch (e) {
+        console.error('Error in clearSidebarActiveHighlights:', e);
+      }
+    }
+    window.clearSidebarActiveHighlights = clearSidebarActiveHighlights;
 
     backButton.addEventListener('click', resetToHome);
 

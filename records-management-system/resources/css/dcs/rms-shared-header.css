@@ -19,6 +19,22 @@ header.rms-app-header {
     padding: 0 0 0 var(--padding-header);
 }
 
+/*
+ * Fixed header is out of document flow. Dashboard-shell layouts (DTS etc.) use
+ * body > section for the sidebar + article — without this offset, the top of
+ * .nav-header-container (Document Tracking System / Version) sits under the bar.
+ */
+html:has(> body > header.rms-app-header),
+html:has(> body > header.rms-app-header) body {
+    height: 100%;
+}
+
+body:has(> header.rms-app-header) > section {
+    margin-top: 70px;
+    height: calc(100% - 70px);
+    box-sizing: border-box;
+}
+
 header.rms-app-header .cspc-logo {
     width: 70px;
     height: 70px;

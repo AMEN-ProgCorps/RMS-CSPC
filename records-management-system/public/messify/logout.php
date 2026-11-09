@@ -10,8 +10,13 @@ try {
     $myAccountId = Auth::accountId();
     if ($myAccountId) {
         $pdo = Database::getConnection();
-        $stmt = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = 0 WHERE account_id = :id');
-        $stmt->execute([':id' => $myAccountId]);
+        $stmt = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = FALSE, last_online_time = :now WHERE account_id = :id');
+        $stmt->execute([
+            ':now' => gmdate('Y-m-d H:i:s'),
+            ':id'  => $myAccountId,
+        ]);
+        $stmtSess = $pdo->prepare('DELETE FROM sessions WHERE user_id = :uid');
+        $stmtSess->execute([':uid' => $myAccountId]);
     }
 } catch (Throwable $e) {
     // Non-fatal — proceed with logout regardless

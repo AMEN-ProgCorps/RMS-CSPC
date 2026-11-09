@@ -68,6 +68,17 @@ new class extends Component {
                         'is_currently_online' => false,
                         'last_online_time' => now(),
                     ]);
+                DB::table('sessions')->where('user_id', $user->id)->delete();
+            } catch (\Throwable) {}
+
+            try {
+                $messifyBootstrap = public_path('messify/bootstrap.php');
+                if (is_file($messifyBootstrap)) {
+                    require_once $messifyBootstrap;
+                    if (class_exists('WsPush')) {
+                        \WsPush::forceDisconnect((int) $user->id, 'logged_out');
+                    }
+                }
             } catch (\Throwable) {}
         }
 
@@ -194,11 +205,6 @@ new class extends Component {
         if (window.Livewire && typeof window.Livewire.on === 'function') {
             window.Livewire.on('system-refresh-token-changed', (e) => applySystemRefreshToken(e && e.detail !== undefined ? e.detail : e));
         }
-        window.addEventListener('pagehide', () => {
-            const data = new FormData();
-            data.append('_token', '{{ csrf_token() }}');
-            navigator.sendBeacon('{{ url('/api/session/tab-closed') }}', data);
-        });
     "
     @mousemove.window.passive="onUserActivity()"
     @mousedown.window.passive="onUserActivity()"

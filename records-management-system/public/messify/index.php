@@ -163,7 +163,7 @@ try {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>CSPC - Messify</title>
+  <title>CSPC - Chatify</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta charset="UTF-8">
   <meta name="description" content="Messify - real-time messaging para sa CSPC.">
@@ -240,9 +240,7 @@ try {
     <!-- Sidebar -->
     <div class="sidebar no-anim open" id="sidebar">
       <div class="sidebar-header">
-        <div class="sidebar-header-brand" style="display:flex;align-items:center;flex-grow:1;min-width:0;">
-          <img src="messify_logo.png" alt="Messify" style="height:36px;max-height:38px;width:auto;object-fit:contain;user-select:none;" draggable="false">
-        </div>
+        <span style="flex-grow:1;">Chatify</span>
         <div class="sidebar-header-actions">
           <button id="notificationBellBtn" class="clear-button sidebar-action-btn" title="Notifications" style="position:relative;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>

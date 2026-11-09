@@ -1590,40 +1590,62 @@
     // Real-Time WebSocket Presence & Active Status Plumbing
     const onlineAccountsSet = new Set();
     let hasReceivedPresenceSnapshot = false;
+    let activeDMUserObj = null;
+
+    function parseOnlineTimestamp(val) {
+      if (!val) return 0;
+      if (typeof val === 'number') {
+        return val > 2000000000 ? Math.floor(val / 1000) : Math.floor(val);
+      }
+      if (typeof val === 'string') {
+        const str = val.trim();
+        if (!str) return 0;
+        if (/^\d+$/.test(str)) {
+          const n = parseInt(str, 10);
+          return n > 2000000000 ? Math.floor(n / 1000) : n;
+        }
+        // SQL datetime string "YYYY-MM-DD HH:MM:SS" stored as UTC — append Z
+        // so JS doesn't interpret it as local time (+08:00).
+        let iso = str.replace(' ', 'T');
+        if (!iso.endsWith('Z') && !/[+\-]\d{2}:\d{2}$/.test(iso)) {
+          iso += 'Z';
+        }
+        const d = new Date(iso);
+        if (!isNaN(d.getTime())) {
+          return Math.floor(d.getTime() / 1000);
+        }
+      }
+      return 0;
+    }
+
+    function getBestLastOnlineTime(accId, user) {
+      const wsVal = wsLastOnlineTime.get(Number(accId));
+      const dbVal = user ? user.last_online_time : null;
+      const wsTs = parseOnlineTimestamp(wsVal);
+      const dbTs = parseOnlineTimestamp(dbVal);
+      if (wsTs && dbTs) return Math.max(wsTs, dbTs);
+      return wsTs || dbTs || 0;
+    }
+
+    function isUserCurrentlyOnline(accId, user) {
+      const id = Number(accId);
+      if (hasReceivedPresenceSnapshot && ws && ws.readyState === WebSocket.OPEN) {
+        return onlineAccountsSet.has(id);
+      }
+      if (onlineAccountsSet.has(id)) {
+        return true;
+      }
+      return Boolean(user && (user.is_currently_online || user.db_is_currently_online));
+    }
 
     function formatActiveStatus(isOnline, lastOnlineTime) {
       if (isOnline) {
         return 'Active now';
       }
-      if (!lastOnlineTime) {
+      const ts = parseOnlineTimestamp(lastOnlineTime);
+      if (!ts) {
         return 'Offline';
       }
-
-      let ts = 0;
-      if (typeof lastOnlineTime === 'number') {
-        ts = lastOnlineTime;
-        if (ts > 2000000000) ts = Math.floor(ts / 1000);
-      } else if (typeof lastOnlineTime === 'string') {
-        const str = lastOnlineTime.trim();
-        if (/^\d+$/.test(str)) {
-          ts = parseInt(str, 10);
-          if (ts > 2000000000) ts = Math.floor(ts / 1000);
-        } else {
-          // SQL datetime string "YYYY-MM-DD HH:MM:SS" stored as UTC — must append Z
-          // so JS doesn't interpret it as local time (which is +08:00 here, causing
-          // an 8-hour offset making "just now" show as "8 hours ago").
-          let iso = str.replace(' ', 'T');
-          if (!iso.endsWith('Z') && !/[+\-]\d{2}:\d{2}$/.test(iso)) {
-            iso += 'Z';
-          }
-          const d = new Date(iso);
-          if (!isNaN(d.getTime())) {
-            ts = Math.floor(d.getTime() / 1000);
-          }
-        }
-      }
-
-      if (!ts) return 'Offline';
 
       const now = Math.floor(Date.now() / 1000);
       const diffSec = Math.max(0, now - ts);
@@ -1632,7 +1654,8 @@
       const diffDay = Math.floor(diffHour / 24);
 
       if (diffSec < 60) {
-        return `Active ${diffSec} ${diffSec === 1 ? 'second' : 'seconds'} ago`;
+        const sec = Math.max(1, diffSec);
+        return `Active ${sec} ${sec === 1 ? 'second' : 'seconds'} ago`;
       } else if (diffMin < 60) {
         return `Active ${diffMin} ${diffMin === 1 ? 'minute' : 'minutes'} ago`;
       } else if (diffHour < 24) {
@@ -1722,7 +1745,10 @@
         headerEl.classList.remove('is-global-chat');
       }
       if (!user && activeDMAccountId) {
-        user = allUsersData.find(u => Number(u.account_id) === Number(activeDMAccountId));
+        user = allUsersData.find(u => Number(u.account_id) === Number(activeDMAccountId)) || activeDMUserObj;
+      }
+      if (user && activeDMAccountId && Number(user.account_id) === Number(activeDMAccountId)) {
+        activeDMUserObj = user;
       }
       if (!user) {
         el.textContent = '';
@@ -1730,23 +1756,8 @@
       }
 
       const accId = Number(user.account_id);
-
-      // Fully WS-driven now — no fallback to the DB-fetched
-      // is_currently_online/last_online_time fields. Before the WS
-      // connection has delivered its first presence_snapshot we genuinely
-      // don't know this user's status yet, so say so rather than guessing
-      // from a value that (per the earlier bug) can be stale for anyone
-      // who didn't log out cleanly.
-      if (!hasReceivedPresenceSnapshot) {
-        el.textContent = 'Connecting…';
-        return;
-      }
-
-      const isOnline = onlineAccountsSet.has(accId);
-      // last-seen time also comes only from WS data now: either a
-      // presence:offline event received live this session, or the
-      // last_seen map handed over in presence_snapshot for someone who
-      const lastTime = isOnline ? null : (wsLastOnlineTime.get(accId) || user.last_online_time || user.lastTimestamp);
+      const isOnline = isUserCurrentlyOnline(accId, user);
+      const lastTime = isOnline ? null : getBestLastOnlineTime(accId, user);
       el.textContent = formatActiveStatus(isOnline, lastTime);
     }
     window.updateHeaderActiveStatus = updateHeaderActiveStatus;
@@ -1765,21 +1776,21 @@
       const isOnline = (data.status === 'online' || data.type === 'user_online');
       if (isOnline) {
         onlineAccountsSet.add(accId);
+        wsLastOnlineTime.delete(accId);
       } else {
         onlineAccountsSet.delete(accId);
+        const offlineTs = parseOnlineTimestamp(data.timestamp) || Math.floor(Date.now() / 1000);
+        wsLastOnlineTime.set(accId, offlineTs);
       }
 
-      const user = allUsersData.find(u => Number(u.account_id) === accId);
+      const user = allUsersData.find(u => Number(u.account_id) === accId)
+        || (activeDMUserObj && Number(activeDMUserObj.account_id) === accId ? activeDMUserObj : null);
       if (user) {
         user.status = isOnline ? 'online' : 'offline';
         user.is_currently_online = isOnline;
-        if (!isOnline && data.timestamp) {
-          user.last_online_time = data.timestamp;
-          // Persist in map so fetchUsers() re-fetches can't overwrite it
-          wsLastOnlineTime.set(accId, data.timestamp);
-        }
-        if (isOnline) {
-          wsLastOnlineTime.delete(accId);
+        user.db_is_currently_online = isOnline;
+        if (!isOnline) {
+          user.last_online_time = wsLastOnlineTime.get(accId);
         }
 
         const item = sidebarUserItems.get(user.username);
@@ -1809,14 +1820,14 @@
         data.online_accounts.forEach(id => onlineAccountsSet.add(Number(id)));
       }
 
-      // Last-seen times for accounts that were ALREADY offline before this
-      // client connected — sourced entirely from the WS server's in-memory
-      // record (see server.js), not from the DB. Without this, someone who
-      // went offline before we connected would have no "Active X ago" data
-      // at all this session.
       if (data.last_seen && typeof data.last_seen === 'object') {
         Object.keys(data.last_seen).forEach(id => {
-          wsLastOnlineTime.set(Number(id), data.last_seen[id]);
+          const numId = Number(id);
+          const snapTs = parseOnlineTimestamp(data.last_seen[id]);
+          const existingTs = parseOnlineTimestamp(wsLastOnlineTime.get(numId));
+          if (snapTs >= existingTs) {
+            wsLastOnlineTime.set(numId, snapTs);
+          }
         });
       }
 
@@ -1825,8 +1836,9 @@
         const isOnline = onlineAccountsSet.has(accId);
         user.status = isOnline ? 'online' : 'offline';
         user.is_currently_online = isOnline;
-        if (!isOnline && wsLastOnlineTime.has(accId)) {
-          user.last_online_time = wsLastOnlineTime.get(accId);
+        if (!isOnline) {
+          const bestTs = getBestLastOnlineTime(accId, user);
+          if (bestTs) user.last_online_time = bestTs;
         }
 
         const item = sidebarUserItems.get(user.username);
@@ -1981,20 +1993,15 @@
     const wsLastOnlineTime = new Map();
 
     function applyWsPresenceToAllUsers() {
-      if (!hasReceivedPresenceSnapshot) return;
       allUsersData.forEach(user => {
         const accId = Number(user.account_id);
-        const isOnline = onlineAccountsSet.has(accId);
+        const isOnline = isUserCurrentlyOnline(accId, user);
         user.status = isOnline ? 'online' : 'offline';
         user.is_currently_online = isOnline;
-        // Last-seen time is WS-only from here on — either a live
-        // presence:offline event this session, or the last_seen map handed
-        // over in presence_snapshot. If neither has an entry (e.g. this
-        // account hasn't disconnected since the WS server last restarted),
-        // we deliberately have no last-seen time rather than falling back
-        // to the DB-fetched last_online_time, which is what used to cause
-        // stale/incorrect "Active X ago" text.
-        user.last_online_time = isOnline ? null : (wsLastOnlineTime.get(accId) || user.last_online_time || null);
+        if (!isOnline) {
+          const bestTs = getBestLastOnlineTime(accId, user);
+          if (bestTs) user.last_online_time = bestTs;
+        }
       });
     }
 
@@ -2053,11 +2060,10 @@
         }
       }
 
-      // Online presence is WS-driven, but we preserve last_online_time from the DB
-      // so users who went offline before the WS session display their actual active status.
+      // Preserve DB online indicator in db_is_currently_online as a fallback if
+      // the WebSocket snapshot hasn't arrived yet, and sync verified badges.
       allUsersData.forEach(user => {
-        delete user.is_currently_online;
-        delete user.status;
+        user.db_is_currently_online = Boolean(user.is_currently_online);
         if (!user.is_office_gc && !user.is_custom_gc && user.account_id !== undefined && user.account_id !== null) {
           const uid = Number(user.account_id);
           if (!Number.isNaN(uid) && uid > 0 && typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) {
@@ -2073,15 +2079,14 @@
         window.verifiedAccountIds = Array.from(verifiedAccountIds);
       }
 
-      // Re-apply WS presence state now that the fields above are gone —
-      // applyWsPresenceToAllUsers() is a no-op until hasReceivedPresenceSnapshot
-      // is true, at which point it's the only thing that ever sets
-      // status/is_currently_online/last_online_time again.
       applyWsPresenceToAllUsers();
 
       if (activeDM) {
         const activeUser = (allUsersData || []).find(u => u.username === activeDM);
-        if (activeUser) activeUser.unreadCount = 0;
+        if (activeUser) {
+          activeUser.unreadCount = 0;
+          activeDMUserObj = activeUser;
+        }
       }
 
       // Sort: newly-added custom GCs rise to the top, rest sorted by lastTimestamp
@@ -2576,13 +2581,10 @@
             avatar.dataset.initials = u.name;
             avatar.dataset.avatarUrl = u.avatar_url || '';
           }
-          if (hasReceivedPresenceSnapshot) {
-            const isWsOnline = onlineAccountsSet.has(Number(u.account_id));
-            u.status = isWsOnline ? 'online' : 'offline';
-            u.is_currently_online = isWsOnline;
-          }
-          const effectiveStatus = hasReceivedPresenceSnapshot ? u.status : 'offline';
-          const newDotClass = 'status-dot ' + (effectiveStatus || 'offline');
+          const isOnlineNow = isUserCurrentlyOnline(u.account_id, u);
+          u.status = isOnlineNow ? 'online' : 'offline';
+          u.is_currently_online = isOnlineNow;
+          const newDotClass = 'status-dot ' + (isOnlineNow ? 'online' : 'offline');
           if (dot && dot.className !== newDotClass) dot.className = newDotClass;
         }
 
@@ -3757,6 +3759,7 @@
       if (_hEl) _hEl.classList.remove('is-global-chat');
       activeDM = u.username;
       activeDMAccountId = Number(u.account_id);
+      activeDMUserObj = u;
       activeAdminConv = null;
       u.unreadCount = 0;
 

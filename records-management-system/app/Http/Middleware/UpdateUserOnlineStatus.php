@@ -125,7 +125,19 @@ class UpdateUserOnlineStatus
                     ->update([
                         'force_logout_at' => null,
                         'is_currently_online' => false,
+                        'last_online_time' => $now,
                     ]);
+
+                try {
+                    DB::table('sessions')->where('user_id', $user->id)->delete();
+                    $messifyBootstrap = public_path('messify/bootstrap.php');
+                    if (is_file($messifyBootstrap)) {
+                        require_once $messifyBootstrap;
+                        if (class_exists('WsPush')) {
+                            \WsPush::forceDisconnect((int) $user->id, 'logged_out');
+                        }
+                    }
+                } catch (\Throwable) {}
 
                 Auth::logout();
                 $request->session()->invalidate();
@@ -161,7 +173,21 @@ class UpdateUserOnlineStatus
 
                     DB::table($accDetailsTbl)
                         ->where('account_id', $user->id)
-                        ->update(['is_currently_online' => false]);
+                        ->update([
+                            'is_currently_online' => false,
+                            'last_online_time' => $now,
+                        ]);
+
+                    try {
+                        DB::table('sessions')->where('user_id', $user->id)->delete();
+                        $messifyBootstrap = public_path('messify/bootstrap.php');
+                        if (is_file($messifyBootstrap)) {
+                            require_once $messifyBootstrap;
+                            if (class_exists('WsPush')) {
+                                \WsPush::forceDisconnect((int) $user->id, 'logged_out');
+                            }
+                        }
+                    } catch (\Throwable) {}
 
                     Auth::logout();
                     $request->session()->invalidate();

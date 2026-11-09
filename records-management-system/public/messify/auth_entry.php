@@ -79,7 +79,7 @@ Auth::createSession($userRow);
 try {
     $upd = $pdo->prepare(
         'UPDATE ' . Database::t('account_details') . '
-            SET is_currently_online = 1,
+            SET is_currently_online = TRUE,
                 last_online_time    = :now
           WHERE account_id = :id'
     );

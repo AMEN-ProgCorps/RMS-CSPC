@@ -286,7 +286,22 @@ class BackupService
             Log::warning("Could not check/read local backup [{$filename}]: " . $e->getMessage());
         }
 
-        // If not found in local disk, attempt download from Google Drive
+        // If not found in local disk, attempt download from S3 / NAS Silo
+        if (!$jsonContent) {
+            try {
+                $s3Path = "backups/{$filename}";
+                if (Storage::disk('s3')->exists($s3Path)) {
+                    $jsonContent = Storage::disk('s3')->get($s3Path);
+                    try {
+                        Storage::disk('local')->put($localPath, $jsonContent);
+                    } catch (\Throwable) {}
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Could not check/read S3/NAS backup [{$filename}]: " . $e->getMessage());
+            }
+        }
+
+        // If not found in local or S3, attempt download from Google Drive
         if (!$jsonContent) {
             try {
                 if (Storage::disk('google')->exists($googlePath)) {
@@ -300,7 +315,7 @@ class BackupService
                 Log::warning("Could not retrieve backup from Google Drive [{$filename}]: " . $e->getMessage());
                 return [
                     'success' => false,
-                    'message' => "Target backup file [{$filename}] is not in local storage and could not be retrieved from Google Drive: " . $e->getMessage(),
+                    'message' => "Target backup file [{$filename}] is not in local storage or NAS and could not be retrieved from Google Drive: " . $e->getMessage(),
                 ];
             }
         }
@@ -777,6 +792,15 @@ class BackupService
             }
 
             Storage::disk('local')->put("backups/{$filename}", $jsonContent);
+
+            // Optional S3 / NAS Silo sync
+            try {
+                if (config('filesystems.disks.s3.bucket')) {
+                    Storage::disk('s3')->put("backups/{$filename}", $jsonContent);
+                }
+            } catch (\Throwable $e) {
+                Log::warning("S3/NAS backup sync error: " . $e->getMessage());
+            }
 
             // Optional Google Drive sync
             try {

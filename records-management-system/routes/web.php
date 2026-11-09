@@ -840,8 +840,9 @@ Route::middleware(['auth'])
                 : array_keys(array_filter($availableColumns, fn($c) => $c['default']));
 
             $filters = [
-                'sort_order' => $request->query('sort_order', 'desc'),
-                'office'     => $request->query('office', 'all'),
+                'sort_order'   => $request->query('sort_order', 'desc'),
+                'status_order' => $request->query('status_order', 'ongoing_first'),
+                'office'       => $request->query('office', 'all'),
             ];
 
             $rows = \App\Helpers\DtsExportHelper::fetchExportRecords($category, $filters, $selectedIds);

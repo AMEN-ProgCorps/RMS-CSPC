@@ -133,12 +133,17 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
 
     public function updatedLeftId(): void
     {
-        $this->snapToConsecutivePair('left');
+        // Free pick — reviewCompare orders sides and accepts any two revisions.
+        if ($this->leftId !== '' && $this->leftId === $this->rightId) {
+            $this->rightId = '';
+        }
     }
 
     public function updatedRightId(): void
     {
-        $this->snapToConsecutivePair('right');
+        if ($this->rightId !== '' && $this->rightId === $this->leftId) {
+            $this->leftId = '';
+        }
     }
 
     public function selectPair(string $key): void
@@ -147,28 +152,11 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
             return;
         }
         [$left, $right] = array_pad(explode(':', $key, 2), 2, '');
-        $this->leftId = $left;
-        $this->rightId = $right;
-        $this->snapToConsecutivePair('right');
-    }
-
-    private function snapToConsecutivePair(string $prefer): void
-    {
-        if ($this->selectedDocNo === '') {
+        if ($left === '' || $right === '' || $left === $right) {
             return;
         }
-
-        $left = $this->leftId !== '' ? (int) $this->leftId : null;
-        $right = $this->rightId !== '' ? (int) $this->rightId : null;
-
-        if ($prefer === 'left') {
-            $preview = RegisterQueryHelper::reviewCompare($this->selectedDocNo, $left, null);
-        } else {
-            $preview = RegisterQueryHelper::reviewCompare($this->selectedDocNo, null, $right);
-        }
-
-        $this->rightId = (string) ($preview['right_id'] ?? '');
-        $this->leftId = (string) ($preview['left_id'] ?? '');
+        $this->leftId = $left;
+        $this->rightId = $right;
     }
 
     public function setTab(string $tab): void
@@ -263,7 +251,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
             <div class="drr-list-head">
                 <div>
                     <h2 id="drrListHeading" class="drr-list-title">Registered documents</h2>
-                    <p class="drr-list-sub">A document is listed when it already has another revision with a file to compare. Open it, then choose a consecutive pair (e.g. Rev 0→1, 1→2).</p>
+                    <p class="drr-list-sub">A document is listed when it already has another revision with a file to compare. Open it, then pick any two revisions — or use a quick consecutive pair (e.g. Rev 0→1, 1→2).</p>
                 </div>
                 @if(($list['total'] ?? 0) > 0)
                     <span class="drr-count-pill">{{ $list['total'] }} {{ $list['total'] === 1 ? 'document' : 'documents' }}</span>
@@ -382,13 +370,15 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                 'no_doc_no' => 'This record has no document number, so its revisions cannot be reviewed.',
                 'not_found' => 'This document could not be found. It may have been removed.',
                 'need_scan' => 'This document has no masterlist scan to review.',
-                'same_revision' => 'Pick a different older revision to compare against the latest.',
+                'same_revision' => 'Pick two different revisions to compare.',
             ];
             $reviewError = $reviewErrors[$compare['error'] ?? ''] ?? null;
             $olderLabel = $compare['left_label'] ?? 'Older revision';
             $newerLabel = $compare['right_label'] ?? 'Newer revision';
-            $priorOptions = $compare['prior_options'] ?? [];
+            $revOptions = $compare['options'] ?? [];
             $pairOptions = $compare['pair_options'] ?? ($pairOptions ?? []);
+            $pairKey = (string) ($compare['pair_key'] ?? ($leftId . ':' . $rightId));
+            $isConsecutivePair = !empty($compare['is_consecutive_pair']);
             $canCompare = !empty($compare['can_compare']);
             $canView = !empty($compare['can_view']) || $canCompare;
         @endphp
@@ -407,46 +397,68 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                     <i class="fa-solid fa-triangle-exclamation"></i>
                     <div>
                         <p>{{ $reviewError }}</p>
-                        <span>Compare only consecutive revisions in the lineage (by Rev No order), e.g. 5→6 or 3→5 if 4 was never registered.</span>
+                        <span>Choose any older and newer revision below, or use a quick consecutive pair (e.g. Rev 0→1).</span>
                     </div>
                 </div>
             @endif
 
             <div class="drr-rev-bar">
                 <label class="drr-rev-select">
-                    Compare pair
+                    Quick pair
                     <select
-                        wire:model.live="rightId"
+                        wire:change="selectPair($event.target.value)"
                         @disabled(count($pairOptions) < 1)
+                        aria-label="Quick consecutive pair"
                     >
+                        <option value="" @selected(! $isConsecutivePair)>Custom · pick sides →</option>
                         @forelse($pairOptions as $po)
-                            <option value="{{ $po['right_id'] }}">{{ $po['label'] }}</option>
+                            <option value="{{ $po['key'] }}" @selected($isConsecutivePair && $pairKey === ($po['key'] ?? ''))>{{ $po['label'] }}</option>
                         @empty
                             <option value="">No consecutive pairs</option>
                         @endforelse
                     </select>
                 </label>
 
-                <div class="drr-latest-lock">
-                    <span class="drr-info-label">Older (left)</span>
-                    <div class="drr-latest-value">
-                        <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
-                        {{ $compare['left_label'] ?? '—' }}
-                    </div>
-                </div>
+                <label class="drr-rev-select drr-rev-side">
+                    Older (left)
+                    <select
+                        class="drr-side-select"
+                        wire:model.live="leftId"
+                        @disabled(count($revOptions) < 2)
+                        aria-label="Older revision on the left"
+                    >
+                        @forelse($revOptions as $opt)
+                            <option value="{{ $opt['id'] }}">
+                                {{ $opt['label'] }}{{ (string) $opt['id'] === (string) $leftId ? ' · left' : '' }}
+                            </option>
+                        @empty
+                            <option value="">No revisions</option>
+                        @endforelse
+                    </select>
+                </label>
 
                 <div class="drr-pair-arrow" aria-hidden="true"><i class="fa-solid fa-arrow-right"></i></div>
 
-                <div class="drr-latest-lock">
-                    <span class="drr-info-label">Newer (right)</span>
-                    <div class="drr-latest-value is-newer">
-                        <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
-                        {{ $compare['right_label'] ?? '—' }}
-                    </div>
-                </div>
+                <label class="drr-rev-select drr-rev-side">
+                    Newer (right)
+                    <select
+                        class="drr-side-select is-newer"
+                        wire:model.live="rightId"
+                        @disabled(count($revOptions) < 2)
+                        aria-label="Newer revision on the right"
+                    >
+                        @forelse($revOptions as $opt)
+                            <option value="{{ $opt['id'] }}">
+                                {{ $opt['label'] }}{{ (string) $opt['id'] === (string) $rightId ? ' · right' : '' }}
+                            </option>
+                        @empty
+                            <option value="">No revisions</option>
+                        @endforelse
+                    </select>
+                </label>
 
                 @if($canCompare)
-                    <div class="drr-legend" aria-label="Highlight legend">
+                    <div class="drr-legend" data-drr-compare-legend="1" aria-label="Highlight legend">
                         <span class="drr-legend-label">Legend:</span>
                         <span class="drr-leg drr-leg-del"><i class="drr-leg-swatch is-del" aria-hidden="true"></i>Removed</span>
                         <span class="drr-leg drr-leg-ins"><i class="drr-leg-swatch is-ins" aria-hidden="true"></i>Added</span>

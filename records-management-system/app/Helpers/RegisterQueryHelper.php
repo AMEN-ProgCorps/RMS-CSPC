@@ -4298,7 +4298,7 @@ class RegisterQueryHelper
             return array_merge($base, ['error' => 'not_found']);
         }
 
-        if (count($revs) < 2 || $pairOptions === []) {
+        if (count($revs) < 2) {
             $pair = self::reviewPairSection(null, $byId[$latestId], 'masterlist');
             $hasScan = !empty($pair['right_scan']['url']);
 
@@ -4313,9 +4313,9 @@ class RegisterQueryHelper
             ]);
         }
 
-        $chosen = self::resolveConsecutivePair($pairOptions, $leftId, $rightId);
-        $left = $byId[$chosen['left_id']];
-        $right = $byId[$chosen['right_id']];
+        $resolved = self::resolveRevisionPair($asc, $byId, $pairOptions, $leftId, $rightId);
+        $left = $resolved['left'];
+        $right = $resolved['right'];
 
         $leftLabel = 'Rev ' . (int) $left['revise_no']
             . (!empty($left['doc_no']) && $left['doc_no'] !== $history['docNo'] ? ' · ' . $left['doc_no'] : '')
@@ -4344,62 +4344,128 @@ class RegisterQueryHelper
             ];
         }
 
+        $pairKey = (int) $left['id'] . ':' . (int) $right['id'];
+        $isConsecutive = false;
+        foreach ($pairOptions as $po) {
+            if (($po['key'] ?? '') === $pairKey) {
+                $isConsecutive = true;
+                break;
+            }
+        }
+
         return [
             'docNo' => $history['docNo'],
             'docTitle' => $history['docTitle'],
             'options' => $options,
             'pair_options' => $pairOptions,
             'prior_options' => $newerOptions,
-            'left_id' => $chosen['left_id'],
-            'right_id' => $chosen['right_id'],
+            'left_id' => (int) $left['id'],
+            'right_id' => (int) $right['id'],
             'latest_id' => $latestId,
             'latest_revise_no' => (int) $latest['revise_no'],
             'tabs' => $hasScan ? [['key' => 'masterlist', 'label' => 'Masterlist']] : [],
             'pairs' => $hasScan ? ['masterlist' => $pair] : [],
             'can_compare' => $bothPdf,
             'can_view' => $hasScan,
-            'error' => $hasScan ? null : 'need_scan',
+            'is_consecutive_pair' => $isConsecutive,
+            'pair_key' => $pairKey,
+            'error' => $resolved['error'] ?? ($hasScan ? null : 'need_scan'),
             'left_label' => $leftLabel,
             'right_label' => $rightLabel,
         ];
     }
 
     /**
-     * Pick a consecutive revise_no pair. Defaults to the tip pair (… → latest).
+     * Resolve any two revisions for compare. Prefers the requested IDs (auto-swaps
+     * so left is older), then nearest neighbor, then the tip consecutive pair.
      *
+     * @param  list<array<string,mixed>>  $asc  Revisions ascending by revise_no
+     * @param  array<int,array<string,mixed>>  $byId
      * @param  list<array{left_id:int,right_id:int,left_rev:int,right_rev:int,label:string,key:string}>  $pairOptions
-     * @return array{left_id:int,right_id:int,left_rev:int,right_rev:int,label:string,key:string}
+     * @return array{left:array<string,mixed>,right:array<string,mixed>,error:?string}
      */
-    private static function resolveConsecutivePair(array $pairOptions, ?int $leftId, ?int $rightId): array
-    {
-        $fallback = $pairOptions[count($pairOptions) - 1];
+    private static function resolveRevisionPair(
+        array $asc,
+        array $byId,
+        array $pairOptions,
+        ?int $leftId,
+        ?int $rightId
+    ): array {
+        $fallback = $pairOptions !== []
+            ? $pairOptions[count($pairOptions) - 1]
+            : null;
 
-        if ($leftId && $rightId) {
-            foreach ($pairOptions as $po) {
-                if ((int) $po['left_id'] === $leftId && (int) $po['right_id'] === $rightId) {
-                    return $po;
+        $left = ($leftId && isset($byId[$leftId])) ? $byId[$leftId] : null;
+        $right = ($rightId && isset($byId[$rightId])) ? $byId[$rightId] : null;
+
+        if ($left && $right && (int) $left['id'] === (int) $right['id']) {
+            if ($fallback) {
+                return [
+                    'left' => $byId[(int) $fallback['left_id']],
+                    'right' => $byId[(int) $fallback['right_id']],
+                    'error' => null,
+                ];
+            }
+
+            return ['left' => $left, 'right' => $right, 'error' => 'same_revision'];
+        }
+
+        if ($left && $right) {
+            if (! self::reviewRevIsOlder($left, $right)) {
+                [$left, $right] = [$right, $left];
+            }
+
+            return ['left' => $left, 'right' => $right, 'error' => null];
+        }
+
+        // Only newer chosen → pair with nearest older revision.
+        if ($right && ! $left) {
+            $idx = null;
+            foreach ($asc as $i => $rev) {
+                if ((int) $rev['id'] === (int) $right['id']) {
+                    $idx = $i;
+                    break;
                 }
+            }
+            if ($idx !== null && $idx > 0) {
+                return ['left' => $asc[$idx - 1], 'right' => $right, 'error' => null];
+            }
+            if ($fallback && (int) $fallback['right_id'] === (int) $right['id']) {
+                return [
+                    'left' => $byId[(int) $fallback['left_id']],
+                    'right' => $right,
+                    'error' => null,
+                ];
             }
         }
 
-        // Prefer matching the newer side, then snap older to its predecessor.
-        if ($rightId) {
-            foreach ($pairOptions as $po) {
-                if ((int) $po['right_id'] === $rightId) {
-                    return $po;
+        // Only older chosen → pair with nearest newer revision.
+        if ($left && ! $right) {
+            $idx = null;
+            foreach ($asc as $i => $rev) {
+                if ((int) $rev['id'] === (int) $left['id']) {
+                    $idx = $i;
+                    break;
                 }
+            }
+            if ($idx !== null && $idx < count($asc) - 1) {
+                return ['left' => $left, 'right' => $asc[$idx + 1], 'error' => null];
             }
         }
 
-        if ($leftId) {
-            foreach ($pairOptions as $po) {
-                if ((int) $po['left_id'] === $leftId) {
-                    return $po;
-                }
-            }
+        if ($fallback) {
+            return [
+                'left' => $byId[(int) $fallback['left_id']],
+                'right' => $byId[(int) $fallback['right_id']],
+                'error' => null,
+            ];
         }
 
-        return $fallback;
+        return [
+            'left' => $asc[0],
+            'right' => $asc[count($asc) - 1],
+            'error' => null,
+        ];
     }
 
     private static function reviewRevIsOlder(array $left, array $right): bool

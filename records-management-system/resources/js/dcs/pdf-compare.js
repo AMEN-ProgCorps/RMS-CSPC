@@ -5421,9 +5421,29 @@ function ensureCompareLegend(root) {
     const parent = root?.parentElement;
     if (!parent) return null;
 
-    // Prefer an existing static legend (register modal or ad-hoc compare modal).
+    // Prefer a page-level legend (rev bar / register modal) so we never inject a duplicate
+    // under the Masterlist heading.
+    const pageLegend = document.querySelector(
+        '.drr-rev-bar [data-drr-compare-legend="1"], .drr-rev-bar .drr-legend, [data-drr-compare-legend="1"]'
+    );
     let legend = parent.querySelector('[data-drr-compare-legend="1"]')
-        || parent.querySelector('.reg-compare-legend, .drr-compare-legend, .drr-legend, .drr-adhoc-legend');
+        || parent.querySelector('.reg-compare-legend, .drr-compare-legend, .drr-legend, .drr-adhoc-legend')
+        || pageLegend;
+
+    // If the only legend lives in the rev bar (outside this section), reuse it — do not clone.
+    if (legend && !parent.contains(legend)) {
+        if (!legend.querySelector('.drr-legend-label')) {
+            const label = document.createElement('span');
+            label.className = 'drr-legend-label';
+            label.textContent = 'Legend:';
+            legend.insertBefore(label, legend.firstChild);
+        }
+        legend.dataset.drrCompareLegend = '1';
+        legend.setAttribute('aria-label', 'Highlight legend');
+        legend.style.display = '';
+        return legend;
+    }
+
     if (!legend) {
         legend = document.createElement('div');
         legend.className = 'drr-compare-legend reg-compare-legend';
@@ -5446,7 +5466,7 @@ function ensureCompareLegend(root) {
     legend.setAttribute('aria-label', 'Highlight legend');
     legend.style.display = '';
 
-    // Keep legend above the progress/status strip.
+    // Keep in-section legends above the progress/status strip (register / ad-hoc only).
     const host = parent.querySelector('[data-review-status-host="1"]');
     if (host && legend.nextElementSibling !== host) {
         parent.insertBefore(legend, host);

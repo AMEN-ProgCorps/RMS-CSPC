@@ -529,7 +529,7 @@ class ServerManagementService
         };
 
         try {
-            return \Illuminate\Support\Facades\Cache::remember('rms_containers_telemetry_live', 3, $fetcher);
+            return \Illuminate\Support\Facades\Cache::remember('rms_containers_telemetry_live', 1, $fetcher);
         } catch (\Throwable) {
             return $fetcher();
         }

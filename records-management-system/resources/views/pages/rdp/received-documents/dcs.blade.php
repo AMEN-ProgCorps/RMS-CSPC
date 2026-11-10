@@ -140,7 +140,7 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
         $this->clearMessages();
         $docNo = trim($docNo);
 
-        if (empty($docNo)) {
+        if ($docNo === '') {
             $this->errorMessage = 'Please provide a valid DCS Document Number.';
             return;
         }
@@ -156,9 +156,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
             return;
         }
 
-        // Find document in dcs_masterlist_registration
+        // Prefer the latest masterlist row for this document number.
         $dcsDoc = DB::table('dcs_masterlist_registration')
             ->where('doc_no', $docNo)
+            ->orderByDesc('id')
             ->first();
 
         if (!$dcsDoc) {
@@ -304,26 +305,40 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
         // Sample / recent DCS documents for quick import modal
         $availableDcs = collect();
         if ($this->showImportModal) {
-            $iq = DB::table('dcs_masterlist_registration as ml')
+            $latestIds = DB::table('dcs_masterlist_registration as ml')
                 ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
-                ->select(
-                    'ml.doc_no',
-                    'ml.doc_title',
-                    'og.originator_name',
-                    'ml.revise_no',
-                    'ml.doc_registered_date'
-                );
+                ->whereNotNull('ml.doc_no')
+                ->whereRaw("TRIM(COALESCE(ml.doc_no, '')) <> ''");
 
             if (!empty($this->importSearch)) {
                 $is = '%' . trim($this->importSearch) . '%';
-                $iq->where(function($q) use ($is) {
+                $latestIds->where(function ($q) use ($is) {
                     $q->where('ml.doc_no', 'ilike', $is)
                       ->orWhere('ml.doc_title', 'ilike', $is)
                       ->orWhere('og.originator_name', 'ilike', $is);
                 });
             }
 
-            $availableDcs = $iq->orderByDesc('ml.id')->limit(12)->get();
+            // One row per document number (masterlist can hold multiple revision rows).
+            $latestIds = $latestIds
+                ->select('ml.doc_no', DB::raw('MAX(ml.id) as id'))
+                ->groupBy('ml.doc_no');
+
+            $availableDcs = DB::table('dcs_masterlist_registration as ml')
+                ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
+                ->joinSub($latestIds, 'uniq', function ($join) {
+                    $join->on('ml.id', '=', 'uniq.id');
+                })
+                ->select(
+                    'ml.doc_no',
+                    'ml.doc_title',
+                    'og.originator_name',
+                    'ml.revise_no',
+                    'ml.doc_registered_date'
+                )
+                ->orderByDesc('ml.id')
+                ->limit(12)
+                ->get();
         }
 
         return [
@@ -996,6 +1011,79 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
             background: #14532d !important;
             color: #bbf7d0 !important;
         }
+
+        .rd-import-search {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
+            background: #ffffff;
+            color: #0f172a;
+        }
+        .rd-import-empty {
+            padding: 24px;
+            text-align: center;
+            color: #64748b;
+            font-size: 13px;
+        }
+        .rd-import-list {
+            max-height: 340px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .rd-import-row {
+            padding: 12px 14px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            background: #fafafa;
+        }
+        .rd-import-meta {
+            font-size: 11px;
+            color: #64748b;
+        }
+        .rd-import-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #0f172a;
+        }
+        .rd-import-sub {
+            font-size: 12px;
+            color: #64748b;
+            margin: 3px 0 0 0;
+        }
+        [data-theme="dark"] .rd-import-search {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .rd-import-search::placeholder {
+            color: #64748b !important;
+        }
+        [data-theme="dark"] .rd-import-empty,
+        [data-theme="dark"] .rd-import-meta,
+        [data-theme="dark"] .rd-import-sub {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .rd-import-row {
+            background: #0f172a !important;
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] .rd-import-title {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .custom-modal-box .rd-import-row .code-pill-dcs {
+            background: rgba(219, 39, 119, 0.35) !important;
+            color: #ffffff !important;
+            border-color: #be185d !important;
+        }
         [data-theme="dark"] .search-box input {
             background: #0f172a !important;
             border-color: #334155 !important;
@@ -1399,33 +1487,39 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
                 <div class="modal-header">
                     <div>
                         <h3 style="margin:0;">Import Document from DCS Masterlist</h3>
-                        <p style="font-size:12px;color:#64748b;margin:3px 0 0 0;">Select or search registered controlled documents to receive into RDP.</p>
+                        <p class="rd-import-sub">Select or search registered controlled documents to receive into RDP.</p>
                     </div>
                     <button type="button" wire:click="closeImportModal" class="btn-close-modal">&times;</button>
                 </div>
                 <div class="modal-body">
                     <div style="margin-bottom: 16px;">
-                        <input type="text" wire:model.live.debounce.300ms="importSearch" 
-                               placeholder="Search document no or title in DCS..." 
-                               style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none;">
+                        <input type="text"
+                               class="rd-import-search"
+                               wire:model.live.debounce.300ms="importSearch"
+                               placeholder="Search document no or title in DCS...">
                     </div>
 
                     @if($availableDcs->isEmpty())
-                        <div style="padding: 24px; text-align: center; color: #64748b; font-size: 13px;">
+                        <div class="rd-import-empty">
                             No matching DCS masterlist documents found to import.
                         </div>
                     @else
-                        <div style="max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+                        <div class="rd-import-list">
                             @foreach($availableDcs as $dcsItem)
-                                <div style="padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; background: #fafafa;">
-                                    <div>
-                                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                                            <span class="code-pill-dcs">{{ $dcsItem->doc_no }}</span>
-                                            <span style="font-size: 11px; color: #64748b;">Rev: {{ $dcsItem->revise_no ?? '0' }} | <x-dcs.originator-lines :name="$dcsItem->originator_name ?: ''" empty="No originator" /></span>
+                                @php $importDocNo = trim((string) ($dcsItem->doc_no ?? '')); @endphp
+                                @continue($importDocNo === '')
+                                <div class="rd-import-row">
+                                    <div style="min-width:0;flex:1;">
+                                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
+                                            <span class="code-pill-dcs" title="{{ $importDocNo }}">{{ $importDocNo }}</span>
+                                            <span class="rd-import-meta">Rev: {{ $dcsItem->revise_no ?? '0' }} | <x-dcs.originator-lines :name="$dcsItem->originator_name ?: ''" empty="No originator" /></span>
                                         </div>
-                                        <div style="font-size: 13px; font-weight: 600; color: #0f172a;">{{ $dcsItem->doc_title ?: 'No title' }}</div>
+                                        <div class="rd-import-title">{{ $dcsItem->doc_title ?: 'No title' }}</div>
                                     </div>
-                                    <button type="button" wire:click="importDcsDocument('{{ $dcsItem->doc_no }}')" class="btn-import-dcs" style="padding: 6px 12px; cursor: pointer;">
+                                    <button type="button"
+                                            wire:click="importDcsDocument({{ \Illuminate\Support\Js::from($importDocNo) }})"
+                                            class="btn-import-dcs"
+                                            style="padding: 6px 12px; cursor: pointer; flex-shrink: 0;">
                                         Receive
                                     </button>
                                 </div>

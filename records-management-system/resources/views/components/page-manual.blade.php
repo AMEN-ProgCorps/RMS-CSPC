@@ -6,18 +6,30 @@ use Livewire\Volt\Component;
 new class extends Component {
     public bool $open = false;
     public ?array $manual = null;
+    public string $pageRoute = '';
     public string $currentRoute = '';
     public string $search = '';
 
     public function mount(): void
     {
-        $this->loadManual();
+        $this->pageRoute = optional(request()->route())->getName() ?? '';
+        $this->loadManual($this->pageRoute);
     }
 
-    public function loadManual(): void
+    public function loadManual(?string $route = null): void
     {
-        $this->currentRoute = optional(request()->route())->getName() ?? '';
-        $this->manual = ManualService::getManualForCurrentRoute($this->currentRoute);
+        $routeName = $route ?: $this->pageRoute;
+        if (empty($routeName) || $routeName === 'livewire.update') {
+            $routeName = optional(request()->route())->getName() ?? '';
+            if (empty($routeName) || $routeName === 'livewire.update') {
+                $routeName = $this->pageRoute;
+            }
+        }
+
+        $this->currentRoute = $routeName;
+        if (!empty($this->currentRoute) && $this->currentRoute !== 'livewire.update') {
+            $this->manual = ManualService::getManualForCurrentRoute($this->currentRoute);
+        }
     }
 
     public function openManual(?string $name = null): void
@@ -44,7 +56,7 @@ new class extends Component {
     public function closeModal(): void
     {
         $this->open = false;
-        $this->loadManual();
+        $this->loadManual($this->pageRoute);
     }
 
     public function openModal(): void
@@ -92,18 +104,18 @@ new class extends Component {
     x-on:rms-open-manual.window="$wire.openManual($event.detail?.name || $event.detail)"
     x-on:rms-widget-opened.window="if ($event.detail && $event.detail.widget !== 'manual' && isOpen) { $wire.closeModal(); }"
 >
-    <!-- Floating Trigger Button (Stacked directly on top of Report button) -->
+    <!-- Floating Trigger Button -->
     <button
         type="button"
         class="rms-manual-fab"
         :class="{ 'is-open': isOpen }"
-        :title="isOpen ? 'Close Manual' : 'Page Guide ({{ $manual['title'] }})'"
+        :data-tooltip="isOpen ? 'Close Guide' : 'Page Guide'"
         @click="isOpen ? $wire.closeModal() : $wire.openModal()"
         aria-label="Toggle Page Guide"
     >
         <span class="rms-manual-fab-icon" aria-hidden="true">
             <!-- Question Mark Icon when closed -->
-            <svg x-show="!isOpen" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <svg x-show="!isOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"/>
                 <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
                 <line x1="12" y1="17" x2="12.01" y2="17"/>
@@ -114,7 +126,6 @@ new class extends Component {
                 <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
         </span>
-        <span class="rms-manual-fab-label" x-text="isOpen ? 'Close' : 'Guide'">Guide</span>
     </button>
 
     <!-- Floating Manual Widget Card (Docked in bottom-right) -->
@@ -252,7 +263,7 @@ new class extends Component {
         position: fixed;
         right: 160px; /* Horizontally next to Report (92px + 56px + 12px gap) */
         bottom: 24px;
-        z-index: 999997;
+        z-index: 1000000;
         height: 56px;
         min-width: 56px;
         width: 56px;
@@ -264,77 +275,63 @@ new class extends Component {
         cursor: pointer;
         display: inline-flex;
         align-items: center;
-        justify-content: flex-start;
-        padding: 0 0 0 14px;
-        overflow: hidden;
+        justify-content: center;
+        padding: 0;
+        overflow: visible;
         white-space: nowrap;
         user-select: none;
         box-sizing: border-box;
-        transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-                    padding 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-                    right 0.3s cubic-bezier(0.34, 1.25, 0.64, 1),
-                    transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+        transition: right 0.3s cubic-bezier(0.34, 1.25, 0.64, 1),
+                    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
                     background 0.2s ease,
                     box-shadow 0.2s ease;
     }
 
     .rms-manual-fab:hover {
-        width: 124px;
-        padding: 0 16px 0 14px;
         background: #0369a1;
-        transform: translateY(-1px);
+        transform: translateY(-2px);
         box-shadow: 0 14px 32px rgba(2, 132, 199, 0.45);
     }
 
-    /* If Chatify is hovered, Guide FAB slides left along with Report */
-    body:has(#messify-global-widget:hover) .rms-manual-fab {
-        transform: translateX(-78px);
-    }
-    body:has(#messify-global-widget:hover) .rms-manual-fab:hover {
-        transform: translateX(-78px) translateY(-1px);
+    /* Floating Tooltip Label on top */
+    .rms-manual-fab::before {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: calc(100% + 10px);
+        left: 50%;
+        transform: translateX(-50%) translateY(4px);
+        background: #0f172a;
+        color: #f8fafc;
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 11.5px;
+        font-weight: 600;
+        padding: 5px 9px;
+        border-radius: 6px;
+        white-space: nowrap;
+        pointer-events: none;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        z-index: 1000001;
     }
 
-    /* If Report FAB is hovered and expands, Guide FAB slides left to give it room */
-    body:has(.rms-report-fab:hover) .rms-manual-fab {
-        transform: translateX(-84px);
-    }
-    body:has(.rms-report-fab:hover) .rms-manual-fab:hover {
-        transform: translateX(-84px) translateY(-1px);
-    }
-
-    /* If both Chatify and Report are hovered or transitioning */
-    body:has(#messify-global-widget:hover):has(.rms-report-fab:hover) .rms-manual-fab {
-        transform: translateX(-162px);
+    .rms-manual-fab:hover::before {
+        opacity: 1;
+        visibility: visible;
+        transform: translateX(-50%) translateY(0);
     }
 
     .rms-manual-fab-icon {
-        width: 28px;
-        height: 28px;
+        width: 30px;
+        height: 30px;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.2);
         display: inline-flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-    }
-
-    .rms-manual-fab-label {
-        max-width: 0;
-        opacity: 0;
-        overflow: hidden;
-        margin-left: 0;
-        font: 700 0.88rem Inter, system-ui, sans-serif;
-        letter-spacing: 0.01em;
-        color: #f8fafc;
-        transition: max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-                    opacity 0.2s ease,
-                    margin-left 0.2s ease;
-    }
-
-    .rms-manual-fab:hover .rms-manual-fab-label {
-        max-width: 80px;
-        opacity: 1;
-        margin-left: 8px;
     }
 
     /* If Messify is absent on this page, Guide moves to right: 92px (next to Report at 24px) */

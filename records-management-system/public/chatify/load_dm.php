@@ -1,4 +1,5 @@
 <?php
+ob_start();
 // =============================================================================
 // load_dm.php — Load and Render a Private Conversation
 // =============================================================================
@@ -465,7 +466,7 @@ for ($i = 0; $i < $msgCount; $i++) {
 }
 
 // ── Empty state ───────────────────────────────────────────────────────────────
-if ($html === '') {
+if ($html === '' && $beforeUuid === null && $aroundUuid === null) {
     $targetName = htmlspecialchars($targetInfo['full_name'] ?? 'this user', ENT_QUOTES);
     $html = "<div class='empty-chat'>
                 <div class='chat-icon'>
@@ -479,6 +480,10 @@ if ($html === '') {
             </div>";
 }
 
+if (ob_get_length()) {
+    ob_clean();
+}
+header('Content-Type: application/json; charset=utf-8');
 echo json_encode([
     'html'       => $html,
     'hasMore'    => $hasMore,
@@ -486,4 +491,4 @@ echo json_encode([
     'readUpTo'   => $readUpTo,     // other participant's last-read msg_uuid, or null
     'jumpMode'   => $jumpMode,     // true when fetched via around_uuid (reply-quote jump)
     'jumpTarget' => $aroundUuid,   // the UUID the client should scroll+blink to
-]);
+], JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR | JSON_UNESCAPED_UNICODE);

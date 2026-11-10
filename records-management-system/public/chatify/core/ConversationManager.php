@@ -271,7 +271,7 @@ class ConversationManager
                 $curRow = $cur->fetch();
 
                 if (!$curRow) {
-                    return self::loadRaw($convId, $limit, null);
+                    return [];
                 }
 
                 $stmt = $pdo->prepare(
@@ -289,7 +289,7 @@ class ConversationManager
                      FROM messify_chat_messages m
                      LEFT JOIN messify_chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                      WHERE m.conv_id = :conv_id
-                       AND (m.created_at, m.id) < (:cur_ts, :cur_id)
+                       AND (m.created_at < :cur_ts OR (m.created_at = :cur_ts AND m.id < :cur_id))
                        AND m.status = \'active\'
                      ORDER BY m.created_at DESC, m.id DESC
                      LIMIT :lim'
@@ -355,7 +355,7 @@ class ConversationManager
                  FROM messify_chat_messages m
                  LEFT JOIN messify_chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                  WHERE m.conv_id = :conv_id
-                   AND (m.created_at, m.id) <= (:cur_ts, :cur_id)
+                   AND (m.created_at < :cur_ts OR (m.created_at = :cur_ts AND m.id <= :cur_id))
                    AND m.status = \'active\'
                  ORDER BY m.created_at DESC, m.id DESC
                  LIMIT :lim'
@@ -413,7 +413,7 @@ class ConversationManager
                         to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                  FROM messify_chat_messages m
                  WHERE m.conv_id = :conv_id
-                   AND (m.created_at, m.id) > (:cur_ts, :cur_id)
+                   AND (m.created_at > :cur_ts OR (m.created_at = :cur_ts AND m.id > :cur_id))
                    AND m.status = \'active\'
                  ORDER BY m.created_at ASC, m.id ASC
                  LIMIT :lim'

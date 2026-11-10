@@ -1,4 +1,5 @@
 <?php
+ob_start();
 // load_dm_admin.php — Admin-only: view conversation between any two users
 require_once __DIR__ . '/bootstrap.php';
 
@@ -465,7 +466,7 @@ for ($i = 0; $i < $msgCount; $i++) {
 }
 
 // ── Empty state ───────────────────────────────────────────────────────────────
-if ($html === '') {
+if ($html === '' && $beforeUuid === null && $aroundUuid === null) {
     $chatTitle     = 'Global Chat';
     $emptySubtitle = 'No messages yet. Send a message to get the conversation started!';
     if ($isCustomGc) {
@@ -493,11 +494,14 @@ if ($html === '') {
             </div>";
 }
 
-header('Content-Type: application/json');
+if (ob_get_length()) {
+    ob_clean();
+}
+header('Content-Type: application/json; charset=utf-8');
 echo json_encode([
     'html'       => $html,
     'hasMore'    => $hasMore,
     'nextCursor' => $nextCursor,   // pass as before_uuid for next "load older" request
     'jumpMode'   => $jumpMode,     // true when fetched via around_uuid (reply-quote jump)
     'jumpTarget' => $aroundUuid,   // the UUID the client should scroll+blink to
-]);
+], JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR | JSON_UNESCAPED_UNICODE);

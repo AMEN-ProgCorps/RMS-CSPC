@@ -85,15 +85,13 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
 
         $rows = OfficeIntakeHelper::listOfficeDocuments($active, null, 'pending');
         $canAppraise = (bool) (auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp);
-        $receivedRows = $canAppraise
-            ? OfficeIntakeHelper::listOfficeDocuments($active, null, 'received_for_appraisal')
-            : [];
-        $appraisalUrls = $canAppraise
-            ? RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
-                RegisterQueryHelper::currentOfficeCode(),
-                $receivedRows
-            )
-            : [];
+        // Always keep received-but-not-yet-appraised rows visible on Incoming (even without RDP).
+        // Appraisal button appears only after the user is granted RDP access.
+        $receivedRows = OfficeIntakeHelper::listOfficeDocuments($active, null, 'received_for_appraisal');
+        $appraisalUrls = RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
+            RegisterQueryHelper::currentOfficeCode(),
+            $receivedRows
+        );
         $seen = [];
         foreach ($rows as $row) {
             $seen[(int) ($row['request_id'] ?? 0)] = true;
@@ -104,10 +102,18 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
             $url = ($docNo !== '' ? ($appraisalUrls[$docNo] ?? null) : null)
                 ?? ($appraisalUrls['request:'.$requestId] ?? null)
                 ?? ($appraisalUrls[RdpIntakeService::documentCodeForRequest($requestId, $docNo)] ?? null);
-            if ($requestId < 1 || isset($seen[$requestId]) || $url === null) {
+            // Include rows with a pending RDP intake even when this user cannot open Appraisal yet.
+            $hasPendingIntake = $url !== null
+                || OfficeIntakeHelper::officeHasPendingAppraisalIntake(
+                    RegisterQueryHelper::currentOfficeCode(),
+                    $requestId,
+                    $docNo
+                );
+            if ($requestId < 1 || isset($seen[$requestId]) || ! $hasPendingIntake) {
                 continue;
             }
-            $row['appraisal_url'] = $url;
+            $row['appraisal_url'] = ($canAppraise && $url) ? $url : null;
+            $row['awaiting_appraisal'] = true;
             $row['can_receive'] = false;
             $rows[] = $row;
             $seen[$requestId] = true;
@@ -157,11 +163,7 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
                     Controlled documents distributed to
                     <strong>{{ $officeName }}</strong>
                     that are waiting to be marked received.
-                    @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp)
-                        After receipt, a Save and Appraise document stays here until Appraisal is finished. A plain save moves to the
-                    @else
-                        After receipt, they move to the
-                    @endif
+                    After receipt, each office must finish Appraisal — the document stays here until then, then moves to the
                     <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}">Masterlist</a>.
                 </p>
             </div>
@@ -176,8 +178,8 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
         @if(session('info'))
             <div class="ofi-alert">{{ session('info') }}</div>
         @endif
-        @if(collect($rows->items())->contains(fn ($row) => !empty($row['appraisal_url'])))
-            <div class="ofi-alert">Save and Appraise documents stay on Incoming, and the notice stays, until you finish Appraisal.</div>
+        @if(collect($rows->items())->contains(fn ($row) => !empty($row['appraisal_url']) || !empty($row['awaiting_appraisal'])))
+            <div class="ofi-alert">Received documents stay on Incoming until Appraisal is finished for your office.</div>
         @endif
 
         @unless(auth()->user()?->enableTopTabs() ?? true)
@@ -248,6 +250,8 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
                                     <td class="ofi-receive-cell">
                                         @if(!empty($row['appraisal_url']) && empty($row['can_receive']))
                                             <a href="{{ $row['appraisal_url'] }}" class="ofi-btn ofi-btn-sm primary">Appraisal</a>
+                                        @elseif(!empty($row['awaiting_appraisal']) && empty($row['can_receive']))
+                                            <span class="ofi-status-pill is-pending" title="Received — waiting for an RDP-capable user in this office to finish Appraisal.">Awaiting Appraisal</span>
                                         @elseif(!empty($row['can_receive']) && (int) ($row['request_id'] ?? 0) > 0)
                                             <button
                                                 type="button"

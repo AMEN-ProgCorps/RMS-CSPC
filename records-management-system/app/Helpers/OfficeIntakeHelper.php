@@ -7620,14 +7620,38 @@ class OfficeIntakeHelper
     }
 
     /**
+     * True when this office still has a pending DCS appraisal intake for the document.
+     */
+    public static function officeHasPendingAppraisalIntake(?string $officeCode, int $requestId, string $docNo = ''): bool
+    {
+        $officeCode = strtoupper(trim((string) $officeCode));
+        if ($officeCode === '' || $requestId < 1 || ! Schema::hasTable('rdp_received_documents')) {
+            return false;
+        }
+
+        $intakeCode = \App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo);
+        $docNo = trim($docNo);
+
+        return DB::table('rdp_received_documents')
+            ->where('source_subsystem', 'DCS')
+            ->where('status', 'pending')
+            ->whereRaw('LOWER(target_office) = ?', [strtolower($officeCode)])
+            ->where(function ($q) use ($docNo, $intakeCode, $requestId) {
+                if ($docNo !== '') {
+                    $q->orWhereRaw('LOWER(document_code) = ?', [strtolower($docNo)]);
+                }
+                $q->orWhereRaw('LOWER(document_code) = ?', [strtolower($intakeCode)])
+                    ->orWhereRaw("COALESCE(metadata->>'dcs_request_id', '') = ?", [(string) $requestId]);
+            })
+            ->exists();
+    }
+
+    /**
      * Keep a received copy off the office masterlist while its DCS appraisal is still pending.
+     * Applies for every office — Incoming → receive → Appraisal → Masterlist.
      */
     protected static function excludePendingAppraisal($query, int $officeId): void
     {
-        $perms = auth()->user()?->permissions;
-        if (! $perms || (! $perms->is_sadm && ! $perms->can_access_rdp)) {
-            return;
-        }
         if ($officeId < 1 || ! Schema::hasTable('rdp_received_documents')) {
             return;
         }
@@ -7934,25 +7958,15 @@ class OfficeIntakeHelper
         $receiverName = RegisterQueryHelper::currentUserDisplayName();
         $officeCode = RegisterQueryHelper::currentOfficeCode();
         $appraisalWaiting = false;
-        if ($officeCode) {
-            $perms = auth()->user()?->permissions;
-            $canAppraise = $perms && ($perms->is_sadm || $perms->can_access_rdp);
-            $appraisalWaiting = false;
-            if ($canAppraise && Schema::hasTable('rdp_received_documents')) {
-                $intakeCode = \App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo);
-                $appraisalWaiting = DB::table('rdp_received_documents')
-                    ->where('source_subsystem', 'DCS')
-                    ->where('status', 'pending')
-                    ->whereRaw('LOWER(target_office) = ?', [strtolower($officeCode)])
-                    ->where(function ($q) use ($docNo, $intakeCode, $requestId) {
-                        if ($docNo !== '') {
-                            $q->orWhereRaw('LOWER(document_code) = ?', [strtolower($docNo)]);
-                        }
-                        $q->orWhereRaw('LOWER(document_code) = ?', [strtolower($intakeCode)])
-                            ->orWhereRaw("COALESCE(metadata->>'dcs_request_id', '') = ?", [(string) $requestId]);
-                    })
-                    ->exists();
-            }
+        if ($officeCode && Schema::hasTable('rdp_received_documents')) {
+            // Every receiving office must appraise — create/keep a pending RDP intake row.
+            $appraisalUrl = \App\Services\RdpIntakeService::ensurePendingForOfficeDocument(
+                $officeCode,
+                $requestId,
+                $docNo,
+                $title
+            );
+            $appraisalWaiting = is_string($appraisalUrl) && $appraisalUrl !== '';
             if ($appraisalWaiting) {
                 DcsNotificationService::notifyAppraisalStillWaiting(
                     $officeCode,
@@ -7979,7 +7993,7 @@ class OfficeIntakeHelper
             'ok' => true,
             'already' => false,
             'message' => ! empty($appraisalWaiting)
-                ? 'Document marked as received. It stays on Incoming until you finish Appraisal.'
+                ? 'Document marked as received. It stays on Incoming until Appraisal is finished.'
                 : 'Document marked as received.',
         ];
     }

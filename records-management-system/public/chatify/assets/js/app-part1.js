@@ -287,7 +287,7 @@
         dmMessageCache.delete(activeDM);
       }
 
-      const emptyNotice = chatBox.querySelector('.empty-chat');
+      const emptyNotice = chatBox.querySelector('.empty-chat, #noChatSelectedState');
       if (emptyNotice) emptyNotice.remove();
 
       // Captured BEFORE the new message is appended below — checking after
@@ -300,7 +300,7 @@
       // showing the "new message" indicator instead.
       const wasAtBottom = isAtBottom() && !window.replyJumpActive;
 
-      const isSentByMe = Number(msgData.sender_id) === wsConfig.accountId;
+      const isSentByMe = Number(msgData.sender_id) === Number(wsConfig?.accountId || 0);
       const container = document.createElement('div');
       container.className = 'message-container ' + (isSentByMe ? 'sent' : 'received') + ' msg-animate-' + (isSentByMe ? 'sent' : 'received');
       if (msgId) container.setAttribute('data-msg-id', msgId);
@@ -721,7 +721,7 @@
                   // Echo of our own sent message — XHR optimistic path already rendered it in place.
                   if (data.has_upload) {
                     isLoadingGC = false;
-                    loadGlobalChat(false);
+                    loadGlobalChat(false, false, true);
                   }
                 }
               }
@@ -742,18 +742,22 @@
               }
             }
           } else if (data.chat_type === 'private') {
+            const myAccId = (typeof wsConfig !== 'undefined' && wsConfig.accountId) ? Number(wsConfig.accountId) : 0;
+            const sAccId = Number(data.sender_id);
+            const rAccId = Number(data.recipient_id);
+
             if (typeof dmMessageCache !== 'undefined') {
-              const sAccId = Number(data.sender_id);
-              const rAccId = Number(data.recipient_id);
               const sUserObj = allUsersData.find(u => Number(u.account_id) === sAccId);
               const rUserObj = allUsersData.find(u => Number(u.account_id) === rAccId);
               if (sUserObj && sUserObj.username) dmMessageCache.delete(sUserObj.username);
               if (rUserObj && rUserObj.username) dmMessageCache.delete(rUserObj.username);
+              if (sAccId) dmMessageCache.delete(String(sAccId));
+              if (rAccId) dmMessageCache.delete(String(rAccId));
             }
             if (activeAdminConv) {
               const parts = activeAdminConv.split('_').map(Number);
-              const s = Number(data.sender_id);
-              const r = Number(data.recipient_id);
+              const s = sAccId;
+              const r = rAccId;
               if ((s === parts[0] && r === parts[1]) || (s === parts[1] && r === parts[0])) {
                 if (data.has_upload) {
                   // Need the real attachment markup from the server — force a
@@ -766,17 +770,27 @@
                   renderAndAppendAdminWsMessage(data);
                 }
               }
-            } else if (activeDM) {
-              const sender = Number(data.sender_id);
-              const recip  = Number(data.recipient_id);
+            } else if (activeDM || activeDMAccountId) {
+              const sender = sAccId;
+              const recip  = rAccId;
+              const curPartnerId = activeDMAccountId ? Number(activeDMAccountId) : (activeDMUserObj ? Number(activeDMUserObj.account_id) : 0);
+
               // Check if this message belongs to the active DM conversation
-              const isForThisConv =
-                (activeDMAccountId && ((sender === wsConfig.accountId && recip === activeDMAccountId) || (sender === activeDMAccountId && recip === wsConfig.accountId)));
+              const isForThisConv = (curPartnerId > 0 && (
+                ((sender === myAccId && recip === curPartnerId) || (sender === curPartnerId && recip === myAccId)) ||
+                (sender === curPartnerId || recip === curPartnerId)
+              )) || (activeDM && (
+                (data.sender_user && data.sender_user === activeDM) ||
+                (data.recipient_user && data.recipient_user === activeDM)
+              ));
+
               if (isForThisConv) {
-                if (sender !== wsConfig.accountId) {
+                if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
+                if (sender !== myAccId) {
                   // Incoming message from the other person — render it via WS
                   if (data.has_upload) {
                     if (typeof dmMessageCache !== 'undefined' && activeDM) dmMessageCache.delete(activeDM);
+                    if (curPartnerId) dmMessageCache.delete(String(curPartnerId));
                     if (dmViewingOlder || window.replyJumpActive) {
                       showScrollIndicator(1);
                     } else {
@@ -791,7 +805,7 @@
                     if ((typeof isAtBottom === 'function' ? isAtBottom() : false) && shouldMarkReadNow()) {
                       userScrolledUp = false;
                       shouldAutoScroll = true;
-                      markRead(activeDM, data.msg_uuid || data.id);
+                      markRead(activeDM || String(curPartnerId), data.msg_uuid || data.id);
                     }
                   }
                 } else {
@@ -800,6 +814,10 @@
                   // to avoid duplicate bubbles. Only do a forced reload if somehow the optimistic
                   // bubble is missing (e.g. attachment upload where has_upload=true).
                   if (data.has_upload) {
+                    if (typeof dmMessageCache !== 'undefined' && activeDM) {
+                      dmMessageCache.delete(activeDM);
+                    }
+                    if (curPartnerId) dmMessageCache.delete(String(curPartnerId));
                     if (!dmViewingOlder) loadChatForced();
                   }
                 }
@@ -3759,7 +3777,13 @@
 
     function selectDM(u) {
       if (!u) return;
-      if (!isGlobalChat && !activeAdminConv && activeDM === u.username) {
+      const userKey = u.username || u.email || (u.account_id ? String(u.account_id) : '');
+      const uAccId = Number(u.account_id || 0);
+      const appContainer = document.getElementById('appContainer') || document.querySelector('.app-container');
+      const isNoChatSelected = appContainer && appContainer.classList.contains('no-chat-selected');
+      const hasEmptyState = chatBox && chatBox.querySelector('#noChatSelectedState');
+
+      if (!isNoChatSelected && !hasEmptyState && !isGlobalChat && !activeAdminConv && ((activeDM && activeDM === userKey) || (activeDMAccountId && uAccId && activeDMAccountId === uAccId))) {
         if (isMobileViewport()) {
           sidebar.classList.remove('open');
           if (backButton) backButton.style.display = 'inline-flex';
@@ -3784,8 +3808,10 @@
       window.activeCustomGc = null;
       const _hEl = document.querySelector('.header');
       if (_hEl) _hEl.classList.remove('is-global-chat');
-      activeDM = u.username;
-      activeDMAccountId = Number(u.account_id);
+      activeDM = u.username || u.email || (u.account_id ? String(u.account_id) : '');
+      activeDMAccountId = Number(u.account_id || 0);
+      window.activeDM = activeDM;
+      window.activeDMAccountId = activeDMAccountId;
       activeDMUserObj = u;
       activeAdminConv = null;
       u.unreadCount = 0;
@@ -3822,7 +3848,7 @@
       applyHeaderAvatar(u);
       updateHeaderActiveStatus(u);
       
-      const cached = dmMessageCache.get(u.username);
+      const cached = dmMessageCache.get(activeDM) || (u.username ? dmMessageCache.get(u.username) : null) || (activeDMAccountId ? dmMessageCache.get(String(activeDMAccountId)) : null);
       chatBox.innerHTML = '';
       chatBox.scrollTop = 0;
       removePaginationBtn();
@@ -3833,8 +3859,8 @@
 
       dmCursor = (cached && cached.nextCursor) ? cached.nextCursor : '';
       dmHasMore = (cached && cached.hasMore) ? cached.hasMore : false;
-      dmReadUpTo = (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(u.username) && dmReadUpToMap.get(u.username))
-        ? dmReadUpToMap.get(u.username)
+      dmReadUpTo = (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(activeDM) && dmReadUpToMap.get(activeDM))
+        ? dmReadUpToMap.get(activeDM)
         : ((cached && typeof cached.readUpTo !== 'undefined' && cached.readUpTo) ? cached.readUpTo : null);
       if (dmReadUpTo && cached && cached._raw) {
         cached._raw.readUpTo = dmReadUpTo;
@@ -6342,6 +6368,7 @@
 
     function openAdminChannel(ch) {
       if (!ch) return;
+      if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       if (activeAdminConv === ch.conv_id) {
         if (isMobileViewport()) {
           sidebar.classList.remove('open');
@@ -6418,6 +6445,7 @@
 
     function openAdminConv(c) {
       if (!c) return;
+      if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       if (activeAdminConv === c.convId) {
         if (isMobileViewport()) {
           sidebar.classList.remove('open');
@@ -6522,6 +6550,9 @@
     function resetToHome() {
       activeDM = null;
       activeDMAccountId = null;
+      activeDMUserObj = null;
+      window.activeDM = null;
+      window.activeDMAccountId = null;
       activeAdminConv = null;
       activeChannel = null;
       window.activeChannel = null;

@@ -28,6 +28,7 @@ require_once __DIR__ . '/core/OfficeChatManager.php';
 require_once __DIR__ . '/core/ConversationManager.php';
 require_once __DIR__ . '/core/CustomGroupManager.php';
 require_once __DIR__ . '/core/Reactions.php';
+require_once __DIR__ . '/core/GoogleDriveHelper.php';
 require_once __DIR__ . '/log_chat_action.php';
 
 // ── Secure Session Cookie Configuration ─────────────────────────────────────

@@ -120,6 +120,21 @@
 
     function openImageViewer(src, alt) {
       if (!imageViewerModal || !imageViewerImg) return;
+      delete imageViewerImg.dataset.retryDone;
+      imageViewerImg.onerror = function() {
+        const fnMatch = src.match(/uploads\/([^?#]+)/);
+        if (fnMatch && !this.dataset.retryDone) {
+          this.dataset.retryDone = '1';
+          const fn = decodeURIComponent(fnMatch[1]);
+          fetch('load_cached_media.php?file=' + encodeURIComponent(fn))
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+              if (d && d.success && imageViewerImg) {
+                imageViewerImg.src = d.url + '?t=' + Date.now();
+              }
+            }).catch(function() {});
+        }
+      };
       imageViewerImg.src = src;
       imageViewerImg.alt = alt || '';
       imageViewerModal.style.display = 'flex';
@@ -362,6 +377,72 @@
       e.preventDefault();
       openImageViewer(img.dataset.fullSrc || img.src, img.alt);
     });
+
+    // ── On-demand loader for 1-week cached images purged from local uploads/ ──
+    function loadCachedImage(el) {
+      if (!el || el.classList.contains('loading')) return;
+      const filename = el.dataset.filename;
+      if (!filename) return;
+
+      el.classList.add('loading');
+      const label = el.querySelector('.load-img-label');
+      const originalText = label ? label.textContent : '';
+      if (label) label.textContent = 'Loading...';
+
+      fetch('load_cached_media.php?file=' + encodeURIComponent(filename))
+        .then(function(res) {
+          if (!res.ok) throw new Error('HTTP error ' + res.status);
+          return res.json();
+        })
+        .then(function(data) {
+          if (data && data.success) {
+            const img = document.createElement('img');
+            img.src = (data.thumb_url || data.url);
+            img.dataset.fullSrc = data.url;
+            img.alt = filename;
+            img.className = 'chat-viewable-image';
+            img.loading = 'eager';
+            img.decoding = 'async';
+            img.draggable = false;
+            const style = el.getAttribute('style') || '';
+            img.style.cssText = style;
+            if (img.style.height === '160px') {
+              img.style.height = 'auto';
+            }
+            img.style.objectFit = 'cover';
+            img.onerror = function() {
+              const c = this.closest('.message-container');
+              this.closest('.message-media,.message-bubble')?.remove();
+              if (c && !c.querySelector('.message-bubble,.message-media,.message-content')) c.remove();
+            };
+            el.replaceWith(img);
+            if (typeof attachImageLoadListeners === 'function') {
+              attachImageLoadListeners();
+            }
+          } else {
+            throw new Error((data && data.error) || 'Failed to load');
+          }
+        })
+        .catch(function(err) {
+          console.error('[Chatify Cache] Failed to load cached image:', err);
+          el.classList.remove('loading');
+          if (label) label.textContent = originalText || 'Load image';
+        });
+    }
+    window.loadCachedImage = loadCachedImage;
+
+    // Auto-remove any broken or missing chat images so they totally disappear
+    document.addEventListener('error', function(e) {
+      const target = e.target;
+      if (target && target.tagName === 'IMG' && (target.classList.contains('chat-viewable-image') || target.classList.contains('reply-quote-image'))) {
+        const container = target.closest('.message-container');
+        const media = target.closest('.message-media, .message-bubble, .reply-quote-image-container');
+        if (media) media.remove();
+        if (container && !container.querySelector('.message-bubble, .message-media, .message-content')) {
+          container.remove();
+        }
+      }
+    }, true);
 
     // Close: X button or Escape key.
     if (imageViewerCloseBtn) {
@@ -1024,7 +1105,7 @@
 
         // Replace current chat window content (keep sending-overlay placeholders)
         const sendingPlaceholders = Array.from(chatBox.querySelectorAll('[data-sending-uid],[data-upload-uid]'));
-        chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
+        chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #noChatSelectedState, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
 
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
@@ -1201,16 +1282,48 @@
     let hoverReplyHideTimer = null;
 
     function positionHoverReplyBtn(container) {
+      if (!container || !chatBox) return;
       // Match both text bubbles and image/audio media containers
       const bubble = container.querySelector('.message-bubble, .message-media');
       if (!bubble) return;
+
       const rect = bubble.getBoundingClientRect();
+      const chatBoxRect = chatBox.getBoundingClientRect();
+      const headerEl = document.querySelector('.header');
+      const headerBottom = headerEl ? headerEl.getBoundingClientRect().bottom : chatBoxRect.top;
+      const topBoundary = Math.max(chatBoxRect.top, headerBottom);
+      const bottomBoundary = chatBoxRect.bottom;
+
+      // If the chat message is NOT fully visible in the viewport (scrolled under header or cut off at bottom),
+      // do not show the hover reply button at all
+      if (rect.top < topBoundary || rect.bottom > bottomBoundary) {
+        hoverReplyBtn.classList.remove('visible');
+        hoveredReplyContainer = null;
+        return;
+      }
+
       const isSent = container.classList.contains('sent');
       const top = rect.top + rect.height / 2 - 15; // center on bubble, btn is 30px tall
+
+      // Guard: reply button must strictly stay within visible chat boundaries and never overlap header or input area
+      if (top < topBoundary + 4 || (top + 30) > bottomBoundary - 4) {
+        hoverReplyBtn.classList.remove('visible');
+        hoveredReplyContainer = null;
+        return;
+      }
+
       // Sent bubbles sit on the right — put the button just to their left.
       // Received bubbles sit on the left — put the button just to their right.
       const left = isSent ? (rect.left - 36) : (rect.right + 6);
-      hoverReplyBtn.style.top = Math.max(4, top) + 'px';
+
+      // Horizontal boundary guard
+      if (left < chatBoxRect.left || (left + 30) > chatBoxRect.right) {
+        hoverReplyBtn.classList.remove('visible');
+        hoveredReplyContainer = null;
+        return;
+      }
+
+      hoverReplyBtn.style.top = top + 'px';
       hoverReplyBtn.style.left = left + 'px';
       hoverReplyBtn.classList.add('visible');
       hoveredReplyContainer = container;
@@ -2593,7 +2706,7 @@
         const msgId = el.getAttribute('data-msg-id');
         return msgId ? !curMsgIdSet.has(msgId) : !curKeySet.has(getMessageKey(el));
       }).length;
-      chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
+      chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #noChatSelectedState, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       // Deduplicate newMessages during full re-render
       const renderedIds = new Set();
@@ -2760,7 +2873,8 @@
     let chatXhr = null;
 
     function processChatData(data, requestedUser, loadOlderMode = false) {
-      if (requestedUser !== activeDM) return;
+      if (requestedUser !== activeDM && (!activeDMAccountId || String(activeDMAccountId) !== String(requestedUser))) return;
+      if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       const newHtml = data.html || '';
       dmHasMore = data.hasMore || false;
       if (typeof data.readUpTo !== 'undefined' && data.readUpTo !== null) {
@@ -2851,7 +2965,7 @@
       }
 
       if (!newHtml.trim()) {
-        chatBox.innerHTML = '';
+        chatBox.innerHTML = '<div class="empty-chat"><p>No messages yet. Send a message to start the conversation!</p></div>';
         isFirstLoad = false;
         cacheDmSnapshot(requestedUser, data);
         return;
@@ -2905,6 +3019,10 @@
           }
           chatBox.appendChild(el);
         });
+        if (actuallyAddedCount > 0) {
+          const emptyChatEl = chatBox.querySelector('.empty-chat, #noChatSelectedState');
+          if (emptyChatEl) emptyChatEl.remove();
+        }
         applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) markRead(activeDM);
         updateSeenIndicator();
@@ -2939,7 +3057,7 @@
         const msgId = el.getAttribute('data-msg-id');
         return msgId ? !curMsgIdSetF.has(msgId) : !curKeySetF.has(getMessageKey(el));
       }).length;
-      chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
+      chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #noChatSelectedState, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       const renderedIdsF = new Set();
       newMessages.forEach(el => {
@@ -2978,22 +3096,26 @@
 
     function loadChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (isAdminAllChatsView || activeAdminConv) return;
-      if (!activeDM) return;
+      if (!activeDM && !activeDMAccountId) return;
+      if (!activeDM && activeDMAccountId) {
+        activeDM = String(activeDMAccountId);
+      }
       if (isAutoPoll && !loadOlderMode && (dmViewingOlder || window.replyJumpActive)) return;
 
       // Consume preloaded snapshot from hover cache if available on initial open for instant paint,
       // but do NOT return early so we still perform background fetch from load_dm.php to reconcile new messages.
       if (!loadOlderMode && !isAutoPoll) {
-        if (dmMessageCache.has(activeDM)) {
-          const cachedData = dmMessageCache.get(activeDM);
+        const cacheKey = activeDM || (activeDMAccountId ? String(activeDMAccountId) : null);
+        if (cacheKey && dmMessageCache.has(cacheKey)) {
+          const cachedData = dmMessageCache.get(cacheKey);
           if (cachedData && cachedData._raw) {
-            processChatData(cachedData._raw, activeDM, false);
+            processChatData(cachedData._raw, cacheKey, false);
           }
-        } else if (window.dmPrefetchPromises && window.dmPrefetchPromises.has(activeDM)) {
-          const requestedUser = activeDM;
-          window.dmPrefetchPromises.get(activeDM).then(function() {
-            if (requestedUser === activeDM && dmMessageCache.has(activeDM)) {
-              processChatData(dmMessageCache.get(activeDM)._raw, activeDM, false);
+        } else if (cacheKey && window.dmPrefetchPromises && window.dmPrefetchPromises.has(cacheKey)) {
+          const requestedUser = cacheKey;
+          window.dmPrefetchPromises.get(cacheKey).then(function() {
+            if (requestedUser === activeDM && dmMessageCache.has(cacheKey)) {
+              processChatData(dmMessageCache.get(cacheKey)._raw, cacheKey, false);
             }
           });
         }
@@ -3009,8 +3131,10 @@
       const requestedUser = activeDM;
       const cursor     = loadOlderMode ? dmCursor : '';
       const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
-      const url = 'load_dm.php?target_id=' + encodeURIComponent(activeDMAccountId || 0)
-                + '&target_user=' + encodeURIComponent(activeDM)
+      const targetIdParam = (activeDMAccountId && Number(activeDMAccountId) > 0) ? Number(activeDMAccountId) : 0;
+      const targetUserParam = activeDM || (activeDMAccountId ? String(activeDMAccountId) : '');
+      const url = 'load_dm.php?target_id=' + encodeURIComponent(targetIdParam)
+                + '&target_user=' + encodeURIComponent(targetUserParam)
                 + '&before_uuid=' + encodeURIComponent(cursor)
                 + '&limit=' + limitParam;
 
@@ -3024,13 +3148,30 @@
         // fast then switched chats before this landed) so the spinner never
         // gets left stranded at the top of whatever chat is now open.
         if (loadOlderMode) hideBackreadTopLoader();
-        if (this.status !== 200) return;
-        if (requestedUser !== activeDM) return;
+        if (this.status !== 200) {
+          if (!loadOlderMode && chatBox && !chatBox.querySelector('.message-container')) {
+            chatBox.innerHTML = '<div class="empty-chat"><p>Unable to load conversation. Please try again.</p></div>';
+          }
+          return;
+        }
+        if (requestedUser !== activeDM && (!activeDMAccountId || String(activeDMAccountId) !== String(requestedUser))) return;
         let data;
-        try { data = JSON.parse(this.responseText); } catch(e) { return; }
+        try { data = JSON.parse(this.responseText); } catch(e) {
+          if (!loadOlderMode && chatBox && !chatBox.querySelector('.message-container')) {
+            chatBox.innerHTML = '<div class="empty-chat"><p>Unable to parse conversation data.</p></div>';
+          }
+          return;
+        }
         processChatData(data, requestedUser, loadOlderMode);
       };
-      xhr.onerror = function() { isLoadingChat = false; if (chatXhr === xhr) chatXhr = null; if (loadOlderMode) hideBackreadTopLoader(); };
+      xhr.onerror = function() {
+        isLoadingChat = false;
+        if (chatXhr === xhr) chatXhr = null;
+        if (loadOlderMode) hideBackreadTopLoader();
+        if (!loadOlderMode && chatBox && !chatBox.querySelector('.message-container')) {
+          chatBox.innerHTML = '<div class="empty-chat"><p>Network error loading conversation.</p></div>';
+        }
+      };
       xhr.send();
     }
 
@@ -3600,8 +3741,16 @@
     // what was supposed to render the attachment and trigger markRead() —
     // so the message could sit unrendered/unread-marked despite the chat
     // being open.
+    let _loadChatForcedTimer = null;
     function loadChatForced() {
-      loadChat(false, false, true);
+      if (typeof dmMessageCache !== 'undefined' && activeDM) {
+        dmMessageCache.delete(activeDM);
+      }
+      if (_loadChatForcedTimer) clearTimeout(_loadChatForcedTimer);
+      _loadChatForcedTimer = setTimeout(function() {
+        _loadChatForcedTimer = null;
+        loadChat(false, false, true);
+      }, 40);
     }
 
     // Event Letters
@@ -5786,7 +5935,7 @@
               hideScrollIndicator(true);
               if (isGlobalChat) {
                 isLoadingGC = false;
-                loadGlobalChat(false);
+                loadGlobalChat(false, false, true);
                 const targetConvId = (typeof getActiveChannelConvId === 'function')
                   ? getActiveChannelConvId()
                   : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
@@ -5794,6 +5943,9 @@
                   bumpSidebarUser(targetConvId, { lastMessage: 'Sent a file' });
                 }
               } else if (activeDM) {
+                if (typeof dmMessageCache !== 'undefined' && activeDM) {
+                  dmMessageCache.delete(activeDM);
+                }
                 loadChatForced();
                 bumpSidebarUser(activeDM, { lastMessage: 'Sent a file' });
               }

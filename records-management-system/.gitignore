@@ -38,6 +38,8 @@ Thumbs.db
 /storage/app/*.json
 /storage/app/private/*.json
 google-drive-service-account.json
+/public/chatify/storage/*.json
+/public/messify/storage/*.json
 
 # Docker local env (may contain OAuth secrets)
 .env.docker

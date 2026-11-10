@@ -70,7 +70,9 @@ class ImageProcessor
             // flatten them to a single static frame and kill the animation.
             $webpPath = $uploadDir . '/' . $baseNoExt . '.webp';
             if (self::resizeAndSaveWebp($img, $webpPath, self::FULL_MAX_DIM, self::FULL_QUALITY)) {
-                @unlink($srcPath);
+                if (realpath($srcPath) !== realpath($webpPath)) {
+                    @unlink($srcPath);
+                }
                 $finalName = $baseNoExt . '.webp';
             }
         }

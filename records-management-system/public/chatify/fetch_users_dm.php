@@ -139,7 +139,7 @@ if ($searchQuery !== '') {
 
         $sidebarUsers[] = [
             'account_id'          => $uid,
-            'username'            => $user['username'] ?? '',
+            'username'            => !empty($user['username']) ? $user['username'] : (!empty($user['email']) ? $user['email'] : (string)$uid),
             'name'                => $user['full_name'],
             'full_name'           => $user['full_name'],
             'office_id'           => $user['office_id'],
@@ -195,7 +195,7 @@ if ($searchQuery !== '') {
 
         $sidebarUsers[] = [
             'account_id'          => $partnerId,
-            'username'            => $userInfo['email'] ?? '',
+            'username'            => !empty($userInfo['username']) ? $userInfo['username'] : (!empty($userInfo['email']) ? $userInfo['email'] : (string)$partnerId),
             'name'                => $userInfo['full_name'],
             'full_name'           => $userInfo['full_name'],
             'office_id'           => $userInfo['office_id'],

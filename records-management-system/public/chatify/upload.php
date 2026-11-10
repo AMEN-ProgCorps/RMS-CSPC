@@ -80,6 +80,7 @@ $uploadDir = UPLOADS_DIR;
 if (!is_dir($uploadDir)) {
     mkdir($uploadDir, 0755, true);
 }
+GoogleDriveHelper::maybePruneLocalCache($uploadDir);
 
 $response = ['success' => false, 'uploaded' => [], 'errors' => []];
 
@@ -148,6 +149,21 @@ for ($i = 0; $i < $total; $i++) {
     // uploads, and anything ImageProcessor can't safely touch (svg/ico, no
     // GD, corrupt file, etc.), pass through with their original filename.
     $finalName = ImageProcessor::processUpload($uploadDir, $uniqueName, $ext);
+
+    // ── Sync to Google Drive (RMS folder / chatify subfolder) ────────────────
+    try {
+        $finalPath = $uploadDir . '/' . $finalName;
+        if (file_exists($finalPath)) {
+            GoogleDriveHelper::uploadFile($finalPath, $finalName);
+        }
+        $thumbName = pathinfo($finalName, PATHINFO_FILENAME) . ImageProcessor::THUMB_SUFFIX;
+        $thumbPath = $uploadDir . '/' . $thumbName;
+        if (file_exists($thumbPath)) {
+            GoogleDriveHelper::uploadFile($thumbPath, $thumbName);
+        }
+    } catch (\Throwable $e) {
+        error_log("Upload Google Drive sync failed for {$finalName}: " . $e->getMessage());
+    }
 
     $response['uploaded'][] = $finalName;
 }

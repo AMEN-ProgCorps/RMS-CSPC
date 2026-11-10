@@ -36,10 +36,12 @@ class UserResolver
         try {
             $pdo = Database::getConnection();
             $stmt = $pdo->prepare(
-                'SELECT account_id FROM ' . Database::t('account_details') . '
-                 WHERE LOWER(email) = LOWER(:val)
-                    OR LOWER(first_name || \' \' || last_name) = LOWER(:val)
-                    OR account_id::text = :val
+                'SELECT ad.account_id FROM ' . Database::t('account_details') . ' ad
+                 LEFT JOIN ' . Database::t('account') . ' a ON a.id = ad.account_id
+                 WHERE LOWER(ad.email) = LOWER(:val)
+                    OR LOWER(ad.first_name || \' \' || ad.last_name) = LOWER(:val)
+                    OR LOWER(a.username) = LOWER(:val)
+                    OR ad.account_id::text = :val
                  LIMIT 1'
             );
             $stmt->execute([':val' => $targetStr]);
@@ -141,7 +143,7 @@ class UserResolver
             'first_name'          => $row['first_name'],
             'last_name'           => $row['last_name'],
             'email'               => $row['email'] ?? '',
-            'username'            => $row['email'] ?? '',
+            'username'            => !empty($row['email']) ? $row['email'] : (string) $row['account_id'],
             'office_id'           => isset($row['office_id']) ? (int) $row['office_id'] : null,
             'office_name'         => $row['office_name'] ?? null,
             'office_code'         => $row['office_code'] ?? null,
@@ -453,7 +455,7 @@ class UserResolver
 
                 $users[] = [
                     'account_id'          => (int) $row['account_id'],
-                    'username'            => $row['email'] ?? '',
+                    'username'            => !empty($row['email']) ? $row['email'] : (string) $row['account_id'],
                     'email'               => $row['email'] ?? '',
                     'full_name'           => trim($row['first_name'] . ' ' . $row['last_name']),
                     'first_name'          => $row['first_name'],

@@ -1037,7 +1037,7 @@
 
         // Replace current chat window content (keep sending-overlay placeholders)
         const sendingPlaceholders = Array.from(chatBox.querySelectorAll('[data-sending-uid],[data-upload-uid]'));
-        chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
+        chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #noChatSelectedState, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
 
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
@@ -2638,7 +2638,7 @@
         const msgId = el.getAttribute('data-msg-id');
         return msgId ? !curMsgIdSet.has(msgId) : !curKeySet.has(getMessageKey(el));
       }).length;
-      chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
+      chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #noChatSelectedState, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       // Deduplicate newMessages during full re-render
       const renderedIds = new Set();
@@ -2805,7 +2805,8 @@
     let chatXhr = null;
 
     function processChatData(data, requestedUser, loadOlderMode = false) {
-      if (requestedUser !== activeDM) return;
+      if (requestedUser !== activeDM && (!activeDMAccountId || String(activeDMAccountId) !== String(requestedUser))) return;
+      if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       const newHtml = data.html || '';
       dmHasMore = data.hasMore || false;
       if (typeof data.readUpTo !== 'undefined' && data.readUpTo !== null) {
@@ -2896,7 +2897,7 @@
       }
 
       if (!newHtml.trim()) {
-        chatBox.innerHTML = '';
+        chatBox.innerHTML = '<div class="empty-chat"><p>No messages yet. Send a message to start the conversation!</p></div>';
         isFirstLoad = false;
         cacheDmSnapshot(requestedUser, data);
         return;
@@ -2950,6 +2951,10 @@
           }
           chatBox.appendChild(el);
         });
+        if (actuallyAddedCount > 0) {
+          const emptyChatEl = chatBox.querySelector('.empty-chat, #noChatSelectedState');
+          if (emptyChatEl) emptyChatEl.remove();
+        }
         applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) markRead(activeDM);
         updateSeenIndicator();
@@ -2984,7 +2989,7 @@
         const msgId = el.getAttribute('data-msg-id');
         return msgId ? !curMsgIdSetF.has(msgId) : !curKeySetF.has(getMessageKey(el));
       }).length;
-      chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
+      chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #noChatSelectedState, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       const renderedIdsF = new Set();
       newMessages.forEach(el => {
@@ -3023,22 +3028,26 @@
 
     function loadChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (isAdminAllChatsView || activeAdminConv) return;
-      if (!activeDM) return;
+      if (!activeDM && !activeDMAccountId) return;
+      if (!activeDM && activeDMAccountId) {
+        activeDM = String(activeDMAccountId);
+      }
       if (isAutoPoll && !loadOlderMode && (dmViewingOlder || window.replyJumpActive)) return;
 
       // Consume preloaded snapshot from hover cache if available on initial open for instant paint,
       // but do NOT return early so we still perform background fetch from load_dm.php to reconcile new messages.
       if (!loadOlderMode && !isAutoPoll) {
-        if (dmMessageCache.has(activeDM)) {
-          const cachedData = dmMessageCache.get(activeDM);
+        const cacheKey = activeDM || (activeDMAccountId ? String(activeDMAccountId) : null);
+        if (cacheKey && dmMessageCache.has(cacheKey)) {
+          const cachedData = dmMessageCache.get(cacheKey);
           if (cachedData && cachedData._raw) {
-            processChatData(cachedData._raw, activeDM, false);
+            processChatData(cachedData._raw, cacheKey, false);
           }
-        } else if (window.dmPrefetchPromises && window.dmPrefetchPromises.has(activeDM)) {
-          const requestedUser = activeDM;
-          window.dmPrefetchPromises.get(activeDM).then(function() {
-            if (requestedUser === activeDM && dmMessageCache.has(activeDM)) {
-              processChatData(dmMessageCache.get(activeDM)._raw, activeDM, false);
+        } else if (cacheKey && window.dmPrefetchPromises && window.dmPrefetchPromises.has(cacheKey)) {
+          const requestedUser = cacheKey;
+          window.dmPrefetchPromises.get(cacheKey).then(function() {
+            if (requestedUser === activeDM && dmMessageCache.has(cacheKey)) {
+              processChatData(dmMessageCache.get(cacheKey)._raw, cacheKey, false);
             }
           });
         }
@@ -3054,8 +3063,10 @@
       const requestedUser = activeDM;
       const cursor     = loadOlderMode ? dmCursor : '';
       const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
-      const url = 'load_dm.php?target_id=' + encodeURIComponent(activeDMAccountId || 0)
-                + '&target_user=' + encodeURIComponent(activeDM)
+      const targetIdParam = (activeDMAccountId && Number(activeDMAccountId) > 0) ? Number(activeDMAccountId) : 0;
+      const targetUserParam = activeDM || (activeDMAccountId ? String(activeDMAccountId) : '');
+      const url = 'load_dm.php?target_id=' + encodeURIComponent(targetIdParam)
+                + '&target_user=' + encodeURIComponent(targetUserParam)
                 + '&before_uuid=' + encodeURIComponent(cursor)
                 + '&limit=' + limitParam;
 
@@ -3069,13 +3080,30 @@
         // fast then switched chats before this landed) so the spinner never
         // gets left stranded at the top of whatever chat is now open.
         if (loadOlderMode) hideBackreadTopLoader();
-        if (this.status !== 200) return;
-        if (requestedUser !== activeDM) return;
+        if (this.status !== 200) {
+          if (!loadOlderMode && chatBox && !chatBox.querySelector('.message-container')) {
+            chatBox.innerHTML = '<div class="empty-chat"><p>Unable to load conversation. Please try again.</p></div>';
+          }
+          return;
+        }
+        if (requestedUser !== activeDM && (!activeDMAccountId || String(activeDMAccountId) !== String(requestedUser))) return;
         let data;
-        try { data = JSON.parse(this.responseText); } catch(e) { return; }
+        try { data = JSON.parse(this.responseText); } catch(e) {
+          if (!loadOlderMode && chatBox && !chatBox.querySelector('.message-container')) {
+            chatBox.innerHTML = '<div class="empty-chat"><p>Unable to parse conversation data.</p></div>';
+          }
+          return;
+        }
         processChatData(data, requestedUser, loadOlderMode);
       };
-      xhr.onerror = function() { isLoadingChat = false; if (chatXhr === xhr) chatXhr = null; if (loadOlderMode) hideBackreadTopLoader(); };
+      xhr.onerror = function() {
+        isLoadingChat = false;
+        if (chatXhr === xhr) chatXhr = null;
+        if (loadOlderMode) hideBackreadTopLoader();
+        if (!loadOlderMode && chatBox && !chatBox.querySelector('.message-container')) {
+          chatBox.innerHTML = '<div class="empty-chat"><p>Network error loading conversation.</p></div>';
+        }
+      };
       xhr.send();
     }
 

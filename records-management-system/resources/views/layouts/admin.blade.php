@@ -158,6 +158,7 @@
     @auth
     <livewire:components.session-guard />
     <livewire:components.report-problem />
+    <livewire:components.page-manual />
     @endauth
     <x-rms-error />
     @stack('scripts')

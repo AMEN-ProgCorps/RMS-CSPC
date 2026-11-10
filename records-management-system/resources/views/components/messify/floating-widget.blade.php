@@ -66,22 +66,21 @@
         <button id="messify-widget-btn" 
                 type="button" 
                 onclick="toggleMessifyWidget()" 
-                title="Chatify Messages"
+                data-tooltip="Chatify"
+                aria-label="Chatify Messages"
                 class="rms-messify-fab">
             
             <span class="rms-messify-fab-icon">
                 <!-- Chat Icon -->
-                <svg id="messify-icon-chat" width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg id="messify-icon-chat" width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                 </svg>
 
                 <!-- Close Icon -->
-                <svg id="messify-icon-close" width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
+                <svg id="messify-icon-close" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
             </span>
-
-            <span id="messify-widget-btn-label" class="rms-messify-fab-label">Chatify</span>
         </button>
     </div>
 </div>
@@ -98,25 +97,51 @@
     cursor: pointer;
     display: inline-flex;
     align-items: center;
-    justify-content: flex-start;
-    padding: 0 0 0 15px;
+    justify-content: center;
+    padding: 0;
     color: #ffffff;
-    overflow: hidden;
+    overflow: visible;
     white-space: nowrap;
     text-decoration: none;
     user-select: none;
     box-sizing: border-box;
-    transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-                padding 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-                transform 0.2s ease,
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
                 box-shadow 0.2s ease;
 }
 
 .rms-messify-fab:hover {
-    width: 134px;
-    padding: 0 16px 0 15px;
-    transform: translateY(-1px);
+    transform: translateY(-2px);
     box-shadow: 0 12px 28px -4px rgba(37, 99, 235, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+/* Floating Tooltip Label on top */
+.rms-messify-fab::before {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    background: #0f172a;
+    color: #f8fafc;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 5px 9px;
+    border-radius: 6px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    z-index: 1000001;
+}
+
+.rms-messify-fab:hover::before {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
 }
 
 .rms-messify-fab-icon {
@@ -126,38 +151,6 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-}
-
-.rms-messify-fab-label {
-    max-width: 0;
-    opacity: 0;
-    overflow: hidden;
-    margin-left: 0;
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: 0.2px;
-    color: #ffffff;
-    transition: max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-                opacity 0.2s ease,
-                margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.rms-messify-fab:hover .rms-messify-fab-label {
-    max-width: 75px;
-    opacity: 1;
-    margin-left: 8px;
-}
-
-/* When Messify is open, close hover shows "Close" cleanly */
-body.messify-widget-open .rms-messify-fab:hover {
-    width: 120px;
-}
-
-/* When Report Problem widget is opened, Messify moves UP above the Report Card */
-body.report-widget-open #messify-global-widget,
-body.report-widget-open #messify-global-widget {
-    bottom: calc(min(580px, calc(100vh - 100px)) + 104px) !important;
-    z-index: 1000000 !important;
 }
 
 @media print {
@@ -853,12 +846,15 @@ body.report-widget-open #messify-global-widget {
                 iconChat.style.display = 'none';
                 iconClose.style.display = 'block';
             }
+            btn.setAttribute('data-tooltip', 'Close');
             btn.setAttribute('title', 'Minimize Chatify');
         } else {
             document.body.classList.remove('messify-widget-open');
             window.dispatchEvent(new CustomEvent('rms-widget-closed', { detail: { widget: 'messify' } }));
             const labelEl = document.getElementById('messify-widget-btn-label');
             if (labelEl) labelEl.textContent = 'Chatify';
+            btn.setAttribute('data-tooltip', 'Chatify');
+            btn.setAttribute('title', 'Chatify Messages');
 
             try {
                 if (iframe && iframe.contentWindow && typeof iframe.contentWindow.resetToHome === 'function') {

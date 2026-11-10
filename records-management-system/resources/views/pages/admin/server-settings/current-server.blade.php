@@ -203,19 +203,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     {
         $this->isBusy = true;
         $this->modalTitle = 'Git Fetch & Pull Operation';
-        
-        $res = $service->runGitPull();
-        $this->consoleOutput = $res['output'];
-        $this->showOutputModal = true;
-        $this->isBusy = false;
 
-        if ($res['success']) {
-            $this->successMessage = 'Git pull executed successfully.';
-        } else {
-            $this->errorMessage = 'Git pull reported errors.';
+        try {
+            $res = $service->runGitPull();
+            $this->consoleOutput = ServerManagementService::sanitizeUtf8($res['output'] ?? '');
+            $this->showOutputModal = true;
+
+            if (!empty($res['success'])) {
+                $this->successMessage = 'Git pull executed successfully.';
+            } else {
+                $this->errorMessage = 'Git pull reported errors.';
+            }
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Git pull encountered an error: ' . $e->getMessage();
+            $this->consoleOutput = ServerManagementService::sanitizeUtf8($e->getMessage() . "\n\n" . $e->getTraceAsString());
+            $this->showOutputModal = true;
+        } finally {
+            $this->isBusy = false;
         }
 
-        $this->refreshData($service);
+        try {
+            $this->refreshData($service);
+        } catch (\Throwable) {}
     }
 
     public function optimizeCaches(ServerManagementService $service): void
@@ -223,18 +232,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         $this->isBusy = true;
         $this->modalTitle = 'Application Cache Optimization';
 
-        $res = $service->optimizeApp();
-        $this->consoleOutput = $res['output'];
-        $this->showOutputModal = true;
-        $this->isBusy = false;
+        try {
+            $res = $service->optimizeApp();
+            $this->consoleOutput = ServerManagementService::sanitizeUtf8($res['output'] ?? '');
+            $this->showOutputModal = true;
 
-        if ($res['success']) {
-            $this->successMessage = $res['message'];
-        } else {
-            $this->errorMessage = $res['message'];
+            if (!empty($res['success'])) {
+                $this->successMessage = $res['message'] ?? 'Optimization finished successfully.';
+            } else {
+                $this->errorMessage = $res['message'] ?? 'Optimization encountered errors.';
+            }
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Cache optimization encountered an error: ' . $e->getMessage();
+            $this->consoleOutput = ServerManagementService::sanitizeUtf8($e->getMessage() . "\n\n" . $e->getTraceAsString());
+            $this->showOutputModal = true;
+        } finally {
+            $this->isBusy = false;
         }
 
-        $this->refreshData($service);
+        try {
+            $this->refreshData($service);
+        } catch (\Throwable) {}
     }
 
     public function updateDatabase(ServerManagementService $service): void
@@ -242,18 +260,29 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         $this->isBusy = true;
         $this->modalTitle = 'Database Migrations Update';
 
-        $res = $service->updateDatabase();
-        $this->consoleOutput = ($res['message'] ?? '') . "\n\n" . ($res['output'] ?? '');
-        $this->showOutputModal = true;
-        $this->isBusy = false;
+        try {
+            $res = $service->updateDatabase();
+            $msg = $res['message'] ?? '';
+            $out = $res['output'] ?? '';
+            $this->consoleOutput = ServerManagementService::sanitizeUtf8(($msg !== '' ? $msg . "\n\n" : '') . $out);
+            $this->showOutputModal = true;
 
-        if ($res['success']) {
-            $this->successMessage = $res['message'];
-        } else {
-            $this->errorMessage = $res['message'];
+            if (!empty($res['success'])) {
+                $this->successMessage = $res['message'] ?? 'Database updated successfully.';
+            } else {
+                $this->errorMessage = $res['message'] ?? 'Database update encountered errors.';
+            }
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Database update encountered an error: ' . $e->getMessage();
+            $this->consoleOutput = ServerManagementService::sanitizeUtf8($e->getMessage() . "\n\n" . $e->getTraceAsString());
+            $this->showOutputModal = true;
+        } finally {
+            $this->isBusy = false;
         }
 
-        $this->refreshData($service);
+        try {
+            $this->refreshData($service);
+        } catch (\Throwable) {}
     }
 
     public function renderNode(ServerManagementService $service): void
@@ -261,38 +290,61 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         $this->isBusy = true;
         $this->modalTitle = 'Render Node & Frontend Build';
 
-        $res = $service->renderNode();
-        $this->consoleOutput = ($res['message'] ?? '') . "\n\n" . ($res['output'] ?? '');
-        $this->showOutputModal = true;
-        $this->isBusy = false;
+        try {
+            $res = $service->renderNode();
+            $msg = $res['message'] ?? '';
+            $out = $res['output'] ?? '';
+            $this->consoleOutput = ServerManagementService::sanitizeUtf8(($msg !== '' ? $msg . "\n\n" : '') . $out);
+            $this->showOutputModal = true;
 
-        if ($res['success']) {
-            $this->successMessage = $res['message'];
-        } else {
-            $this->errorMessage = $res['message'];
+            if (!empty($res['success'])) {
+                $this->successMessage = $res['message'] ?? 'Node assets built successfully.';
+            } else {
+                $this->errorMessage = $res['message'] ?? 'Node build finished with warnings or errors.';
+            }
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Render Node encountered an error: ' . $e->getMessage();
+            $this->consoleOutput = ServerManagementService::sanitizeUtf8($e->getMessage() . "\n\n" . $e->getTraceAsString());
+            $this->showOutputModal = true;
+        } finally {
+            $this->isBusy = false;
         }
 
-        $this->refreshData($service);
+        try {
+            $this->refreshData($service);
+        } catch (\Throwable) {}
     }
 
     public function stopLocalDb(ServerManagementService $service): void
     {
-        $res = $service->stopLocalDatabaseContainers();
-        $this->consoleOutput = $res['output'];
-        $this->modalTitle = 'Local Database Containers Shutdown';
-        $this->showOutputModal = true;
-        $this->successMessage = $res['message'];
-        $this->refreshData($service);
+        try {
+            $res = $service->stopLocalDatabaseContainers();
+            $this->consoleOutput = ServerManagementService::sanitizeUtf8($res['output'] ?? '');
+            $this->modalTitle = 'Local Database Containers Shutdown';
+            $this->showOutputModal = true;
+            $this->successMessage = $res['message'] ?? 'Local database containers stopped.';
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Error stopping local db containers: ' . $e->getMessage();
+        }
+        try {
+            $this->refreshData($service);
+        } catch (\Throwable) {}
     }
 
     public function startLocalDb(ServerManagementService $service): void
     {
-        $res = $service->startLocalDatabaseContainers();
-        $this->consoleOutput = $res['output'];
-        $this->modalTitle = 'Local Database Containers Startup';
-        $this->showOutputModal = true;
-        $this->successMessage = $res['message'];
-        $this->refreshData($service);
+        try {
+            $res = $service->startLocalDatabaseContainers();
+            $this->consoleOutput = ServerManagementService::sanitizeUtf8($res['output'] ?? '');
+            $this->modalTitle = 'Local Database Containers Startup';
+            $this->showOutputModal = true;
+            $this->successMessage = $res['message'] ?? 'Local database containers started.';
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Error starting local db containers: ' . $e->getMessage();
+        }
+        try {
+            $this->refreshData($service);
+        } catch (\Throwable) {}
     }
 
     public function closeModal(): void

@@ -142,7 +142,11 @@
 
     function returnToPage(target) {
         if (!target) {
-            if (history.length > 1) history.back();
+            if (history.length > 1) {
+                history.back();
+            } else {
+                location.reload();
+            }
             return;
         }
         try {
@@ -154,7 +158,11 @@
                 return;
             }
         } catch (e) {}
-        if (history.length > 1) history.back();
+        if (history.length > 1) {
+            history.back();
+        } else {
+            location.reload();
+        }
     }
 
     function errorColor(status) {
@@ -269,9 +277,10 @@
         if (!existing) {
             existing = document.createElement('div');
             existing.id = 'rmsSlowInternet';
-            existing.style.cssText = 'position:fixed;inset:0;z-index:100000;display:grid;place-items:center;font-family:Inter,system-ui,sans-serif;';
+            existing.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;font-family:Inter,system-ui,sans-serif;';
             existing.innerHTML =
-                '<main id="rmsErrorCard" style="width:min(520px,calc(100% - 32px));background:#fff;border-radius:12px;padding:24px;color:#0f172a;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);">' +
+                '<main id="rmsErrorCard" style="position:relative;width:min(520px,calc(100% - 32px));background:#fff;border-radius:12px;padding:24px;color:#0f172a;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);">' +
+                    '<button type="button" id="rmsErrorDismiss" title="Close" style="position:absolute;top:14px;right:16px;border:none;background:transparent;font-size:1.4rem;line-height:1;color:#94a3b8;cursor:pointer;padding:4px 8px;border-radius:6px;">&times;</button>' +
                     '<p id="rmsErrorStatus" style="margin:0;font-size:0.8rem;font-weight:700;letter-spacing:0.04em;"></p>' +
                     '<strong id="rmsErrorTitle" style="display:block;margin-top:6px;font-size:1.15rem;"></strong>' +
                     '<p id="rmsErrorMessage" style="margin:8px 0 0;color:#475569;line-height:1.5;"></p>' +
@@ -283,6 +292,13 @@
                     '</div>' +
                 '</main>';
             document.body.appendChild(existing);
+            var dismissBtn = document.getElementById('rmsErrorDismiss');
+            if (dismissBtn) {
+                dismissBtn.addEventListener('click', function () {
+                    existing.hidden = true;
+                    existing.style.display = 'none';
+                });
+            }
             var back = document.getElementById('rmsSlowInternetBack');
             if (back) {
                 back.addEventListener('click', function (event) {
@@ -440,18 +456,27 @@
         if (document.visibilityState === 'hidden') pauseSlowWatch();
     });
 
-    document.addEventListener('livewire:init', function () {
+    function hookLivewireErrors() {
         if (window.__rmsErrorHooked || typeof Livewire === 'undefined' || typeof Livewire.hook !== 'function') {
             return;
         }
         window.__rmsErrorHooked = true;
         Livewire.hook('request', function (hooks) {
             hooks.fail(function (payload) {
+                // Prevent Livewire's default raw iframe debug box from taking over the screen
+                if (payload && typeof payload.preventDefault === 'function') {
+                    payload.preventDefault();
+                }
                 var diagnosed = window.rmsDiagnoseError(payload.status, payload.content);
                 document.dispatchEvent(new CustomEvent('rms:error', { detail: diagnosed }));
             });
         });
-    });
+    }
+
+    document.addEventListener('livewire:init', hookLivewireErrors);
+    if (typeof Livewire !== 'undefined' && typeof Livewire.hook === 'function') {
+        hookLivewireErrors();
+    }
 
     document.addEventListener('rms:error', function (event) {
         var detail = event.detail || {};

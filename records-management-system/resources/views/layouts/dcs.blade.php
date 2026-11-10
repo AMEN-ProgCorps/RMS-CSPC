@@ -254,6 +254,7 @@
     @auth
         <livewire:components.session-guard />
         <livewire:components.report-problem />
+        <livewire:components.page-manual />
     @endauth
 
     <div class="dcs-top-tabs-host">

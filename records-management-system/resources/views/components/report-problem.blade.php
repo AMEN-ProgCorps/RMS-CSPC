@@ -115,11 +115,9 @@ new class extends Component {
                 document.body.classList.add('report-widget-open');
             }
             const syncMessifyPresent = () => {
-                if (!document.getElementById('messify-global-widget') && !document.getElementById('messify-global-widget')) {
-                    document.body.classList.add('no-messify-widget');
+                if (!document.getElementById('messify-global-widget')) {
                     document.body.classList.add('no-messify-widget');
                 } else {
-                    document.body.classList.remove('no-messify-widget');
                     document.body.classList.remove('no-messify-widget');
                 }
             };
@@ -135,16 +133,16 @@ new class extends Component {
         type="button"
         class="rms-report-fab"
         :class="{ 'is-open': isOpen }"
-        :title="isOpen ? 'Minimize Report' : 'Report a problem'"
+        :data-tooltip="isOpen ? 'Close' : 'Report Issue'"
         @click="isOpen ? $wire.closeModal() : $wire.openModal(null, null, null, window.location.href)"
+        aria-label="Report a Problem"
     >
         <span class="rms-report-fab-icon" aria-hidden="true">
-            <!-- Question / Report Icon -->
-            <svg x-show="!isOpen" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <!-- Exclamation / Report Icon -->
+            <svg x-show="!isOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             <!-- Close Icon -->
             <svg x-show="isOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: none;"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </span>
-        <span class="rms-report-fab-label" x-text="isOpen ? 'Close' : 'Report'">Report</span>
     </button>
 
     <!-- Floating Report Widget Card (docked in bottom-right like Messify) -->
@@ -238,12 +236,12 @@ new class extends Component {
 </div>
 
 <style>
-    /* Default state: Circular icon button matching Messify */
+    /* Default state: Circular icon button matching Messify, positioned horizontally next to Chatify */
     .rms-report-fab {
         position: fixed;
-        right: 24px;
-        bottom: 92px; /* clear Messify FAB (56px @ bottom 24px + 12px gap) */
-        z-index: 999998;
+        right: 92px; /* Next to Chatify (24px + 56px + 12px gap) */
+        bottom: 24px;
+        z-index: 1000000;
         height: 56px;
         min-width: 56px;
         width: 56px;
@@ -255,32 +253,57 @@ new class extends Component {
         cursor: pointer;
         display: inline-flex;
         align-items: center;
-        justify-content: flex-start;
-        padding: 0 0 0 14px;
-        overflow: hidden;
+        justify-content: center;
+        padding: 0;
+        overflow: visible;
         white-space: nowrap;
         user-select: none;
         box-sizing: border-box;
-        transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-                    padding 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-                    bottom 0.35s cubic-bezier(0.34, 1.25, 0.64, 1),
-                    transform 0.2s ease,
+        transition: right 0.3s cubic-bezier(0.34, 1.25, 0.64, 1),
+                    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
                     background 0.2s ease,
                     box-shadow 0.2s ease;
     }
 
-    /* Hover state: Expands to pill with label */
     .rms-report-fab:hover {
-        width: 138px;
-        padding: 0 16px 0 14px;
         background: #1e293b;
-        transform: translateY(-1px);
+        transform: translateY(-2px);
         box-shadow: 0 14px 32px rgba(15, 23, 42, 0.45);
     }
 
+    /* Floating Tooltip Label on top */
+    .rms-report-fab::before {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: calc(100% + 10px);
+        left: 50%;
+        transform: translateX(-50%) translateY(4px);
+        background: #0f172a;
+        color: #f8fafc;
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 11.5px;
+        font-weight: 600;
+        padding: 5px 9px;
+        border-radius: 6px;
+        white-space: nowrap;
+        pointer-events: none;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        z-index: 1000001;
+    }
+
+    .rms-report-fab:hover::before {
+        opacity: 1;
+        visibility: visible;
+        transform: translateX(-50%) translateY(0);
+    }
+
     .rms-report-fab-icon {
-        width: 28px;
-        height: 28px;
+        width: 30px;
+        height: 30px;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.12);
         display: inline-flex;
@@ -289,56 +312,20 @@ new class extends Component {
         flex-shrink: 0;
     }
 
-    .rms-report-fab-label {
-        max-width: 0;
-        opacity: 0;
-        overflow: hidden;
-        margin-left: 0;
-        font: 700 0.88rem Inter, system-ui, sans-serif;
-        letter-spacing: 0.01em;
-        color: #f8fafc;
-        transition: max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-                    opacity 0.2s ease,
-                    margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .rms-report-fab:hover .rms-report-fab-label {
-        max-width: 75px;
-        opacity: 1;
-        margin-left: 8px;
-    }
-
-    /* Open state hover */
-    .rms-report-fab.is-open:hover {
-        width: 124px;
-    }
-
-    /* When Messify widget is open, Report FAB moves UP above the Messify card */
-    body.messify-widget-open .rms-report-fab {
-        bottom: calc(min(620px, calc(100vh - 100px)) + 104px) !important;
-        z-index: 1000000 !important;
-    }
-
-    /* When Report Problem widget is opened, its FAB sits at bottom 24px as active toggle */
-    body.report-widget-open .rms-report-fab {
-        bottom: 24px !important;
-        z-index: 1000000 !important;
-    }
-
-    /* If Messify is absent/disabled, Report FAB rests at bottom 24px */
+    /* If Messify is absent/disabled, Report FAB moves to right: 24px */
     body.no-messify-widget .rms-report-fab {
-        bottom: 24px;
+        right: 24px;
     }
 
     /* Floating Report Card (matches Messify widget card layout & animation) */
     .rms-report-widget-card {
         position: fixed;
-        bottom: 88px;
+        bottom: 96px;
         right: 24px;
         width: 420px;
         height: 580px;
         max-width: calc(100vw - 32px);
-        max-height: calc(100vh - 100px);
+        max-height: calc(100vh - 120px);
         border-radius: 16px;
         box-shadow: 0 20px 40px -8px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(148, 163, 184, 0.2);
         background: #ffffff;

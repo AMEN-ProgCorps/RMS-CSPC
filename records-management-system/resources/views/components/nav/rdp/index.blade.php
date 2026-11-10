@@ -12,10 +12,14 @@
     $defaultPendingRoute = route('rdp.pending.list');
     $defaultRefRoute = $refTypes->first() ? route('rdp.references.show', ['type' => strtolower($refTypes->first()->shorted_type)]) : route('rdp');
     $defaultReportsRoute = route('rdp.reports.nap-form-1');
+
+    $navGuides = \App\Services\ManualService::getNavGuides();
 @endphp
 
 <div id="rdp-dashboard-id" class="button-section-container">
-    <div class="button-container {{ request()->routeIs('rdp') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp') }}')">
+    <div class="button-container {{ request()->routeIs('rdp') ? 'force-active' : '' }}" 
+         data-nav-guide="{{ $navGuides['Dashboard'] ?? 'Overview of records disposition schedules, queues, and statistics' }}"
+         onclick="proccedto('{{ route('rdp') }}')">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
                 <path d="M4.83333 15.7083H13.2917V4.83331H4.83333V15.7083ZM4.83333 24.1666H13.2917V17.9166H4.83333V24.1666ZM15.7083 24.1666H24.1667V13.2916H15.7083V24.1666ZM15.7083 4.83331V11.0833H24.1667V4.83331H15.7083Z" fill="#4F4F4F"/>
@@ -29,6 +33,7 @@
 
 <div id="rdp-received-documents-id" class="button-section-container {{ (request()->routeIs('rdp.received-documents.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.received-documents.*') ? 'force-active' : '' }}" 
+         data-nav-guide="{{ $navGuides['Received Documents'] ?? 'View incoming archived files transferred from DTS, DCS, and record requests' }}"
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultReceivedDocsRoute}')" : "showButtonSection('rdp-received-documents-id')" }}">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
@@ -59,6 +64,7 @@
 
 <div id="rdp-add-records-id" class="button-section-container {{ (request()->routeIs('rdp.add-records.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.add-records.*') ? 'force-active' : '' }}" 
+         data-nav-guide="{{ $navGuides['Add Records'] ?? 'Appraise and encode record items for official NAP disposition schedules' }}"
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultAddRecordsRoute}')" : "showButtonSection('rdp-add-records-id')" }}">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
@@ -88,6 +94,7 @@
 
 <div id="rdp-draft-id" class="button-section-container {{ (request()->routeIs('rdp.draft.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.draft.*') ? 'force-active' : '' }}" 
+         data-nav-guide="{{ $navGuides['Draft'] ?? 'View and resume unsubmitted record inventory appraisal drafts' }}"
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultDraftRoute}')" : "showButtonSection('rdp-draft-id')" }}">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
@@ -117,6 +124,7 @@
 
 <div id="rdp-pending-id" class="button-section-container {{ (request()->routeIs('rdp.pending.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.pending.*') ? 'force-active' : '' }}" 
+         data-nav-guide="{{ $navGuides['Pending'] ?? 'Track and review records currently submitted for approval and verification' }}"
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultPendingRoute}')" : "showButtonSection('rdp-pending-id')" }}">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
@@ -148,6 +156,7 @@
 
 <div id="rdp-references-id" class="button-section-container {{ (request()->routeIs('rdp.references.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.references.*') ? 'force-active' : '' }}" 
+         data-nav-guide="Browse National Archives classification references and retention periods"
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultRefRoute}')" : "showButtonSection('rdp-references-id')" }}">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
@@ -183,6 +192,7 @@
 
 <div id="rdp-reports-id" class="button-section-container {{ (request()->routeIs('rdp.reports.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.reports.*') ? 'force-active' : '' }}" 
+         data-nav-guide="{{ $navGuides['Reports'] ?? 'Generate and export official NAP Form 1, Form 2, and Form 3 disposition documents' }}"
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultReportsRoute}')" : "showButtonSection('rdp-reports-id')" }}">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
@@ -213,7 +223,9 @@
 </div>
 
 <div id="rdp-manage-files-id" class="button-section-container">
-    <div class="button-container {{ request()->routeIs('rdp.manage-files') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.manage-files') }}')">
+    <div class="button-container {{ request()->routeIs('rdp.manage-files') ? 'force-active' : '' }}" 
+         data-nav-guide="{{ $navGuides['Manage Files'] ?? 'Organize, browse, and manage archived files and attached transaction records' }}"
+         onclick="proccedto('{{ route('rdp.manage-files') }}')">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
                 <path d="M19 3H5C3.89 3 3 3.89 3 5V19C3 20.1 3.89 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.89 20.1 3 19 3ZM19 19H5V5H19V19ZM17 14H12V17H17V14ZM10 17H7V7H10V17ZM17 11H12V7H17V11Z" fill="#4F4F4F"/>
@@ -224,3 +236,65 @@
         </div>
     </div>
 </div>
+
+<style>
+    .button-container {
+        position: relative;
+    }
+    .button-container[data-nav-guide]::after {
+        content: attr(data-nav-guide);
+        position: absolute;
+        left: calc(100% + 14px);
+        top: 50%;
+        transform: translateY(-50%) translateX(-8px);
+        background: #0f172a;
+        color: #f8fafc;
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.4;
+        white-space: nowrap;
+        padding: 7px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.35);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                    visibility 0.2s;
+        z-index: 99999;
+    }
+    .button-container[data-nav-guide]::before {
+        content: '';
+        position: absolute;
+        left: calc(100% + 8px);
+        top: 50%;
+        transform: translateY(-50%);
+        border-width: 5px 6px 5px 0;
+        border-style: solid;
+        border-color: transparent #0f172a transparent transparent;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.2s;
+        z-index: 99999;
+    }
+    .button-container[data-nav-guide]:hover::after {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(-50%) translateX(0);
+    }
+    .button-container[data-nav-guide]:hover::before {
+        opacity: 1;
+        visibility: visible;
+    }
+    [data-theme="dark"] .button-container[data-nav-guide]::after {
+        background: #1e293b;
+        border-color: #334155;
+    }
+    [data-theme="dark"] .button-container[data-nav-guide]::before {
+        border-color: transparent #1e293b transparent transparent;
+    }
+</style>

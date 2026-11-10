@@ -785,9 +785,11 @@ class ServerManagementService
             }
         }
 
+        $cleanOutput = self::sanitizeUtf8($output);
+
         return [
             'success' => $success,
-            'output' => trim($output) ?: 'No output returned by git command.',
+            'output' => $cleanOutput !== '' ? $cleanOutput : 'No output returned by git command.',
         ];
     }
 
@@ -830,13 +832,14 @@ class ServerManagementService
             $output = @shell_exec($cmd);
 
             if ($output !== null && !empty(trim($output))) {
-                $isFailed = str_contains(strtolower($output), 'fatal') || str_contains(strtolower($output), 'exception');
+                $cleanOut = self::sanitizeUtf8($output);
+                $isFailed = str_contains(strtolower($cleanOut), 'fatal') || str_contains(strtolower($cleanOut), 'exception');
                 return [
                     'success' => !$isFailed,
                     'message' => !$isFailed
                         ? 'Application caches cleared and re-optimized successfully.'
                         : 'Optimization encountered errors.',
-                    'output' => trim($output),
+                    'output' => $cleanOut,
                 ];
             }
         }
@@ -854,13 +857,13 @@ class ServerManagementService
             return [
                 'success' => true,
                 'message' => 'Application caches cleared and re-optimized successfully.',
-                'output' => trim($clearOutput . "\n" . $optimizeOutput),
+                'output' => self::sanitizeUtf8($clearOutput . "\n" . $optimizeOutput),
             ];
         } catch (\Throwable $e) {
             return [
                 'success' => false,
                 'message' => 'Failed to optimize application: ' . $e->getMessage(),
-                'output' => $e->getTraceAsString(),
+                'output' => self::sanitizeUtf8($e->getMessage() . "\n" . $e->getTraceAsString()),
             ];
         } finally {
             if ($originalApp) {
@@ -1127,7 +1130,7 @@ class ServerManagementService
         return [
             'success' => $success,
             'message' => $success ? 'Database updated successfully.' : 'Database migration failed.',
-            'output' => trim($output),
+            'output' => self::sanitizeUtf8($output),
         ];
     }
 
@@ -1183,24 +1186,34 @@ class ServerManagementService
 
             foreach ($commands as $cmd) {
                 $res = @shell_exec($cmd);
-                if ($res && (str_contains($res, 'built in') || str_contains($res, 'vite build') || str_contains($res, '✓') || str_contains($res, 'modules transformed') || str_contains($res, 'dist/') || str_contains($res, 'manifest.json'))) {
-                    $output[] = "[Command: {$cmd}]\n" . trim($res);
-                    $success = true;
-                    break;
-                } elseif ($res && !str_contains($res, 'not found') && !str_contains($res, 'No such container')) {
-                    $output[] = "[Command: {$cmd}]\n" . trim($res);
+                if ($res) {
+                    $cleanRes = self::sanitizeUtf8($res);
+                    if (str_contains($cleanRes, 'built in') || str_contains($cleanRes, 'vite build') || str_contains($cleanRes, '✓') || str_contains($cleanRes, 'modules transformed') || str_contains($cleanRes, 'dist/') || str_contains($cleanRes, 'manifest.json')) {
+                        $output[] = "[Command: {$cmd}]\n" . $cleanRes;
+                        $success = true;
+                        break;
+                    } elseif (!str_contains($cleanRes, 'not found') && !str_contains($cleanRes, 'No such container')) {
+                        $output[] = "[Command: {$cmd}]\n" . $cleanRes;
+                    }
                 }
             }
         }
 
         // Method B: Docker Socket API execution (rms_node)
         if (!$success && file_exists('/var/run/docker.sock') && function_exists('curl_init')) {
-            $socketRes = $this->execViaDockerSocket('rms_node', ['npm', 'run', 'build']);
-            if ($socketRes['success']) {
-                $output[] = "[Docker Socket: rms_node]\n" . $socketRes['output'];
+            $socketRes = $this->execViaDockerSocket('rms_node', ['npm', 'run', 'build'], '/app');
+            $socketOut = self::sanitizeUtf8($socketRes['output']);
+            $hasSuccessMarker = str_contains($socketOut, 'built in')
+                || str_contains($socketOut, 'vite build')
+                || str_contains($socketOut, 'modules transformed')
+                || str_contains($socketOut, 'dist/')
+                || str_contains($socketOut, 'manifest.json');
+
+            if ($socketRes['success'] || $hasSuccessMarker) {
+                $output[] = "[Docker Socket: rms_node]\n" . $socketOut;
                 $success = true;
             } else {
-                $output[] = "[Docker Socket Error]\n" . $socketRes['output'];
+                $output[] = "[Docker Socket: rms_node]\n" . $socketOut;
             }
         }
 
@@ -1209,8 +1222,9 @@ class ServerManagementService
             $localCmd = "cd " . escapeshellarg($repoPath) . " && npm run build 2>&1";
             $res = @shell_exec($localCmd);
             if ($res) {
-                $output[] = "[Local Shell: {$localCmd}]\n" . trim($res);
-                if (str_contains($res, 'built in') || str_contains($res, 'vite build') || str_contains($res, '✓') || str_contains($res, 'modules transformed')) {
+                $cleanRes = self::sanitizeUtf8($res);
+                $output[] = "[Local Shell: {$localCmd}]\n" . $cleanRes;
+                if (str_contains($cleanRes, 'built in') || str_contains($cleanRes, 'vite build') || str_contains($cleanRes, '✓') || str_contains($cleanRes, 'modules transformed')) {
                     $success = true;
                 }
             }
@@ -1219,8 +1233,95 @@ class ServerManagementService
         return [
             'success' => $success,
             'message' => $success ? 'Node frontend assets rendered and built successfully.' : 'Node render completed (see output details).',
-            'output' => implode("\n\n", $output),
+            'output' => self::sanitizeUtf8(implode("\n\n", $output)),
         ];
+    }
+
+    /**
+     * Decode Docker multiplexed stream frames (stdout/stderr).
+     * Docker multiplexes frames with an 8-byte header:
+     * [STREAM_TYPE, 0, 0, 0, SIZE1, SIZE2, SIZE3, SIZE4] followed by payload.
+     */
+    public static function decodeDockerStream(string $stream): string
+    {
+        if ($stream === '') {
+            return '';
+        }
+
+        $len = strlen($stream);
+        $offset = 0;
+        $output = '';
+
+        while ($offset < $len) {
+            // Check for standard Docker 8-byte multiplex header
+            // Byte 0: Stream type (0: stdin, 1: stdout, 2: stderr)
+            // Bytes 1-3: Reserved (must be null bytes)
+            // Bytes 4-7: 32-bit big-endian frame size
+            if ($offset + 8 <= $len) {
+                $type = ord($stream[$offset]);
+                if (($type === 0 || $type === 1 || $type === 2) && substr($stream, $offset + 1, 3) === "\x00\x00\x00") {
+                    $unpacked = unpack('N', substr($stream, $offset + 4, 4));
+                    $frameSize = $unpacked ? $unpacked[1] : 0;
+                    $offset += 8;
+                    if ($frameSize > 0) {
+                        if ($offset + $frameSize <= $len) {
+                            $output .= substr($stream, $offset, $frameSize);
+                            $offset += $frameSize;
+                            continue;
+                        } else {
+                            $output .= substr($stream, $offset);
+                            break;
+                        }
+                    }
+                    continue;
+                }
+            }
+
+            $output .= $stream[$offset];
+            $offset++;
+        }
+
+        return $output;
+    }
+
+    /**
+     * Sanitize any command or process output to guarantee 100% valid UTF-8.
+     * Prevents Livewire and Laravel json_encode() "Malformed UTF-8 characters" 500 crashes.
+     */
+    public static function sanitizeUtf8(mixed $value): string
+    {
+        if ($value === null) {
+            return '';
+        }
+        if (!is_string($value)) {
+            $value = (string) $value;
+        }
+
+        // 1. Demultiplex Docker frame headers if present
+        $value = self::decodeDockerStream($value);
+
+        // 2. Strip null bytes and stray control characters (preserving tabs, newlines, CR)
+        $value = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $value) ?? str_replace("\0", '', $value);
+
+        // 3. Strip ANSI escape sequences (terminal formatting and colors)
+        $value = preg_replace('/\x1b\[[0-9;]*[a-zA-Z]|\x1b\([a-zA-Z]|\x1b\][^\x07\x1b]*(\x07|\x1b\\\\)/', '', $value) ?? $value;
+
+        // 4. Force conversion to valid UTF-8
+        if (function_exists('mb_convert_encoding')) {
+            $value = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+        } elseif (function_exists('iconv')) {
+            $converted = @iconv('UTF-8', 'UTF-8//IGNORE', $value);
+            if ($converted !== false) {
+                $value = $converted;
+            }
+        }
+
+        // 5. Final fallback if any encoding weirdness persists
+        if (!mb_check_encoding($value, 'UTF-8')) {
+            $value = mb_convert_encoding($value, 'UTF-8', 'ISO-8859-1');
+        }
+
+        return trim($value);
     }
 
     /**
@@ -1253,7 +1354,7 @@ class ServerManagementService
             $createResp = curl_exec($ch);
             curl_close($ch);
 
-            $createData = json_decode($createResp, true);
+            $createData = json_decode((string)$createResp, true);
             $execId = $createData['Id'] ?? null;
             if (!$execId) {
                 return ['success' => false, 'output' => 'Failed to create exec instance in container: ' . ($createResp ?: 'empty response')];
@@ -1273,12 +1374,27 @@ class ServerManagementService
             $startResp = curl_exec($ch);
             curl_close($ch);
 
-            // Clean Docker stream headers (first 8 bytes of each multiplexed frame)
-            $cleanOutput = preg_replace('/^[\x00-\x02]\x00\x00\x00.../m', '', (string)$startResp);
+            // Optional: Inspect exec instance to get accurate exit code
+            $exitCode = 0;
+            $ch = curl_init("http://localhost/exec/{$execId}/json");
+            curl_setopt($ch, CURLOPT_UNIX_SOCKET_PATH, '/var/run/docker.sock');
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+            $inspectResp = curl_exec($ch);
+            curl_close($ch);
+            if ($inspectResp) {
+                $inspectData = json_decode((string)$inspectResp, true);
+                if (isset($inspectData['ExitCode'])) {
+                    $exitCode = (int) $inspectData['ExitCode'];
+                }
+            }
+
+            $cleanOutput = self::sanitizeUtf8((string)$startResp);
 
             return [
-                'success' => true,
-                'output' => trim($cleanOutput) ?: 'Exec completed with no output.',
+                'success' => ($exitCode === 0),
+                'output' => $cleanOutput !== '' ? $cleanOutput : 'Exec completed with no output.',
+                'exit_code' => $exitCode,
             ];
         } catch (\Throwable $e) {
             return ['success' => false, 'output' => 'Docker socket exec error: ' . $e->getMessage()];
@@ -1521,7 +1637,7 @@ class ServerManagementService
 
         return [
             'success' => $success,
-            'output' => $output,
+            'output' => self::sanitizeUtf8($output),
             'exit_code' => $exitCode,
             'command' => $rawCommand,
             'target' => $target,

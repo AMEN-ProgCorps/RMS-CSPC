@@ -598,6 +598,28 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
             line-height: 1.3;
         }
 
+        .doc-origin-cell {
+            font-weight: 500;
+            color: #334155;
+        }
+
+        .doc-date-cell {
+            color: #64748b;
+        }
+
+        .doc-file-none {
+            color: #94a3b8;
+            font-size: 12px;
+        }
+
+        .doc-file-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: #2563eb;
+        }
+
         .status-badge {
             display: inline-flex;
             align-items: center;
@@ -864,6 +886,101 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
             color: #e2e8f0 !important;
             border-color: #1e293b !important;
         }
+        [data-theme="dark"] .data-table tr:hover td {
+            background: #1a2438 !important;
+        }
+        [data-theme="dark"] .doc-title-cell,
+        [data-theme="dark"] .card-title {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .doc-desc-sub,
+        [data-theme="dark"] .card-desc,
+        [data-theme="dark"] .doc-date-cell,
+        [data-theme="dark"] .doc-file-none {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .doc-origin-cell {
+            color: #e2e8f0 !important;
+        }
+        [data-theme="dark"] .doc-file-link {
+            color: #93c5fd !important;
+        }
+        [data-theme="dark"] .data-table .code-pill,
+        [data-theme="dark"] .doc-card .code-pill {
+            background: rgba(37, 99, 235, 0.22) !important;
+            color: #bfdbfe !important;
+            border-color: #1e3a8a !important;
+        }
+        [data-theme="dark"] .btn-view-doc {
+            background: #1e293b !important;
+            color: #e2e8f0 !important;
+            border-color: #334155 !important;
+        }
+        [data-theme="dark"] .btn-view-doc:hover {
+            background: #334155 !important;
+        }
+        [data-theme="dark"] .doc-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] .card-meta {
+            background: #0f172a !important;
+            color: #cbd5e1 !important;
+        }
+        [data-theme="dark"] .card-actions {
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] .custom-modal-box {
+            background: #131c2e !important;
+            border: 1px solid #1e293b !important;
+            color: #e2e8f0 !important;
+        }
+        [data-theme="dark"] .modal-header {
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] .modal-header h3 {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .btn-close-modal {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .btn-close-modal:hover {
+            background: #1e293b !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .detail-label {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .detail-value {
+            color: #e2e8f0 !important;
+        }
+        [data-theme="dark"] .custom-modal-box .code-pill {
+            background: rgba(37, 99, 235, 0.28) !important;
+            color: #dbeafe !important;
+            border-color: #1e3a8a !important;
+        }
+        [data-theme="dark"] .custom-modal-box .status-pending,
+        [data-theme="dark"] .data-table .status-pending,
+        [data-theme="dark"] .doc-card .status-pending {
+            background: #422006 !important;
+            color: #fde68a !important;
+        }
+        [data-theme="dark"] .custom-modal-box .status-appraised,
+        [data-theme="dark"] .data-table .status-appraised,
+        [data-theme="dark"] .doc-card .status-appraised {
+            background: #14532d !important;
+            color: #bbf7d0 !important;
+        }
+        [data-theme="dark"] .custom-modal-box .status-dismissed,
+        [data-theme="dark"] .data-table .status-dismissed,
+        [data-theme="dark"] .doc-card .status-dismissed {
+            background: #1e293b !important;
+            color: #cbd5e1 !important;
+        }
+        [data-theme="dark"] .modal-footer {
+            background: #0f172a !important;
+            border-color: #1e293b !important;
+        }
         [data-theme="dark"] select[style*="background: #ffffff"],
         [data-theme="dark"] select[style*="background:#ffffff"] {
             background: #0f172a !important;
@@ -904,6 +1021,14 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
         [data-theme="dark"] .filter-tab-btn.active .badge-counter {
             background: rgba(37, 99, 235, 0.28) !important;
             color: #bfdbfe !important;
+        }
+        [data-theme="dark"] .search-box input {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .search-box input::placeholder {
+            color: #64748b !important;
         }
     </style>
 
@@ -1052,10 +1177,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
                                 @endif
                             </td>
                             <td>
-                                <span style="font-weight: 500; color: #334155;">{{ $doc->origin_office ?: 'N/A' }}</span>
+                                <span class="doc-origin-cell">{{ $doc->origin_office ?: 'N/A' }}</span>
                             </td>
                             <td>
-                                <span style="color: #64748b;">{{ $doc->date_received ? \App\Helpers\RegisterQueryHelper::formatSmartDate($doc->date_received) : '—' }}</span>
+                                <span class="doc-date-cell">{{ $doc->date_received ? \App\Helpers\RegisterQueryHelper::formatSmartDate($doc->date_received) : '—' }}</span>
                             </td>
                             <td>
                                 @if($doc->status === 'pending')
@@ -1074,12 +1199,12 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
                             </td>
                             <td>
                                 @if(!empty($doc->file_name) || !empty($doc->file_path))
-                                    <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#2563eb;">
+                                    <span class="doc-file-link">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
                                         {{ Str::limit($doc->file_name ?: 'Attachment', 20) }}
                                     </span>
                                 @else
-                                    <span style="color: #94a3b8; font-size: 12px;">None</span>
+                                    <span class="doc-file-none">None</span>
                                 @endif
                             </td>
                             <td style="text-align: right;">
@@ -1175,7 +1300,7 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
     @endif
 
     <div style="margin-top: 18px;">
-        {{ $documents->links() }}
+        {{ $documents->links('components.pagination') }}
     </div>
 
     <!-- View Details Modal -->

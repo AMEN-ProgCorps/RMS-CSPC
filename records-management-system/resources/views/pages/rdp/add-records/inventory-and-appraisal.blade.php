@@ -1675,6 +1675,21 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     $this->dcsOfficeAlreadyDone = true;
                     $this->errorMessage = 'This office already created the record for this document.';
                 }
+
+                // Incoming office appraisal: hydrate from admin NAP Form 1 / forward so only Records Location is editable.
+                if (($intake->source_subsystem ?? '') === 'DCS') {
+                    $bootMeta = is_string($intake->metadata ?? null)
+                        ? (json_decode($intake->metadata, true) ?: [])
+                        : (array) ($intake->metadata ?? []);
+                    $bootRequestId = (int) ($bootMeta['dcs_request_id'] ?? 0);
+                    if ($bootRequestId < 1 && preg_match('/^DCS-REQ-(\d+)$/i', (string) ($intake->document_code ?? ''), $m)) {
+                        $bootRequestId = (int) $m[1];
+                    }
+                    if ($bootRequestId > 0) {
+                        $intake = \App\Services\RdpIntakeService::enrichOfficePendingWithAdminAppraisal($intake, $bootRequestId);
+                    }
+                }
+
                 $this->parentSeriesTitle = $intake->document_title ?? '';
                 $this->selectedSeriesTitle = $intake->document_title ?? '';
                 $this->description = $intake->description ?? '';
@@ -1688,10 +1703,23 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     $this->prefill_doc_id = $intake->document_id_handler;
                 }
 
-                // Unpack metadata from DTS Handoff if present
+                // Unpack metadata from DTS / DCS handoff if present
                 if (!empty($intake->metadata)) {
                     $meta = is_string($intake->metadata) ? json_decode($intake->metadata, true) : (array)$intake->metadata;
                     if (is_array($meta)) {
+                        // Merge admin appraisal before unpacking so Incoming office forms stay location-only.
+                        if (($intake->source_subsystem ?? '') === 'DCS' && empty($meta['dcs_forwarded'])) {
+                            $reqForMeta = (int) ($meta['dcs_request_id'] ?? 0);
+                            if ($reqForMeta > 0) {
+                                $adminMeta = \App\Services\RdpIntakeService::officeAppraisalMetadataForRequest($reqForMeta);
+                                if (is_array($adminMeta) && $adminMeta !== []) {
+                                    $meta = array_merge($meta, $adminMeta);
+                                    $meta['dcs_forwarded'] = true;
+                                    $meta['records_location'] = '';
+                                }
+                            }
+                        }
+
                         if (!empty($meta['record_series_id'])) {
                             $this->loadSeriesById((int)$meta['record_series_id']);
                         }

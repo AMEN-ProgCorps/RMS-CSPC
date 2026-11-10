@@ -403,9 +403,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="ofi-dash-link">See all <i class="fa-solid fa-arrow-right"></i></a>
                 </div>
                 @if($recentDrf->isEmpty())
-                    <div class="ofi-dash-empty">
-                                <div class="ofi-dash-empty-icon"><i class="fa-regular fa-file-lines"></i></div>
-                                <p>No DRF yet. Create one to start a request for RFIO.</p>
+                    <div class="ofi-dash-empty is-drf">
+                        <div class="ofi-dash-empty-icon" aria-hidden="true"><i class="fa-regular fa-file-lines"></i></div>
+                        <strong>No Document Request Forms yet</strong>
+                        <p>Create a DRF to start a request for RFIO.</p>
                         <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DRF</a>
                     </div>
                 @else
@@ -446,9 +447,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="ofi-dash-link">See all <i class="fa-solid fa-arrow-right"></i></a>
                 </div>
                 @if($recentDcn->isEmpty())
-                    <div class="ofi-dash-empty">
-                                <div class="ofi-dash-empty-icon"><i class="fa-solid fa-file-pen"></i></div>
-                                <p>No DCN yet. Create one when a controlled document needs revision.</p>
+                    <div class="ofi-dash-empty is-dcn">
+                        <div class="ofi-dash-empty-icon" aria-hidden="true"><i class="fa-solid fa-file-pen"></i></div>
+                        <strong>No Document Change Notices yet</strong>
+                        <p>Create a DCN when a controlled document needs revision.</p>
                         <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DCN</a>
                     </div>
                 @else

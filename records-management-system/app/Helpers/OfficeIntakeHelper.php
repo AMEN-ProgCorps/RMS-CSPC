@@ -443,17 +443,17 @@ class OfficeIntakeHelper
         $alias = $type;
 
         if ($type === 'drf') {
-            $cols = [
-                'drf.id',
-                'drf.drf_no',
-                'drf.drf_date',
-                'drf.doc_title',
-                'drf.created_at',
-                'drf.created_by',
-            ];
+        $cols = [
+            'drf.id',
+            'drf.drf_no',
+            'drf.drf_date',
+            'drf.doc_title',
+            'drf.created_at',
+            'drf.created_by',
+        ];
             if (Schema::hasColumn($table, 'originator_name')) {
-                $cols[] = 'drf.originator_name';
-            }
+            $cols[] = 'drf.originator_name';
+        }
         } else {
             $cols = array_values(array_filter([
                 'dcn.id',
@@ -3188,21 +3188,21 @@ class OfficeIntakeHelper
             if ($hasCollegeCol) {
                 if ($scopedCollegeId !== null) {
                     $query->where('college_id', $scopedCollegeId);
-                } else {
+        } else {
                     $query->whereNull('college_id');
                 }
-            }
+        }
 
-            if (Schema::hasColumn('dcs_signatory_templates', 'effective_from')) {
-                $query->where(function ($q) use ($day) {
-                    $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', $day);
-                });
-            }
-            if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
-                $query->where(function ($q) use ($day) {
-                    $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $day);
-                });
-            }
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_from')) {
+            $query->where(function ($q) use ($day) {
+                $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', $day);
+            });
+        }
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
+            $query->where(function ($q) use ($day) {
+                $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $day);
+            });
+        }
 
             return $query->orderByDesc('id')->first();
         };
@@ -3351,7 +3351,7 @@ class OfficeIntakeHelper
             if (Schema::hasColumn('dcs_signatory_templates', 'college_id')) {
                 if ($collegeId !== null) {
                     $close->where('college_id', $collegeId);
-                } else {
+            } else {
                     $close->whereNull('college_id');
                 }
             }
@@ -3382,9 +3382,9 @@ class OfficeIntakeHelper
         if (Schema::hasColumn('dcs_signatory_templates', 'doc_type_id') && Schema::hasTable('dcs_doc_types')) {
             $query->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 't.doc_type_id');
             $select = [
-                't.*',
-                'dt.doc_type_name',
-                'dt.parent_id as doc_type_parent_id',
+                    't.*',
+                    'dt.doc_type_name',
+                    'dt.parent_id as doc_type_parent_id',
             ];
             if (Schema::hasColumn('dcs_signatory_templates', 'college_id') && Schema::hasTable('dcs_colleges')) {
                 $query->leftJoin('dcs_colleges as col', 'col.id', '=', 't.college_id');
@@ -3520,8 +3520,8 @@ class OfficeIntakeHelper
                         ? ($base.' · '.($collegeName !== '' ? $collegeName : ('College #'.$collegeId)))
                         : ($base.' · All campuses');
                 } else {
-                    $childKey = 'sub:'.$docTypeId;
-                    $childLabel = $typeName !== '' ? $typeName : ('Subtype #'.$docTypeId);
+                $childKey = 'sub:'.$docTypeId;
+                $childLabel = $typeName !== '' ? $typeName : ('Subtype #'.$docTypeId);
                 }
             } else {
                 $parentKey = 'parent:'.$docTypeId;
@@ -4481,8 +4481,8 @@ class OfficeIntakeHelper
                 $parentKind[(string) $sid] = $subKind;
                 if (RegisterQueryHelper::isSyllabiLikeName($subName)) {
                     $syllabiLikeDocTypeIds[] = (string) $sid;
-                }
             }
+        }
         }
         $syllabiLikeDocTypeIds = array_values(array_unique($syllabiLikeDocTypeIds));
 
@@ -4520,7 +4520,7 @@ class OfficeIntakeHelper
             if ($docTypeId < 1) {
                 continue;
             }
-            $key = (string) $docTypeId;
+                $key = (string) $docTypeId;
             $rowCollegeId = $hasCollegeCol ? (int) data_get($row, 'college_id', 0) : 0;
             if ($rowCollegeId > 0) {
                 if (! isset($byDocTypeCollege[$key])) {
@@ -5065,8 +5065,8 @@ class OfficeIntakeHelper
         // Same rules as intakeRegistrationMeta: draft-linked intakes are NOT registered yet.
         $meta = self::intakeRegistrationMeta($type, $record);
         if (! empty($meta['is_registered']) && ! empty($record->rfio_registered_at) && (int) ($record->request_id ?? 0) > 0) {
-            self::detachIntakeFromControlledRequest($type, $id);
-        }
+                self::detachIntakeFromControlledRequest($type, $id);
+            }
 
         return ! empty($meta['is_registered']);
     }
@@ -7271,9 +7271,9 @@ class OfficeIntakeHelper
         return self::rememberOfficeInventory(
             'incoming.attention.'.(int) ($officeId ?? 0),
             function () use ($officeId) {
-                $pending = self::officeDocumentTotal($officeId, 'pending');
+        $pending = self::officeDocumentTotal($officeId, 'pending');
                 $appraisable = 0;
-                $perms = auth()->user()?->permissions;
+        $perms = auth()->user()?->permissions;
                 if ($perms && ($perms->is_sadm || $perms->can_access_rdp)) {
                     // Match Incoming page: only count held docs that have an RDP appraisal link.
                     $heldRows = self::listOfficeDocuments('all', $officeId, 'received_for_appraisal');
@@ -8028,7 +8028,7 @@ class OfficeIntakeHelper
         $cacheKey = 'check.'.($distributionOnly ? 'dist' : 'all').'.'.($groupKey === '' ? 'all' : $groupKey).'.'.(int) $officeId;
 
         return self::rememberOfficeInventory($cacheKey, function () use ($officeId, $groupKey, $distributionOnly) {
-            if ($groupKey === '' || $groupKey === 'all') {
+        if ($groupKey === '' || $groupKey === 'all') {
                 // One distribution query for the whole office, then classify + keep latest.
                 $scope = $distributionOnly ? 'distribution' : null;
                 $query = self::officeMasterlistQuery((int) $officeId, $scope);
@@ -8089,16 +8089,16 @@ class OfficeIntakeHelper
                         'doc_type_key' => $key,
                         'doc_type_label' => self::documentGroupLabel($key),
                     ];
-                }
-
-                return $rows;
             }
 
-            if (! isset(self::documentGroupDefs()[$groupKey])) {
-                return [];
-            }
+            return $rows;
+        }
 
-            return self::listDocumentsForCheckGroup((int) $officeId, $groupKey, $distributionOnly);
+        if (! isset(self::documentGroupDefs()[$groupKey])) {
+            return [];
+        }
+
+        return self::listDocumentsForCheckGroup((int) $officeId, $groupKey, $distributionOnly);
         });
     }
 
@@ -8150,11 +8150,11 @@ class OfficeIntakeHelper
         );
 
         $select = [
-            'ml.id',
-            'ml.doc_no',
-            'ml.revise_no',
-            'ml.doc_title',
-            'ml.effectivity_date',
+                'ml.id',
+                'ml.doc_no',
+                'ml.revise_no',
+                'ml.doc_title',
+                'ml.effectivity_date',
         ];
         if (RegisterQueryHelper::supportsRevisionStatus()) {
             $select[] = 'ml.revision_status';

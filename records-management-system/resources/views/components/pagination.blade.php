@@ -133,6 +133,38 @@ $scrollIntoViewJsSnippet = ($scrollTo !== false)
                 padding: 6px 6px;
                 color: #94a3b8;
             }
+            [data-theme="dark"] .rms-pagination-info {
+                color: #94a3b8 !important;
+            }
+            [data-theme="dark"] .rms-pagination-info strong {
+                color: #e2e8f0 !important;
+            }
+            [data-theme="dark"] .rms-page-btn {
+                background: #1e293b !important;
+                border-color: #334155 !important;
+                color: #e2e8f0 !important;
+            }
+            [data-theme="dark"] .rms-page-btn:hover:not(.rms-page-disabled):not(.rms-page-active):not(.rms-page-dots) {
+                background: #334155 !important;
+                color: #f8fafc !important;
+                border-color: #475569 !important;
+            }
+            [data-theme="dark"] .rms-page-active {
+                background: #2563eb !important;
+                color: #ffffff !important;
+                border-color: #2563eb !important;
+            }
+            [data-theme="dark"] .rms-page-disabled {
+                background: #0f172a !important;
+                border-color: #1e293b !important;
+                color: #64748b !important;
+                opacity: 1 !important;
+            }
+            [data-theme="dark"] .rms-page-dots {
+                background: transparent !important;
+                border-color: transparent !important;
+                color: #64748b !important;
+            }
         </style>
     @endif
 </div>

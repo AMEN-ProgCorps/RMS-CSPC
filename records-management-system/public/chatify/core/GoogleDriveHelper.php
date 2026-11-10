@@ -544,16 +544,47 @@ class GoogleDriveHelper
         @file_put_contents($cacheFile, json_encode($data));
     }
 
+    public const CACHE_RETENTION_SECONDS = 604800; // 7 days (1 week)
+
+    /**
+     * Check if a file is currently stored in local uploads cache.
+     */
+    public static function isLocallyCached(string $filename, string $destinationLocalPath): bool
+    {
+        return file_exists($destinationLocalPath) && filesize($destinationLocalPath) > 0;
+    }
+
+    /**
+     * Check if a file exists in Google Drive.
+     */
+    public static function isInDrive(string $filename): bool
+    {
+        if (!self::isConfigured()) {
+            return false;
+        }
+        $driveFiles = self::getDriveFilenames();
+        if ($driveFiles !== null) {
+            return isset($driveFiles[$filename]);
+        }
+        if (class_exists('\Illuminate\Support\Facades\Storage')) {
+            try {
+                return (bool) \Illuminate\Support\Facades\Storage::disk('google')->exists("chatify/{$filename}");
+            } catch (\Throwable $e) {}
+        }
+        return false;
+    }
+
     /**
      * Check whether an uploaded image or file is valid and available.
      * When Google Drive is active:
      * - If the file was created/modified locally within the last 300 seconds, it's a fresh upload:
      *   always available immediately (avoids any cache race condition!).
      * - If the file is NOT in Google Drive and not newly uploaded, returns false (and cleans up stale local cache).
-     * - If the file IS in Google Drive, restores the local copy if missing and returns true.
+     * - If the file IS in Google Drive, returns true.
+     *   If $autoDownload is true and local copy is missing, it restores the local copy.
      * When Google Drive is not configured, checks the local disk.
      */
-    public static function isFileAvailable(string $filename, string $destinationLocalPath): bool
+    public static function isFileAvailable(string $filename, string $destinationLocalPath, bool $autoDownload = true): bool
     {
         // 1. Freshly created local file (< 300s): always immediately available!
         if (file_exists($destinationLocalPath) && (time() - filemtime($destinationLocalPath)) < 300) {
@@ -582,19 +613,86 @@ class GoogleDriveHelper
                 return false;
             }
 
-            // Exists in Google Drive! Make sure local copy is downloaded
-            if (!file_exists($destinationLocalPath) || filesize($destinationLocalPath) === 0) {
+            // Exists in Google Drive!
+            if ($autoDownload && (!file_exists($destinationLocalPath) || filesize($destinationLocalPath) === 0)) {
                 self::ensureLocalCopy($filename, $destinationLocalPath);
             }
 
-            return file_exists($destinationLocalPath) && filesize($destinationLocalPath) > 0;
+            return true;
         }
 
-        // Fallback if drive listing timed out: attempt direct restore
-        if (!file_exists($destinationLocalPath) || filesize($destinationLocalPath) === 0) {
+        // Fallback if drive listing timed out: attempt direct restore if autoDownload requested
+        if ($autoDownload && (!file_exists($destinationLocalPath) || filesize($destinationLocalPath) === 0)) {
             self::ensureLocalCopy($filename, $destinationLocalPath);
         }
 
         return file_exists($destinationLocalPath) && filesize($destinationLocalPath) > 0;
+    }
+
+    /**
+     * Prune files from local uploads/ cache older than 1 week (604,800 seconds).
+     * Only deletes files that are confirmed to exist in Google Drive so cloud storage is never lost.
+     */
+    public static function pruneLocalCache(string $uploadsDir = __DIR__ . '/../uploads', int $maxAgeSeconds = self::CACHE_RETENTION_SECONDS): int
+    {
+        if (!is_dir($uploadsDir) || !self::isConfigured()) {
+            return 0;
+        }
+
+        $now = time();
+        $prunedCount = 0;
+        $driveFiles = self::getDriveFilenames();
+        if ($driveFiles === null) {
+            return 0; // Don't prune if Google Drive status cannot be confirmed
+        }
+
+        $files = @scandir($uploadsDir);
+        if ($files === false) {
+            return 0;
+        }
+
+        foreach ($files as $f) {
+            if ($f === '.' || $f === '..' || str_starts_with($f, '.')) {
+                continue;
+            }
+            $fullPath = $uploadsDir . '/' . $f;
+            if (!is_file($fullPath)) {
+                continue;
+            }
+
+            $mtime = @filemtime($fullPath);
+            if ($mtime === false) {
+                continue;
+            }
+
+            // Check if file has exceeded the retention window (default 1 week)
+            if (($now - $mtime) > $maxAgeSeconds) {
+                $isThumb = str_ends_with($f, '_thumb.webp');
+                $mainFile = $isThumb ? preg_replace('/_thumb\.webp$/', '.webp', $f) : $f;
+
+                // Confirm file is in Google Drive before deleting local cache
+                if (isset($driveFiles[$f]) || isset($driveFiles[$mainFile])) {
+                    if (@unlink($fullPath)) {
+                        $prunedCount++;
+                    }
+                }
+            }
+        }
+
+        return $prunedCount;
+    }
+
+    /**
+     * Throttled local cache pruning (runs at most once every hour).
+     */
+    public static function maybePruneLocalCache(string $uploadsDir = __DIR__ . '/../uploads'): void
+    {
+        $flagFile = $uploadsDir . '/.last_cache_prune';
+        $now = time();
+        if (file_exists($flagFile) && ($now - (int)@filemtime($flagFile)) < 3600) {
+            return;
+        }
+        @touch($flagFile);
+        self::pruneLocalCache($uploadsDir);
     }
 }

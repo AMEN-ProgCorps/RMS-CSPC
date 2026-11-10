@@ -120,6 +120,21 @@
 
     function openImageViewer(src, alt) {
       if (!imageViewerModal || !imageViewerImg) return;
+      delete imageViewerImg.dataset.retryDone;
+      imageViewerImg.onerror = function() {
+        const fnMatch = src.match(/uploads\/([^?#]+)/);
+        if (fnMatch && !this.dataset.retryDone) {
+          this.dataset.retryDone = '1';
+          const fn = decodeURIComponent(fnMatch[1]);
+          fetch('load_cached_media.php?file=' + encodeURIComponent(fn))
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+              if (d && d.success && imageViewerImg) {
+                imageViewerImg.src = d.url + '?t=' + Date.now();
+              }
+            }).catch(function() {});
+        }
+      };
       imageViewerImg.src = src;
       imageViewerImg.alt = alt || '';
       imageViewerModal.style.display = 'flex';
@@ -362,6 +377,59 @@
       e.preventDefault();
       openImageViewer(img.dataset.fullSrc || img.src, img.alt);
     });
+
+    // ── On-demand loader for 1-week cached images purged from local uploads/ ──
+    function loadCachedImage(el) {
+      if (!el || el.classList.contains('loading')) return;
+      const filename = el.dataset.filename;
+      if (!filename) return;
+
+      el.classList.add('loading');
+      const label = el.querySelector('.load-img-label');
+      const originalText = label ? label.textContent : '';
+      if (label) label.textContent = 'Loading...';
+
+      fetch('load_cached_media.php?file=' + encodeURIComponent(filename))
+        .then(function(res) {
+          if (!res.ok) throw new Error('HTTP error ' + res.status);
+          return res.json();
+        })
+        .then(function(data) {
+          if (data && data.success) {
+            const img = document.createElement('img');
+            img.src = (data.thumb_url || data.url);
+            img.dataset.fullSrc = data.url;
+            img.alt = filename;
+            img.className = 'chat-viewable-image';
+            img.loading = 'eager';
+            img.decoding = 'async';
+            img.draggable = false;
+            const style = el.getAttribute('style') || '';
+            img.style.cssText = style;
+            if (img.style.height === '160px') {
+              img.style.height = 'auto';
+            }
+            img.style.objectFit = 'cover';
+            img.onerror = function() {
+              const c = this.closest('.message-container');
+              this.closest('.message-media,.message-bubble')?.remove();
+              if (c && !c.querySelector('.message-bubble,.message-media,.message-content')) c.remove();
+            };
+            el.replaceWith(img);
+            if (typeof attachImageLoadListeners === 'function') {
+              attachImageLoadListeners();
+            }
+          } else {
+            throw new Error((data && data.error) || 'Failed to load');
+          }
+        })
+        .catch(function(err) {
+          console.error('[Chatify Cache] Failed to load cached image:', err);
+          el.classList.remove('loading');
+          if (label) label.textContent = originalText || 'Load image';
+        });
+    }
+    window.loadCachedImage = loadCachedImage;
 
     // Auto-remove any broken or missing chat images so they totally disappear
     document.addEventListener('error', function(e) {

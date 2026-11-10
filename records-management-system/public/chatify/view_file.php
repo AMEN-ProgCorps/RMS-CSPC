@@ -14,11 +14,16 @@ if (empty($file)) {
     die('Missing file parameter');
 }
 
+GoogleDriveHelper::maybePruneLocalCache(UPLOADS_DIR);
+
 $localPath = UPLOADS_DIR . '/' . $file;
-if (!GoogleDriveHelper::isFileAvailable($file, $localPath)) {
+if (!GoogleDriveHelper::isFileAvailable($file, $localPath, true)) {
     http_response_code(404);
     die('File not found');
 }
+
+// Touch the file to renew its 1-week cache retention
+@touch($localPath);
 
 $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
 $mimeMap = [

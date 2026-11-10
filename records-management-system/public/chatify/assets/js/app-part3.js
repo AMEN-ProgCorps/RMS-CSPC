@@ -1099,7 +1099,15 @@
         jumpFetchInFlight = false;
         if (this.status !== 200) return;
         let data;
-        try { data = JSON.parse(this.responseText); } catch(e) { return; }
+        try {
+          let rawText = (this.responseText || '').trim();
+          const firstBrace = rawText.indexOf('{');
+          const lastBrace = rawText.lastIndexOf('}');
+          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
+            rawText = rawText.substring(firstBrace, lastBrace + 1);
+          }
+          data = JSON.parse(rawText);
+        } catch(e) { return; }
         const newHtml = data.html || '';
         if (!newHtml.trim()) return;
 
@@ -2589,7 +2597,7 @@
 
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
-        const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
+        const oldItems = Array.from(temp.querySelectorAll('.message-container'));
 
         const existingIds = new Set(
           Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'))
@@ -2600,11 +2608,17 @@
         const insertedItems = []; // only items actually inserted into DOM
         oldItems.forEach(el => {
           const msgId = el.getAttribute('data-msg-id');
-          if (!msgId || !existingIds.has(msgId)) {
+          if (msgId && !existingIds.has(msgId)) {
             frag.appendChild(el);
             insertedItems.push(el);
           }
         });
+
+        if (insertedItems.length === 0) {
+          gcHasMore = false;
+          showNoMoreOlderNotice();
+          return;
+        }
 
         const insertRef = chatBox.querySelector('.message-container, .date-divider') || chatBox.firstChild;
         if (insertRef) {
@@ -2841,7 +2855,11 @@
 
       isLoadingGC = true;
 
-      const cursor     = loadOlderMode ? gcCursor : '';
+      let cursor = '';
+      if (loadOlderMode) {
+        const oldestMsgEl = chatBox ? chatBox.querySelector('.message-container[data-msg-id]') : null;
+        cursor = (oldestMsgEl ? oldestMsgEl.getAttribute('data-msg-id') : '') || gcCursor || '';
+      }
       const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
       const targetConvId = (typeof getActiveChannelConvId === 'function')
         ? getActiveChannelConvId()
@@ -2858,7 +2876,18 @@
         if (this.status !== 200) return;
         if (!isGlobalChat) return;
         let data;
-        try { data = JSON.parse(this.responseText); } catch(e) { return; }
+        try {
+          let rawText = (this.responseText || '').trim();
+          const firstBrace = rawText.indexOf('{');
+          const lastBrace = rawText.lastIndexOf('}');
+          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
+            rawText = rawText.substring(firstBrace, lastBrace + 1);
+          }
+          data = JSON.parse(rawText);
+        } catch(e) {
+          console.error('[Chatify] GlobalChat parse error:', e, this.responseText);
+          return;
+        }
         if (data.conv_id && data.conv_id !== targetConvId) return;
         if (!loadOlderMode && typeof cacheGlobalChatSnapshot === 'function') {
           cacheGlobalChatSnapshot(data);
@@ -2919,7 +2948,7 @@
 
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
-        const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
+        const oldItems = Array.from(temp.querySelectorAll('.message-container'));
 
         const existingIds = new Set(
           Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'))
@@ -2930,11 +2959,17 @@
         const insertedItems = []; // only items actually inserted into DOM
         oldItems.forEach(el => {
           const msgId = el.getAttribute('data-msg-id');
-          if (!msgId || !existingIds.has(msgId)) {
+          if (msgId && !existingIds.has(msgId)) {
             frag.appendChild(el);
             insertedItems.push(el);
           }
         });
+
+        if (insertedItems.length === 0) {
+          dmHasMore = false;
+          showNoMoreOlderNotice();
+          return;
+        }
 
         const insertRef = chatBox.querySelector('.message-container, .date-divider') || chatBox.firstChild;
         if (insertRef) {
@@ -3129,7 +3164,11 @@
       isLoadingChat = true;
 
       const requestedUser = activeDM;
-      const cursor     = loadOlderMode ? dmCursor : '';
+      let cursor = '';
+      if (loadOlderMode) {
+        const oldestMsgEl = chatBox ? chatBox.querySelector('.message-container[data-msg-id]') : null;
+        cursor = (oldestMsgEl ? oldestMsgEl.getAttribute('data-msg-id') : '') || dmCursor || '';
+      }
       const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
       const targetIdParam = (activeDMAccountId && Number(activeDMAccountId) > 0) ? Number(activeDMAccountId) : 0;
       const targetUserParam = activeDM || (activeDMAccountId ? String(activeDMAccountId) : '');
@@ -3156,7 +3195,16 @@
         }
         if (requestedUser !== activeDM && (!activeDMAccountId || String(activeDMAccountId) !== String(requestedUser))) return;
         let data;
-        try { data = JSON.parse(this.responseText); } catch(e) {
+        try {
+          let rawText = (this.responseText || '').trim();
+          const firstBrace = rawText.indexOf('{');
+          const lastBrace = rawText.lastIndexOf('}');
+          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
+            rawText = rawText.substring(firstBrace, lastBrace + 1);
+          }
+          data = JSON.parse(rawText);
+        } catch(e) {
+          console.error('[Chatify] DM parse error:', e, this.responseText);
           if (!loadOlderMode && chatBox && !chatBox.querySelector('.message-container')) {
             chatBox.innerHTML = '<div class="empty-chat"><p>Unable to parse conversation data.</p></div>';
           }

@@ -149,8 +149,7 @@ class GlobalChatManager
                 $curRow = $cur->fetch();
 
                 if (!$curRow) {
-                    // Cursor message was deleted; fall back to newest page
-                    return self::loadRaw($limit, null, $convId);
+                    return [];
                 }
 
                 $stmt = $pdo->prepare(
@@ -168,7 +167,7 @@ class GlobalChatManager
                      FROM messify_chat_messages m
                      LEFT JOIN messify_chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                      WHERE m.conv_id = :conv_id
-                       AND (m.created_at, m.id) < (:cur_ts, :cur_id)
+                       AND (m.created_at < :cur_ts OR (m.created_at = :cur_ts AND m.id < :cur_id))
                        AND m.status = \'active\'
                      ORDER BY m.created_at DESC, m.id DESC
                      LIMIT :lim'
@@ -245,7 +244,7 @@ class GlobalChatManager
                  FROM messify_chat_messages m
                  LEFT JOIN messify_chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
                  WHERE m.conv_id = :conv_id
-                   AND (m.created_at, m.id) <= (:cur_ts, :cur_id)
+                   AND (m.created_at < :cur_ts OR (m.created_at = :cur_ts AND m.id <= :cur_id))
                    AND m.status = \'active\'
                  ORDER BY m.created_at DESC, m.id DESC
                  LIMIT :lim'

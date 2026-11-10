@@ -6155,7 +6155,11 @@
 
       const wasAtBottom = isAtBottom() && !window.replyJumpActive;
       const requestedConv = activeAdminConv;
-      const cursor     = loadOlderMode ? adminConvCursor : '';
+      let cursor = '';
+      if (loadOlderMode) {
+        const oldestMsgEl = chatBox ? chatBox.querySelector('.message-container[data-msg-id]') : null;
+        cursor = (oldestMsgEl ? oldestMsgEl.getAttribute('data-msg-id') : '') || adminConvCursor || '';
+      }
       const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
       const url = 'load_dm_admin.php?conv_id=' + encodeURIComponent(convId)
                 + '&before_uuid=' + encodeURIComponent(cursor)
@@ -6178,8 +6182,15 @@
         
         let data;
         try {
-          data = JSON.parse(this.responseText);
+          let rawText = (this.responseText || '').trim();
+          const firstBrace = rawText.indexOf('{');
+          const lastBrace = rawText.lastIndexOf('}');
+          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
+            rawText = rawText.substring(firstBrace, lastBrace + 1);
+          }
+          data = JSON.parse(rawText);
         } catch(e) {
+          console.error('[Chatify] AdminConv parse error:', e, this.responseText);
           if (!loadOlderMode && chatBox) {
             chatBox.innerHTML = '<div class="empty-chat"><p>Failed to load conversation.</p></div>';
           }
@@ -6201,7 +6212,7 @@
 
           const temp = document.createElement('div');
           temp.innerHTML = newHtml;
-          const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
+          const oldItems = Array.from(temp.querySelectorAll('.message-container'));
 
           const existingIds = new Set(
             Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'))
@@ -6212,11 +6223,17 @@
           const insertedItems = []; // only items actually inserted into DOM
           oldItems.forEach(el => {
             const msgId = el.getAttribute('data-msg-id');
-            if (!msgId || !existingIds.has(msgId)) {
+            if (msgId && !existingIds.has(msgId)) {
               frag.appendChild(el);
               insertedItems.push(el);
             }
           });
+
+          if (insertedItems.length === 0) {
+            adminConvHasMore = false;
+            showNoMoreOlderNotice();
+            return;
+          }
 
           const insertRef = chatBox.querySelector('.message-container, .date-divider') || chatBox.firstChild;
           if (insertRef) {

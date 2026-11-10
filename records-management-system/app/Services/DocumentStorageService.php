@@ -1236,7 +1236,7 @@ class DocumentStorageService
             return 'GENERAL';
         }
 
-        $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'messify', 'messify', 'backup', 'admin'];
+        $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'chatify', 'messify', 'backup', 'admin'];
 
         // DCC tree: DCS/DCC_*/... has no uploader office in the path.
         if (self::isDccStoragePath($clean)) {
@@ -1267,7 +1267,7 @@ class DocumentStorageService
 
         $clean = ltrim(str_replace(['\\'], '/', $path), '/');
         $segments = array_values(array_filter(explode('/', $clean), fn ($s) => $s !== ''));
-        $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'messify', 'messify', 'backup', 'admin'];
+        $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'chatify', 'messify', 'backup', 'admin'];
 
         // Subsystem-first: segments[0] is subsystem
         if (isset($segments[0]) && in_array(strtolower($segments[0]), $knownSubsystems, true)) {
@@ -1311,7 +1311,7 @@ class DocumentStorageService
             return $clean;
         }
 
-        $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'messify', 'messify', 'backup', 'admin'];
+        $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'chatify', 'messify', 'backup', 'admin'];
 
         if (self::isDccStoragePath($clean)) {
             return $clean;
@@ -1350,7 +1350,7 @@ class DocumentStorageService
             return null;
         }
 
-        $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'messify', 'messify', 'backup', 'admin'];
+        $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'chatify', 'messify', 'backup', 'admin'];
 
         if (self::isDccStoragePath($clean)) {
             return null;

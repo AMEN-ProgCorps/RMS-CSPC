@@ -387,11 +387,11 @@ try {
       <input type="text" id="nameInput" aria-hidden="true" tabindex="-1" required readonly value="<?php echo htmlspecialchars($user_name); ?>" style="display:none;">
 
       <form id="chatForm" class="message-input-container">
-        <label id="attachBtn" class="attachment-btn" title="Attach image or file" for="fileAttachmentInput">
+        <button type="button" id="attachBtn" class="attachment-btn" title="Attach image or file" aria-label="Attach image or file">
           <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-        </label>
+        </button>
         <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
         <!-- Wraps the real textarea + its @mention highlight layer so the
              layer can sit pixel-perfectly behind it. The textarea's own

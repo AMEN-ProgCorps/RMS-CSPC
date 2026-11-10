@@ -99,6 +99,10 @@ if ($uploadedRaw !== '') {
 
         $filePath = UPLOADS_DIR . '/' . $filename;
         if (!file_exists($filePath)) {
+            GoogleDriveHelper::ensureLocalCopy($filename, $filePath);
+        }
+
+        if (!file_exists($filePath)) {
             $errors[] = "Uploaded file not found: {$filename}";
             continue;
         }

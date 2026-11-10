@@ -165,9 +165,12 @@ function dmBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
         $file       = is_array($decoded) ? basename((string) ($decoded[0] ?? '')) : basename($rawPayload);
         $ext        = strtolower(pathinfo($file, PATHINFO_EXTENSION));
         $imageExts  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
-        if (in_array($ext, $imageExts, true) && $file !== '' && file_exists(__DIR__ . '/uploads/' . $file)) {
-            $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
-            return "<div class='reply-quote reply-quote-image-container'{$replyToAttr}><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer' onerror=\"this.closest('.reply-quote-image-container,.reply-quote')?.remove()\"></div>";
+        if (in_array($ext, $imageExts, true) && $file !== '') {
+            $repPath = __DIR__ . '/uploads/' . $file;
+            if (GoogleDriveHelper::isFileAvailable($file, $repPath)) {
+                $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
+                return "<div class='reply-quote reply-quote-image-container'{$replyToAttr}><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer' onerror=\"this.closest('.reply-quote-image-container,.reply-quote')?.remove()\"></div>";
+            }
         }
         $snippet = $file !== '' ? $file : 'Attachment';
     } else {
@@ -216,7 +219,7 @@ function dmChatImageTag(string $uploadsDir, string $fn, string $style): string
             $style .= "aspect-ratio:{$dw}/{$dh};";
         }
     }
-    return "<img src='{$srcUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}'{$dimAttrs} loading='eager' decoding='async' draggable='false' style='{$style}' />";
+    return "<img src='{$srcUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}'{$dimAttrs} loading='eager' decoding='async' draggable='false' style='{$style}' onerror=\"const c=this.closest('.message-container'); this.closest('.message-media,.message-bubble')?.remove(); if(c && !c.querySelector('.message-bubble,.message-media,.message-content')) c.remove();\" />";
 }
 
 function dmInitials2(string $name): string
@@ -326,9 +329,11 @@ for ($i = 0; $i < $msgCount; $i++) {
             }
 
             if ($allImages) {
-                // Only keep images whose files still exist on disk
+                // Only keep images whose files exist in Google Drive or local storage
                 $existingFiles = array_values(array_filter($decoded, function ($fn) use ($uploadsDir) {
-                    return file_exists($uploadsDir . basename((string)$fn));
+                    $base = basename((string)$fn);
+                    $path = $uploadsDir . $base;
+                    return GoogleDriveHelper::isFileAvailable($base, $path);
                 }));
 
                 if (!empty($existingFiles)) {
@@ -343,23 +348,22 @@ for ($i = 0; $i < $msgCount; $i++) {
                 // If no files remain, no media container is emitted at all.
             } else {
                 // Mixed files — render each as its own attachment link, skipping
-                // any image whose underlying file no longer exists
+                // any file whose underlying upload no longer exists
                 $linkColor = $isSent ? 'white' : '#1b74e4';
                 $itemsHtml = '';
                 foreach ($decoded as $fn) {
                     $fn    = basename((string)$fn);
+                    $fnPath = $uploadsDir . $fn;
+                    if (!GoogleDriveHelper::isFileAvailable($fn, $fnPath)) {
+                        continue;
+                    }
                     $fnUrl = 'uploads/' . rawurlencode($fn);
                     $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
                     $fnExt = strtolower(pathinfo($fn, PATHINFO_EXTENSION));
                     if (in_array($fnExt, $imageExts, true)) {
-                        if (!file_exists($uploadsDir . $fn)) {
-                            continue; // deleted image — skip
-                        }
                         $itemsHtml .= dmChatImageTag($uploadsDir, $fn, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;');
                     } else {
-                        if (file_exists($uploadsDir . $fn)) {
-                            $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
-                        }
+                        $itemsHtml .= "<a href='{$fnUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
                 }
                 if ($itemsHtml !== '') {
@@ -374,22 +378,24 @@ for ($i = 0; $i < $msgCount; $i++) {
 
         } else {
             // ── Single file (or single-element JSON array) ────────────────────
-            $file    = $isGrid ? basename((string)$decoded[0]) : basename($rawPayload);
+            $file     = $isGrid ? basename((string)$decoded[0]) : basename($rawPayload);
+            $filePath = $uploadsDir . $file;
+            $isAvailable = GoogleDriveHelper::isFileAvailable($file, $filePath);
             $url     = 'uploads/' . rawurlencode($file);
             $ext     = strtolower(pathinfo($file, PATHINFO_EXTENSION));
             $fileEsc = htmlspecialchars($file, ENT_QUOTES);
 
             if (in_array($ext, $imageExts, true)) {
-                if (file_exists($uploadsDir . $file)) {
+                if ($isAvailable) {
                     $uploadBodyHtml .= "<div class='message-media'>";
                     $uploadBodyHtml .= dmChatImageTag($uploadsDir, $file, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);');
                     $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
                     $uploadBodyHtml .= "</div>";
                 }
-                // else: deleted image — nothing rendered for this message
+                // else: deleted / missing — completely omitted!
 
             } elseif (in_array($ext, $audioExts, true)) {
-                if (file_exists($uploadsDir . $file)) {
+                if ($isAvailable) {
                     $mime  = $mimeMap[$ext] ?? 'audio/' . $ext;
                     $uploadBodyHtml .= "<div class='message-bubble'>";
                     $uploadBodyHtml .= "<div class='message-content'>";
@@ -401,7 +407,7 @@ for ($i = 0; $i < $msgCount; $i++) {
                 }
 
             } else {
-                if (file_exists($uploadsDir . $file)) {
+                if ($isAvailable) {
                     $linkColor = $isSent ? 'white' : '#1b74e4';
                     $uploadBodyHtml .= "<div class='message-bubble'>";
                     $uploadBodyHtml .= "<div class='message-content'><a href='{$url}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;'>{$fileEsc}</a></div>";

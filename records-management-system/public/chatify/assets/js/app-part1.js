@@ -721,7 +721,7 @@
                   // Echo of our own sent message — XHR optimistic path already rendered it in place.
                   if (data.has_upload) {
                     isLoadingGC = false;
-                    loadGlobalChat(false);
+                    loadGlobalChat(false, false, true);
                   }
                 }
               }
@@ -800,6 +800,9 @@
                   // to avoid duplicate bubbles. Only do a forced reload if somehow the optimistic
                   // bubble is missing (e.g. attachment upload where has_upload=true).
                   if (data.has_upload) {
+                    if (typeof dmMessageCache !== 'undefined' && activeDM) {
+                      dmMessageCache.delete(activeDM);
+                    }
                     if (!dmViewingOlder) loadChatForced();
                   }
                 }

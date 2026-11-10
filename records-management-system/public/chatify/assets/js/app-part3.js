@@ -363,6 +363,19 @@
       openImageViewer(img.dataset.fullSrc || img.src, img.alt);
     });
 
+    // Auto-remove any broken or missing chat images so they totally disappear
+    document.addEventListener('error', function(e) {
+      const target = e.target;
+      if (target && target.tagName === 'IMG' && (target.classList.contains('chat-viewable-image') || target.classList.contains('reply-quote-image'))) {
+        const container = target.closest('.message-container');
+        const media = target.closest('.message-media, .message-bubble, .reply-quote-image-container');
+        if (media) media.remove();
+        if (container && !container.querySelector('.message-bubble, .message-media, .message-content')) {
+          container.remove();
+        }
+      }
+    }, true);
+
     // Close: X button or Escape key.
     if (imageViewerCloseBtn) {
       imageViewerCloseBtn.addEventListener('click', closeImageViewer);
@@ -3600,8 +3613,16 @@
     // what was supposed to render the attachment and trigger markRead() —
     // so the message could sit unrendered/unread-marked despite the chat
     // being open.
+    let _loadChatForcedTimer = null;
     function loadChatForced() {
-      loadChat(false, false, true);
+      if (typeof dmMessageCache !== 'undefined' && activeDM) {
+        dmMessageCache.delete(activeDM);
+      }
+      if (_loadChatForcedTimer) clearTimeout(_loadChatForcedTimer);
+      _loadChatForcedTimer = setTimeout(function() {
+        _loadChatForcedTimer = null;
+        loadChat(false, false, true);
+      }, 40);
     }
 
     // Event Letters
@@ -5786,7 +5807,7 @@
               hideScrollIndicator(true);
               if (isGlobalChat) {
                 isLoadingGC = false;
-                loadGlobalChat(false);
+                loadGlobalChat(false, false, true);
                 const targetConvId = (typeof getActiveChannelConvId === 'function')
                   ? getActiveChannelConvId()
                   : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
@@ -5794,6 +5815,9 @@
                   bumpSidebarUser(targetConvId, { lastMessage: 'Sent a file' });
                 }
               } else if (activeDM) {
+                if (typeof dmMessageCache !== 'undefined' && activeDM) {
+                  dmMessageCache.delete(activeDM);
+                }
                 loadChatForced();
                 bumpSidebarUser(activeDM, { lastMessage: 'Sent a file' });
               }

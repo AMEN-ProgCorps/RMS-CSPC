@@ -113,15 +113,33 @@ for ($i = 0; $i < $total; $i++) {
         continue;
     }
 
+    // Images get converted to WebP (full-size + a small "_thumb.webp")
+    $finalName = ImageProcessor::processUpload($uploadDir, $storedName, $ext);
+
     // Record via ConversationManager (same storage as send_dm.php)
-    $result = ConversationManager::addUploadMessage($senderId, $targetId, $storedName);
+    $result = ConversationManager::addUploadMessage($senderId, $targetId, $finalName);
     if ($result === false) {
         $response['errors'][] = "Failed to record upload message for {$safeOriginal}.";
-        @unlink($target);
+        @unlink($uploadDir . '/' . $finalName);
         continue;
     }
 
-    $response['uploaded'][] = $storedName;
+    // ── Sync to Google Drive (RMS folder / chatify subfolder) ────────────────
+    try {
+        $finalPath = $uploadDir . '/' . $finalName;
+        if (file_exists($finalPath)) {
+            GoogleDriveHelper::uploadFile($finalPath, $finalName);
+        }
+        $thumbName = pathinfo($finalName, PATHINFO_FILENAME) . ImageProcessor::THUMB_SUFFIX;
+        $thumbPath = $uploadDir . '/' . $thumbName;
+        if (file_exists($thumbPath)) {
+            GoogleDriveHelper::uploadFile($thumbPath, $thumbName);
+        }
+    } catch (\Throwable $e) {
+        error_log("Upload DM Google Drive sync failed for {$finalName}: " . $e->getMessage());
+    }
+
+    $response['uploaded'][] = $finalName;
 }
 
 $response['success'] = count($response['uploaded']) > 0;

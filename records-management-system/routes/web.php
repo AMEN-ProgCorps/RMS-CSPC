@@ -273,10 +273,55 @@ Volt::route('/track-document', 'pages.portal.track-document')
 Volt::route('/tracked', 'pages.portal.tracked')
     ->name('tracked');
 
+// Auto-capture client error page popouts & runtime exceptions (public endpoint, rate-limited)
+Route::post('/api/errors/auto-capture', function (\Illuminate\Http\Request $request) {
+    $data = $request->validate([
+        'reference' => 'nullable|string|max:32',
+        'title' => 'nullable|string|max:240',
+        'message' => 'nullable|string|max:5000',
+        'kind' => 'nullable|string|max:32',
+        'http_status' => 'nullable|integer',
+        'url' => 'nullable|string|max:2000',
+        'file' => 'nullable|string|max:500',
+        'line' => 'nullable|integer',
+        'context' => 'nullable|array',
+    ]);
+
+    $ip = $request->ip();
+    $rateKey = 'error_auto_capture:'.$ip;
+    if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($rateKey, 40)) {
+        return response()->json(['status' => 'rate_limited'], 429);
+    }
+    \Illuminate\Support\Facades\RateLimiter::hit($rateKey, 60);
+
+    $context = $data['context'] ?? [];
+    $context['ip'] = $ip;
+    $context['captured_via'] = 'client_error_popout';
+
+    $ticket = \App\Services\ErrorTicketRecorder::recordAuto([
+        'reference' => $data['reference'] ?? null,
+        'title' => $data['title'] ?? 'Client error popout',
+        'message' => $data['message'] ?? 'An error popout occurred on the client.',
+        'kind' => $data['kind'] ?? 'popout',
+        'http_status' => $data['http_status'] ?? 500,
+        'url' => $data['url'] ?? $request->headers->get('referer') ?? $request->fullUrl(),
+        'file' => $data['file'] ?? null,
+        'line' => $data['line'] ?? null,
+        'context' => $context,
+    ]);
+
+    return response()->json([
+        'ok' => true,
+        'ticket_number' => $ticket?->ticket_number ?? ($data['reference'] ?? null),
+        'source' => $ticket?->source ?? 'auto',
+    ]);
+})->name('api.errors.auto-capture');
+
 // Secured routes (behind auth middleware)
 Route::middleware(['auth'])
     ->group(function () {
     Route::get('/open-chat', [ChatController::class, 'openChat'])->name('open-chat');
+    Route::get('/chatify', [ChatController::class, 'openChat'])->name('chatify');
     Route::get('/chatify/open-chat', [ChatController::class, 'openChat'])->name('chatify.open-chat');
     Route::get('/messify/open-chat', [ChatController::class, 'openChat'])->name('messify.open-chat');
     Route::get('/chat/unread-count', function () {
@@ -555,19 +600,22 @@ Route::middleware(['auth'])
         })->name('admin.backup.download');
         Volt::route('/admin/recycle-bin', 'pages.admin.recycle-bin')->name('admin.recycle-bin');
 
-        // Server Settings & High-Availability Clustering (/admin/server-settings/*)
+        // Server Settings (/admin/server-settings/*)
         Volt::route('/admin/server-settings/current-server', 'pages.admin.server-settings.current-server')->name('admin.server-settings.current');
-        Volt::route('/admin/server-settings/multi-server', 'pages.admin.server-settings.multi-server')->name('admin.server-settings.multi-server');
-        Volt::route('/admin/server-settings/site-diagnostic', 'pages.admin.server-settings.site-diagnostic')->name('admin.server-settings.diagnostic');
+        // Draft: Multi-Server temporarily removed from active routing
+        // Volt::route('/admin/server-settings/multi-server', 'pages.admin.server-settings.multi-server')->name('admin.server-settings.multi-server');
+        Volt::route('/admin/server-settings/server-diagnostic', 'pages.admin.server-settings.site-diagnostic')->name('admin.server-settings.diagnostic');
         Volt::route('/admin/server-settings/terminal', 'pages.admin.server-settings.terminal')->name('admin.server-settings.terminal');
 
         // Backward compatibility redirects
         Route::redirect('/server-settings/current-server', '/admin/server-settings/current-server');
-        Route::redirect('/server-settings/adds-on-servers', '/admin/server-settings/multi-server');
-        Route::redirect('/server-settings/multi-server', '/admin/server-settings/multi-server');
-        Route::redirect('/server-settings/site-diagnostic', '/admin/server-settings/site-diagnostic');
+        Route::redirect('/server-settings/adds-on-servers', '/admin/server-settings/current-server');
+        Route::redirect('/server-settings/multi-server', '/admin/server-settings/current-server');
+        Route::redirect('/admin/server-settings/site-diagnostic', '/admin/server-settings/server-diagnostic');
+        Route::redirect('/server-settings/site-diagnostic', '/admin/server-settings/server-diagnostic');
+        Route::redirect('/server-settings/server-diagnostic', '/admin/server-settings/server-diagnostic');
         Route::redirect('/server-settings/terminal', '/admin/server-settings/terminal');
-        Route::redirect('/admin/server-settings/adds-on-servers', '/admin/server-settings/multi-server')->name('admin.server-settings.addons');
+        Route::redirect('/admin/server-settings/adds-on-servers', '/admin/server-settings/current-server')->name('admin.server-settings.addons');
     });
 
     // RDP — Records Disposition Program (requires can_access_rdp or is_sadm)
@@ -812,8 +860,9 @@ Route::middleware(['auth'])
                 : array_keys(array_filter($availableColumns, fn($c) => $c['default']));
 
             $filters = [
-                'sort_order' => $request->query('sort_order', 'desc'),
-                'office'     => $request->query('office', 'all'),
+                'sort_order'   => $request->query('sort_order', 'desc'),
+                'status_order' => $request->query('status_order', 'ongoing_first'),
+                'office'       => $request->query('office', 'all'),
             ];
 
             $rows = \App\Helpers\DtsExportHelper::fetchExportRecords($category, $filters, $selectedIds);

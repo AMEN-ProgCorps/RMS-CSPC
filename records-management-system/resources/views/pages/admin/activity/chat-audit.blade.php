@@ -235,7 +235,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
     <div class="page-header">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
             <div>
-                <h1>Messify Audit Trail</h1>
+                <h1>Chatify Audit Trail</h1>
                 <p>Monitor all user actions and manage chat message backups.</p>
             </div>
             <div>

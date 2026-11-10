@@ -588,7 +588,7 @@
                     'active' => request()->routeIs('admin.activity.dcs.*'),
                 ],
                 [
-                    'label' => 'Messify',
+                    'label' => 'Chatify',
                     'icon' => 'fa-solid fa-comments',
                     'url' => route('admin.activity.chat-audit'),
                     'active' => request()->routeIs('admin.activity.chat-audit'),
@@ -759,12 +759,7 @@
                     'active' => request()->routeIs('admin.server-settings.current'),
                 ],
                 [
-                    'label' => 'Multi-Server',
-                    'url' => route('admin.server-settings.multi-server'),
-                    'active' => request()->routeIs('admin.server-settings.multi-server') || request()->routeIs('admin.server-settings.addons'),
-                ],
-                [
-                    'label' => 'Site Diagnostic',
+                    'label' => 'Server Diagnostic & Telemetry',
                     'url' => route('admin.server-settings.diagnostic'),
                     'active' => request()->routeIs('admin.server-settings.diagnostic'),
                 ],

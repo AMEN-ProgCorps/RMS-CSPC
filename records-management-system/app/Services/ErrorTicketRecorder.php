@@ -31,21 +31,24 @@ class ErrorTicketRecorder
             );
 
             if ($reference !== '') {
-                $existingByRef = ErrorTicket::query()->where('reference', $reference)->first();
+                $existingByRef = ErrorTicket::query()
+                    ->where('reference', $reference)
+                    ->orWhere('ticket_number', $reference)
+                    ->first();
                 if ($existingByRef) {
-                    return self::bump($existingByRef, $payload);
+                    return self::bump($existingByRef, $payload, isAuto: true);
                 }
             }
 
             $openMatch = ErrorTicket::query()
                 ->where('fingerprint', $fingerprint)
-                ->whereIn('status', ['open', 'in_progress'])
+                ->whereIn('status', ['open', 'in_progress', 'notice'])
                 ->where('last_seen_at', '>=', now()->subHours(self::DEDUPE_HOURS))
                 ->orderByDesc('last_seen_at')
                 ->first();
 
             if ($openMatch) {
-                return self::bump($openMatch, $payload);
+                return self::bump($openMatch, $payload, isAuto: true);
             }
 
             $title = trim((string) ($payload['title'] ?? 'Server error'));
@@ -53,9 +56,11 @@ class ErrorTicketRecorder
                 $title = 'Server error';
             }
 
+            $isNotice = self::isSlowInternet($payload);
+
             return ErrorTicket::query()->create([
                 'ticket_number' => $reference !== '' ? $reference : self::nextTicketNumber('SRV'),
-                'source' => 'auto',
+                'source' => ErrorTicket::SOURCE_AUTO,
                 'reference' => $reference !== '' ? $reference : null,
                 'fingerprint' => $fingerprint,
                 'title' => Str::limit($title, 240),
@@ -68,8 +73,8 @@ class ErrorTicketRecorder
                 'file' => $payload['file'] ?? null,
                 'line' => $payload['line'] ?? null,
                 'context' => $payload['context'] ?? null,
-                'status' => 'open',
-                'priority' => self::priorityFromStatus((int) ($payload['http_status'] ?? 500)),
+                'status' => $isNotice ? 'notice' : 'open',
+                'priority' => $isNotice ? 'low' : self::priorityFromStatus((int) ($payload['http_status'] ?? 500)),
                 'occurrence_count' => 1,
                 'last_seen_at' => now(),
                 'reported_by' => Auth::id(),
@@ -81,6 +86,7 @@ class ErrorTicketRecorder
 
     /**
      * Persist a user-submitted problem report.
+     * Merges with existing auto tickets into 'user_auto' (User Added | Auto) when matched.
      *
      * @throws \Illuminate\Validation\ValidationException|\RuntimeException
      */
@@ -99,11 +105,97 @@ class ErrorTicketRecorder
             $title = 'User-reported problem';
         }
 
+        $reporterName = Auth::user()?->username ?? 'User';
+
+        // Case 1: Reference provided matches an existing ticket (e.g. from an error popup or page reference)
+        if ($reference !== '') {
+            $existing = ErrorTicket::query()
+                ->where('reference', $reference)
+                ->orWhere('ticket_number', $reference)
+                ->first();
+
+            if ($existing) {
+                // If it was auto-detected or existing, it becomes User Added | Auto
+                $existing->source = ErrorTicket::SOURCE_USER_AUTO;
+                if ($description !== '') {
+                    $userNote = "[{$reporterName} Report]: {$description}";
+                    $existing->description = $existing->description !== ''
+                        ? "{$userNote}\n\n--- Diagnostic Stack & Details ---\n{$existing->description}"
+                        : $userNote;
+                }
+                if ($title !== '' && ! in_array(strtolower($title), ['server error', 'client error', 'problem on this page', 'slow internet'], true)) {
+                    $existing->title = Str::limit($title, 240);
+                }
+                if (Auth::check()) {
+                    $existing->reported_by = Auth::id();
+                }
+                $isSlowInternet = self::isSlowInternet($payload)
+                    || self::isSlowInternet(['title' => $existing->title, 'description' => $existing->description, 'http_status' => $existing->http_status]);
+
+                if ($isSlowInternet) {
+                    $existing->status = 'notice';
+                    $existing->priority = 'low';
+                } elseif ($payloadPriority = ($payload['priority'] ?? null)) {
+                    $existing->priority = $payloadPriority;
+                }
+                if (! $isSlowInternet && in_array($existing->status, ['resolved', 'closed'], true)) {
+                    $existing->status = 'open';
+                    $existing->resolved_at = null;
+                }
+                $existing->occurrence_count = (int) $existing->occurrence_count + 1;
+                $existing->last_seen_at = now();
+                $existing->save();
+
+                return $existing;
+            }
+        }
+
+        // Case 2: Matching recent auto ticket on the same path within the last 15 minutes
+        if ($url !== '') {
+            $pathOnly = parse_url($url, PHP_URL_PATH);
+            if (is_string($pathOnly) && $pathOnly !== '' && $pathOnly !== '/') {
+                $recentAuto = ErrorTicket::query()
+                    ->where('source', ErrorTicket::SOURCE_AUTO)
+                    ->whereIn('status', ['open', 'in_progress', 'notice'])
+                    ->where('url', 'like', "%{$pathOnly}%")
+                    ->where('last_seen_at', '>=', now()->subMinutes(15))
+                    ->orderByDesc('last_seen_at')
+                    ->first();
+
+                if ($recentAuto) {
+                    $recentAuto->source = ErrorTicket::SOURCE_USER_AUTO;
+                    if ($description !== '') {
+                        $userNote = "[{$reporterName} Report]: {$description}";
+                        $recentAuto->description = $recentAuto->description !== ''
+                            ? "{$userNote}\n\n--- Diagnostic Stack & Details ---\n{$recentAuto->description}"
+                            : $userNote;
+                    }
+                    if ($title !== '' && ! in_array(strtolower($title), ['server error', 'client error', 'problem on this page', 'slow internet'], true)) {
+                        $recentAuto->title = Str::limit($title, 240);
+                    }
+                    if (Auth::check()) {
+                        $recentAuto->reported_by = Auth::id();
+                    }
+
+                    if (self::isSlowInternet($payload) || self::isSlowInternet(['title' => $recentAuto->title, 'description' => $recentAuto->description, 'http_status' => $recentAuto->http_status])) {
+                        $recentAuto->status = 'notice';
+                        $recentAuto->priority = 'low';
+                    }
+
+                    $recentAuto->save();
+
+                    return $recentAuto;
+                }
+            }
+        }
+
+        // Case 3: Pure user-submitted ticket (no auto-detection match) -> User Added
         $fingerprint = self::fingerprint('user', $url, 0, $title.'|'.$description);
+        $isUserNotice = self::isSlowInternet($payload);
 
         return ErrorTicket::query()->create([
             'ticket_number' => self::nextTicketNumber('TKT'),
-            'source' => 'user',
+            'source' => ErrorTicket::SOURCE_USER,
             'reference' => $reference !== '' ? Str::limit($reference, 32, '') : null,
             'fingerprint' => $fingerprint,
             'title' => Str::limit($title, 240),
@@ -120,12 +212,38 @@ class ErrorTicketRecorder
                 'ip' => request()?->ip(),
                 'route' => optional(request()?->route())->getName(),
             ]),
-            'status' => 'open',
-            'priority' => $payload['priority'] ?? 'medium',
+            'status' => $isUserNotice ? 'notice' : 'open',
+            'priority' => $isUserNotice ? 'low' : ($payload['priority'] ?? 'medium'),
             'occurrence_count' => 1,
             'last_seen_at' => now(),
             'reported_by' => Auth::id(),
         ]);
+    }
+
+    public static function isSlowInternet(array $payload): bool
+    {
+        $title = strtolower((string) ($payload['title'] ?? ''));
+        $desc = strtolower((string) ($payload['message'] ?? $payload['description'] ?? ''));
+        $httpStatus = (int) ($payload['http_status'] ?? 0);
+        $exception = strtolower((string) ($payload['exception_class'] ?? ''));
+
+        if (in_array($httpStatus, [408, 504], true)) {
+            return true;
+        }
+
+        if (str_contains($title, 'slow internet') || str_contains($title, 'slow connection') || str_contains($title, 'connection is too slow')) {
+            return true;
+        }
+
+        if (str_contains($desc, 'slow internet') || str_contains($desc, 'connection is too slow') || str_contains($desc, 'internet connection is too slow') || str_contains($desc, 'operation timed out')) {
+            return true;
+        }
+
+        if (str_contains($exception, 'timeout') || str_contains($exception, 'connectionexception')) {
+            return true;
+        }
+
+        return false;
     }
 
     public static function detectSubsystem(?string $url): ?string
@@ -148,18 +266,39 @@ class ErrorTicketRecorder
         };
     }
 
-    private static function bump(ErrorTicket $ticket, array $payload): ErrorTicket
+    private static function bump(ErrorTicket $ticket, array $payload, bool $isAuto = false): ErrorTicket
     {
         $ticket->occurrence_count = (int) $ticket->occurrence_count + 1;
         $ticket->last_seen_at = now();
 
+        if ($isAuto && $ticket->source === ErrorTicket::SOURCE_USER) {
+            // Error was originally logged by user, now also caught by automated catcher!
+            $ticket->source = ErrorTicket::SOURCE_USER_AUTO;
+        }
+
         if (! empty($payload['reference'])) {
             $ticket->reference = (string) $payload['reference'];
         }
-        if (! empty($payload['url'])) {
+        if (! empty($payload['url']) && empty($ticket->url)) {
             $ticket->url = Str::limit((string) $payload['url'], 2000, '');
         }
-        if ($ticket->status === 'resolved' || $ticket->status === 'closed') {
+        if (! empty($payload['exception_class']) && empty($ticket->exception_class)) {
+            $ticket->exception_class = $payload['exception_class'];
+        }
+        if (! empty($payload['file']) && empty($ticket->file)) {
+            $ticket->file = $payload['file'];
+        }
+        if (! empty($payload['line']) && empty($ticket->line)) {
+            $ticket->line = $payload['line'];
+        }
+        if (! empty($payload['context'])) {
+            $existing = (array) ($ticket->context ?? []);
+            $ticket->context = array_merge($existing, (array) $payload['context']);
+        }
+        if (self::isSlowInternet($payload) || self::isSlowInternet(['title' => $ticket->title, 'description' => $ticket->description, 'http_status' => $ticket->http_status])) {
+            $ticket->status = 'notice';
+            $ticket->priority = 'low';
+        } elseif ($ticket->status === 'resolved' || $ticket->status === 'closed') {
             $ticket->status = 'open';
             $ticket->resolved_at = null;
         }

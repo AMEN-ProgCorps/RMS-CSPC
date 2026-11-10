@@ -935,12 +935,12 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 <i class="fa-solid fa-comments"></i> Communication & Messaging
             </h2>
 
-            <!-- Auto-open Messify -->
+            <!-- Auto-open Messify / Chatify -->
             <div class="settings-block-row">
                 <div class="settings-row-header">
                     <span class="settings-info-title">
                         <i class="fa-solid fa-message" style="color: #2563eb; margin-right: 8px; font-size: 14px;"></i>
-                        Auto-open Messify upon login
+                        Auto-open Chatify upon login
                     </span>
                     <button type="button" wire:click="toggleAutoOpenChat" role="switch" aria-checked="{{ $autoOpenChat ? 'true' : 'false' }}"
                         style="position: relative; display: inline-flex; width: 48px; height: 26px; border: none; cursor: pointer; background-color: {{ $autoOpenChat ? '#2563eb' : '#cbd5e1' }}; transition: background-color 0.25s ease; border-radius: 26px; padding: 0; outline: none; flex-shrink: 0;">
@@ -948,7 +948,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                     </button>
                 </div>
                 <span class="settings-info-desc">
-                    Automatically pop up the floating Messify messaging widget whenever you sign into your RMS account.
+                    Automatically pop up the floating Chatify messaging widget whenever you sign into your RMS account.
                 </span>
             </div>
 
@@ -1600,10 +1600,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                     <div style="flex: 1; min-width: 260px;">
                         <span class="settings-info-title">
                             <i class="fa-solid fa-comment-dots" style="color: #2563eb; margin-right: 8px; font-size: 14px;"></i>
-                            Messify Messaging Widget Toggle
+                            Chatify Messaging Widget Toggle
                         </span>
                         <span class="settings-info-desc" style="margin-top: 3px;">
-                            Choose or record a keyboard shortcut key to quickly open and minimize the floating Messify messenger.
+                            Choose or record a keyboard shortcut key to quickly open and minimize the floating Chatify messenger.
                         </span>
                     </div>
 
@@ -1636,7 +1636,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                                 @click="startRecording()" 
                                 :class="{ 'shortcut-record-btn--active': isRecording }"
                                 class="shortcut-record-btn"
-                                title="Click to press any key on your keyboard to set as messify toggle shortcut">
+                                title="Click to press any key on your keyboard to set as Chatify toggle shortcut">
                             <i class="fa-solid fa-record-vinyl" :style="isRecording ? 'color: #ef4444; animation: recordingPulse 1s infinite;' : ''"></i>
                             <span x-text="isRecording ? 'Press key now...' : 'Record Key'">Record Key</span>
                         </button>
@@ -1646,7 +1646,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                                 wire:click="resetMessifyToggleKey"
                                 class="shortcut-reset-btn"
                                 x-show="currentKey && currentKey !== 'none'"
-                                title="Clear shortcut and disable messify toggle keybind">
+                                title="Clear shortcut and disable Chatify toggle keybind">
                             <i class="fa-solid fa-trash-can"></i>
                             <span>Clear</span>
                         </button>
@@ -1656,7 +1656,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 <!-- Full-width Clarification Badge -->
                 <div class="settings-clarification-badge" style="margin-top: 6px;">
                     <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-top: 2px;"></i>
-                    <span><strong>Clarification:</strong> By default, this is <strong>Unassigned (None)</strong>. When assigned to any key, pressing it will expand or minimize the floating Messify messenger widget from any screen.</span>
+                    <span><strong>Clarification:</strong> By default, this is <strong>Unassigned (None)</strong>. When assigned to any key, pressing it will expand or minimize the floating Chatify messenger widget from any screen.</span>
                 </div>
             </div>
         </div>

@@ -46,16 +46,109 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         'logs'
     ];
 
+    // Automated Backup Schedule State
+    public bool $scheduleEnabled = false;
+    public string $scheduleFrequency = 'daily'; // 'daily', 'weekly', 'end_of_month', 'monthly'
+    public string $scheduleTime = '23:59';
+    public int $scheduleDayOfWeek = 0; // 0 = Sunday
+    public string $scheduleDayOfMonth = 'last_day';
+    public bool $scheduleTargetLocal = true;
+    public bool $scheduleTargetNas = true;
+    public bool $scheduleTargetGoogle = true;
+    public int $scheduleRetentionCount = 30;
+    public ?string $scheduleLastRun = null;
+    public ?string $scheduleLastStatus = null;
+    public ?string $scheduleNextRun = null;
+    public ?string $scheduleLastMessage = null;
+    public bool $isSavingSchedule = false;
+
     // Pagination & Search Filter State
     public int $currentPage = 1;
     public int $perPage = 5;
     public string $search = '';
     public string $filterType = 'all'; // 'all', 'full', 'selective'
-    public string $filterSource = 'all'; // 'all', 'google', 'local'
+    public string $filterSource = 'all'; // 'all', 'google', 'local', 'nas'
 
     public function mount(): void
     {
+        $this->loadScheduleSettings();
         $this->checkBackups();
+    }
+
+    public function loadScheduleSettings(): void
+    {
+        $settings = \App\Services\BackupScheduleService::getSettings();
+        $this->scheduleEnabled = (bool) ($settings['enabled'] ?? false);
+        $this->scheduleFrequency = (string) ($settings['frequency'] ?? 'daily');
+        $this->scheduleTime = (string) ($settings['time'] ?? '23:59');
+        $this->scheduleDayOfWeek = (int) ($settings['day_of_week'] ?? 0);
+        $this->scheduleDayOfMonth = (string) ($settings['day_of_month'] ?? 'last_day');
+        $this->scheduleTargetLocal = (bool) ($settings['target_local'] ?? true);
+        $this->scheduleTargetNas = (bool) ($settings['target_nas'] ?? true);
+        $this->scheduleTargetGoogle = (bool) ($settings['target_google'] ?? true);
+        $this->scheduleRetentionCount = (int) ($settings['retention_count'] ?? 30);
+        $this->scheduleLastRun = $settings['last_run_at'] ?? null;
+        $this->scheduleLastStatus = $settings['last_run_status'] ?? null;
+        $this->scheduleLastMessage = $settings['last_run_message'] ?? null;
+        $this->scheduleNextRun = \App\Services\BackupScheduleService::calculateNextRun();
+    }
+
+    public function toggleScheduleEnabled(): void
+    {
+        $this->scheduleEnabled = !$this->scheduleEnabled;
+        $this->saveScheduleSettings();
+    }
+
+    public function saveScheduleSettings(): void
+    {
+        $this->isSavingSchedule = true;
+        $saved = \App\Services\BackupScheduleService::saveSettings([
+            'enabled' => $this->scheduleEnabled,
+            'frequency' => $this->scheduleFrequency,
+            'time' => $this->scheduleTime,
+            'day_of_week' => $this->scheduleDayOfWeek,
+            'day_of_month' => $this->scheduleDayOfMonth,
+            'target_local' => $this->scheduleTargetLocal,
+            'target_nas' => $this->scheduleTargetNas,
+            'target_google' => $this->scheduleTargetGoogle,
+            'retention_count' => $this->scheduleRetentionCount,
+        ]);
+
+        $this->loadScheduleSettings();
+        $this->isSavingSchedule = false;
+
+        if ($saved) {
+            $statusText = $this->scheduleEnabled ? 'Active & Scheduled' : 'Paused (NAS Maintenance Mode)';
+            $this->successMessage = "Automated backup schedule configuration saved successfully. Schedule is currently {$statusText}.";
+        } else {
+            $this->errorMessage = 'Failed to save backup schedule configuration to database.';
+        }
+    }
+
+    public function triggerScheduledBackupNow(): void
+    {
+        $this->isBackupProcessing = true;
+        $this->successMessage = '';
+        $this->errorMessage = '';
+
+        try {
+            $result = \App\Services\BackupScheduleService::executeScheduledBackup(true, auth()->user()->username ?? 'Admin UI');
+
+            $this->loadScheduleSettings();
+            $this->checkBackups();
+
+            if ($result['success']) {
+                $filename = $result['filename'] ?? 'backup';
+                $recs = number_format($result['total_records'] ?? 0);
+                $this->successMessage = "🎉 Automated backup test executed successfully! Created snapshot [{$filename}] with {$recs} records and dispatched to configured storage targets.";
+            } else {
+                $this->errorMessage = "Scheduled backup test failed: " . ($result['message'] ?? 'Unknown error');
+            }
+        } catch (\Throwable $e) {
+            $this->errorMessage = "Execution error: " . $e->getMessage();
+        }
+
+        $this->isBackupProcessing = false;
     }
 
     public function updatedSearch(): void
@@ -132,6 +225,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             $list = array_filter($list, fn($item) => str_contains($item['source'] ?? '', 'Google Drive'));
         } elseif ($this->filterSource === 'local') {
             $list = array_filter($list, fn($item) => str_contains($item['source'] ?? '', 'Local Only'));
+        } elseif ($this->filterSource === 'nas') {
+            $list = array_filter($list, fn($item) => str_contains($item['source'] ?? '', 'NAS'));
         }
 
         return array_values($list);
@@ -333,7 +428,52 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 logger()->warning("Check local backups warning: " . $e->getMessage());
             }
 
-            // 2. Scan Google Drive backup/ folder via listContents (single API call with metadata)
+            // 2. Scan S3 / NAS Silo backups/ folder
+            try {
+                if (\Illuminate\Support\Facades\Storage::disk('s3')->exists('backups')) {
+                    $nasFiles = \Illuminate\Support\Facades\Storage::disk('s3')->files('backups');
+                    foreach ($nasFiles as $file) {
+                        $filename = basename($file);
+                        if (str_ends_with($filename, '.json') || str_starts_with($filename, 'rms_backup_') || str_contains($filename, 'rms_backup_')) {
+                            if (isset($foundBackups[$filename])) {
+                                $currentSource = $foundBackups[$filename]['source'];
+                                if (!str_contains($currentSource, 'NAS')) {
+                                    $foundBackups[$filename]['source'] = $currentSource . ' + NAS Silo';
+                                }
+                            } else {
+                                $size = \Illuminate\Support\Facades\Storage::disk('s3')->size($file);
+                                $lastModified = \Illuminate\Support\Facades\Storage::disk('s3')->lastModified($file);
+                                $isCustom = str_contains($filename, 'custom');
+
+                                $customLabel = null;
+                                if (preg_match('/^\[(.*?)\](.*)$/', $filename, $matches)) {
+                                    $customLabel = $matches[1];
+                                }
+
+                                $foundBackups[$filename] = [
+                                    'filename' => $filename,
+                                    'custom_label' => $customLabel,
+                                    'path' => $file,
+                                    'source' => 'S3 / NAS Silo',
+                                    'source_icon' => 'fa-solid fa-server',
+                                    'source_color' => '#8b5cf6',
+                                    'type' => $isCustom ? 'Selective' : 'Full Snapshot',
+                                    'type_badge' => $isCustom ? 'background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5;' : 'background: #f0fdf4; color: #15803d; border: 1px solid #dcfce7;',
+                                    'type_icon' => $isCustom ? 'fa-solid fa-filter' : 'fa-solid fa-database',
+                                    'size_formatted' => $this->formatBytes($size),
+                                    'size' => $size,
+                                    'last_modified' => $lastModified,
+                                    'date_formatted' => date('M d, Y h:i A', $lastModified),
+                                ];
+                            }
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                logger()->warning("Check S3 / NAS backups warning: " . $e->getMessage());
+            }
+
+            // 3. Scan Google Drive backup/ folder via listContents (single API call with metadata)
             try {
                 $googleItems = \Illuminate\Support\Facades\Storage::disk('google')->listContents('backup');
                 foreach ($googleItems as $item) {
@@ -852,6 +992,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         $filename = basename($filename);
         $localPath = "backups/{$filename}";
         $googlePath = "backup/{$filename}";
+        $nasPath = "backups/{$filename}";
 
         try {
             if (\Illuminate\Support\Facades\Storage::disk('local')->exists($localPath)) {
@@ -860,6 +1001,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
             if (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
                 \Illuminate\Support\Facades\Storage::disk('google')->delete($googlePath);
+            }
+
+            try {
+                if (\Illuminate\Support\Facades\Storage::disk('s3')->exists($nasPath)) {
+                    \Illuminate\Support\Facades\Storage::disk('s3')->delete($nasPath);
+                }
+            } catch (\Throwable $e) {
+                logger()->warning("Failed deleting from S3 / NAS: " . $e->getMessage());
             }
 
             if (\Illuminate\Support\Facades\Schema::hasTable('sys_backup_logs')) {
@@ -871,7 +1020,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             }
 
             \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
-                'changes' => "Deleted backup file [{$filename}] from Google Drive & Local storage",
+                'changes' => "Deleted backup file [{$filename}] from Google Drive, NAS Silo & Local storage",
                 'admin_id' => auth()->id(),
                 'what_system' => 3,
                 'when_changes' => now(),
@@ -973,6 +1122,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
 
         /* Dark mode inputs & selects */
         [data-theme="dark"] input[type="text"],
+        [data-theme="dark"] input[type="time"],
+        [data-theme="dark"] input[type="number"],
         [data-theme="dark"] select {
             background-color: #0b1120 !important;
             border-color: #334155 !important;
@@ -1207,6 +1358,236 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         </div>
     @endif
 
+    <!-- Automated Backup Schedule & NAS Configuration Card -->
+    <div style="background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 24px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; border-bottom: 1px solid #f1f5f9; padding-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+                <div style="width: 44px; height: 44px; border-radius: 12px; background: {{ $scheduleEnabled ? '#eff6ff' : '#fff7ed' }}; color: {{ $scheduleEnabled ? '#2563eb' : '#ea580c' }}; display: flex; align-items: center; justify-content: center; font-size: 20px;">
+                    <i class="fa-solid fa-clock-rotate-left"></i>
+                </div>
+                <div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <h2 style="font-size: 16px; font-weight: 800; color: #0f172a; margin: 0;">Automated Backup Schedule & NAS Storage</h2>
+                        @if ($scheduleEnabled)
+                            <span style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 5px;">
+                                <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981;"></span> ACTIVE
+                            </span>
+                        @else
+                            <span style="background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 5px;">
+                                <span style="width: 7px; height: 7px; border-radius: 50%; background: #f97316;"></span> PAUSED (NAS MAINTENANCE)
+                            </span>
+                        @endif
+                    </div>
+                    <p style="font-size: 12px; color: #64748b; margin: 3px 0 0 0;">
+                        Configure unattended database snapshots (e.g. daily at 23:59 or end-of-month) to ensure zero human-error data loss. Pause during NAS maintenance.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Maintenance Toggle Button -->
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <button type="button" wire:click="toggleScheduleEnabled" wire:loading.attr="disabled" style="background: {{ $scheduleEnabled ? '#fef2f2' : '#ecfdf5' }}; color: {{ $scheduleEnabled ? '#dc2626' : '#15803d' }}; border: 1px solid {{ $scheduleEnabled ? '#fecaca' : '#bbf7d0' }}; padding: 9px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;">
+                    <i class="fa-solid {{ $scheduleEnabled ? 'fa-pause' : 'fa-play' }}"></i>
+                    <span>{{ $scheduleEnabled ? 'Pause Schedule (NAS Maintenance)' : 'Resume Automated Backups' }}</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Telemetry / Status Cards Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 22px;">
+            <!-- Next Scheduled Run -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Next Expected Run</span>
+                    <i class="fa-solid fa-hourglass-half" style="color: #2563eb; font-size: 13px;"></i>
+                </div>
+                <div style="font-size: 13px; font-weight: 800; color: #0f172a; line-height: 1.3;">
+                    {{ $scheduleNextRun }}
+                </div>
+            </div>
+
+            <!-- Last Run Telemetry -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Last Automated Execution</span>
+                    <i class="fa-solid fa-check-double" style="color: {{ $scheduleLastStatus === 'failed' ? '#dc2626' : '#10b981' }}; font-size: 13px;"></i>
+                </div>
+                <div style="font-size: 13px; font-weight: 800; color: #0f172a; line-height: 1.3;">
+                    @if ($scheduleLastRun)
+                        {{ date('M d, Y h:i A', strtotime($scheduleLastRun)) }}
+                        <span style="font-size: 11px; font-weight: 700; color: {{ $scheduleLastStatus === 'failed' ? '#dc2626' : '#16a34a' }}; margin-left: 4px;">
+                            ({{ ucfirst($scheduleLastStatus ?? 'completed') }})
+                        </span>
+                    @else
+                        <span style="color: #94a3b8; font-weight: 600;">No schedule run recorded yet</span>
+                    @endif
+                </div>
+            </div>
+
+            <!-- Retention Policy -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Retention Quota</span>
+                    <i class="fa-solid fa-boxes-packing" style="color: #8b5cf6; font-size: 13px;"></i>
+                </div>
+                <div style="font-size: 13px; font-weight: 800; color: #0f172a; line-height: 1.3;">
+                    Keep latest {{ $scheduleRetentionCount }} snapshots
+                    <span style="font-size: 11px; color: #64748b; font-weight: 500; display: block; margin-top: 2px;">(Older backups pruned automatically)</span>
+                </div>
+            </div>
+
+            <!-- Destination Disks -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Target Storage</span>
+                    <i class="fa-solid fa-network-wired" style="color: #0d9488; font-size: 13px;"></i>
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
+                    @if ($scheduleTargetLocal)
+                        <span style="background: #e2e8f0; color: #334155; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px;">Local</span>
+                    @endif
+                    @if ($scheduleTargetNas)
+                        <span style="background: #ede9fe; color: #6d28d9; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px;">NAS Silo</span>
+                    @endif
+                    @if ($scheduleTargetGoogle)
+                        <span style="background: #dbeafe; color: #1d4ed8; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px;">Drive</span>
+                    @endif
+                </div>
+            </div>
+        </div>
+
+        <!-- Configuration Settings Form -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+            <h3 style="font-size: 13px; font-weight: 800; color: #0f172a; margin: 0 0 14px 0; text-transform: uppercase; letter-spacing: 0.04em;">Schedule & Policy Controls</h3>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+                <!-- Frequency -->
+                <div>
+                    <label style="display: block; font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 6px; text-transform: uppercase;">
+                        Frequency Interval
+                    </label>
+                    <select wire:model.live="scheduleFrequency" style="width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; font-weight: 600; background: #ffffff; color: #0f172a; cursor: pointer;">
+                        <option value="daily">Daily (Every Day)</option>
+                        <option value="end_of_month">End of Month (Last Day 23:59)</option>
+                        <option value="monthly">Monthly (Specific Day of Month)</option>
+                        <option value="weekly">Weekly (Specific Day of Week)</option>
+                    </select>
+                </div>
+
+                <!-- Specific Day (Conditional) -->
+                @if ($scheduleFrequency === 'weekly')
+                    <div>
+                        <label style="display: block; font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 6px; text-transform: uppercase;">
+                            Day of Week
+                        </label>
+                        <select wire:model="scheduleDayOfWeek" style="width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; font-weight: 600; background: #ffffff; color: #0f172a; cursor: pointer;">
+                            <option value="0">Sunday</option>
+                            <option value="1">Monday</option>
+                            <option value="2">Tuesday</option>
+                            <option value="3">Wednesday</option>
+                            <option value="4">Thursday</option>
+                            <option value="5">Friday</option>
+                            <option value="6">Saturday</option>
+                        </select>
+                    </div>
+                @elseif ($scheduleFrequency === 'monthly')
+                    <div>
+                        <label style="display: block; font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 6px; text-transform: uppercase;">
+                            Day of Month
+                        </label>
+                        <select wire:model="scheduleDayOfMonth" style="width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; font-weight: 600; background: #ffffff; color: #0f172a; cursor: pointer;">
+                            <option value="last_day">Last Day of Month (Dynamic)</option>
+                            <option value="1">1st of the Month</option>
+                            <option value="15">15th of the Month</option>
+                            <option value="28">28th of the Month</option>
+                        </select>
+                    </div>
+                @endif
+
+                <!-- Time of Execution -->
+                <div>
+                    <label style="display: block; font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 6px; text-transform: uppercase;">
+                        Execution Time (24h)
+                    </label>
+                    <input 
+                        type="time" 
+                        wire:model="scheduleTime" 
+                        style="width: 100%; padding: 7px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; font-weight: 700; background: #ffffff; color: #0f172a;"
+                    >
+                </div>
+
+                <!-- Retention Count -->
+                <div>
+                    <label style="display: block; font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 6px; text-transform: uppercase;">
+                        Max Snapshots to Keep
+                    </label>
+                    <input 
+                        type="number" 
+                        min="1" 
+                        max="365" 
+                        wire:model="scheduleRetentionCount" 
+                        placeholder="30"
+                        style="width: 100%; padding: 7px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; font-weight: 600; background: #ffffff; color: #0f172a;"
+                    >
+                </div>
+            </div>
+
+            <!-- Target Disks Selection -->
+            <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 14px;">
+                <label style="display: block; font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 8px; text-transform: uppercase;">
+                    Backup Storage Destinations:
+                </label>
+                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                    <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #334155; cursor: pointer;">
+                        <input type="checkbox" wire:model="scheduleTargetLocal" style="width: 16px; height: 16px; accent-color: #2563eb; cursor: pointer;">
+                        <span>Primary Local Disk (<code style="font-size: 11px; background: #e2e8f0; padding: 2px 4px; border-radius: 4px;">storage/app/backups</code>)</span>
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #334155; cursor: pointer;">
+                        <input type="checkbox" wire:model="scheduleTargetNas" style="width: 16px; height: 16px; accent-color: #7c3aed; cursor: pointer;">
+                        <span>S3 / NAS Silo Storage (<code style="font-size: 11px; background: #e2e8f0; padding: 2px 4px; border-radius: 4px;">s3:backups/</code>)</span>
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #334155; cursor: pointer;">
+                        <input type="checkbox" wire:model="scheduleTargetGoogle" style="width: 16px; height: 16px; accent-color: #059669; cursor: pointer;">
+                        <span>Google Drive Cloud Sync (<code style="font-size: 11px; background: #e2e8f0; padding: 2px 4px; border-radius: 4px;">google:backup/</code>)</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Buttons Row -->
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+            <div style="font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-shield-halved" style="color: #10b981;"></i>
+                <span>Database revert is always available in one click from the inventory below.</span>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <button 
+                    type="button" 
+                    wire:click="triggerScheduledBackupNow" 
+                    wire:loading.attr="disabled" 
+                    style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 9px 18px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;"
+                >
+                    <i class="fa-solid fa-play" wire:loading.remove wire:target="triggerScheduledBackupNow"></i>
+                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="triggerScheduledBackupNow"></i>
+                    <span wire:loading.remove wire:target="triggerScheduledBackupNow">Run Scheduled Backup Now (Test)</span>
+                    <span wire:loading wire:target="triggerScheduledBackupNow">Running Backup...</span>
+                </button>
+
+                <button 
+                    type="button" 
+                    wire:click="saveScheduleSettings" 
+                    wire:loading.attr="disabled" 
+                    style="background: #2563eb; color: white; border: none; padding: 9px 20px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);"
+                >
+                    <i class="fa-solid fa-floppy-disk" wire:loading.remove wire:target="saveScheduleSettings"></i>
+                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="saveScheduleSettings"></i>
+                    <span>Save Schedule Settings</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Main Card -->
     <div style="background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 24px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);">
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; border-bottom: 1px solid #f1f5f9; padding-bottom: 16px;">
@@ -1276,6 +1657,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                     <select wire:model.live="filterSource" style="padding: 7px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px; background: #ffffff; color: #0f172a; cursor: pointer;">
                         <option value="all">All Locations</option>
                         <option value="google">Google Drive (Synced)</option>
+                        <option value="nas">S3 / NAS Silo Storage</option>
                         <option value="local">Local Only</option>
                     </select>
                 </div>
@@ -1549,7 +1931,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                             @endif
                         </div>
                         <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 1.4;">
-                            Choose specific data categories to back up (Users, Offices, Roles, Flows, DTS, Messify, Logs).
+                            Choose specific data categories to back up (Users, Offices, Roles, Flows, DTS, Chatify, Logs).
                         </p>
                     </div>
                 </div>

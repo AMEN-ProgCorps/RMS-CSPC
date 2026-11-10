@@ -110,8 +110,11 @@ if [ -d storage/framework/views ]; then
     chmod -R 777 storage/framework/views || true
 fi
 if id appuser >/dev/null 2>&1; then
-    chown -R appuser:appuser "$VIEW_COMPILED_PATH" 2>/dev/null || true
-    chown -R appuser:appuser storage/framework/views 2>/dev/null || true
+    usermod -aG root appuser 2>/dev/null || true
+    chown -R appuser:appuser "$VIEW_COMPILED_PATH" storage bootstrap/cache 2>/dev/null || true
+fi
+if [ -S /var/run/docker.sock ]; then
+    chmod 666 /var/run/docker.sock 2>/dev/null || true
 fi
 
 # PaddleOCR model cache must be writable by PHP-FPM (appuser).

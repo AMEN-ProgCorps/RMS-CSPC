@@ -24,17 +24,18 @@ class SystemRefreshTokenTest extends TestCase
         $this->assertNotSame('', $before);
         $this->assertSame($before, SubsystemHelper::refreshToken(), 'Token must be stable while states are unchanged');
 
-        $original = DB::table($table)->where('subsystem_name', 'Messify')->value('is_active');
-        $this->assertNotNull($original, 'Messify subsystem row must exist');
+        $chatSubName = DB::table($table)->where('subsystem_name', 'Chatify')->exists() ? 'Chatify' : 'Messify';
+        $original = DB::table($table)->where('subsystem_name', $chatSubName)->value('is_active');
+        $this->assertNotNull($original, "{$chatSubName} subsystem row must exist");
 
         try {
-            DB::table($table)->where('subsystem_name', 'Messify')->update(['is_active' => ! $original]);
+            DB::table($table)->where('subsystem_name', $chatSubName)->update(['is_active' => ! $original]);
 
             $after = SubsystemHelper::refreshToken();
             $this->assertNotSame('', $after);
             $this->assertNotSame($before, $after, 'Token must change after activate/deactivate');
         } finally {
-            DB::table($table)->where('subsystem_name', 'Messify')->update(['is_active' => $original]);
+            DB::table($table)->where('subsystem_name', $chatSubName)->update(['is_active' => $original]);
         }
 
         $this->assertSame($before, SubsystemHelper::refreshToken(), 'Token must return to its original value after restore');

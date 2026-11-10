@@ -104,8 +104,8 @@ services:
     container_name: s3_storage
     restart: unless-stopped
     ports:
-      - "${S3_API_PORT:-9000}:9000"
-      - "${S3_CONSOLE_PORT:-9001}:9001"
+      - "${S3_API_PORT:-9100}:9000"
+      - "${S3_CONSOLE_PORT:-9101}:9001"
     environment:
       MINIO_ROOT_USER: "${S3_ROOT_USER:-admin}"
       MINIO_ROOT_PASSWORD: "${S3_ROOT_PASSWORD:-adminpassword}"
@@ -113,8 +113,10 @@ services:
     volumes:
       - s3_data:/data
     networks:
-      - rms_net
-
+      rms_net:
+        aliases:
+          - s3-storage
+          - s3
 
 volumes:
   pg_data:

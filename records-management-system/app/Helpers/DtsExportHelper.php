@@ -226,6 +226,14 @@ class DtsExportHelper
             $query->where('dtd.originated_from', $filters['office']);
         }
 
+        if (!empty($filters['status_order'])) {
+            if ($filters['status_order'] === 'ongoing_first') {
+                $query->orderByRaw("CASE WHEN LOWER(TRIM(dt.status)) = 'ongoing' THEN 0 ELSE 1 END ASC");
+            } elseif ($filters['status_order'] === 'completed_first') {
+                $query->orderByRaw("CASE WHEN LOWER(TRIM(dt.status)) = 'completed' THEN 0 ELSE 1 END ASC");
+            }
+        }
+
         $sortDirection = (!empty($filters['sort_order']) && in_array(strtolower($filters['sort_order']), ['asc', 'desc'])) 
             ? strtolower($filters['sort_order']) 
             : 'desc';

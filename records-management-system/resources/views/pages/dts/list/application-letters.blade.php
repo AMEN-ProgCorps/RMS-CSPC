@@ -45,6 +45,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public string $dateFrom = '';
     public string $dateTo = '';
     public string $sortOrder = 'desc';
+    public string $statusOrder = 'ongoing_first'; // ongoing_first, completed_first, none
     public int $perPage = 10;
     public string $searchQuery = '';
     public string $layoutMode = 'table'; // table or box
@@ -179,8 +180,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $colsToUse = !empty($this->exportColumns) ? $this->exportColumns : array_keys(array_filter($available, fn($c) => $c['default']));
 
         $filters = [
-            'sort_order' => $this->sortOrder,
-            'office'     => $this->selectedOffice,
+            'sort_order'   => $this->sortOrder,
+            'status_order' => $this->statusOrder,
+            'office'       => $this->selectedOffice,
         ];
 
         if ($this->exportFormat === 'excel') {
@@ -201,8 +203,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             'category'    => 'application_letters',
             'ids'         => implode(',', $this->selectedIds),
             'cols'        => implode(',', $colsToUse),
-            'sort_order'  => $this->sortOrder,
-            'office'      => $this->selectedOffice,
+            'sort_order'   => $this->sortOrder,
+            'status_order' => $this->statusOrder,
+            'office'       => $this->selectedOffice,
             'prepared_by' => $this->exportPreparedBy,
             'noted_by'    => $this->exportNotedBy,
         ];
@@ -315,6 +318,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    public function updatingStatusOrder()
+    {
+        $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
+    }
+
     public function resetFilters(): void
     {
         $this->searchQuery = '';
@@ -324,6 +334,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->dateFrom = '';
         $this->dateTo = '';
         $this->sortOrder = 'desc';
+        $this->statusOrder = 'ongoing_first';
         $this->resetPage();
         $this->selectedIds = [];
         $this->selectAll = false;
@@ -390,6 +401,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             } elseif ($to) {
                 $query->where('dtd.date_created', '<=', $to->toDateTimeString());
             }
+        }
+
+        if ($this->statusOrder === 'ongoing_first') {
+            $query->orderByRaw("CASE WHEN LOWER(TRIM(dt.status)) = 'ongoing' THEN 0 ELSE 1 END ASC");
+        } elseif ($this->statusOrder === 'completed_first') {
+            $query->orderByRaw("CASE WHEN LOWER(TRIM(dt.status)) = 'completed' THEN 0 ELSE 1 END ASC");
         }
 
         $sortDirection = in_array(strtolower($this->sortOrder), ['asc', 'desc']) ? strtolower($this->sortOrder) : 'desc';
@@ -1673,7 +1690,15 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                         <option value="asc">Date (Oldest First)</option>
                     </select>
                 </div>
-                @if(!empty($dateFrom) || !empty($dateTo) || !empty($searchQuery) || $selectedPriority !== 'all' || $selectedStatus !== 'all' || ($canViewAll && $selectedOffice !== 'all') || $sortOrder !== 'desc')
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span class="rms-filter-label">Modifier:</span>
+                    <select class="rms-select" wire:model.live="statusOrder" style="font-size: 0.82rem; height: 34px;" title="Filter Modifier">
+                        <option value="ongoing_first">Ongoing First</option>
+                        <option value="completed_first">Completed First</option>
+                        <option value="none">None</option>
+                    </select>
+                </div>
+                @if(!empty($dateFrom) || !empty($dateTo) || !empty($searchQuery) || $selectedPriority !== 'all' || $selectedStatus !== 'all' || ($canViewAll && $selectedOffice !== 'all') || $sortOrder !== 'desc' || $statusOrder !== 'ongoing_first')
                     <button type="button" wire:click="resetFilters" class="rms-select rms-btn-reset-filters" style="background-image: none; padding-right: 12px; display: inline-flex; align-items: center; gap: 4px; height: 34px; font-size: 0.82rem; font-weight: 600;" title="Reset all filters">
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                         Reset

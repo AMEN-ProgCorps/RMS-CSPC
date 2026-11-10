@@ -19,12 +19,12 @@ class ChatController extends Controller
             return redirect()->route('login');
         }
 
-        // Chatify/Messify subsystem check: ensure the messaging subsystem is active
-        $chatActive = \Illuminate\Support\Facades\DB::table(
+        // Chatify / Messify subsystem check: ensure the messaging subsystem is active
+        $chatifyActive = \Illuminate\Support\Facades\DB::table(
             \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems'
-        )->whereIn('subsystem_name', ['Messify', 'Chatify'])->where('is_active', true)->exists();
+        )->whereIn('subsystem_name', ['Chatify', 'Messify'])->where('is_active', true)->exists();
 
-        if (!$chatActive) {
+        if (!$chatifyActive) {
             return redirect()->route('portal');
         }
 

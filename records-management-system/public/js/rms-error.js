@@ -177,6 +177,77 @@
         return status >= 500 ? '#dc2626' : '#1d4ed8';
     }
 
+    function reportErrorPopout(detail) {
+        if (!detail) return;
+        var status = Number(detail.status) || 0;
+        // Skip routine client auth redirects, csrf renewals, or validation failures
+        if (status === 401 || status === 419 || status === 422) return;
+
+        var key = (status || '0') + '|' + (detail.title || '') + '|' + (detail.file || '') + '|' + (detail.message || '').substring(0, 50);
+        var now = Date.now();
+        window.__rmsReportedErrors = window.__rmsReportedErrors || {};
+        if (window.__rmsReportedErrors[key] && (now - window.__rmsReportedErrors[key]) < 15000) {
+            return;
+        }
+        window.__rmsReportedErrors[key] = now;
+
+        if (!detail.reference) {
+            detail.reference = 'POP-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        }
+
+        var token = document.querySelector('meta[name="csrf-token"]');
+        var csrf = token ? token.getAttribute('content') : '';
+        if (!csrf) {
+            var match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
+            csrf = match ? decodeURIComponent(match[1]) : '';
+        }
+
+        var payload = {
+            reference: detail.reference,
+            title: detail.title || (status >= 500 ? 'Server error' : (status === 408 ? 'Slow internet' : 'Client error popout')),
+            message: detail.message || '',
+            kind: detail.error_kind || (status >= 500 ? 'server' : (status === 408 ? 'network' : 'popout')),
+            http_status: status || 500,
+            url: detail.return_url || (location.pathname + location.search),
+            file: detail.file || null,
+            line: detail.line || null,
+            context: {
+                source: 'error_popout',
+                screen: window.innerWidth + 'x' + window.innerHeight,
+                online: navigator.onLine,
+                time: new Date().toISOString()
+            }
+        };
+
+        try {
+            var nativeFetch = originalFetch || window.fetch;
+            nativeFetch('/api/errors/auto-capture', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrf,
+                    'X-XSRF-TOKEN': csrf
+                },
+                body: JSON.stringify(payload)
+            }).then(function (r) {
+                return r.json().catch(function () { return {}; });
+            }).then(function (res) {
+                if (res && res.ticket_number) {
+                    detail.reference = res.ticket_number;
+                    var el = document.getElementById('rmsSlowInternet');
+                    if (el) el.dataset.reference = res.ticket_number;
+                    var refEl = document.getElementById('rmsErrorRef');
+                    if (refEl) {
+                        refEl.textContent = 'Reference: ' + res.ticket_number;
+                        refEl.style.display = 'block';
+                    }
+                }
+            }).catch(function () {});
+        } catch (e) {}
+    }
+
     function showErrorScreen(detail, force) {
         if (!force && !userIsWaiting()) return;
         detail = detail || {};
@@ -187,20 +258,28 @@
         var file = detail.file || '';
         var line = detail.line || 0;
         var color = errorColor(status);
+
+        if (!detail.reference) {
+            detail.reference = 'POP-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        }
+
+        reportErrorPopout(detail);
+
         var existing = document.getElementById('rmsSlowInternet');
         if (!existing) {
             existing = document.createElement('div');
             existing.id = 'rmsSlowInternet';
             existing.style.cssText = 'position:fixed;inset:0;z-index:100000;display:grid;place-items:center;font-family:Inter,system-ui,sans-serif;';
             existing.innerHTML =
-                '<main id="rmsErrorCard" style="width:min(520px,calc(100% - 32px));background:#fff;border-radius:12px;padding:24px;color:#0f172a;">' +
+                '<main id="rmsErrorCard" style="width:min(520px,calc(100% - 32px));background:#fff;border-radius:12px;padding:24px;color:#0f172a;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);">' +
                     '<p id="rmsErrorStatus" style="margin:0;font-size:0.8rem;font-weight:700;letter-spacing:0.04em;"></p>' +
                     '<strong id="rmsErrorTitle" style="display:block;margin-top:6px;font-size:1.15rem;"></strong>' +
                     '<p id="rmsErrorMessage" style="margin:8px 0 0;color:#475569;line-height:1.5;"></p>' +
                     '<p id="rmsErrorFile" style="margin-top:14px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;color:#334155;font-size:0.85rem;line-height:1.45;word-break:break-word;"></p>' +
+                    '<p id="rmsErrorRef" style="display:none;margin-top:10px;font-size:0.8rem;font-weight:600;color:#64748b;font-family:monospace;"></p>' +
                     '<div id="rmsErrorActions" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:16px;">' +
                         '<a href="#" id="rmsSlowInternetBack" style="display:inline-block;font-weight:600;text-decoration:none;">Back to the system</a>' +
-                        '<button type="button" id="rmsErrorReportBtn" style="display:none;border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:8px 12px;font:600 0.85rem Inter,system-ui,sans-serif;cursor:pointer;">Report this error</button>' +
+                        '<button type="button" id="rmsErrorReportBtn" style="display:inline-block;border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:8px 12px;font:600 0.85rem Inter,system-ui,sans-serif;cursor:pointer;">Report this error</button>' +
                     '</div>' +
                 '</main>';
             document.body.appendChild(existing);
@@ -215,8 +294,8 @@
             if (reportBtn) {
                 reportBtn.addEventListener('click', function () {
                     var payload = {
-                        reference: existing.dataset.reference || null,
-                        title: (document.getElementById('rmsErrorTitle') || {}).textContent || 'Server error',
+                        reference: existing.dataset.reference || detail.reference || null,
+                        title: (document.getElementById('rmsErrorTitle') || {}).textContent || 'Error Encountered',
                         description: (document.getElementById('rmsErrorMessage') || {}).textContent || ''
                     };
                     window.dispatchEvent(new CustomEvent('rms-open-report-problem', { detail: payload }));
@@ -235,6 +314,7 @@
         var titleEl = document.getElementById('rmsErrorTitle');
         var messageEl = document.getElementById('rmsErrorMessage');
         var fileEl = document.getElementById('rmsErrorFile');
+        var refEl = document.getElementById('rmsErrorRef');
         var backEl = document.getElementById('rmsSlowInternetBack');
         if (statusEl) {
             statusEl.textContent = status ? ('Error ' + status) : 'Error';
@@ -247,6 +327,14 @@
             fileEl.hidden = !file;
             fileEl.textContent = file ? ('File: ' + file + (line ? ' on line ' + line : '')) : '';
         }
+        if (refEl) {
+            if (detail.reference) {
+                refEl.textContent = 'Reference: ' + detail.reference;
+                refEl.style.display = 'block';
+            } else {
+                refEl.style.display = 'none';
+            }
+        }
         if (backEl) {
             backEl.setAttribute('href', backTarget || '#');
             backEl.setAttribute('data-return', backTarget);
@@ -255,8 +343,7 @@
         existing.dataset.reference = detail.reference || '';
         var reportBtn = document.getElementById('rmsErrorReportBtn');
         if (reportBtn) {
-            var canReport = status >= 500 || !!detail.reference;
-            reportBtn.style.display = canReport ? 'inline-block' : 'none';
+            reportBtn.style.display = 'inline-block';
             reportBtn.style.color = color;
             reportBtn.style.borderColor = color;
         }

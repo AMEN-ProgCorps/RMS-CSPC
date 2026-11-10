@@ -115,11 +115,9 @@ new class extends Component {
                 document.body.classList.add('report-widget-open');
             }
             const syncMessifyPresent = () => {
-                if (!document.getElementById('messify-global-widget') && !document.getElementById('messify-global-widget')) {
-                    document.body.classList.add('no-messify-widget');
+                if (!document.getElementById('messify-global-widget')) {
                     document.body.classList.add('no-messify-widget');
                 } else {
-                    document.body.classList.remove('no-messify-widget');
                     document.body.classList.remove('no-messify-widget');
                 }
             };
@@ -238,11 +236,11 @@ new class extends Component {
 </div>
 
 <style>
-    /* Default state: Circular icon button matching Messify */
+    /* Default state: Circular icon button matching Messify, positioned horizontally next to Chatify */
     .rms-report-fab {
         position: fixed;
-        right: 24px;
-        bottom: 92px; /* clear Messify FAB (56px @ bottom 24px + 12px gap) */
+        right: 92px; /* Next to Chatify (24px + 56px + 12px gap) */
+        bottom: 24px;
         z-index: 999998;
         height: 56px;
         min-width: 56px;
@@ -263,8 +261,8 @@ new class extends Component {
         box-sizing: border-box;
         transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
                     padding 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-                    bottom 0.35s cubic-bezier(0.34, 1.25, 0.64, 1),
-                    transform 0.2s ease,
+                    right 0.3s cubic-bezier(0.34, 1.25, 0.64, 1),
+                    transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
                     background 0.2s ease,
                     box-shadow 0.2s ease;
     }
@@ -276,6 +274,14 @@ new class extends Component {
         background: #1e293b;
         transform: translateY(-1px);
         box-shadow: 0 14px 32px rgba(15, 23, 42, 0.45);
+    }
+
+    /* If Chatify is hovered and expands, Report FAB slides left cleanly */
+    body:has(#messify-global-widget:hover) .rms-report-fab {
+        transform: translateX(-78px);
+    }
+    body:has(#messify-global-widget:hover) .rms-report-fab:hover {
+        transform: translateX(-78px) translateY(-1px);
     }
 
     .rms-report-fab-icon {
@@ -313,21 +319,9 @@ new class extends Component {
         width: 124px;
     }
 
-    /* When Messify widget is open, Report FAB moves UP above the Messify card */
-    body.messify-widget-open .rms-report-fab {
-        bottom: calc(min(620px, calc(100vh - 100px)) + 104px) !important;
-        z-index: 1000000 !important;
-    }
-
-    /* When Report Problem widget is opened, its FAB sits at bottom 24px as active toggle */
-    body.report-widget-open .rms-report-fab {
-        bottom: 24px !important;
-        z-index: 1000000 !important;
-    }
-
-    /* If Messify is absent/disabled, Report FAB rests at bottom 24px */
+    /* If Messify is absent/disabled, Report FAB moves to right: 24px */
     body.no-messify-widget .rms-report-fab {
-        bottom: 24px;
+        right: 24px;
     }
 
     /* Floating Report Card (matches Messify widget card layout & animation) */

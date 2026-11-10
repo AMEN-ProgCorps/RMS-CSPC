@@ -153,13 +153,6 @@ body.messify-widget-open .rms-messify-fab:hover {
     width: 120px;
 }
 
-/* When Report Problem widget is opened, Messify moves UP above the Report Card */
-body.report-widget-open #messify-global-widget,
-body.report-widget-open #messify-global-widget {
-    bottom: calc(min(580px, calc(100vh - 100px)) + 104px) !important;
-    z-index: 1000000 !important;
-}
-
 @media print {
     #messify-global-widget,
     #messify-global-widget,

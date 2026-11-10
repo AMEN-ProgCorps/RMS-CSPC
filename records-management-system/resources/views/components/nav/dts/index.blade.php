@@ -14,11 +14,14 @@
     $defaultCreateRoute = $canInternal ? route('dts.create.internal') : ($canExternal ? route('dts.create.external') : ($canApplication ? route('dts.create.application-letters') : ($canIssuance ? route('dts.create.issuances') : '')));
     $defaultListRoute = $canInternal ? route('dts.list.internal') : ($canExternal ? route('dts.list.external') : ($canApplication ? route('dts.list.application-letters') : ($canIssuance ? route('dts.list.issuances') : '')));
     $defaultHistoryRoute = $canInternal ? route('dts.history.internal') : ($canExternal ? route('dts.history.external') : ($canApplication ? route('dts.history.application-letters') : ($canIssuance ? route('dts.history.issuances') : '')));
+
+    $navGuides = \App\Services\ManualService::getNavGuides();
 @endphp
 
 {{-- 1. Transactions Section --}}
 <div id="dts-transactions-id" class="button-section-container {{ ((request()->routeIs('dts') || request()->routeIs('dts.incoming') || request()->routeIs('dts.my-transactions') || request()->routeIs('dts.received') || request()->routeIs('dts.forwarded')) && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ (request()->routeIs('dts') || request()->routeIs('dts.incoming') || request()->routeIs('dts.my-transactions') || request()->routeIs('dts.received') || request()->routeIs('dts.forwarded')) ? 'force-active' : '' }}" 
+         data-nav-guide="{{ $navGuides['Transactions'] ?? 'View incoming, received, and forwarded transactions' }}"
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultTransactionsRoute}')" : "showButtonSection('dts-transactions-id')" }}">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
@@ -53,7 +56,9 @@
 
 {{-- 2. Scanner Section --}}
 <div id="dts-scanner-id" class="button-section-container">
-    <div class="button-container {{ request()->routeIs('dts.scanner') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.scanner') }}')">
+    <div class="button-container {{ request()->routeIs('dts.scanner') ? 'force-active' : '' }}" 
+         data-nav-guide="{{ $navGuides['Scanner'] ?? 'Scan barcode slips and verify document transaction status' }}"
+         onclick="proccedto('{{ route('dts.scanner') }}')">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
                 <path d="M3 8V5a2 2 0 0 1 2-2h3v2H5v3H3zm13-5h3a2 2 0 0 1 2 2v3h-2V5h-3V3zM3 16v3a2 2 0 0 0 2 2h3v-2H5v-3H3zm18 0v3a2 2 0 0 1-2 2h-3v-2h3v-3h2zM7 7h3.5v3.5H7V7zm6.5 0h3.5v3.5h-3.5V7zM7 13.5h3.5v3.5H7v-3.5zm6.5 0h3.5v3.5h-3.5v-3.5z" fill="#4F4F4F"/>
@@ -69,6 +74,7 @@
 @if($canAnyCreate)
 <div id="dts-create-id" class="button-section-container {{ (request()->routeIs('dts.create.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.create.*') ? 'force-active' : '' }}" 
+         data-nav-guide="{{ $navGuides['Create Transaction'] ?? 'Create Your Specification Transaction in this area' }}"
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultCreateRoute}')" : "showButtonSection('dts-create-id')" }}">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
@@ -107,6 +113,7 @@
 @if($canAnyCreate)
 <div id="dts-list-id" class="button-section-container {{ (request()->routeIs('dts.list.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.list.*') ? 'force-active' : '' }}" 
+         data-nav-guide="{{ $navGuides['List of Transactions'] ?? 'View, track, and monitor incoming and outgoing transaction records' }}"
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultListRoute}')" : "showButtonSection('dts-list-id')" }}">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
@@ -145,6 +152,7 @@
 @if($canAnyCreate)
 <div id="dts-history-id" class="button-section-container {{ (request()->routeIs('dts.history.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.history.*') ? 'force-active' : '' }}" 
+         data-nav-guide="{{ $navGuides['History'] ?? 'Review completed and archived transaction histories' }}"
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultHistoryRoute}')" : "showButtonSection('dts-history-id')" }}">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
@@ -178,3 +186,66 @@
     </div>
 </div>
 @endif
+
+<style>
+    /* Navigation Section Hover Tooltips */
+    .button-container[data-nav-guide] {
+        position: relative;
+    }
+    .button-container[data-nav-guide]::after {
+        content: attr(data-nav-guide);
+        position: absolute;
+        left: calc(100% + 14px);
+        top: 50%;
+        transform: translateY(-50%) translateX(-8px);
+        background: #0f172a;
+        color: #f8fafc;
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.4;
+        white-space: nowrap;
+        padding: 7px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.35);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                    visibility 0.2s;
+        z-index: 99999;
+    }
+    .button-container[data-nav-guide]::before {
+        content: '';
+        position: absolute;
+        left: calc(100% + 8px);
+        top: 50%;
+        transform: translateY(-50%);
+        border-width: 5px 6px 5px 0;
+        border-style: solid;
+        border-color: transparent #0f172a transparent transparent;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.2s;
+        z-index: 99999;
+    }
+    .button-container[data-nav-guide]:hover::after {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(-50%) translateX(0);
+    }
+    .button-container[data-nav-guide]:hover::before {
+        opacity: 1;
+        visibility: visible;
+    }
+    [data-theme="dark"] .button-container[data-nav-guide]::after {
+        background: #1e293b;
+        border-color: #334155;
+    }
+    [data-theme="dark"] .button-container[data-nav-guide]::before {
+        border-color: transparent #1e293b transparent transparent;
+    }
+</style>

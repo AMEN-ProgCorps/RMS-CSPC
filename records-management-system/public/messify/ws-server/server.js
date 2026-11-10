@@ -309,11 +309,23 @@ function timingSafeEqual(a, b) {
   }
 }
 
+// Track accounts marked online via RMS login/heartbeat pushes so presence_snapshot
+// includes users who are active in Main RMS even before opening a WS connection,
+// and track token revocation cutoffs so pre-logout tokens can't reconnect after logout.
+const rmsOnlineAccounts = new Set();
+const accountRevokedUntilExpires = new Map();
+
 // Verify HMAC token issued by PHP
 function verifyToken(accountId, expires, token) {
   const currentTimestamp = Math.floor(Date.now() / 1000);
-  if (currentTimestamp > parseInt(expires)) {
+  const expInt = parseInt(expires, 10);
+  if (!expInt || currentTimestamp > expInt) {
     log(`Token expired: token expires at ${expires}, current time is ${currentTimestamp}`);
+    return false;
+  }
+  const minAllowedExpires = accountRevokedUntilExpires.get(Number(accountId));
+  if (minAllowedExpires && expInt <= minAllowedExpires) {
+    log(`Token revoked by logout/kick for account_id=${accountId}`);
     return false;
   }
   const payload = accountId + '|' + expires;
@@ -420,22 +432,63 @@ function handleInternalPush(req, res) {
 
     const outPayloadStr = JSON.stringify(Object.assign({ type }, eventData || {}));
 
+    if (type === 'presence' && eventData && eventData.account_id) {
+      const pAccId = Number(eventData.account_id);
+      if (pAccId > 0) {
+        if (eventData.status === 'offline') {
+          const ts = Number(eventData.timestamp) || Math.floor(Date.now() / 1000);
+          rmsOnlineAccounts.delete(pAccId);
+          recordLastSeen(pAccId, ts);
+        } else if (eventData.status === 'online') {
+          rmsOnlineAccounts.add(pAccId);
+          accountRevokedUntilExpires.delete(pAccId);
+          lastSeenTimestamps.delete(pAccId);
+        }
+      }
+    }
+
     // force_disconnect=true means "this account's RMS session is gone —
     // don't just notify the client, make sure the socket can't be used
-    // again." Used for explicit logout and session-kick events. The
-    // message is still sent first so the client can show a friendly
-    // overlay before the socket goes away out from under it.
+    // again." Used for explicit logout and session-kick events.
     const shouldForceDisconnect = payload.force_disconnect === true;
 
     function closeTargets(accountIds) {
       const seen = new Set();
+      const offlineTimestamp = Math.floor(Date.now() / 1000);
       for (const id of accountIds) {
-        if (seen.has(id)) continue;
+        if (!id || seen.has(id)) continue;
         seen.add(id);
+
+        rmsOnlineAccounts.delete(id);
+        accountRevokedUntilExpires.set(id, offlineTimestamp + 905);
+        recordLastSeen(id, offlineTimestamp);
+
         const set = accountSockets.get(id);
-        if (!set) continue;
-        for (const clientWs of Array.from(set)) {
+        const socketsToClose = set ? Array.from(set) : [];
+        if (set) {
+          for (const clientWs of socketsToClose) {
+            const st = clients.get(clientWs);
+            if (st) st.authenticated = false;
+          }
+          accountSockets.delete(id);
+        }
+
+        // Immediately broadcast presence: offline to all connected clients
+        // so every other user sees the logout instantaneously without waiting
+        // for the TCP/WebSocket close handshake or heartbeat timeout.
+        const presenceMsg = JSON.stringify({
+          type: 'presence',
+          account_id: id,
+          status: 'offline',
+          timestamp: offlineTimestamp,
+        });
+        broadcastToAll(presenceMsg);
+
+        for (const clientWs of socketsToClose) {
           try { clientWs.close(4002, 'Session invalidated'); } catch (e) {}
+          setTimeout(() => {
+            try { clientWs.terminate(); } catch (e) {}
+          }, 150);
         }
       }
     }
@@ -486,11 +539,7 @@ function handleInternalPush(req, res) {
     }
 
     if (shouldForceDisconnect) {
-      // Small delay so the message above has a chance to reach the client
-      // before the socket disappears — the overlay is cosmetic, but the
-      // disconnect itself must happen regardless of whether the client
-      // reacts to the message.
-      setTimeout(() => closeTargets(targets), 250);
+      closeTargets(targets);
     }
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -582,9 +631,13 @@ wss.on('connection', (ws) => {
         // above). This is what lets the frontend render "Active X ago" for
         // someone who was already offline before this client connected,
         // without needing a separate database fetch.
+        const combinedOnline = Array.from(new Set([
+          ...accountSockets.keys(),
+          ...rmsOnlineAccounts
+        ]));
         safeSend(ws, JSON.stringify({
           type: 'presence_snapshot',
-          online_accounts: Array.from(accountSockets.keys()),
+          online_accounts: combinedOnline,
           last_seen: Object.fromEntries(lastSeenTimestamps)
         }));
 
@@ -1056,6 +1109,7 @@ wss.on('connection', (ws) => {
       // If user now has 0 remaining connected sockets, broadcast offline presence to all
       if (!accountSockets.has(state.accountId)) {
         const offlineTimestamp = Math.floor(Date.now() / 1000);
+        rmsOnlineAccounts.delete(state.accountId);
 
         // Record this in memory so any client that connects/refreshes AFTER
         // this moment still gets an accurate "Active X ago" via the next

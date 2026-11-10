@@ -68,6 +68,19 @@ new class extends Component {
                         'is_currently_online' => false,
                         'last_online_time' => now(),
                     ]);
+                DB::table('sessions')->where('user_id', $user->id)->delete();
+            } catch (\Throwable) {}
+
+            try {
+                $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                    ? public_path('chatify/core/WsPush.php')
+                    : public_path('messify/core/WsPush.php');
+                if (is_file($wsPushFile)) {
+                    require_once $wsPushFile;
+                    if (class_exists('WsPush')) {
+                        \WsPush::forceDisconnect((int) $user->id, 'logged_out');
+                    }
+                }
             } catch (\Throwable) {}
         }
 
@@ -194,11 +207,6 @@ new class extends Component {
         if (window.Livewire && typeof window.Livewire.on === 'function') {
             window.Livewire.on('system-refresh-token-changed', (e) => applySystemRefreshToken(e && e.detail !== undefined ? e.detail : e));
         }
-        window.addEventListener('pagehide', () => {
-            const data = new FormData();
-            data.append('_token', '{{ csrf_token() }}');
-            navigator.sendBeacon('{{ url('/api/session/tab-closed') }}', data);
-        });
     "
     @mousemove.window.passive="onUserActivity()"
     @mousedown.window.passive="onUserActivity()"

@@ -132,12 +132,39 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
     {
         $user = Auth::user();
         if ($user) {
-            \Illuminate\Support\Facades\DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details')
-                ->where('account_id', $user->id)
-                ->update([
-                    'is_currently_online' => false,
-                    'last_online_time'    => now(),
+            $secLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+            $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+            try {
+                \Illuminate\Support\Facades\DB::table($secLogsTbl)->insert([
+                    'status'      => 3, // Logout
+                    'account'     => $user->id,
+                    'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
+                    'time'        => now(),
                 ]);
+            } catch (\Throwable) {}
+
+            try {
+                \Illuminate\Support\Facades\DB::table($accDetailsTbl)
+                    ->where('account_id', $user->id)
+                    ->update([
+                        'is_currently_online' => false,
+                        'last_online_time'    => now(),
+                    ]);
+                \Illuminate\Support\Facades\DB::table('sessions')->where('user_id', $user->id)->delete();
+            } catch (\Throwable) {}
+
+            try {
+                $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                    ? public_path('chatify/core/WsPush.php')
+                    : public_path('messify/core/WsPush.php');
+                if (is_file($wsPushFile)) {
+                    require_once $wsPushFile;
+                    if (class_exists('WsPush')) {
+                        \WsPush::forceDisconnect((int) $user->id, 'logged_out');
+                    }
+                }
+            } catch (\Throwable) {}
         }
 
         Auth::logout();

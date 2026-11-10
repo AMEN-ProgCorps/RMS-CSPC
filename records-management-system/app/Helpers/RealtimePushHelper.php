@@ -85,7 +85,9 @@ class RealtimePushHelper
 
         try {
             if (! class_exists('WsPush', false)) {
-                $bootstrap = public_path('messify/bootstrap.php');
+                $bootstrap = is_file(public_path('chatify/bootstrap.php'))
+                    ? public_path('chatify/bootstrap.php')
+                    : public_path('messify/bootstrap.php');
                 if (! is_file($bootstrap)) {
                     return;
                 }

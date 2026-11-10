@@ -145,6 +145,7 @@ if ($searchQuery !== '') {
             'office_id'           => $user['office_id'],
             'office_name'         => $user['office_name'],
             'office_code'         => $user['office_code'],
+            'is_currently_online' => UserResolver::parsePgBool($user['is_currently_online'] ?? false),
             'last_online_time'    => $user['last_online_time'] ?? null,
             'lastMessage'         => $lastMessageText,
             'lastTimestamp'       => $lastTimestamp,
@@ -155,7 +156,7 @@ if ($searchQuery !== '') {
             'allow_see_typing_preview' => (isset($user['allow_see_typing_preview']) && $user['allow_see_typing_preview'] !== null)
                 ? (!in_array($user['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
                 : true,
-            'is_messify_verified' => (bool) ($user['is_messify_verified'] ?? false),
+            'is_messify_verified' => UserResolver::parsePgBool($user['is_messify_verified'] ?? false),
             'avatar_url'          => $user['avatar_url'] ?? null,
         ];
     }
@@ -200,6 +201,7 @@ if ($searchQuery !== '') {
             'office_id'           => $userInfo['office_id'],
             'office_name'         => $userInfo['office_name'],
             'office_code'         => $userInfo['office_code'],
+            'is_currently_online' => UserResolver::parsePgBool($userInfo['is_currently_online'] ?? false),
             'last_online_time'    => $userInfo['last_online_time'] ?? null,
             'lastMessage'         => $lastMessageText,
             'lastTimestamp'       => (int) ($conv['last_ts'] ?? 0),
@@ -210,7 +212,7 @@ if ($searchQuery !== '') {
             'allow_see_typing_preview' => (isset($userInfo['allow_see_typing_preview']) && $userInfo['allow_see_typing_preview'] !== null)
                 ? (!in_array($userInfo['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
                 : true,
-            'is_messify_verified' => (bool) ($userInfo['is_messify_verified'] ?? false),
+            'is_messify_verified' => UserResolver::parsePgBool($userInfo['is_messify_verified'] ?? false),
             'avatar_url'          => $userInfo['avatar_url'] ?? null,
         ];
     }
@@ -325,7 +327,7 @@ if ($isAdmin) {
                 SELECT g.id, g.name, g.creator_id,
                        EXTRACT(EPOCH FROM g.created_at)::BIGINT AS created_ts,
                        (SELECT COUNT(*) FROM messify_chat_custom_group_members WHERE group_id = g.id) AS member_count,
-                       (SELECT COUNT(*) FROM messify_chat_messages WHERE conv_id = (\'gc_\' || g.id) AND status = \'active\') AS msg_count
+                       (SELECT COUNT(*) FROM messify_chat_messages WHERE conv_id = (\'gc_\' || g.id) AND (status = \'active\' OR status IS NULL)) AS msg_count
                 FROM messify_chat_custom_groups g
                 WHERE g.creator_id = :target_id
                    OR EXISTS (SELECT 1 FROM messify_chat_custom_group_members WHERE group_id = g.id AND account_id = :target_id)

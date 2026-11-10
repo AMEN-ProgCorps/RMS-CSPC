@@ -58,7 +58,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 401);
             }
 
-            if ($request->is('open-chat', 'messify*', 'messify*')) {
+            if ($request->is('open-chat', 'messify*', 'chatify*')) {
                 return response('<!DOCTYPE html><html><head><script>if(window.top){window.top.location.href="' . route('login') . '";}</script></head><body></body></html>', 401)
                     ->header('Content-Type', 'text/html');
             }

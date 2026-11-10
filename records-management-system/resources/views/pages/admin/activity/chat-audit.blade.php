@@ -505,7 +505,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
                     Each row below represents one backup session — a snapshot of messages taken before an admin cleared or wiped the chat.
                     Click <strong>Download</strong> to export the messages as a plain-text JSON file for audit purposes.
                 </span>
-                <a href="/messify/get_chat_backup.php"
+                <a href="/chatify/get_chat_backup.php"
                    target="_blank"
                    class="btn-download-backup"
                    style="margin-left: auto; white-space: nowrap;">
@@ -557,7 +557,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
                                     <span class="backup-session-pill">{{ number_format($session->conv_count) }}</span>
                                 </td>
                                 <td style="text-align: center;">
-                                    <a href="/messify/get_chat_backup.php?archived_at={{ urlencode($downloadDate) }}"
+                                    <a href="/chatify/get_chat_backup.php?archived_at={{ urlencode($downloadDate) }}"
                                        target="_blank"
                                        class="btn-download-backup"
                                        title="Download messages from this backup session as a plain-text JSON file">

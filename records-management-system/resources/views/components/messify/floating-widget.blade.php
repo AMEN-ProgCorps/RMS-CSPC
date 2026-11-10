@@ -21,18 +21,6 @@
     $notificationSoundAlert = $user ? $user->notificationSoundAlert() : true;
 @endphp
 
-<script type="speculationrules">
-{
-  "prerender": [
-    {
-      "source": "list",
-      "urls": ["{{ route('open-chat') }}"],
-      "eagerness": "moderate"
-    }
-  ]
-}
-</script>
-
 <div id="messify-global-widget" class="messify-floating-widget messify-floating-widget" style="position: fixed; bottom: 24px; right: 24px; z-index: 999999; font-family: 'Inter', system-ui, -apple-system, sans-serif; transition: bottom 0.35s cubic-bezier(0.34, 1.25, 0.64, 1);">
     <!-- Chat Window Container -->
     <div id="messify-widget-card" 
@@ -468,7 +456,6 @@ body.report-widget-open #messify-global-widget {
     let messifyLoadedOnce = false;
 
     function speculatePreloadMessifyIframe() {
-        if (!isTabletOrDesktop()) return;
         const iframe = document.getElementById('messify-iframe');
         if (iframe && (!iframe.src || iframe.src.includes('about:blank') || iframe.src === '')) {
             const loader = document.getElementById('messify-iframe-loader');
@@ -477,26 +464,22 @@ body.report-widget-open #messify-global-widget {
         }
     }
 
-    function attachSpeculativeListeners() {
-        // Feature detection check for Speculation Rules API
-        if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
-            if (!document.getElementById('messify-speculation-rules-dynamic')) {
-                try {
-                    const specScript = document.createElement('script');
-                    specScript.id = 'messify-speculation-rules-dynamic';
-                    specScript.type = 'speculationrules';
-                    specScript.textContent = JSON.stringify({
-                        prerender: [{
-                            source: "list",
-                            urls: ["{{ route('open-chat') }}"],
-                            eagerness: "moderate"
-                        }]
-                    });
-                    document.head.appendChild(specScript);
-                } catch (e) {}
+    function closeMessifyIframeSocket() {
+        try {
+            const iframe = document.getElementById('messify-iframe');
+            if (iframe) {
+                if (iframe.contentWindow) {
+                    iframe.contentWindow.sessionKicked = true;
+                    if (iframe.contentWindow.ws) {
+                        try { iframe.contentWindow.ws.close(1000, 'Logout'); } catch (e) {}
+                    }
+                }
+                iframe.src = 'about:blank';
             }
-        }
+        } catch (e) {}
+    }
 
+    function attachSpeculativeListeners() {
         const btn = document.getElementById('messify-widget-btn');
         if (btn) {
             btn.addEventListener('mouseenter', speculatePreloadMessifyIframe, { passive: true });
@@ -507,6 +490,14 @@ body.report-widget-open #messify-global-widget {
             dropdownBadge.parentElement.addEventListener('mouseenter', speculatePreloadMessifyIframe, { passive: true });
             dropdownBadge.parentElement.addEventListener('pointerdown', speculatePreloadMessifyIframe, { passive: true });
         }
+        document.addEventListener('click', function(e) {
+            const logoutTrigger = e.target && e.target.closest
+                ? e.target.closest('a[href*="/logout"], button[onclick*="/logout"], .subSystem--logout, button.logout, [wire\\:click="logout"], [wire\\:click*="logout"], form[action*="/logout"] button')
+                : null;
+            if (logoutTrigger) {
+                closeMessifyIframeSocket();
+            }
+        }, true);
     }
 
     function initWidgetState() {
@@ -514,6 +505,7 @@ body.report-widget-open #messify-global-widget {
         if (!isTabletOrDesktop()) {
             isOpen = false;
             setWidgetVisibility(false, false);
+            setTimeout(speculatePreloadMessifyIframe, 400);
             // Still poll unread so system/distribution popouts work on mobile.
             updateUnreadBadge();
             return;
@@ -531,6 +523,9 @@ body.report-widget-open #messify-global-widget {
             setWidgetVisibility(true, false);
         } else {
             document.body.classList.remove('messify-widget-open');
+            // Preload the Messify iframe in the background so the user's
+            // WebSocket presence connection is established even while minimized.
+            setTimeout(speculatePreloadMessifyIframe, 400);
         }
 
         updateUnreadBadge();
@@ -890,7 +885,7 @@ body.report-widget-open #messify-global-widget {
                 iconChat.style.display = 'block';
                 iconClose.style.display = 'none';
             }
-            btn.setAttribute('title', 'Messify Messages');
+            btn.setAttribute('title', 'Chatify Messages');
         }
     }
 

@@ -1214,16 +1214,48 @@
     let hoverReplyHideTimer = null;
 
     function positionHoverReplyBtn(container) {
+      if (!container || !chatBox) return;
       // Match both text bubbles and image/audio media containers
       const bubble = container.querySelector('.message-bubble, .message-media');
       if (!bubble) return;
+
       const rect = bubble.getBoundingClientRect();
+      const chatBoxRect = chatBox.getBoundingClientRect();
+      const headerEl = document.querySelector('.header');
+      const headerBottom = headerEl ? headerEl.getBoundingClientRect().bottom : chatBoxRect.top;
+      const topBoundary = Math.max(chatBoxRect.top, headerBottom);
+      const bottomBoundary = chatBoxRect.bottom;
+
+      // If the chat message is NOT fully visible in the viewport (scrolled under header or cut off at bottom),
+      // do not show the hover reply button at all
+      if (rect.top < topBoundary || rect.bottom > bottomBoundary) {
+        hoverReplyBtn.classList.remove('visible');
+        hoveredReplyContainer = null;
+        return;
+      }
+
       const isSent = container.classList.contains('sent');
       const top = rect.top + rect.height / 2 - 15; // center on bubble, btn is 30px tall
+
+      // Guard: reply button must strictly stay within visible chat boundaries and never overlap header or input area
+      if (top < topBoundary + 4 || (top + 30) > bottomBoundary - 4) {
+        hoverReplyBtn.classList.remove('visible');
+        hoveredReplyContainer = null;
+        return;
+      }
+
       // Sent bubbles sit on the right — put the button just to their left.
       // Received bubbles sit on the left — put the button just to their right.
       const left = isSent ? (rect.left - 36) : (rect.right + 6);
-      hoverReplyBtn.style.top = Math.max(4, top) + 'px';
+
+      // Horizontal boundary guard
+      if (left < chatBoxRect.left || (left + 30) > chatBoxRect.right) {
+        hoverReplyBtn.classList.remove('visible');
+        hoveredReplyContainer = null;
+        return;
+      }
+
+      hoverReplyBtn.style.top = top + 'px';
       hoverReplyBtn.style.left = left + 'px';
       hoverReplyBtn.classList.add('visible');
       hoveredReplyContainer = container;

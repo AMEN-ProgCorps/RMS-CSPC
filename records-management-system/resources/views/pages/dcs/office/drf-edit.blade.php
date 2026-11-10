@@ -230,7 +230,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                     </div>
                     <div class="reg-field ofi-distribute-field">
                         <label class="ofi-distribute-label">
-                            <span>Distribute document to (department/position) <span class="ofi-req">*</span></span>
+                            <span>Distribute document to (department/position)</span>
                             <span class="ofi-total-offices" aria-live="polite">
                                 total offices: <strong data-ofi-selected-count="distribute">0</strong>
                             </span>
@@ -240,6 +240,8 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                             <p class="ofi-hint">These offices are the same as the previous distribution of the document being revised. You can add more offices.</p>
                         @endif
                         <p class="ofi-hint">
+                            Leave empty if this controlled document is for your office only — your office is already Source Unit.
+                            Add other offices only when they need a distributed copy (Incoming). Selecting your own office does not put the document on your Incoming list.
                             Search by office name or code — selected offices show their <strong>full name</strong> here.
                             If more than 24 offices are selected, the print form shows “Please see attached list of offices” and lists them on following pages.
                             Click the <i class="fa-solid fa-chevron-down ofi-hint-icon"></i> arrow to view or remove selected offices.
@@ -428,6 +430,16 @@ window.__ofiSourceConfigs = [
             reason.dispatchEvent(new Event('input', { bubbles: true }));
         });
     }
+    // Enter in date/text fields would implicit-submit via the first submit button (Preview).
+    form.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        const t = e.target;
+        if (!t || t.tagName === 'TEXTAREA') return;
+        if (t.tagName === 'BUTTON') return;
+        if (t.tagName === 'INPUT' && (t.type === 'submit' || t.type === 'button')) return;
+        e.preventDefault();
+    });
+
     form.addEventListener('submit', function (e) {
         if (e.submitter && e.submitter.id === 'ofiDrfPreviewBtn') return;
         if (!confirmBox.checked) {
@@ -436,12 +448,7 @@ window.__ofiSourceConfigs = [
             return;
         }
 
-        const selected = form.querySelectorAll('input[name="distributeToOffice[]"]');
-        if (!selected.length) {
-            e.preventDefault();
-            showOfiAlert('Select at least one office to distribute the document to.');
-            return;
-        }
+        // Empty distribution is allowed = office-only controlled document (Source Unit).
     });
 })();
 </script>

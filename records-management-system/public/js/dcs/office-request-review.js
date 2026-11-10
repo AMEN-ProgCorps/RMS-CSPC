@@ -32,6 +32,7 @@
     const notifyBtn = root.querySelector('[data-ofi-notify-btn]');
     const notifyLabel = root.querySelector('[data-ofi-notify-label]');
     const notifyMeta = root.querySelector('[data-ofi-notify-meta]');
+    const notifyWait = root.querySelector('[data-ofi-notify-wait]');
     const proceed = root.querySelector('[data-ofi-proceed]');
     const actionError = root.querySelector('[data-ofi-action-error]');
 
@@ -40,6 +41,7 @@
     let registerUrl = root.getAttribute('data-register-url') || '';
     let canRegister = root.getAttribute('data-can-register') === '1';
     let printNotified = root.getAttribute('data-print-notified') === '1';
+    let editUnlocked = root.getAttribute('data-edit-unlocked') === '1';
 
     function csrfToken() {
         return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
@@ -134,6 +136,9 @@
         if (proceeding) {
             return 'Opening registration…';
         }
+        if (editUnlocked) {
+            return 'Wait for the submitting office to edit and resubmit this ' + String(type).toUpperCase() + ' before registration.';
+        }
         if (!printNotified) {
             return 'Notify the submitting office that this ' + String(type).toUpperCase() + ' is correct before registration.';
         }
@@ -155,13 +160,25 @@
         return 'Complete the steps above to unlock registration.';
     }
 
+    function syncNotifyWhileUnlocked() {
+        if (notifyBtn) {
+            notifyBtn.disabled = !!editUnlocked;
+            notifyBtn.title = editUnlocked
+                ? 'Wait for the office to edit and resubmit before notifying them to print and sign.'
+                : '';
+        }
+        if (notifyWait) notifyWait.hidden = !editUnlocked;
+        if (notifyMeta && editUnlocked) notifyMeta.hidden = true;
+        if (check) check.disabled = !!editUnlocked;
+    }
+
     function syncProceed(received) {
         if (!proceed) return;
         if (proceeding) {
             proceed.disabled = true;
             return;
         }
-        const ok = !!received && printNotified && pairReceived() && pairNotified() && canRegister && !!registerUrl;
+        const ok = !!received && printNotified && !editUnlocked && pairReceived() && pairNotified() && canRegister && !!registerUrl;
         proceed.disabled = !ok;
         if (!proceedHint) return;
         if (ok) {
@@ -308,6 +325,8 @@
                 throw new Error(message);
             }
             clearUnlockError();
+            editUnlocked = true;
+            root.setAttribute('data-edit-unlocked', '1');
             if (unlockReason) unlockReason.disabled = true;
             if (unlockBtn) {
                 unlockBtn.disabled = true;
@@ -323,9 +342,11 @@
                 unlockSent.hidden = false;
             }
             if (unlockMeta) unlockMeta.hidden = true;
+            syncNotifyWhileUnlocked();
+            syncProceed(isReceived());
         } catch (err) {
             showUnlockError(err.message || 'Could not enable edit.');
-            if (unlockBtn && !printNotified) unlockBtn.disabled = false;
+            if (unlockBtn && !printNotified && !editUnlocked) unlockBtn.disabled = false;
         } finally {
             busy = false;
         }
@@ -385,6 +406,10 @@
 
     async function notifyPrintReady() {
         if (busy) return;
+        if (editUnlocked) {
+            showPanelError('Wait for the submitting office to edit and resubmit this form before notifying them to print and sign.');
+            return;
+        }
         if (printNotified) {
             const ok = await confirmResendNotify();
             if (!ok) return;
@@ -440,7 +465,7 @@
             showPanelError(err.message || 'Could not notify the office.');
         } finally {
             busy = false;
-            if (notifyBtn) notifyBtn.disabled = false;
+            if (notifyBtn) notifyBtn.disabled = !!editUnlocked;
         }
     }
 
@@ -640,6 +665,7 @@
             }
         }
         syncUnlock(isReceived());
+        syncNotifyWhileUnlocked();
     }
     hardenProceedUi();
     window.addEventListener('pageshow', hardenProceedUi);

@@ -230,6 +230,16 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
     confirmBox.addEventListener('change', syncConfirm);
     syncConfirm();
 
+    // Enter in date/text fields would implicit-submit via the first submit button (Preview).
+    form.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        const t = e.target;
+        if (!t || t.tagName === 'TEXTAREA') return;
+        if (t.tagName === 'BUTTON') return;
+        if (t.tagName === 'INPUT' && (t.type === 'submit' || t.type === 'button')) return;
+        e.preventDefault();
+    });
+
     form.addEventListener('submit', function (e) {
         if (e.submitter && e.submitter.id === 'ofiDcnPreviewBtn') return;
         if (!confirmBox.checked) {

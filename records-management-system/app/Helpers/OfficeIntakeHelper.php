@@ -443,17 +443,17 @@ class OfficeIntakeHelper
         $alias = $type;
 
         if ($type === 'drf') {
-            $cols = [
-                'drf.id',
-                'drf.drf_no',
-                'drf.drf_date',
-                'drf.doc_title',
-                'drf.created_at',
-                'drf.created_by',
-            ];
+        $cols = [
+            'drf.id',
+            'drf.drf_no',
+            'drf.drf_date',
+            'drf.doc_title',
+            'drf.created_at',
+            'drf.created_by',
+        ];
             if (Schema::hasColumn($table, 'originator_name')) {
-                $cols[] = 'drf.originator_name';
-            }
+            $cols[] = 'drf.originator_name';
+        }
         } else {
             $cols = array_values(array_filter([
                 'dcn.id',
@@ -2307,8 +2307,9 @@ class OfficeIntakeHelper
             'semesterId' => 'nullable|integer',
             'schoolYearId' => 'nullable|integer',
             'descriptionReason' => 'required|string|max:5000',
-            'distributeToOffice' => 'required|array|min:1',
-            'distributeToOffice.*' => 'required|integer',
+            // Empty = office-only controlled document (Source Unit). Other offices only when they need a copy.
+            'distributeToOffice' => 'nullable|array',
+            'distributeToOffice.*' => 'integer',
             'preparedByName' => 'required|string|max:255',
             'preparedByDesignation' => 'required|string|max:255',
             'reviewedByName' => 'required|string|max:255',
@@ -2825,8 +2826,9 @@ class OfficeIntakeHelper
             'semesterId' => 'nullable|integer',
             'schoolYearId' => 'nullable|integer',
             'descriptionReason' => 'required|string|max:5000',
-            'distributeToOffice' => 'required|array|min:1',
-            'distributeToOffice.*' => 'required|integer',
+            // Empty = office-only controlled document (Source Unit). Other offices only when they need a copy.
+            'distributeToOffice' => 'nullable|array',
+            'distributeToOffice.*' => 'integer',
             'preparedByName' => 'required|string|max:255',
             'preparedByDesignation' => 'required|string|max:255',
             'reviewedByName' => 'required|string|max:255',
@@ -2910,6 +2912,17 @@ class OfficeIntakeHelper
             if (Schema::hasColumn('dcs_office_intake_drf', 'rfio_received_at')) {
                 $row['rfio_received_at'] = null;
                 $row['rfio_received_by'] = null;
+            }
+            // Resubmit after correction must restart print/sign handoff on the new data.
+            if (Schema::hasColumn('dcs_office_intake_drf', 'rfio_print_notified_at')) {
+                $row['rfio_print_notified_at'] = null;
+                $row['rfio_print_notified_by'] = null;
+            }
+            if (Schema::hasColumn('dcs_office_intake_drf', 'office_printed_at')) {
+                $row['office_printed_at'] = null;
+            }
+            if (Schema::hasColumn('dcs_office_intake_drf', 'office_printed_by')) {
+                $row['office_printed_by'] = null;
             }
 
             $affected = DB::table('dcs_office_intake_drf')
@@ -3030,6 +3043,17 @@ class OfficeIntakeHelper
             if (Schema::hasColumn('dcs_office_intake_dcn', 'rfio_received_at')) {
                 $row['rfio_received_at'] = null;
                 $row['rfio_received_by'] = null;
+            }
+            // Resubmit after correction must restart print/sign handoff on the new data.
+            if (Schema::hasColumn('dcs_office_intake_dcn', 'rfio_print_notified_at')) {
+                $row['rfio_print_notified_at'] = null;
+                $row['rfio_print_notified_by'] = null;
+            }
+            if (Schema::hasColumn('dcs_office_intake_dcn', 'office_printed_at')) {
+                $row['office_printed_at'] = null;
+            }
+            if (Schema::hasColumn('dcs_office_intake_dcn', 'office_printed_by')) {
+                $row['office_printed_by'] = null;
             }
 
             $affected = DB::table('dcs_office_intake_dcn')
@@ -3164,21 +3188,21 @@ class OfficeIntakeHelper
             if ($hasCollegeCol) {
                 if ($scopedCollegeId !== null) {
                     $query->where('college_id', $scopedCollegeId);
-                } else {
+        } else {
                     $query->whereNull('college_id');
                 }
-            }
+        }
 
-            if (Schema::hasColumn('dcs_signatory_templates', 'effective_from')) {
-                $query->where(function ($q) use ($day) {
-                    $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', $day);
-                });
-            }
-            if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
-                $query->where(function ($q) use ($day) {
-                    $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $day);
-                });
-            }
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_from')) {
+            $query->where(function ($q) use ($day) {
+                $q->whereNull('effective_from')->orWhereDate('effective_from', '<=', $day);
+            });
+        }
+        if (Schema::hasColumn('dcs_signatory_templates', 'effective_until')) {
+            $query->where(function ($q) use ($day) {
+                $q->whereNull('effective_until')->orWhereDate('effective_until', '>=', $day);
+            });
+        }
 
             return $query->orderByDesc('id')->first();
         };
@@ -3327,7 +3351,7 @@ class OfficeIntakeHelper
             if (Schema::hasColumn('dcs_signatory_templates', 'college_id')) {
                 if ($collegeId !== null) {
                     $close->where('college_id', $collegeId);
-                } else {
+            } else {
                     $close->whereNull('college_id');
                 }
             }
@@ -3358,9 +3382,9 @@ class OfficeIntakeHelper
         if (Schema::hasColumn('dcs_signatory_templates', 'doc_type_id') && Schema::hasTable('dcs_doc_types')) {
             $query->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 't.doc_type_id');
             $select = [
-                't.*',
-                'dt.doc_type_name',
-                'dt.parent_id as doc_type_parent_id',
+                    't.*',
+                    'dt.doc_type_name',
+                    'dt.parent_id as doc_type_parent_id',
             ];
             if (Schema::hasColumn('dcs_signatory_templates', 'college_id') && Schema::hasTable('dcs_colleges')) {
                 $query->leftJoin('dcs_colleges as col', 'col.id', '=', 't.college_id');
@@ -3496,8 +3520,8 @@ class OfficeIntakeHelper
                         ? ($base.' · '.($collegeName !== '' ? $collegeName : ('College #'.$collegeId)))
                         : ($base.' · All campuses');
                 } else {
-                    $childKey = 'sub:'.$docTypeId;
-                    $childLabel = $typeName !== '' ? $typeName : ('Subtype #'.$docTypeId);
+                $childKey = 'sub:'.$docTypeId;
+                $childLabel = $typeName !== '' ? $typeName : ('Subtype #'.$docTypeId);
                 }
             } else {
                 $parentKey = 'parent:'.$docTypeId;
@@ -4457,8 +4481,8 @@ class OfficeIntakeHelper
                 $parentKind[(string) $sid] = $subKind;
                 if (RegisterQueryHelper::isSyllabiLikeName($subName)) {
                     $syllabiLikeDocTypeIds[] = (string) $sid;
-                }
             }
+        }
         }
         $syllabiLikeDocTypeIds = array_values(array_unique($syllabiLikeDocTypeIds));
 
@@ -4496,7 +4520,7 @@ class OfficeIntakeHelper
             if ($docTypeId < 1) {
                 continue;
             }
-            $key = (string) $docTypeId;
+                $key = (string) $docTypeId;
             $rowCollegeId = $hasCollegeCol ? (int) data_get($row, 'college_id', 0) : 0;
             if ($rowCollegeId > 0) {
                 if (! isset($byDocTypeCollege[$key])) {
@@ -5041,8 +5065,8 @@ class OfficeIntakeHelper
         // Same rules as intakeRegistrationMeta: draft-linked intakes are NOT registered yet.
         $meta = self::intakeRegistrationMeta($type, $record);
         if (! empty($meta['is_registered']) && ! empty($record->rfio_registered_at) && (int) ($record->request_id ?? 0) > 0) {
-            self::detachIntakeFromControlledRequest($type, $id);
-        }
+                self::detachIntakeFromControlledRequest($type, $id);
+            }
 
         return ! empty($meta['is_registered']);
     }
@@ -5207,6 +5231,14 @@ class OfficeIntakeHelper
             ? DB::table($table)->where('id', $id)->value('rfio_print_notified_at')
             : ($record->rfio_print_notified_at ?? null);
 
+        $editUnlockedAt = Schema::hasColumn($table, 'edit_unlocked_at')
+            ? DB::table($table)->where('id', $id)->value('edit_unlocked_at')
+            : ($record->edit_unlocked_at ?? null);
+        abort_if(
+            ! empty($editUnlockedAt),
+            422,
+            'Wait for the submitting office to edit and resubmit this form before registration.'
+        );
         abort_if(empty($receivedAt), 422, 'Confirm receipt of the signed '.strtoupper($type).' first to unlock registration.');
         abort_if(empty($printNotifiedAt), 422, 'Notify the submitting office that this form is correct before registration.');
         if ($type === 'dcn') {
@@ -5841,6 +5873,56 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Submitter office codes for a registration that came from office DRF/DCN intake.
+     * Used so Incoming-distribution notices never go to the office that filed the request.
+     *
+     * @return list<string>
+     */
+    public static function submitterOfficeCodesForRequest(int $requestId, ?Request $request = null): array
+    {
+        $codes = [];
+        if ($requestId > 0) {
+            foreach (['drf' => 'dcs_office_intake_drf', 'dcn' => 'dcs_office_intake_dcn'] as $type => $table) {
+                if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'registered_request_id')) {
+                    continue;
+                }
+                $rows = DB::table($table)
+                    ->where('registered_request_id', $requestId)
+                    ->orderBy('id')
+                    ->get();
+                foreach ($rows as $row) {
+                    foreach (self::intakeSubmitterOfficeCodes($row) as $code) {
+                        $codes[] = $code;
+                    }
+                }
+            }
+        }
+
+        // Pending claim (not linked yet) — still skip that office during first publish.
+        $pending = self::pendingRegisterIntake($request);
+        if (is_array($pending)
+            && in_array(($pending['type'] ?? ''), ['drf', 'dcn'], true)
+            && (int) ($pending['id'] ?? 0) > 0
+        ) {
+            $type = (string) $pending['type'];
+            $id = (int) $pending['id'];
+            $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
+            if ($record) {
+                foreach (self::intakeSubmitterOfficeCodes($record) as $code) {
+                    $codes[] = $code;
+                }
+            }
+        }
+
+        return collect($codes)
+            ->map(fn ($c) => strtoupper(trim((string) $c)))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
      * Office code(s) for the account that created the office intake form.
      *
      * @return list<string>
@@ -6028,6 +6110,11 @@ class OfficeIntakeHelper
         $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
         abort_unless($record, 404);
         abort_if(self::isIntakeRegistered($type, $id), 422, 'This submission is already registered.');
+        abort_if(
+            ! empty($record->edit_unlocked_at),
+            422,
+            'Wait for the submitting office to edit and resubmit this form before notifying them to print and sign.'
+        );
 
         $title = trim((string) ($type === 'dcn' ? ($record->document_title ?? '') : ($record->doc_title ?? '')));
         $officeCodes = self::intakeOfficeCodes($type, $id, $record);
@@ -6516,18 +6603,20 @@ class OfficeIntakeHelper
         $registerType = $target['registerType'];
         $registerUrl = ($canRegister && ! $registered) ? $target['registerUrl'] : null;
 
+        $editUnlocked = (bool) ($editState['editUnlocked'] ?? false);
+
         return [
-            'canConfirmReceived' => $canManage && ! $registered,
-            'canRegister' => $canRegister && ! $registered,
+            'canConfirmReceived' => $canManage && ! $registered && ! $editUnlocked,
+            'canRegister' => $canRegister && ! $registered && ! $editUnlocked,
             'canUnlockEdit' => $canManage && ! $registered,
-            'canNotifyPrintReady' => $canManage && ! $registered,
+            'canNotifyPrintReady' => $canManage && ! $registered && ! $editUnlocked,
             'received' => $received['received'],
             'receivedAt' => $received['receivedAt'],
             'receivedBy' => $received['receivedBy'],
             'registerUrl' => $registerUrl,
             'registerType' => $registerType,
             'registered' => $registered,
-            'editUnlocked' => (bool) ($editState['editUnlocked'] ?? false),
+            'editUnlocked' => $editUnlocked,
             'editUnlockReason' => $editState['editUnlockReason'] ?? null,
             'editUnlockedAt' => $editState['editUnlockedAt'] ?? null,
             'printNotified' => (bool) ($printState['printNotified'] ?? false),
@@ -6551,6 +6640,11 @@ class OfficeIntakeHelper
         $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
         $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
         abort_unless($record, 404);
+        abort_if(
+            ! empty($record->edit_unlocked_at),
+            422,
+            'Wait for the submitting office to edit and resubmit this form before confirming receipt.'
+        );
 
         if (! Schema::hasColumn($table, 'rfio_received_at')) {
             abort(422, 'Received tracking is not available yet. Please run migrations.');
@@ -7177,9 +7271,9 @@ class OfficeIntakeHelper
         return self::rememberOfficeInventory(
             'incoming.attention.'.(int) ($officeId ?? 0),
             function () use ($officeId) {
-                $pending = self::officeDocumentTotal($officeId, 'pending');
+        $pending = self::officeDocumentTotal($officeId, 'pending');
                 $appraisable = 0;
-                $perms = auth()->user()?->permissions;
+        $perms = auth()->user()?->permissions;
                 if ($perms && ($perms->is_sadm || $perms->can_access_rdp)) {
                     // Match Incoming page: only count held docs that have an RDP appraisal link.
                     $heldRows = self::listOfficeDocuments('all', $officeId, 'received_for_appraisal');
@@ -7526,14 +7620,38 @@ class OfficeIntakeHelper
     }
 
     /**
+     * True when this office still has a pending DCS appraisal intake for the document.
+     */
+    public static function officeHasPendingAppraisalIntake(?string $officeCode, int $requestId, string $docNo = ''): bool
+    {
+        $officeCode = strtoupper(trim((string) $officeCode));
+        if ($officeCode === '' || $requestId < 1 || ! Schema::hasTable('rdp_received_documents')) {
+            return false;
+        }
+
+        $intakeCode = \App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo);
+        $docNo = trim($docNo);
+
+        return DB::table('rdp_received_documents')
+            ->where('source_subsystem', 'DCS')
+            ->where('status', 'pending')
+            ->whereRaw('LOWER(target_office) = ?', [strtolower($officeCode)])
+            ->where(function ($q) use ($docNo, $intakeCode, $requestId) {
+                if ($docNo !== '') {
+                    $q->orWhereRaw('LOWER(document_code) = ?', [strtolower($docNo)]);
+                }
+                $q->orWhereRaw('LOWER(document_code) = ?', [strtolower($intakeCode)])
+                    ->orWhereRaw("COALESCE(metadata->>'dcs_request_id', '') = ?", [(string) $requestId]);
+            })
+            ->exists();
+    }
+
+    /**
      * Keep a received copy off the office masterlist while its DCS appraisal is still pending.
+     * Applies for every office — Incoming → receive → Appraisal → Masterlist.
      */
     protected static function excludePendingAppraisal($query, int $officeId): void
     {
-        $perms = auth()->user()?->permissions;
-        if (! $perms || (! $perms->is_sadm && ! $perms->can_access_rdp)) {
-            return;
-        }
         if ($officeId < 1 || ! Schema::hasTable('rdp_received_documents')) {
             return;
         }
@@ -7840,25 +7958,15 @@ class OfficeIntakeHelper
         $receiverName = RegisterQueryHelper::currentUserDisplayName();
         $officeCode = RegisterQueryHelper::currentOfficeCode();
         $appraisalWaiting = false;
-        if ($officeCode) {
-            $perms = auth()->user()?->permissions;
-            $canAppraise = $perms && ($perms->is_sadm || $perms->can_access_rdp);
-            $appraisalWaiting = false;
-            if ($canAppraise && Schema::hasTable('rdp_received_documents')) {
-                $intakeCode = \App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo);
-                $appraisalWaiting = DB::table('rdp_received_documents')
-                    ->where('source_subsystem', 'DCS')
-                    ->where('status', 'pending')
-                    ->whereRaw('LOWER(target_office) = ?', [strtolower($officeCode)])
-                    ->where(function ($q) use ($docNo, $intakeCode, $requestId) {
-                        if ($docNo !== '') {
-                            $q->orWhereRaw('LOWER(document_code) = ?', [strtolower($docNo)]);
-                        }
-                        $q->orWhereRaw('LOWER(document_code) = ?', [strtolower($intakeCode)])
-                            ->orWhereRaw("COALESCE(metadata->>'dcs_request_id', '') = ?", [(string) $requestId]);
-                    })
-                    ->exists();
-            }
+        if ($officeCode && Schema::hasTable('rdp_received_documents')) {
+            // Every receiving office must appraise — create/keep a pending RDP intake row.
+            $appraisalUrl = \App\Services\RdpIntakeService::ensurePendingForOfficeDocument(
+                $officeCode,
+                $requestId,
+                $docNo,
+                $title
+            );
+            $appraisalWaiting = is_string($appraisalUrl) && $appraisalUrl !== '';
             if ($appraisalWaiting) {
                 DcsNotificationService::notifyAppraisalStillWaiting(
                     $officeCode,
@@ -7885,7 +7993,7 @@ class OfficeIntakeHelper
             'ok' => true,
             'already' => false,
             'message' => ! empty($appraisalWaiting)
-                ? 'Document marked as received. It stays on Incoming until you finish Appraisal.'
+                ? 'Document marked as received. It stays on Incoming until Appraisal is finished.'
                 : 'Document marked as received.',
         ];
     }
@@ -7920,7 +8028,7 @@ class OfficeIntakeHelper
         $cacheKey = 'check.'.($distributionOnly ? 'dist' : 'all').'.'.($groupKey === '' ? 'all' : $groupKey).'.'.(int) $officeId;
 
         return self::rememberOfficeInventory($cacheKey, function () use ($officeId, $groupKey, $distributionOnly) {
-            if ($groupKey === '' || $groupKey === 'all') {
+        if ($groupKey === '' || $groupKey === 'all') {
                 // One distribution query for the whole office, then classify + keep latest.
                 $scope = $distributionOnly ? 'distribution' : null;
                 $query = self::officeMasterlistQuery((int) $officeId, $scope);
@@ -7981,16 +8089,16 @@ class OfficeIntakeHelper
                         'doc_type_key' => $key,
                         'doc_type_label' => self::documentGroupLabel($key),
                     ];
-                }
-
-                return $rows;
             }
 
-            if (! isset(self::documentGroupDefs()[$groupKey])) {
-                return [];
-            }
+            return $rows;
+        }
 
-            return self::listDocumentsForCheckGroup((int) $officeId, $groupKey, $distributionOnly);
+        if (! isset(self::documentGroupDefs()[$groupKey])) {
+            return [];
+        }
+
+        return self::listDocumentsForCheckGroup((int) $officeId, $groupKey, $distributionOnly);
         });
     }
 
@@ -8042,11 +8150,11 @@ class OfficeIntakeHelper
         );
 
         $select = [
-            'ml.id',
-            'ml.doc_no',
-            'ml.revise_no',
-            'ml.doc_title',
-            'ml.effectivity_date',
+                'ml.id',
+                'ml.doc_no',
+                'ml.revise_no',
+                'ml.doc_title',
+                'ml.effectivity_date',
         ];
         if (RegisterQueryHelper::supportsRevisionStatus()) {
             $select[] = 'ml.revision_status';

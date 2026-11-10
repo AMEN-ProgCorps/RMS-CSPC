@@ -91,10 +91,12 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
                 </p>
             </div>
             @if(($pendingTotal ?? 0) > 0)
-                <a href="{{ route('dcs.office.incoming', absolute: false) }}" class="ofi-btn primary">
-                    <i class="fa-solid fa-inbox"></i>
-                    {{ $pendingTotal }} to receive
-                </a>
+                <div class="ofi-header-actions">
+                    <a href="{{ route('dcs.office.incoming', absolute: false) }}" class="ofi-btn primary">
+                        <i class="fa-solid fa-inbox"></i>
+                        {{ $pendingTotal }} to receive
+                    </a>
+                </div>
             @endif
         </div>
 
@@ -135,7 +137,7 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
         </nav>
         @endunless
 
-        <div class="ofi-card" style="position:relative;" wire:loading.class="is-loading">
+        <div class="ofi-card ofi-list-card" style="position:relative;" wire:loading.class="is-loading">
             <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType">
                 <div class="dcs-loading-spinner" aria-hidden="true"></div>
                 <h4>Loading masterlist…</h4>
@@ -147,23 +149,18 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
             </div>
 
             @if($activeCount < 1)
-                <div class="ofi-doc-empty" role="status">
+                <div class="ofi-doc-empty ofi-list-empty" role="status">
                     <i class="fa-regular fa-folder-open" aria-hidden="true"></i>
                     @if($total < 1)
                         <strong>No received documents yet</strong>
-                        <p>
-                            Mark incoming distributions as received first.
-                            @if(($pendingTotal ?? 0) > 0)
-                                <a href="{{ route('dcs.office.incoming', absolute: false) }}">View incoming ({{ $pendingTotal }})</a>
-                            @endif
-                        </p>
+                        <p>Mark incoming distributions as received first. They appear here after your office confirms receipt.</p>
                     @else
                         <strong>No {{ strtolower($activeLabel) }} documents</strong>
                         <p>Your office has other received types, but none under <strong>{{ $activeLabel }}</strong>.</p>
                     @endif
                 </div>
             @else
-                <div class="ofi-table-wrap">
+                <div class="ofi-table-wrap ofi-list-table-wrap">
                     <table class="ofi-table">
                         <thead>
                             <tr>
@@ -177,10 +174,10 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
                         <tbody>
                             @foreach($rows as $row)
                                 <tr>
-                                    <td>{{ $row['doc_no'] !== '' ? $row['doc_no'] : '—' }}</td>
+                                    <td class="ofi-nowrap">{{ $row['doc_no'] !== '' ? $row['doc_no'] : '—' }}</td>
                                     <td>{{ $row['rev_no'] }}</td>
-                                    <td>{{ $row['doc_title'] !== '' ? $row['doc_title'] : '—' }}</td>
-                                    <td>{{ $row['effectivity_date'] ?? '—' }}</td>
+                                    <td class="ofi-title-cell">{{ $row['doc_title'] !== '' ? $row['doc_title'] : '—' }}</td>
+                                    <td class="ofi-nowrap">{{ $row['effectivity_date'] ?? '—' }}</td>
                                     <td>{{ ($row['pages'] ?? '') !== '' ? $row['pages'] : '—' }}</td>
                                 </tr>
                             @endforeach

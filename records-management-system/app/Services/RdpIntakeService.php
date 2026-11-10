@@ -283,6 +283,237 @@ class RdpIntakeService
         return $urls;
     }
 
+    /**
+     * Admin-prefilled appraisal payload for office intake (location-only form).
+     * Prefers an already-forwarded sibling intake; otherwise rebuilds from the
+     * controller's NAP Form 1 record for this DCS request.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function officeAppraisalMetadataForRequest(int $requestId): ?array
+    {
+        if ($requestId < 1 || ! DB::getSchemaBuilder()->hasTable('rdp_received_documents')) {
+            return null;
+        }
+        if (! DB::getSchemaBuilder()->hasColumn('rdp_received_documents', 'metadata')) {
+            return null;
+        }
+
+        try {
+            $rows = DB::table('rdp_received_documents')
+                ->where('source_subsystem', 'DCS')
+                ->whereRaw("COALESCE(metadata->>'dcs_request_id', '') = ?", [(string) $requestId])
+                ->orderByDesc('id')
+                ->get();
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        foreach ($rows as $row) {
+            $meta = is_string($row->metadata ?? null)
+                ? (json_decode($row->metadata, true) ?: [])
+                : (array) ($row->metadata ?? []);
+            if (! is_array($meta) || empty($meta['dcs_forwarded'])) {
+                continue;
+            }
+            if (! empty($meta['dcs_admin_record'])) {
+                continue;
+            }
+            $hasAppraisal = ! empty($meta['record_series_id'])
+                || ! empty($meta['selected_series_title'])
+                || ! empty($meta['utility_values'])
+                || ! empty($meta['date_covered'])
+                || ! empty($meta['records_medium']);
+            if (! $hasAppraisal) {
+                continue;
+            }
+            $meta['dcs_forwarded'] = true;
+            $meta['dcs_request_id'] = $requestId;
+            // Receiving office must enter its own Records Location.
+            $meta['records_location'] = '';
+
+            return $meta;
+        }
+
+        $recordId = null;
+        foreach ($rows as $row) {
+            if (! empty($row->appraised_record_id)) {
+                $recordId = (int) $row->appraised_record_id;
+                break;
+            }
+            $meta = is_string($row->metadata ?? null)
+                ? (json_decode($row->metadata, true) ?: [])
+                : (array) ($row->metadata ?? []);
+            if (! empty($meta['dcs_admin_record']) && ! empty($row->appraised_record_id)) {
+                $recordId = (int) $row->appraised_record_id;
+                break;
+            }
+        }
+
+        if (! $recordId) {
+            return null;
+        }
+
+        return self::metadataFromAppraisedRecord($recordId, $requestId);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public static function metadataFromAppraisedRecord(int $recordId, int $requestId): ?array
+    {
+        if ($recordId < 1 || ! DB::getSchemaBuilder()->hasTable('rdp_record')) {
+            return null;
+        }
+
+        $record = DB::table('rdp_record')->where('id', $recordId)->first();
+        if (! $record) {
+            return null;
+        }
+
+        $seriesTitle = '';
+        $parentTitle = '';
+        $seriesId = (int) ($record->record_series_id ?? 0);
+        if ($seriesId > 0 && DB::getSchemaBuilder()->hasTable('rdp_record_series')) {
+            $series = DB::table('rdp_record_series')->where('id', $seriesId)->first();
+            if ($series) {
+                $seriesTitle = (string) ($series->series_title ?? '');
+                $parentId = (int) ($series->parent_id ?? 0);
+                if ($parentId > 0) {
+                    $parentTitle = (string) (DB::table('rdp_record_series')->where('id', $parentId)->value('series_title') ?? $seriesTitle);
+                } else {
+                    $parentTitle = $seriesTitle;
+                }
+            }
+        }
+
+        $utilityValues = [];
+        if (DB::getSchemaBuilder()->hasTable('rdp_utility_manager')) {
+            $utilityValues = DB::table('rdp_utility_manager')
+                ->where('record_holder', $recordId)
+                ->where('is_active', true)
+                ->pluck('utility_medium')
+                ->map(fn ($id) => (int) $id)
+                ->filter(fn ($id) => $id > 0)
+                ->values()
+                ->all();
+        }
+
+        $duplicateOffices = [];
+        if (DB::getSchemaBuilder()->hasTable('rdp_duplication_section')) {
+            $duplicateOffices = DB::table('rdp_duplication_section')
+                ->where('dup_id_manager', $recordId)
+                ->pluck('office_code')
+                ->map(fn ($c) => strtoupper(trim((string) $c)))
+                ->filter(fn ($c) => $c !== '')
+                ->values()
+                ->all();
+        }
+
+        $dateCovered = '';
+        if (DB::getSchemaBuilder()->hasTable('rdp_period_covered')) {
+            $dateCovered = (string) (DB::table('rdp_period_covered')
+                ->where('period_owner', $recordId)
+                ->orderByDesc('id')
+                ->value('date_covered') ?? '');
+        }
+        if ($dateCovered === '' && DB::getSchemaBuilder()->hasTable('dcs_masterlist_registration')) {
+            $eff = DB::table('dcs_masterlist_registration')
+                ->where('request_id', $requestId)
+                ->value('effectivity_date');
+            if (! empty($eff)) {
+                $dateCovered = (string) $eff;
+            }
+        }
+
+        $volume = trim((string) ($record->volume ?? ''));
+        $volumeAmount = '';
+        $volumeUnit = 'Folder';
+        if ($volume !== '' && preg_match('/^(\d+)\s*(.*)$/i', $volume, $m)) {
+            $volumeAmount = $m[1];
+            if (trim($m[2]) !== '') {
+                $volumeUnit = ucfirst(strtolower(trim($m[2])));
+            }
+        }
+
+        $isPermanent = strtoupper(trim((string) ($record->time_value ?? ''))) === 'P';
+
+        return [
+            'dcs_forwarded' => true,
+            'dcs_request_id' => $requestId,
+            'record_series_id' => $seriesId > 0 ? $seriesId : null,
+            'parent_series_title' => $parentTitle,
+            'selected_series_title' => $seriesTitle !== '' ? $seriesTitle : (string) ($record->description ?? ''),
+            'records_medium' => $record->records_medium ?? null,
+            'restriction' => $record->restriction ?? 'Restricted',
+            'volume' => $volume,
+            'volume_amount' => $volumeAmount,
+            'volume_unit' => $volumeUnit,
+            'frequence_use' => $record->frequence_use ?? 'Annually',
+            'duplicate_offices' => $duplicateOffices,
+            'utility_values' => $utilityValues,
+            'date_covered' => $dateCovered,
+            'time_value' => (string) ($record->time_value ?? 'T'),
+            'is_permanent' => $isPermanent,
+            'active_period' => $isPermanent ? '' : '',
+            'storage_period' => $isPermanent ? '' : '',
+            'retention_period' => $isPermanent ? 'Permanent' : '',
+            'disposition_provision' => '',
+            'records_location' => '',
+        ];
+    }
+
+    /**
+     * Attach admin-prefilled metadata onto a pending office intake when missing.
+     */
+    public static function enrichOfficePendingWithAdminAppraisal(object $intake, int $requestId): object
+    {
+        if ($requestId < 1 || strtolower((string) ($intake->status ?? '')) === 'appraised') {
+            return $intake;
+        }
+
+        $meta = is_string($intake->metadata ?? null)
+            ? (json_decode($intake->metadata, true) ?: [])
+            : (array) ($intake->metadata ?? []);
+        if (! is_array($meta)) {
+            $meta = [];
+        }
+
+        $alreadyForwarded = ! empty($meta['dcs_forwarded']) && (
+            ! empty($meta['record_series_id'])
+            || ! empty($meta['selected_series_title'])
+            || ! empty($meta['utility_values'])
+            || ! empty($meta['records_medium'])
+        );
+        if ($alreadyForwarded) {
+            return $intake;
+        }
+
+        $adminMeta = self::officeAppraisalMetadataForRequest($requestId);
+        if (! $adminMeta) {
+            // Still lock location-only once admin appraisal exists elsewhere;
+            // if not yet available, keep a minimal forwarded flag so the form
+            // stays location-focused after admin values land on reopen.
+            return $intake;
+        }
+
+        $merged = array_merge($meta, $adminMeta);
+        $merged['dcs_forwarded'] = true;
+        $merged['dcs_request_id'] = $requestId;
+        $merged['records_location'] = '';
+
+        DB::table('rdp_received_documents')->where('id', (int) $intake->id)->update([
+            'document_title' => $intake->document_title ?: ($adminMeta['selected_series_title'] ?? $intake->document_title),
+            'description' => $intake->description ?: ($adminMeta['selected_series_title'] ?? $intake->description),
+            'metadata' => json_encode($merged),
+            'updated_at' => now(),
+        ]);
+
+        $fresh = DB::table('rdp_received_documents')->where('id', (int) $intake->id)->first();
+
+        return $fresh ?: $intake;
+    }
+
     public static function ensurePendingForOfficeDocument(
         string $officeCode,
         int $requestId,
@@ -295,6 +526,27 @@ class RdpIntakeService
             return null;
         }
 
+        $adminMeta = self::officeAppraisalMetadataForRequest($requestId);
+        $metadata = $adminMeta
+            ? array_merge($adminMeta, [
+                'dcs_forwarded' => true,
+                'dcs_request_id' => $requestId,
+                'records_location' => '',
+            ])
+            : ['dcs_request_id' => $requestId];
+
+        $masterlist = DB::getSchemaBuilder()->hasTable('dcs_masterlist_registration')
+            ? DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first()
+            : null;
+        $filePath = trim((string) ($masterlist->scanned_masterlist ?? ''));
+        if (strlen($filePath) > 255) {
+            $filePath = '';
+        }
+        $docTitle = $title !== '' ? $title : trim((string) ($masterlist->doc_title ?? ''));
+        if ($docTitle === '') {
+            $docTitle = $code;
+        }
+
         $existing = self::findExisting('DCS', $code, $officeCode)
             ?: self::findExistingByRequest($requestId, $officeCode);
         if ($existing) {
@@ -302,21 +554,23 @@ class RdpIntakeService
                 return null;
             }
 
+            $existing = self::enrichOfficePendingWithAdminAppraisal($existing, $requestId);
+
             return self::appraiseUrl($existing);
         }
 
         $result = self::accept([
             'source_subsystem' => 'DCS',
             'document_code' => $code,
-            'document_title' => $title !== '' ? $title : $code,
-            'description' => $title !== '' ? $title : $code,
+            'document_title' => $docTitle,
+            'description' => $docTitle,
             'origin_office' => null,
             'target_office' => $officeCode,
             'date_received' => now()->toDateString(),
-            'file_path' => null,
-            'file_name' => null,
+            'file_path' => $filePath !== '' ? $filePath : null,
+            'file_name' => $filePath !== '' ? basename($filePath) : null,
             'document_id_handler' => null,
-            'metadata' => ['dcs_request_id' => $requestId],
+            'metadata' => $metadata,
         ]);
 
         return is_string($result['appraise_url'] ?? null) ? $result['appraise_url'] : null;

@@ -2214,6 +2214,89 @@
     border-color: #1e293b !important;
 }
 
+/* Needs attention / Continue draft / Today — readable text + dark hover */
+[data-theme="dark"] .dash-access-card {
+    background: #131c2e !important;
+    border-color: #1e293b !important;
+    color: #e2e8f0 !important;
+    box-shadow: none !important;
+}
+[data-theme="dark"] .dash-access-head h2 {
+    color: #93c5fd !important;
+}
+[data-theme="dark"] .dash-access-head p,
+[data-theme="dark"] .dash-access-upcoming-label,
+[data-theme="dark"] .dash-access-empty {
+    color: #94a3b8 !important;
+}
+[data-theme="dark"] .dash-access-count {
+    background: #1e3a5f !important;
+    color: #93c5fd !important;
+}
+[data-theme="dark"] .dash-access-drafts .dash-access-count {
+    background: #431407 !important;
+    color: #fdba74 !important;
+}
+[data-theme="dark"] .dash-access-cal-btn {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+[data-theme="dark"] .dash-access-cal-btn:hover {
+    background: #1e3a5f !important;
+    border-color: #3b82f6 !important;
+    color: #93c5fd !important;
+}
+[data-theme="dark"] .dash-access-item {
+    color: #e2e8f0 !important;
+    background: transparent !important;
+    border-color: transparent !important;
+}
+[data-theme="dark"] .dash-access-item:hover,
+[data-theme="dark"] .dash-access-item:focus-visible {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+[data-theme="dark"] .dash-access-item.is-static:hover {
+    background: transparent !important;
+    border-color: transparent !important;
+}
+[data-theme="dark"] .dash-access-item-kind {
+    color: #94a3b8 !important;
+}
+[data-theme="dark"] .dash-access-item-copy strong {
+    color: #f8fafc !important;
+}
+[data-theme="dark"] .dash-access-item-copy span:last-child {
+    color: #cbd5e1 !important;
+}
+[data-theme="dark"] .dash-access-item > .fa-chevron-right {
+    color: #64748b !important;
+}
+[data-theme="dark"] .dash-access-item:hover > .fa-chevron-right,
+[data-theme="dark"] .dash-access-item:focus-visible > .fa-chevron-right {
+    color: #93c5fd !important;
+}
+[data-theme="dark"] .dash-access-item-icon {
+    background: #1e3a5f !important;
+    color: #93c5fd !important;
+}
+[data-theme="dark"] .dash-access-item-icon.is-dcn {
+    background: #2e1065 !important;
+    color: #c4b5fd !important;
+}
+[data-theme="dark"] .dash-access-item-icon.is-draft {
+    background: #431407 !important;
+    color: #fdba74 !important;
+}
+[data-theme="dark"] .dash-access-foot {
+    color: #93c5fd !important;
+}
+[data-theme="dark"] .dash-access-holiday {
+    background: #450a0a !important;
+    color: #fecaca !important;
+}
+
 [data-theme="dark"] .dash-search-bar:focus-within {
     background: #1e293b !important;
 }

@@ -842,6 +842,62 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
             border-radius: 0 0 14px 14px;
         }
 
+        .rr-code {
+            font-family: ui-monospace, SFMono-Regular, monospace;
+            font-size: 11.5px;
+            font-weight: 700;
+            color: #2563eb;
+        }
+        .rr-series-title {
+            font-weight: 700;
+            color: #0f172a;
+            font-size: 13.5px;
+            margin-bottom: 2px;
+        }
+        .rr-series-desc {
+            font-size: 12px;
+            color: #64748b;
+            line-height: 1.35;
+        }
+        .rr-volume-pill {
+            font-size: 11px;
+            color: #475569;
+            font-weight: 600;
+            background: #f1f5f9;
+            padding: 1px 6px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-top: 4px;
+        }
+        .rr-person-sub {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 3px;
+        }
+        .rr-retention {
+            font-size: 12px;
+            font-weight: 600;
+            color: #334155;
+        }
+        .rr-date-main {
+            font-size: 12px;
+            font-weight: 600;
+            color: #334155;
+        }
+        .rr-date-sub {
+            font-size: 11px;
+            color: #64748b;
+        }
+        .rr-decline-reason {
+            font-size: 11px;
+            color: #dc2626;
+            font-style: italic;
+            max-width: 140px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         /* Dark Mode Overrides */
         [data-theme="dark"] .received-docs-container { color: #e2e8f0; }
         [data-theme="dark"] .table-card,
@@ -857,6 +913,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
         [data-theme="dark"] .empty-state h3 {
             color: #f8fafc !important;
         }
+        [data-theme="dark"] .header-title-box p,
+        [data-theme="dark"] .empty-state p {
+            color: #94a3b8 !important;
+        }
         [data-theme="dark"] .data-table th {
             background: #0f172a !important;
             color: #cbd5e1 !important;
@@ -867,11 +927,46 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
             color: #e2e8f0 !important;
             border-color: #1e293b !important;
         }
+        [data-theme="dark"] .data-table tr:hover td {
+            background: #1a2438 !important;
+        }
+        [data-theme="dark"] .rr-code {
+            color: #93c5fd !important;
+        }
+        [data-theme="dark"] .rr-series-title {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .rr-series-desc,
+        [data-theme="dark"] .rr-person-sub,
+        [data-theme="dark"] .rr-date-sub {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .rr-retention,
+        [data-theme="dark"] .rr-date-main {
+            color: #e2e8f0 !important;
+        }
+        [data-theme="dark"] .rr-volume-pill {
+            background: #1e293b !important;
+            color: #cbd5e1 !important;
+        }
+        [data-theme="dark"] .office-pill {
+            background: #1e293b !important;
+            color: #93c5fd !important;
+            border-color: #334155 !important;
+        }
+        [data-theme="dark"] .btn-view {
+            background: transparent !important;
+            color: #93c5fd !important;
+            border-color: #334155 !important;
+        }
         [data-theme="dark"] .search-box input,
         [data-theme="dark"] .filter-select {
             background: #0f172a !important;
             border-color: #334155 !important;
             color: #f8fafc !important;
+        }
+        [data-theme="dark"] .search-box input::placeholder {
+            color: #64748b !important;
         }
         [data-theme="dark"] .modal-footer {
             background: #0f172a !important;
@@ -886,6 +981,9 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
         [data-theme="dark"] .primary-tab-btn.active {
             background: #1e293b !important;
             color: #93c5fd !important;
+        }
+        [data-theme="dark"] .rr-table-footer {
+            border-color: #1e293b !important;
         }
     </style>
 
@@ -1016,19 +1114,19 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
                         @endphp
                         <tr wire:key="request-row-{{ $rec->id }}">
                             <td>
-                                <span style="font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11.5px; font-weight: 700; color: #2563eb;">
+                                <span class="rr-code">
                                     {{ $rec->request_group_id ?: ('REQ-' . str_pad($rec->id, 5, '0', STR_PAD_LEFT)) }}
                                 </span>
                             </td>
                             <td>
-                                <div style="font-weight: 700; color: #0f172a; font-size: 13.5px; margin-bottom: 2px;">
+                                <div class="rr-series-title">
                                     {{ $rec->series_title ?: 'Untitled Series' }}
                                 </div>
-                                <div style="font-size: 12px; color: #64748b; line-height: 1.35;">
+                                <div class="rr-series-desc">
                                     {{ \Illuminate\Support\Str::limit($rec->description, 80) }}
                                 </div>
                                 @if(!empty($rec->volume))
-                                    <span style="font-size: 11px; color: #475569; font-weight: 600; background: #f1f5f9; padding: 1px 6px; border-radius: 4px; display: inline-block; margin-top: 4px;">
+                                    <span class="rr-volume-pill">
                                         Vol: {{ $rec->volume }}
                                     </span>
                                 @endif
@@ -1039,26 +1137,26 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
                                         🏢 {{ $rec->request_origin_office ?: 'N/A' }}
                                     </div>
                                     @if($rec->creator_first_name)
-                                        <div style="font-size: 11px; color: #64748b; margin-top: 3px;">
+                                        <div class="rr-person-sub">
                                             {{ $rec->creator_first_name }} {{ $rec->creator_last_name }}
                                         </div>
                                     @endif
                                 @else
-                                    <div class="office-pill" style="background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe;" title="Target Office">
+                                    <div class="office-pill" title="Target Office">
                                         🎯 {{ $rec->request_target_office ?: 'N/A' }}
                                     </div>
                                 @endif
                             </td>
                             <td>
-                                <span style="font-size: 12px; font-weight: 600; color: #334155;">
+                                <span class="rr-retention">
                                     {{ $rec->total_period ?: 'N/A' }}
                                 </span>
                             </td>
                             <td>
-                                <div style="font-size: 12px; font-weight: 600; color: #334155;">
+                                <div class="rr-date-main">
                                     {{ \App\Helpers\RegisterQueryHelper::formatSmartDate($rec->created_at) }}
                                 </div>
-                                <div style="font-size: 11px; color: #94a3b8;">
+                                <div class="rr-date-sub">
                                     {{ Carbon::parse($rec->created_at)->format('h:i A') }}
                                 </div>
                             </td>
@@ -1106,7 +1204,7 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
                                             NAP Form 1 &rarr;
                                         </a>
                                     @elseif($isDeclined && !empty($rec->request_decline_reason))
-                                        <span style="font-size: 11px; color: #dc2626; font-style: italic; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ $rec->request_decline_reason }}">
+                                        <span class="rr-decline-reason" title="{{ $rec->request_decline_reason }}">
                                             "{{ $rec->request_decline_reason }}"
                                         </span>
                                     @endif
@@ -1117,8 +1215,8 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
                 </tbody>
             </table>
 
-            <div style="padding: 16px 20px; border-top: 1px solid #e2e8f0;">
-                {{ $records->links() }}
+            <div class="rr-table-footer" style="padding: 16px 20px; border-top: 1px solid #e2e8f0;">
+                {{ $records->links('components.pagination') }}
             </div>
         @else
             <div class="empty-state">

@@ -357,15 +357,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </section>
 
                 <section class="ofi-dash-panel ofi-dash-types-panel">
-                    <div class="ofi-dash-panel-head">
-                        <div>
-                            <h2>Masterlist by type</h2>
+            <div class="ofi-dash-panel-head">
+                <div>
+                    <h2>Masterlist by type</h2>
                             <p>Jump into controlled documents your office has already received.</p>
-                        </div>
+                </div>
                         <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}" class="ofi-dash-link">View all <i class="fa-solid fa-arrow-right"></i></a>
-                    </div>
-                    <div class="ofi-dash-type-grid">
-                        @foreach($officeDocGroups as $group)
+            </div>
+            <div class="ofi-dash-type-grid">
+                @foreach($officeDocGroups as $group)
                             @php
                                 $typeIcon = match ($group['key'] ?? '') {
                                     'internal', 'internal_docs' => 'fa-building',
@@ -377,90 +377,92 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 };
                                 $share = $officeDocTotal > 0 ? (int) round(($group['count'] / max(1, $officeDocTotal)) * 100) : 0;
                             @endphp
-                            <a
-                                href="{{ route('dcs.office.documents', ['type' => $group['key']], absolute: false) }}"
-                                class="ofi-dash-type {{ $group['count'] < 1 ? 'is-empty' : '' }}"
-                            >
+                    <a
+                        href="{{ route('dcs.office.documents', ['type' => $group['key']], absolute: false) }}"
+                        class="ofi-dash-type {{ $group['count'] < 1 ? 'is-empty' : '' }}"
+                    >
                                 <span class="ofi-dash-type-icon"><i class="fa-solid {{ $typeIcon }}"></i></span>
                                 <span class="ofi-dash-type-copy">
-                                    <span class="ofi-dash-type-label">{{ $group['label'] }}</span>
+                        <span class="ofi-dash-type-label">{{ $group['label'] }}</span>
                                     <span class="ofi-dash-type-meta">{{ $group['count'] === 1 ? '1 document' : $group['count'].' documents' }}</span>
                                     <span class="ofi-dash-type-bar" aria-hidden="true"><span style="width: {{ $share }}%"></span></span>
                                 </span>
-                                <strong class="ofi-dash-type-count">{{ $group['count'] }}</strong>
-                            </a>
-                        @endforeach
-                    </div>
-                </section>
+                        <strong class="ofi-dash-type-count">{{ $group['count'] }}</strong>
+                    </a>
+                @endforeach
+            </div>
+        </section>
 
-                <div class="ofi-dash-split">
+        <div class="ofi-dash-split">
                     <section class="ofi-dash-panel ofi-dash-activity">
-                        <div class="ofi-dash-panel-head">
-                            <div>
-                                <h2>Recent DRF</h2>
+                <div class="ofi-dash-panel-head">
+                    <div>
+                        <h2>Recent DRF</h2>
                                 <p>{{ (int) $drfPipe['submitted'] + (int) $drfPipe['correction'] + (int) $drfPipe['print_ready'] + (int) ($drfPipe['printed'] ?? 0) }} still in progress · {{ (int) $drfPipe['registered'] }} registered</p>
-                            </div>
+                    </div>
                             <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="ofi-dash-link">See all <i class="fa-solid fa-arrow-right"></i></a>
-                        </div>
-                        @if($recentDrf->isEmpty())
-                            <div class="ofi-dash-empty">
-                                <div class="ofi-dash-empty-icon"><i class="fa-regular fa-file-lines"></i></div>
-                                <p>No DRF yet. Create one to start a request for RFIO.</p>
-                                <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DRF</a>
-                            </div>
-                        @else
-                            <ul class="ofi-dash-list">
-                                @foreach($recentDrf as $row)
+                </div>
+                @if($recentDrf->isEmpty())
+                    <div class="ofi-dash-empty is-drf">
+                        <div class="ofi-dash-empty-icon" aria-hidden="true"><i class="fa-regular fa-file-lines"></i></div>
+                        <strong>No Document Request Forms yet</strong>
+                        <p>Create a DRF to start a request for RFIO.</p>
+                        <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DRF</a>
+                    </div>
+                @else
+                    <ul class="ofi-dash-list">
+                        @foreach($recentDrf as $row)
                                     @php $pipe = $row->pipeline_status ?? (!empty($row->is_registered) ? 'registered' : 'submitted'); @endphp
-                                    <li>
-                                        <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}">
+                            <li>
+                                <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}">
                                             <span class="ofi-dash-list-mark is-drf" aria-hidden="true"><i class="fa-regular fa-file-lines"></i></span>
                                             <span class="ofi-dash-list-main">
-                                                <span class="ofi-dash-list-title">{{ $row->doc_title ?: 'Untitled DRF' }}</span>
-                                                <span class="ofi-dash-list-meta">
+                                    <span class="ofi-dash-list-title">{{ $row->doc_title ?: 'Untitled DRF' }}</span>
+                                    <span class="ofi-dash-list-meta">
                                                     <span class="ofi-dash-list-date">{{ $row->drf_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->drf_date) : 'No date' }}</span>
                                                     @if(!empty($row->registered_doc_no))
                                                         <span class="ofi-dash-list-sep">·</span>
                                                         <span>{{ $row->registered_doc_no }}</span>
-                                                    @elseif(!empty($row->drf_no))
+                                        @elseif(!empty($row->drf_no))
                                                         <span class="ofi-dash-list-sep">·</span>
                                                         <span>{{ $row->drf_no }}</span>
-                                                    @endif
-                                                </span>
+                                        @endif
+                                    </span>
                                             </span>
                                             <span class="ofi-dash-status is-{{ $pipe }}">{{ $statusLabel[$pipe] ?? 'Submitted' }}</span>
                                             <i class="fa-solid fa-chevron-right ofi-dash-list-chevron" aria-hidden="true"></i>
-                                        </a>
-                                    </li>
-                                @endforeach
-                            </ul>
-                        @endif
-                    </section>
+                                </a>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            </section>
 
                     <section class="ofi-dash-panel ofi-dash-activity">
-                        <div class="ofi-dash-panel-head">
-                            <div>
-                                <h2>Recent DCN</h2>
+                <div class="ofi-dash-panel-head">
+                    <div>
+                        <h2>Recent DCN</h2>
                                 <p>{{ (int) $dcnPipe['submitted'] + (int) $dcnPipe['correction'] + (int) $dcnPipe['print_ready'] + (int) ($dcnPipe['printed'] ?? 0) }} still in progress · {{ (int) $dcnPipe['registered'] }} registered</p>
-                            </div>
+                    </div>
                             <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="ofi-dash-link">See all <i class="fa-solid fa-arrow-right"></i></a>
-                        </div>
-                        @if($recentDcn->isEmpty())
-                            <div class="ofi-dash-empty">
-                                <div class="ofi-dash-empty-icon"><i class="fa-solid fa-file-pen"></i></div>
-                                <p>No DCN yet. Create one when a controlled document needs revision.</p>
-                                <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DCN</a>
-                            </div>
-                        @else
-                            <ul class="ofi-dash-list">
-                                @foreach($recentDcn as $row)
+                </div>
+                @if($recentDcn->isEmpty())
+                    <div class="ofi-dash-empty is-dcn">
+                        <div class="ofi-dash-empty-icon" aria-hidden="true"><i class="fa-solid fa-file-pen"></i></div>
+                        <strong>No Document Change Notices yet</strong>
+                        <p>Create a DCN when a controlled document needs revision.</p>
+                        <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DCN</a>
+                    </div>
+                @else
+                    <ul class="ofi-dash-list">
+                        @foreach($recentDcn as $row)
                                     @php $pipe = $row->pipeline_status ?? (!empty($row->is_registered) ? 'registered' : 'submitted'); @endphp
-                                    <li>
-                                        <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}">
+                            <li>
+                                <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}">
                                             <span class="ofi-dash-list-mark is-dcn" aria-hidden="true"><i class="fa-solid fa-file-pen"></i></span>
                                             <span class="ofi-dash-list-main">
                                                 <span class="ofi-dash-list-title">{{ $row->document_title ?? $row->originator_name ?? ($row->dcn_no ?: 'Untitled DCN') }}</span>
-                                                <span class="ofi-dash-list-meta">
+                                    <span class="ofi-dash-list-meta">
                                                     <span class="ofi-dash-list-date">{{ $row->dcn_date ? \App\Helpers\RegisterQueryHelper::formatSmartDate($row->dcn_date) : 'No date' }}</span>
                                                     @if(!empty($row->registered_doc_no))
                                                         <span class="ofi-dash-list-sep">·</span>
@@ -472,18 +474,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                         <span class="ofi-dash-list-sep">·</span>
                                                         <span>{{ $row->dcn_no }}</span>
                                                     @endif
-                                                </span>
+                                    </span>
                                             </span>
                                             <span class="ofi-dash-status is-{{ $pipe }}">{{ $statusLabel[$pipe] ?? 'Submitted' }}</span>
                                             <i class="fa-solid fa-chevron-right ofi-dash-list-chevron" aria-hidden="true"></i>
-                                        </a>
-                                    </li>
-                                @endforeach
-                            </ul>
-                        @endif
-                    </section>
+                                </a>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            </section>
                 </div>
-            </div>
+        </div>
 
         </div>
 
@@ -926,7 +928,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <div>
                             <h2>Needs attention</h2>
                             <p>Office DRF/DCN waiting in Request</p>
-                        </div>
+        </div>
                         <span
                             class="dash-access-count"
                             x-show="attentionTotal > 0"

@@ -288,7 +288,6 @@
       padding: 12px 16px;
       cursor: pointer;
       border-bottom: 1px solid var(--border-color);
-      transition: background-color 0.2s ease;
       min-height: 72px;
       height: 72px;
       box-sizing: border-box;
@@ -296,13 +295,16 @@
     }
     
     @media (hover: hover) {
-      .user-item:hover {
+      .user-item:not(.active):hover {
         background-color: var(--bg-drop-overlay);
+        transition: background-color 0.15s ease;
       }
     }
 
-    .user-item.active {
+    .user-item.active,
+    #globalChatItem.active {
       background-color: rgba(27, 116, 228, 0.13) !important;
+      transition: none !important;
     }
 
     .user-item.newly-added-gc {
@@ -3860,14 +3862,19 @@
 
     /* ── Global Chat pinned item active state ── */
     #globalChatItem.active {
-      background: var(--active-chat, rgba(27,116,228,0.10));
+      background-color: rgba(27, 116, 228, 0.13) !important;
+      transition: none !important;
     }
-    #globalChatItem:hover {
-      background: var(--hover-bg, rgba(0,0,0,0.04));
-      cursor: pointer;
-    }
-    #globalChatItem.active:hover {
-      background: var(--active-chat, rgba(27,116,228,0.14));
+    @media (hover: hover) {
+      #globalChatItem:not(.active):hover {
+        background-color: var(--hover-bg, rgba(0,0,0,0.04));
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+      }
+      #globalChatItem.active:hover {
+        background-color: rgba(27, 116, 228, 0.16) !important;
+        transition: none !important;
+      }
     }
 
     /* Load Older Messages button hover */

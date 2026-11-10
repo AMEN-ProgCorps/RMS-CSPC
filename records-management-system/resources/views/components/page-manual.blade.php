@@ -205,7 +205,7 @@ new class extends Component {
                         <i class="fa-solid fa-chevron-down rms-manual-chevron" :class="{ 'is-flipped': expanded }"></i>
                     </button>
 
-                    <div class="rms-manual-items-list" x-show="expanded" x-collapse>
+                    <div class="rms-manual-items-list" x-show="expanded" x-transition.opacity.duration.150ms>
                         @foreach($section['items'] as $iIndex => $item)
                             <div
                                 class="rms-manual-item-row"
@@ -345,15 +345,15 @@ new class extends Component {
         box-shadow: 0 12px 30px rgba(225, 29, 72, 0.4) !important;
     }
 
-    /* Floating Manual Card Window - sits at bottom: 88px, completely ABOVE the bottom buttons */
+    /* Floating Manual Card Window - sits at bottom: 96px, completely ABOVE the bottom buttons */
     .rms-manual-widget-card {
         position: fixed;
         right: 24px;
-        bottom: 88px;
+        bottom: 96px;
         width: 440px;
         max-width: calc(100vw - 32px);
         height: 580px;
-        max-height: calc(100vh - 100px);
+        max-height: calc(100vh - 120px);
         background: #ffffff;
         border-radius: 16px;
         box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(15, 23, 42, 0.06);
@@ -383,6 +383,7 @@ new class extends Component {
         align-items: center;
         justify-content: space-between;
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        flex-shrink: 0;
     }
 
     .rms-manual-indicator {
@@ -415,6 +416,7 @@ new class extends Component {
         padding: 10px 16px;
         background: #f8fafc;
         border-bottom: 1px solid #e2e8f0;
+        flex-shrink: 0;
     }
 
     .rms-manual-search-inner {
@@ -437,15 +439,18 @@ new class extends Component {
     }
 
     .rms-manual-widget-body {
-        flex: 1;
+        flex: 1 1 auto;
+        min-height: 0;
         overflow-y: auto;
+        overflow-x: hidden;
         padding: 16px;
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        gap: 12px;
     }
 
     .rms-manual-purpose {
+        flex-shrink: 0;
         display: flex;
         gap: 10px;
         background: #eff6ff;
@@ -458,6 +463,7 @@ new class extends Component {
     }
 
     .rms-manual-section {
+        flex-shrink: 0;
         border: 1px solid #e2e8f0;
         border-radius: 10px;
         overflow: hidden;
@@ -466,10 +472,12 @@ new class extends Component {
 
     .rms-manual-section-hdr {
         width: 100%;
+        min-height: 42px;
+        flex-shrink: 0;
         background: #f8fafc;
         border: none;
         border-bottom: 1px solid #e2e8f0;
-        padding: 10px 14px;
+        padding: 11px 14px;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -539,6 +547,7 @@ new class extends Component {
     }
 
     .rms-manual-callouts {
+        flex-shrink: 0;
         display: flex;
         flex-direction: column;
         gap: 10px;
@@ -583,6 +592,7 @@ new class extends Component {
         display: flex;
         align-items: center;
         justify-content: space-between;
+        flex-shrink: 0;
     }
 
     .rms-manual-btn {

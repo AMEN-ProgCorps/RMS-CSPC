@@ -320,12 +320,12 @@ new class extends Component {
     /* Floating Report Card (matches Messify widget card layout & animation) */
     .rms-report-widget-card {
         position: fixed;
-        bottom: 88px;
+        bottom: 96px;
         right: 24px;
         width: 420px;
         height: 580px;
         max-width: calc(100vw - 32px);
-        max-height: calc(100vh - 100px);
+        max-height: calc(100vh - 120px);
         border-radius: 16px;
         box-shadow: 0 20px 40px -8px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(148, 163, 184, 0.2);
         background: #ffffff;

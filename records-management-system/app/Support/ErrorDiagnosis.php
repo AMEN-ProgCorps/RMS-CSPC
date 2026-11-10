@@ -166,15 +166,20 @@ class ErrorDiagnosis
     /** @return array{status: int, error_kind: string, title: string, message: string, reference: ?string, file: ?string, line: ?int, return_url: ?string} */
     public function toArray(): array
     {
+        $clean = function (?string $val): ?string {
+            if ($val === null) return null;
+            return function_exists('mb_convert_encoding') ? mb_convert_encoding($val, 'UTF-8', 'UTF-8') : $val;
+        };
+
         return [
             'status' => $this->status,
-            'error_kind' => $this->kind,
-            'title' => $this->title,
-            'message' => $this->message,
-            'reference' => $this->reference,
-            'file' => $this->file,
+            'error_kind' => (string) $clean($this->kind),
+            'title' => (string) $clean($this->title),
+            'message' => (string) $clean($this->message),
+            'reference' => $clean($this->reference),
+            'file' => $clean($this->file),
             'line' => $this->line,
-            'return_url' => $this->returnUrl,
+            'return_url' => $clean($this->returnUrl),
         ];
     }
 

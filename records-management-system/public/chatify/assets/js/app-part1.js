@@ -2440,6 +2440,72 @@
       return true;
     }
 
+    function updateSidebarActiveHighlight() {
+      try {
+        const isTrueGlobal = Boolean(isGlobalChat && (window.activeChannel === 'global' || !window.activeChannel) && !activeDM && !activeAdminConv);
+        const isOfficeChat = Boolean(isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv);
+        const isCustomGc = Boolean(isGlobalChat && window.activeChannel === 'gc' && window.activeCustomGc && !activeDM && !activeAdminConv);
+        const isDM = Boolean(!isGlobalChat && !activeAdminConv && (activeDM || activeDMAccountId));
+        const isAdminSpy = Boolean(activeAdminConv);
+
+        // 1. Pinned Global Chat item
+        const gcEl = document.getElementById('globalChatItem');
+        if (gcEl) {
+          if (isTrueGlobal) {
+            if (!gcEl.classList.contains('active')) gcEl.classList.add('active');
+          } else {
+            if (gcEl.classList.contains('active')) gcEl.classList.remove('active');
+          }
+        }
+
+        // 2. Normal Sidebar items (#sidebarUsers)
+        const customGcGid = isCustomGc ? Number(window.activeCustomGc.gc_id || 0) : 0;
+        const customGcConv = isCustomGc ? (window.activeCustomGc.conv_id || ('gc_' + customGcGid)) : null;
+        const targetDmAccId = isDM && activeDMAccountId ? Number(activeDMAccountId) : (activeDMUserObj?.account_id ? Number(activeDMUserObj.account_id) : 0);
+        const targetDmUser = isDM && activeDM ? String(activeDM) : '';
+
+        const userEls = document.querySelectorAll('#sidebarUsers .user-item');
+        userEls.forEach(el => {
+          let shouldBeActive = false;
+          if (typeof isAdminAllChatsView !== 'undefined' && isAdminAllChatsView) {
+            shouldBeActive = false;
+          } else if (isOfficeChat) {
+            shouldBeActive = el.classList.contains('office-gc-item') || (el.dataset.username && el.dataset.username.startsWith('office_'));
+          } else if (isCustomGc) {
+            const elGid = Number(el.dataset.gcId || (el.dataset.username && el.dataset.username.startsWith('gc_') ? el.dataset.username.replace('gc_', '') : 0));
+            const elConv = el.dataset.convId || el.dataset.username;
+            shouldBeActive = (customGcGid > 0 && elGid === customGcGid) || (customGcConv && elConv === customGcConv);
+          } else if (isDM) {
+            const elAccId = Number(el.dataset.accountId || 0);
+            const elUsername = el.dataset.username || '';
+            shouldBeActive = (targetDmAccId > 0 && elAccId === targetDmAccId) || (targetDmUser !== '' && elUsername === targetDmUser);
+          }
+
+          if (shouldBeActive) {
+            if (!el.classList.contains('active')) el.classList.add('active');
+          } else {
+            if (el.classList.contains('active')) el.classList.remove('active');
+          }
+        });
+
+        // 3. Admin Spy conversation items (#adminConvsList)
+        if (typeof adminConvItems !== 'undefined' && adminConvItems) {
+          adminConvItems.forEach((item, key) => {
+            if (!item || !item.classList) return;
+            const isMatch = isAdminSpy && (key === activeAdminConv || (item.dataset && item.dataset.convId === activeAdminConv));
+            if (isMatch) {
+              if (!item.classList.contains('active')) item.classList.add('active');
+            } else {
+              if (item.classList.contains('active')) item.classList.remove('active');
+            }
+          });
+        }
+      } catch (err) {
+        console.error('Error in updateSidebarActiveHighlight:', err);
+      }
+    }
+    window.updateSidebarActiveHighlight = updateSidebarActiveHighlight;
+
     function renderSidebarUsers() {
       const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
@@ -2474,7 +2540,7 @@
         } else if (u.is_custom_gc) {
           isAct = (isGlobalChat && window.activeChannel === 'gc' && !activeDM && !activeAdminConv && window.activeCustomGc && (Number(window.activeCustomGc.gc_id) === Number(u.gc_id) || window.activeCustomGc.conv_id === u.conv_id));
         } else {
-          isAct = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+          isAct = (!isGlobalChat && !activeAdminConv && ((activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM)));
         }
         return sum + (isAct ? 0 : (u.unreadCount || 0));
       }, 0);
@@ -2519,7 +2585,7 @@
         } else if (u.is_custom_gc) {
           isThisActive = (isGlobalChat && window.activeChannel === 'gc' && !activeDM && !activeAdminConv && window.activeCustomGc && (Number(window.activeCustomGc.gc_id) === Number(u.gc_id) || window.activeCustomGc.conv_id === u.conv_id));
         } else {
-          isThisActive = (!activeAdminConv && ((activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM)));
+          isThisActive = (!isGlobalChat && !activeAdminConv && ((activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM)));
         }
 
         if (isThisActive) u.unreadCount = 0;
@@ -2578,6 +2644,11 @@
           officeEl = item._officeEl || item.querySelector('.user-office');
           actionsRight = item._actionsRight || item.querySelector('.user-actions-right');
         }
+
+        item.dataset.username = u.username || '';
+        if (u.account_id) item.dataset.accountId = String(u.account_id);
+        if (u.gc_id) item.dataset.gcId = String(u.gc_id);
+        if (u.conv_id) item.dataset.convId = String(u.conv_id);
 
         if (u.is_office_gc) {
           item.onclick = () => selectOfficeChat();
@@ -2788,11 +2859,7 @@
         sidebarUsers.appendChild(notice);
       }
 
-      if (!activeDM && !activeDMAccountId && !isGlobalChat && !window.activeChannel) {
-        document.getElementById('globalChatItem')?.classList.remove('active');
-        document.getElementById('officeChatItem')?.classList.remove('active');
-        document.querySelectorAll('#customGcSection .user-item').forEach(el => el.classList.remove('active'));
-      }
+      updateSidebarActiveHighlight();
     }
 
     // ── Notify feature: mention + notify any user from the sidebar list ──
@@ -3815,6 +3882,7 @@
       activeDMUserObj = u;
       activeAdminConv = null;
       u.unreadCount = 0;
+      updateSidebarActiveHighlight();
 
       // Ensure the selected user is in allUsersData so avatar lookups work
       // immediately on new chats where this person hasn't been loaded yet.
@@ -3870,11 +3938,8 @@
       dmViewingOlder = false;
       u.unreadCount = 0;
       renderSidebarUsers();
+      updateSidebarActiveHighlight();
       loadChat(false, false, true); // force: abort any in-flight request rather than drop this one
-      // Channel items deactivate
-      document.getElementById('globalChatItem')?.classList.remove('active');
-      document.getElementById('officeChatItem')?.classList.remove('active');
-      document.querySelectorAll('#customGcSection .user-item').forEach(el => el.classList.remove('active'));
       
       // Mobile/Tablet: hide sidebar when chat is selected
       if (isMobileViewport()) {
@@ -3923,6 +3988,8 @@
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;
+      window.activeCustomGc = null;
+      updateSidebarActiveHighlight();
       updateClearChatButtonVisibility();
       updateOfficeInfoButtonVisibility();
       gcCursor = '';
@@ -3960,10 +4027,7 @@
 
       removePaginationBtn();
       renderSidebarUsers();
-      document.getElementById('globalChatItem')?.classList.add('active');
-      document.getElementById('officeChatItem')?.classList.remove('active');
-      window.activeCustomGc = null;
-      document.querySelectorAll('#customGcSection .user-item').forEach(el => el.classList.remove('active'));
+      updateSidebarActiveHighlight();
 
       loadGlobalChat();
       if (isMobileViewport()) {
@@ -4016,6 +4080,8 @@
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;
+      window.activeCustomGc = null;
+      updateSidebarActiveHighlight();
       updateClearChatButtonVisibility();
       updateOfficeInfoButtonVisibility();
       gcCursor = '';
@@ -4056,10 +4122,7 @@
 
       removePaginationBtn();
       renderSidebarUsers();
-      document.getElementById('officeChatItem')?.classList.add('active');
-      document.getElementById('globalChatItem')?.classList.remove('active');
-      window.activeCustomGc = null;
-      document.querySelectorAll('#customGcSection .user-item').forEach(el => el.classList.remove('active'));
+      updateSidebarActiveHighlight();
 
       loadGlobalChat();
       if (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) {
@@ -4150,6 +4213,7 @@
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;
+      updateSidebarActiveHighlight();
 
       updateClearChatButtonVisibility();
       updateOfficeInfoButtonVisibility();
@@ -4190,17 +4254,7 @@
 
       removePaginationBtn();
       renderSidebarUsers();
-
-      document.getElementById('globalChatItem')?.classList.remove('active');
-      document.getElementById('officeChatItem')?.classList.remove('active');
-      const allGcItems = document.querySelectorAll('#customGcSection .user-item');
-      allGcItems.forEach(el => {
-        if (el.dataset.gcId == group.gc_id) {
-          el.classList.add('active');
-        } else {
-          el.classList.remove('active');
-        }
-      });
+      updateSidebarActiveHighlight();
 
       loadGlobalChat();
       const gcConv = group.conv_id || ('gc_' + group.gc_id);
@@ -6408,6 +6462,9 @@
       activeDM = null;
       activeDMAccountId = null;
       isGlobalChat = false;
+      window.activeChannel = null;
+      window.activeCustomGc = null;
+      updateSidebarActiveHighlight();
       updateClearChatButtonVisibility();
       updateOfficeInfoButtonVisibility();
 
@@ -6484,6 +6541,10 @@
       activeAdminConv = c.convId;
       activeDM = null;
       activeDMAccountId = null;
+      isGlobalChat = false; // must reset — otherwise polling/visibilitychange keep re-loading Global Chat over the spy view
+      window.activeChannel = null;
+      window.activeCustomGc = null;
+      updateSidebarActiveHighlight();
       updateClearChatButtonVisibility();
       updateOfficeInfoButtonVisibility();
       isGlobalChat = false; // must reset — otherwise polling/visibilitychange keep re-loading Global Chat over the spy view
@@ -6630,10 +6691,12 @@
         setNoChatSelected(true);
       }
       clearSidebarActiveHighlights();
+      updateSidebarActiveHighlight();
       
       renderSidebarUsers();
       if (serverIsAdmin) renderAdminConvs();
       clearSidebarActiveHighlights();
+      updateSidebarActiveHighlight();
       fetchUsers();
       if ((typeof serverIsAdmin !== 'undefined' ? serverIsAdmin : isAdmin) && typeof adminSpyTargetUser !== 'undefined' && adminSpyTargetUser) {
         fetchAdminConvs('', 0, false, adminSpyTargetUser.account_id);

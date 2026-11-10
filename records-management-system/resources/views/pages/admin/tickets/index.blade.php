@@ -113,7 +113,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         if ($first) {
             $this->selectTicket($first->id);
         } else {
-            $this->selectedId = null;
+        $this->selectedId = null;
         }
     }
 
@@ -1067,7 +1067,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                 <h1>Error Tracking & Tickets</h1>
                 <p>Triage auto-captured system exceptions and user-submitted incident reports.</p>
             </div>
-        </div>
+            </div>
 
         <div class="m-top-actions">
             {{-- Quick Source Filter Pills --}}
@@ -1152,36 +1152,36 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                         <div class="m-item-left">
                             <i class="fa-solid fa-inbox m-item-icon"></i>
                             <span class="m-item-title">All Tickets</span>
-                        </div>
+            </div>
                         <span class="m-item-badge">{{ $stats['total'] }}</span>
-                    </div>
+                </div>
 
                     <div class="m-item {{ $statusFilter === 'open' && $priorityFilter === '' ? 'active' : '' }}"
                          wire:click="setCategoryFilter('open', '', '')">
                         <div class="m-item-left">
                             <span class="status-dot open" style="margin-right: 2px;"></span>
                             <span class="m-item-title">Open Tickets</span>
-                        </div>
+            </div>
                         <span class="m-item-badge">{{ $stats['open'] }}</span>
-                    </div>
+                </div>
 
                     <div class="m-item {{ $statusFilter === 'in_progress' ? 'active' : '' }}"
                          wire:click="setCategoryFilter('in_progress', '', '')">
                         <div class="m-item-left">
                             <span class="status-dot in_progress" style="margin-right: 2px;"></span>
                             <span class="m-item-title">In Progress</span>
-                        </div>
+            </div>
                         <span class="m-item-badge">{{ $stats['in_progress'] }}</span>
-                    </div>
+                </div>
 
                     <div class="m-item {{ $statusFilter === 'notice' ? 'active' : '' }}"
                          wire:click="setCategoryFilter('notice', '', '')">
                         <div class="m-item-left">
                             <span class="status-dot notice" style="margin-right: 2px;"></span>
                             <span class="m-item-title">Notice (Gentle Notice)</span>
-                        </div>
+            </div>
                         <span class="m-item-badge" style="{{ $stats['notice'] > 0 ? 'background: #ecfeff; color: #0891b2;' : '' }}">{{ $stats['notice'] }}</span>
-                    </div>
+        </div>
 
                     <div class="m-item {{ $statusFilter === 'resolved' ? 'active' : '' }}"
                          wire:click="setCategoryFilter('resolved', '', '')">
@@ -1295,12 +1295,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                         @endif
                                         @if((int) $t->occurrence_count > 1)
                                             <span class="m-item-badge" style="font-size: 9.5px; padding: 1px 4px;">×{{ $t->occurrence_count }}</span>
-                                        @endif
-                                    </div>
+                    @endif
+                </div>
 
                                     <div class="m-item-subtext" title="{{ $t->title }}">
                                         {{ $t->title }}
-                                    </div>
+        </div>
 
                                     <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px;">
                                         @if($t->status === 'notice')
@@ -1316,13 +1316,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                                 <i class="fa-solid fa-wand-magic-sparkles" style="font-size: 9.5px;"></i> User | Auto
                                             @else
                                                 <i class="fa-solid fa-robot" style="font-size: 9.5px;"></i> Auto
-                                            @endif
-                                        </span>
+                                        @endif
+                                    </span>
 
                                         @if($t->subsystem)
                                             <span style="opacity: 0.75; font-size: 10.5px; text-transform: uppercase;">
                                                 {{ $t->subsystem }}
-                                            </span>
+                                    </span>
                                         @endif
 
                                         @if($seen)
@@ -1341,16 +1341,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                 <i class="fa-solid fa-chevron-right m-item-arrow" style="margin-top: 6px;"></i>
                             </div>
                         </div>
-                    @empty
+                        @empty
                         <div style="padding: 32px 16px; text-align: center; color: #94a3b8; font-size: 13px;">
                             <i class="fa-solid fa-ticket-simple" style="font-size: 28px; margin-bottom: 10px; display: block; opacity: 0.5;"></i>
                             No tickets match the current criteria.
-                        </div>
-                    @endforelse
-                </div>
+                                    </div>
+                        @endforelse
+            </div>
 
                 {{-- Column Pagination Footer --}}
-                @if($tickets->hasPages())
+            @if($tickets->hasPages())
                     <div class="m-col-pagination">
                         <span>Page {{ $tickets->currentPage() }} of {{ $tickets->lastPage() }}</span>
                         <div style="display: flex; gap: 4px;">
@@ -1360,9 +1360,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                             <button type="button" class="m-pager-btn" wire:click="nextPage" @disabled(!$tickets->hasMorePages())>
                                 <i class="fa-solid fa-chevron-right"></i>
                             </button>
-                        </div>
                     </div>
-                @endif
+                    </div>
+                        @endif
             </div>
 
             {{-- ========================================================
@@ -1421,12 +1421,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                 <span class="notice-pill" style="padding: 3px 8px; font-size: 11px;">
                                     <i class="fa-solid fa-circle-info"></i> NOTICE (GENTLE NOTICE)
                                 </span>
-                            @else
+                        @else
                                 <span class="priority-pill" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; padding: 3px 8px; font-size: 11px;">
                                     {{ strtoupper(str_replace('_', ' ', $selected->status)) }}
                                 </span>
-                            @endif
-                        </div>
+                        @endif
+                    </div>
                     </div>
 
                     {{-- Properties Sheet --}}
@@ -1466,15 +1466,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                         <div class="m-inspector-prop">
                             <span>Request URL</span>
                             <strong style="max-width: 220px; font-size: 11px;">{{ $selected->url }}</strong>
-                        </div>
-                    @endif
+                </div>
+            @endif
 
                     @if($selected->exception_class)
                         <div class="m-inspector-prop">
                             <span>Exception</span>
                             <strong style="max-width: 220px; font-size: 11px;">{{ class_basename($selected->exception_class) }}</strong>
-                        </div>
-                    @endif
+        </div>
+    @endif
 
                     @if($selected->file)
                         <div class="m-inspector-prop">
@@ -1505,7 +1505,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                             <i class="fa-solid fa-circle-info" style="font-size: 14px; margin-top: 2px; color: #0891b2; flex-shrink: 0;"></i>
                             <div>
                                 <strong style="color: #0891b2;">Gentle Notice:</strong> This ticket is logged as a notice (slow internet / connection timeout). It does not require technical debugging or code fixes.
-                            </div>
+                </div>
                         </div>
                     @endif
 
@@ -1516,40 +1516,40 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                         <div class="triage-grid">
                             <label>
                                 Status
-                                <select wire:model="editStatus">
-                                    <option value="open">Open</option>
-                                    <option value="in_progress">In Progress</option>
+                        <select wire:model="editStatus">
+                            <option value="open">Open</option>
+                            <option value="in_progress">In Progress</option>
                                     <option value="notice">Notice (Gentle Notice - No Action Required)</option>
-                                    <option value="resolved">Resolved</option>
-                                    <option value="closed">Closed</option>
-                                </select>
-                            </label>
+                            <option value="resolved">Resolved</option>
+                            <option value="closed">Closed</option>
+                        </select>
+                    </label>
 
                             <label>
                                 Priority
-                                <select wire:model="editPriority">
-                                    <option value="low">Low</option>
-                                    <option value="medium">Medium</option>
-                                    <option value="high">High</option>
-                                    <option value="critical">Critical</option>
-                                </select>
-                            </label>
+                        <select wire:model="editPriority">
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="critical">Critical</option>
+                        </select>
+                    </label>
 
                             <label class="triage-full">
                                 Assigned Admin
-                                <select wire:model="editAssignedTo">
-                                    <option value="">Unassigned</option>
-                                    @foreach($admins as $admin)
-                                        <option value="{{ $admin->id }}">{{ $admin->username }}</option>
-                                    @endforeach
-                                </select>
-                            </label>
+                        <select wire:model="editAssignedTo">
+                            <option value="">Unassigned</option>
+                            @foreach($admins as $admin)
+                                <option value="{{ $admin->id }}">{{ $admin->username }}</option>
+                            @endforeach
+                        </select>
+                    </label>
 
                             <label class="triage-full">
                                 Internal Admin Notes
                                 <textarea wire:model="editAdminNotes" rows="3" placeholder="Add resolution details or triage notes..."></textarea>
-                            </label>
-                        </div>
+                    </label>
+                </div>
 
                         <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
                             <button type="button" class="m-tool-btn primary" wire:click="saveTicket" wire:loading.attr="disabled" style="width: 100%; justify-content: center;">
@@ -1557,9 +1557,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                 <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="saveTicket"></i>
                                 <span wire:loading.remove wire:target="saveTicket">Save Triage Changes</span>
                                 <span wire:loading wire:target="saveTicket">Saving...</span>
-                            </button>
-                        </div>
-                    </div>
+                    </button>
+                </div>
+            </div>
                 @else
                     {{-- Empty State when no ticket is selected --}}
                     <div style="padding: 40px 20px; text-align: center; color: #94a3b8; font-size: 13px; margin: auto;">

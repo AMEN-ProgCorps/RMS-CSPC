@@ -851,9 +851,14 @@ class RegisterUpdateHelper
                 $revNo = isset($ml->revise_no) ? (int) $ml->revise_no : null;
                 $actorOffice = RegisterQueryHelper::currentOfficeCode();
                 $notifyTitleOrNull = $notifyTitle !== '' ? $notifyTitle : null;
-                app()->terminating(function () use ($addedDistOfficeIds, $actorOffice, $notifyDocNo, $notifyTitleOrNull, $revNo) {
+                $skipCodes = OfficeIntakeHelper::submitterOfficeCodesForRequest((int) $requestId, $request);
+                if ($actorOffice) {
+                    $skipCodes[] = strtoupper(trim((string) $actorOffice));
+                    $skipCodes = array_values(array_unique(array_filter($skipCodes)));
+                }
+                app()->terminating(function () use ($addedDistOfficeIds, $skipCodes, $notifyDocNo, $notifyTitleOrNull, $revNo) {
                     foreach (DcsNotificationService::officeCodesFromIds($addedDistOfficeIds) as $officeCode) {
-                        if ($actorOffice && strtoupper($officeCode) === strtoupper($actorOffice)) {
+                        if (in_array(strtoupper($officeCode), $skipCodes, true)) {
                             continue;
                         }
                         DcsNotificationService::notifyDocumentDistributed(

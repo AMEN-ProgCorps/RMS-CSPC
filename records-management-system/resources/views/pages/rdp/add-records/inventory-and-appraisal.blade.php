@@ -2141,8 +2141,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->dcsAdminAlreadySent = true;
         $displayDocNo = trim((string) ($masterlist->doc_no ?? ''));
         $revNo = isset($masterlist->revise_no) ? (int) $masterlist->revise_no : null;
+        $skipIncomingCodes = \App\Helpers\OfficeIntakeHelper::submitterOfficeCodesForRequest((int) ($this->dcsRequestId ?? 0));
+        $skipIncomingCodes[] = strtoupper(trim((string) $origin));
+        $skipIncomingCodes = array_values(array_unique(array_filter($skipIncomingCodes)));
         foreach ($officeCodes as $officeCode) {
-            if ($officeCode === '' || strcasecmp($officeCode, $origin) === 0) {
+            if ($officeCode === '' || in_array(strtoupper(trim((string) $officeCode)), $skipIncomingCodes, true)) {
                 continue;
             }
             \App\Services\DcsNotificationService::notifyDocumentDistributed(

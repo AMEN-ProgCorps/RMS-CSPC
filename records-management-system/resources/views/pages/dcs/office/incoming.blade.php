@@ -207,7 +207,7 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
         </nav>
         @endunless
 
-        <div class="ofi-card" style="position:relative;" wire:loading.class="is-loading">
+        <div class="ofi-card ofi-list-card" style="position:relative;" wire:loading.class="is-loading">
             <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,markReceived,previousPage,nextPage,gotoPage">
                 <div class="dcs-loading-spinner" aria-hidden="true"></div>
                 <h4>Loading incoming…</h4>
@@ -219,12 +219,10 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
             </div>
 
             @if($activeCount < 1)
-                <div class="ofi-doc-empty" role="status">
+                <div class="ofi-doc-empty ofi-list-empty" role="status">
                     <i class="fa-solid fa-inbox" aria-hidden="true"></i>
                     <strong>Nothing waiting to receive</strong>
-                    <p>
-                        When Document Control distributes a document to your office, it will appear here.
-                    </p>
+                    <p>When Document Control distributes a document to your office, it will appear here.</p>
                 </div>
             @else
                 <div class="ofi-table-wrap">

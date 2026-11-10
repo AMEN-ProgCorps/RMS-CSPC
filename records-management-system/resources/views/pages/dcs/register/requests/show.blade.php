@@ -210,9 +210,10 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                     $panelType = (string) ($ap['type'] ?? $panel['key']);
                     $panelReceived = ! empty($ap['received']);
                     $panelNotified = ! empty($ap['printNotified']);
+                    $panelEditUnlocked = ! empty($ap['editUnlocked']);
                     $panelPairPending = empty($panel['pairReceived']) && ($panel['pairLabel'] ?? '') !== '';
                     $panelPairNotifyPending = empty($panel['pairNotified']) && ($panel['pairLabel'] ?? '') !== '';
-                    $panelCanProceed = $panelReceived && $panelNotified && ! $panelPairPending && ! $panelPairNotifyPending && ! empty($ap['canRegister']) && ! empty($panel['registerUrl']);
+                    $panelCanProceed = $panelReceived && $panelNotified && ! $panelEditUnlocked && ! $panelPairPending && ! $panelPairNotifyPending && ! empty($ap['canRegister']) && ! empty($panel['registerUrl']);
                 @endphp
                 <aside class="ofi-request-actions" data-ofi-actions data-preview-key="{{ $panel['key'] }}"
                     @if($panel['key'] !== $activePreviewKey) hidden @endif
@@ -227,6 +228,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                     data-pair-notified="{{ $panelPairNotifyPending ? '0' : '1' }}"
                     data-pair-label="{{ $panel['pairLabel'] ?? '' }}"
                     data-print-notified="{{ $panelNotified ? '1' : '0' }}"
+                    data-edit-unlocked="{{ $panelEditUnlocked ? '1' : '0' }}"
                 >
                     <div class="ofi-request-actions-head">
                         <h2>{{ strtoupper($panelType) }} actions</h2>
@@ -240,11 +242,16 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                             <p class="ofi-request-step-hint">
                                 Tell the submitting office this {{ strtoupper($panelType) }} looks correct so they can print, sign, and bring the hard copy to the Records Office.
                             </p>
-                            <button type="button" class="ofi-notify-print-btn" data-ofi-notify-btn>
+                            <button type="button" class="ofi-notify-print-btn" data-ofi-notify-btn
+                                @disabled($panelEditUnlocked)
+                                title="{{ $panelEditUnlocked ? 'Wait for the office to edit and resubmit before notifying them to print and sign.' : '' }}">
                                 <i class="fa-regular fa-bell"></i>
                                 <span data-ofi-notify-label>{{ $panelNotified ? 'Resend print & sign notice' : 'Notify client to print & sign' }}</span>
                             </button>
-                            <p class="ofi-receive-meta" data-ofi-notify-meta @if(! $panelNotified) hidden @endif>
+                            <p class="ofi-receive-meta" data-ofi-notify-wait @if(! $panelEditUnlocked) hidden @endif>
+                                Waiting for office resubmit — notify unlocks after they edit and save again.
+                            </p>
+                            <p class="ofi-receive-meta" data-ofi-notify-meta @if(! $panelNotified || $panelEditUnlocked) hidden @endif>
                                 @if($panelNotified)
                                     Client notified
                                     @if(!empty($ap['printNotifiedAt'])) on {{ $ap['printNotifiedAt'] }} @endif
@@ -258,7 +265,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                         <div class="ofi-request-step-num" aria-hidden="true">2</div>
                         <div class="ofi-request-step-body">
                             <label class="ofi-receive-check">
-                                <input type="checkbox" data-ofi-received @checked($panelReceived)>
+                                <input type="checkbox" data-ofi-received @checked($panelReceived) @disabled($panelEditUnlocked)>
                                 <span>I have received the signed {{ strtoupper($panelType) }} and verified that the data matches this submission.</span>
                             </label>
                             <p class="ofi-receive-meta" data-ofi-receive-meta @if(! $panelReceived) hidden @endif>
@@ -328,7 +335,9 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                             </button>
                             </div>
                             <p class="ofi-request-step-hint" data-ofi-proceed-hint @if($panelCanProceed) hidden @endif>
-                                @if(! $panelNotified)
+                                @if($panelEditUnlocked)
+                                    Wait for the submitting office to edit and resubmit this {{ strtoupper($panelType) }} before registration.
+                                @elseif(! $panelNotified)
                                     Notify the submitting office that this {{ strtoupper($panelType) }} is correct before registration.
                                 @elseif($panelPairNotifyPending)
                                     Notify the office for the linked {{ $panel['pairLabel'] }} as well — one notice is sent when both are confirmed.

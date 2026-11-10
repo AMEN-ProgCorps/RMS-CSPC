@@ -3259,6 +3259,140 @@ body.ofi-modal-open {
     line-height: 1.45;
     color: #64748b;
 }
+.ofi-list-card {
+    padding-bottom: 16px;
+}
+.ofi-list-empty {
+    gap: 10px;
+    min-height: 280px;
+    padding: 48px 20px 40px;
+}
+.ofi-list-empty > i {
+    width: 56px;
+    height: 56px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    opacity: 1;
+    font-size: 22px;
+    margin-bottom: 6px;
+}
+.ofi-list-empty strong {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+}
+.ofi-list-empty p {
+    max-width: 460px;
+}
+.ofi-empty-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+.ofi-list-table-wrap {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    overflow-x: auto;
+}
+.ofi-list-table-wrap .ofi-table th:first-child,
+.ofi-list-table-wrap .ofi-table td:first-child {
+    padding-left: 4px;
+}
+.ofi-list-table-wrap .ofi-table th:last-child,
+.ofi-list-table-wrap .ofi-table td:last-child {
+    padding-right: 4px;
+}
+.ofi-title-cell {
+    max-width: 340px;
+}
+.ofi-title-link {
+    color: inherit;
+    font-weight: 700;
+    text-decoration: none;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.ofi-title-link:hover {
+    color: #1d4ed8;
+    text-decoration: underline;
+}
+.ofi-actions-col {
+    width: 220px;
+}
+.ofi-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+.ofi-icon-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 9px;
+    border-radius: 7px;
+    border: 1px solid #dbeafe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+    line-height: 1.2;
+}
+.ofi-icon-action:hover {
+    background: #dbeafe;
+    border-color: #93c5fd;
+    color: #1e40af;
+}
+.ofi-icon-action.is-accent {
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #047857;
+}
+.ofi-icon-action.is-accent:hover {
+    background: #d1fae5;
+    border-color: #6ee7b7;
+    color: #065f46;
+}
+.ofi-icon-action.is-locked,
+.ofi-print-locked.ofi-icon-action {
+    opacity: 0.55;
+    background: #f8fafc;
+    border-color: #e2e8f0;
+    color: #64748b;
+    cursor: not-allowed;
+}
+.ofi-icon-action span {
+    white-space: nowrap;
+}
+.ofi-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 4px 2px;
+    flex-wrap: wrap;
+}
+.ofi-pagination-meta,
+.ofi-pagination-page {
+    font-size: 12.5px;
+    color: #64748b;
+}
+.ofi-pagination-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
 .ofi-nav-empty-hint {
     margin-left: 6px;
     font-size: 10px;
@@ -4057,6 +4191,48 @@ body.ofi-modal-open {
 [data-theme="dark"] .ofi-doc-panel-head {
     background: #1d4ed8;
     color: #fff;
+}
+[data-theme="dark"] .ofi-list-empty > i {
+    background: #0f172a;
+    color: #93c5fd;
+    border: 1px solid #1e3a5f;
+}
+[data-theme="dark"] .ofi-doc-empty strong,
+[data-theme="dark"] .ofi-list-empty strong {
+    color: #f8fafc;
+}
+[data-theme="dark"] .ofi-title-link:hover {
+    color: #93c5fd;
+}
+[data-theme="dark"] .ofi-icon-action {
+    background: #0f172a;
+    border-color: #1e3a5f;
+    color: #93c5fd;
+}
+[data-theme="dark"] .ofi-icon-action:hover {
+    background: #172554;
+    border-color: #1d4ed8;
+    color: #bfdbfe;
+}
+[data-theme="dark"] .ofi-icon-action.is-accent {
+    background: #052e2b;
+    border-color: #115e59;
+    color: #5eead4;
+}
+[data-theme="dark"] .ofi-icon-action.is-accent:hover {
+    background: #134e4a;
+    border-color: #14b8a6;
+    color: #99f6e4;
+}
+[data-theme="dark"] .ofi-icon-action.is-locked,
+[data-theme="dark"] .ofi-print-locked.ofi-icon-action {
+    background: #0f172a;
+    border-color: #1e293b;
+    color: #64748b;
+}
+[data-theme="dark"] .ofi-pagination-meta,
+[data-theme="dark"] .ofi-pagination-page {
+    color: #94a3b8;
 }
 [data-theme="dark"] .ofi-dcn-selected-head span,
 [data-theme="dark"] .ofi-dcn-reselect:hover {

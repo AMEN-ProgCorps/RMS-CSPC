@@ -2307,8 +2307,9 @@ class OfficeIntakeHelper
             'semesterId' => 'nullable|integer',
             'schoolYearId' => 'nullable|integer',
             'descriptionReason' => 'required|string|max:5000',
-            'distributeToOffice' => 'required|array|min:1',
-            'distributeToOffice.*' => 'required|integer',
+            // Empty = office-only controlled document (Source Unit). Other offices only when they need a copy.
+            'distributeToOffice' => 'nullable|array',
+            'distributeToOffice.*' => 'integer',
             'preparedByName' => 'required|string|max:255',
             'preparedByDesignation' => 'required|string|max:255',
             'reviewedByName' => 'required|string|max:255',
@@ -2825,8 +2826,9 @@ class OfficeIntakeHelper
             'semesterId' => 'nullable|integer',
             'schoolYearId' => 'nullable|integer',
             'descriptionReason' => 'required|string|max:5000',
-            'distributeToOffice' => 'required|array|min:1',
-            'distributeToOffice.*' => 'required|integer',
+            // Empty = office-only controlled document (Source Unit). Other offices only when they need a copy.
+            'distributeToOffice' => 'nullable|array',
+            'distributeToOffice.*' => 'integer',
             'preparedByName' => 'required|string|max:255',
             'preparedByDesignation' => 'required|string|max:255',
             'reviewedByName' => 'required|string|max:255',
@@ -2910,6 +2912,17 @@ class OfficeIntakeHelper
             if (Schema::hasColumn('dcs_office_intake_drf', 'rfio_received_at')) {
                 $row['rfio_received_at'] = null;
                 $row['rfio_received_by'] = null;
+            }
+            // Resubmit after correction must restart print/sign handoff on the new data.
+            if (Schema::hasColumn('dcs_office_intake_drf', 'rfio_print_notified_at')) {
+                $row['rfio_print_notified_at'] = null;
+                $row['rfio_print_notified_by'] = null;
+            }
+            if (Schema::hasColumn('dcs_office_intake_drf', 'office_printed_at')) {
+                $row['office_printed_at'] = null;
+            }
+            if (Schema::hasColumn('dcs_office_intake_drf', 'office_printed_by')) {
+                $row['office_printed_by'] = null;
             }
 
             $affected = DB::table('dcs_office_intake_drf')
@@ -3030,6 +3043,17 @@ class OfficeIntakeHelper
             if (Schema::hasColumn('dcs_office_intake_dcn', 'rfio_received_at')) {
                 $row['rfio_received_at'] = null;
                 $row['rfio_received_by'] = null;
+            }
+            // Resubmit after correction must restart print/sign handoff on the new data.
+            if (Schema::hasColumn('dcs_office_intake_dcn', 'rfio_print_notified_at')) {
+                $row['rfio_print_notified_at'] = null;
+                $row['rfio_print_notified_by'] = null;
+            }
+            if (Schema::hasColumn('dcs_office_intake_dcn', 'office_printed_at')) {
+                $row['office_printed_at'] = null;
+            }
+            if (Schema::hasColumn('dcs_office_intake_dcn', 'office_printed_by')) {
+                $row['office_printed_by'] = null;
             }
 
             $affected = DB::table('dcs_office_intake_dcn')
@@ -5207,6 +5231,14 @@ class OfficeIntakeHelper
             ? DB::table($table)->where('id', $id)->value('rfio_print_notified_at')
             : ($record->rfio_print_notified_at ?? null);
 
+        $editUnlockedAt = Schema::hasColumn($table, 'edit_unlocked_at')
+            ? DB::table($table)->where('id', $id)->value('edit_unlocked_at')
+            : ($record->edit_unlocked_at ?? null);
+        abort_if(
+            ! empty($editUnlockedAt),
+            422,
+            'Wait for the submitting office to edit and resubmit this form before registration.'
+        );
         abort_if(empty($receivedAt), 422, 'Confirm receipt of the signed '.strtoupper($type).' first to unlock registration.');
         abort_if(empty($printNotifiedAt), 422, 'Notify the submitting office that this form is correct before registration.');
         if ($type === 'dcn') {
@@ -5841,6 +5873,56 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Submitter office codes for a registration that came from office DRF/DCN intake.
+     * Used so Incoming-distribution notices never go to the office that filed the request.
+     *
+     * @return list<string>
+     */
+    public static function submitterOfficeCodesForRequest(int $requestId, ?Request $request = null): array
+    {
+        $codes = [];
+        if ($requestId > 0) {
+            foreach (['drf' => 'dcs_office_intake_drf', 'dcn' => 'dcs_office_intake_dcn'] as $type => $table) {
+                if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'registered_request_id')) {
+                    continue;
+                }
+                $rows = DB::table($table)
+                    ->where('registered_request_id', $requestId)
+                    ->orderBy('id')
+                    ->get();
+                foreach ($rows as $row) {
+                    foreach (self::intakeSubmitterOfficeCodes($row) as $code) {
+                        $codes[] = $code;
+                    }
+                }
+            }
+        }
+
+        // Pending claim (not linked yet) — still skip that office during first publish.
+        $pending = self::pendingRegisterIntake($request);
+        if (is_array($pending)
+            && in_array(($pending['type'] ?? ''), ['drf', 'dcn'], true)
+            && (int) ($pending['id'] ?? 0) > 0
+        ) {
+            $type = (string) $pending['type'];
+            $id = (int) $pending['id'];
+            $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
+            if ($record) {
+                foreach (self::intakeSubmitterOfficeCodes($record) as $code) {
+                    $codes[] = $code;
+                }
+            }
+        }
+
+        return collect($codes)
+            ->map(fn ($c) => strtoupper(trim((string) $c)))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
      * Office code(s) for the account that created the office intake form.
      *
      * @return list<string>
@@ -6028,6 +6110,11 @@ class OfficeIntakeHelper
         $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
         abort_unless($record, 404);
         abort_if(self::isIntakeRegistered($type, $id), 422, 'This submission is already registered.');
+        abort_if(
+            ! empty($record->edit_unlocked_at),
+            422,
+            'Wait for the submitting office to edit and resubmit this form before notifying them to print and sign.'
+        );
 
         $title = trim((string) ($type === 'dcn' ? ($record->document_title ?? '') : ($record->doc_title ?? '')));
         $officeCodes = self::intakeOfficeCodes($type, $id, $record);
@@ -6516,18 +6603,20 @@ class OfficeIntakeHelper
         $registerType = $target['registerType'];
         $registerUrl = ($canRegister && ! $registered) ? $target['registerUrl'] : null;
 
+        $editUnlocked = (bool) ($editState['editUnlocked'] ?? false);
+
         return [
-            'canConfirmReceived' => $canManage && ! $registered,
-            'canRegister' => $canRegister && ! $registered,
+            'canConfirmReceived' => $canManage && ! $registered && ! $editUnlocked,
+            'canRegister' => $canRegister && ! $registered && ! $editUnlocked,
             'canUnlockEdit' => $canManage && ! $registered,
-            'canNotifyPrintReady' => $canManage && ! $registered,
+            'canNotifyPrintReady' => $canManage && ! $registered && ! $editUnlocked,
             'received' => $received['received'],
             'receivedAt' => $received['receivedAt'],
             'receivedBy' => $received['receivedBy'],
             'registerUrl' => $registerUrl,
             'registerType' => $registerType,
             'registered' => $registered,
-            'editUnlocked' => (bool) ($editState['editUnlocked'] ?? false),
+            'editUnlocked' => $editUnlocked,
             'editUnlockReason' => $editState['editUnlockReason'] ?? null,
             'editUnlockedAt' => $editState['editUnlockedAt'] ?? null,
             'printNotified' => (bool) ($printState['printNotified'] ?? false),
@@ -6551,6 +6640,11 @@ class OfficeIntakeHelper
         $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
         $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
         abort_unless($record, 404);
+        abort_if(
+            ! empty($record->edit_unlocked_at),
+            422,
+            'Wait for the submitting office to edit and resubmit this form before confirming receipt.'
+        );
 
         if (! Schema::hasColumn($table, 'rfio_received_at')) {
             abort(422, 'Received tracking is not available yet. Please run migrations.');

@@ -307,16 +307,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         $this->errorMessage = null;
     }
 
+    public function refreshCatalog(): void
+    {
+        ManualService::clearFileIndexCache();
+        $count = ManualService::syncDatabaseCatalog();
+        $this->successMessage = "Catalog refreshed and synchronized successfully ({$count} targets).";
+    }
+
     public function with(): array
     {
         $allFiles = ManualService::getAllManualFiles();
 
+        $enrichedTargets = [];
+        $assignedCount = 0;
+        $missingCount = 0;
+
         // Read directly from sys_page_manuals table for lightning-fast sub-millisecond retrieval
         if (\Illuminate\Support\Facades\Schema::hasTable('sys_page_manuals')) {
             $dbRecords = \Illuminate\Support\Facades\DB::table('sys_page_manuals')->get();
-            $enrichedTargets = [];
-            $assignedCount = 0;
-            $missingCount = 0;
+            if ($dbRecords->isEmpty()) {
+                ManualService::syncDatabaseCatalog();
+                $dbRecords = \Illuminate\Support\Facades\DB::table('sys_page_manuals')->get();
+            }
 
             foreach ($dbRecords as $r) {
                 $hasManual = !empty($r->relative_path);
@@ -339,8 +351,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
                     'is_custom_mapped' => (bool) $r->is_custom_mapped,
                 ];
             }
-        } else {
-            // Fallback if table not yet migrated
+        }
+
+        // Fallback if table not yet migrated or empty
+        if (empty($enrichedTargets)) {
             $allTargets = ManualService::getAllSystemTargets();
             $mappings = ManualService::getManualMapping();
             $fileLookup = [];
@@ -349,7 +363,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
                 $fileLookup[strtolower($f['name'])] = $f;
             }
 
-            $enrichedTargets = [];
             $assignedCount = 0;
             $missingCount = 0;
 
@@ -1058,7 +1071,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
             <p>Assign, monitor, edit, and audit interactive page manuals and modal walkthroughs across all RMS subsystems.</p>
         </div>
         <div class="pmo-top-actions">
-            <button type="button" class="pmo-btn secondary" wire:click="$refresh">
+            <button type="button" class="pmo-btn secondary" wire:click="refreshCatalog">
                 <i class="fa-solid fa-arrows-rotate"></i> Refresh Catalog
             </button>
             <button type="button" class="pmo-btn primary" wire:click="openCreateModal">

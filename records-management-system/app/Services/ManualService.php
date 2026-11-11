@@ -562,6 +562,79 @@ class ManualService
     }
 
     /**
+     * Synchronize and seed all known system targets and their matching manual guides into sys_page_manuals table.
+     */
+    public static function syncDatabaseCatalog(): int
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('sys_page_manuals')) {
+            return 0;
+        }
+
+        $allTargets = self::getAllSystemTargets();
+        $mappings = self::getManualMapping();
+        $index = self::getFileIndex();
+        $baseDir = resource_path('manuals');
+        $synced = 0;
+
+        foreach ($allTargets as $t) {
+            $key = $t['key'];
+            $keyLower = strtolower($key);
+            $cleanModalKey = preg_replace('/^modal\./i', '', $keyLower);
+
+            $isExplicitlyDisabled = isset($mappings[$key]) && in_array($mappings[$key], ['disabled', 'none', '']);
+            $assignedFile = null;
+            $isCustomMapped = false;
+
+            if (!$isExplicitlyDisabled) {
+                if (isset($mappings[$key]) && !empty($mappings[$key])) {
+                    $assignedFile = $mappings[$key];
+                    $isCustomMapped = true;
+                } else {
+                    $found = $index['by_modal_base'][$cleanModalKey]
+                        ?? ($index['by_modal_base'][$keyLower]
+                        ?? ($index['by_base'][$cleanModalKey]
+                        ?? ($index['by_base'][$keyLower]
+                        ?? ($index['by_path'][$keyLower . '.md']
+                        ?? ($index['by_name'][$keyLower . '.md']
+                        ?? ($index['by_path'][$cleanModalKey . '.md']
+                        ?? ($index['by_name'][$cleanModalKey . '.md'] ?? null)))))));
+                    if ($found) {
+                        $assignedFile = str_replace('\\', '/', str_replace([$baseDir . DIRECTORY_SEPARATOR, $baseDir . '/'], '', $found));
+                    }
+                }
+            }
+
+            $lineCount = 0;
+            if ($assignedFile) {
+                $full = $baseDir . DIRECTORY_SEPARATOR . ltrim(str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $assignedFile), DIRECTORY_SEPARATOR);
+                if (is_file($full)) {
+                    $lines = @file($full, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                    $lineCount = is_array($lines) ? count($lines) : 0;
+                }
+            }
+
+            \Illuminate\Support\Facades\DB::table('sys_page_manuals')->updateOrInsert(
+                ['target_key' => $key],
+                [
+                    'target_name' => $t['name'],
+                    'subsystem' => $t['subsystem'],
+                    'type' => $t['type'],
+                    'relative_path' => $assignedFile,
+                    'title' => $t['name'],
+                    'purpose' => $t['description'],
+                    'line_count' => $lineCount,
+                    'is_custom_mapped' => $isCustomMapped,
+                    'updated_at' => now(),
+                    'created_at' => now(),
+                ]
+            );
+            $synced++;
+        }
+
+        return $synced;
+    }
+
+    /**
      * Get raw markdown string of a manual file.
      */
     public static function getManualFileRaw(string $relativePath): ?string

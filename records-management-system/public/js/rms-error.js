@@ -28,12 +28,13 @@
         var title = (body && body.title) || (kind === 'client' ? 'Client error' : 'Server error');
         var message = (body && body.message) || '';
 
-        if (!message && (code === 408 || code === 504 || (offline && navigator.onLine))) {
+        if (!message && (code === 408 || code === 504)) {
             title = 'Slow internet';
             message = 'Your internet connection is too slow. Check your connection and try again.';
         }
         if (!message && (offline || code === 503)) {
-            message = 'Cannot connect to the server.';
+            title = offline ? 'Connection error' : 'Service unavailable';
+            message = 'Cannot connect to the server. Please check your connection and try again.';
         }
         if (!message && code === 401) {
             message = 'Sign in again before continuing.';
@@ -127,7 +128,7 @@
     var inflight = 0;
     var watchGeneration = 0;
     var userActionAt = Date.now();
-    var SLOW_MS = 15000;
+    var SLOW_MS = 30000;
     var USER_WAIT_MS = 20000;
 
     ['click', 'keydown', 'submit', 'input'].forEach(function (name) {
@@ -383,38 +384,22 @@
         }
     }
 
-    function armSlowWatch() {
-        if (!userIsWaiting()) return false;
-        var generation = watchGeneration;
-        inflight += 1;
-        if (!slowTimer) {
-            slowTimer = setTimeout(function () {
-                slowTimer = null;
-                if (generation !== watchGeneration || inflight < 1) return;
+    function armSlowRequest() {
+        if (!userIsWaiting()) return null;
+        return setTimeout(function () {
+            if (userIsWaiting()) {
                 showSlowInternet(false);
-            }, SLOW_MS);
-        }
-        return true;
+            }
+        }, SLOW_MS);
     }
 
-    function disarmSlowWatch(failed) {
-        inflight = Math.max(0, inflight - 1);
-        if (inflight > 0) return;
-        if (slowTimer) {
-            clearTimeout(slowTimer);
-            slowTimer = null;
+    function disarmSlowRequest(timerId, failed) {
+        if (timerId) {
+            clearTimeout(timerId);
         }
-        if (!failed) hideSlowInternet();
-    }
-
-    function pauseSlowWatch() {
-        watchGeneration += 1;
-        inflight = 0;
-        if (slowTimer) {
-            clearTimeout(slowTimer);
-            slowTimer = null;
+        if (!failed) {
+            hideSlowInternet();
         }
-        hideSlowInternet();
     }
 
     if (typeof window.fetch === 'function' && !window.__rmsSlowFetch) {
@@ -429,31 +414,58 @@
                 else if (input && typeof input.url === 'string') url = input.url;
                 else if (input && input.href) url = String(input.href);
             } catch (e) { url = ''; }
-            var skipSlow = /\/dcs\/api\/documents\/(search|revisions)/.test(url)
-                || /\/livewire\/(update|upload-file)/.test(url)
+
+            // Background polling, chat heartbeats, notification counters, and Livewire polls should NEVER trigger Slow Internet popouts
+            var isBackgroundPoll = /unread-count|fetch_notifications|fetch_users_dm|ping|heartbeat|chatify|messify|auto-capture|\/api\/notifications|\/livewire\//i.test(url);
+            var skipSlow = isUpload || isBackgroundPoll
+                || /\/dcs\/api\/documents\/(search|revisions)/.test(url)
                 || /incoming-live|office-incoming|print-ready/.test(url);
-            var armed = !isUpload && !skipSlow && armSlowWatch();
+
+            var timerId = !skipSlow ? armSlowRequest() : null;
+
             return originalFetch.apply(this, arguments).then(function (response) {
                 var slowStatus = response && (response.status === 408 || response.status === 504);
-                if (armed) disarmSlowWatch(slowStatus);
-                if (slowStatus) showSlowInternet(false);
+                disarmSlowRequest(timerId, slowStatus);
+                if (slowStatus && !isBackgroundPoll) showSlowInternet(false);
                 return response;
             }, function (error) {
-                var aborted = error && (error.name === 'AbortError' || /abort/i.test(String(error.message || '')));
-                if (armed) disarmSlowWatch(!aborted);
-                if (!aborted) showSlowInternet(false);
+                var aborted = (error && (
+                    error.name === 'AbortError' || 
+                    /abort|cancel|cancelled/i.test(String(error.message || ''))
+                )) || isBackgroundPoll;
+
+                disarmSlowRequest(timerId, !aborted);
+                if (!aborted && !isBackgroundPoll && userIsWaiting()) {
+                    showSlowInternet(false);
+                }
                 throw error;
             });
         };
     }
 
+    var offlineDebounceTimer = null;
     window.addEventListener('offline', function () {
         if (document.visibilityState === 'hidden') return;
-        showSlowInternet(true);
+        // Verify with 3.5s debounce to filter out virtual adapter blips or transient switches
+        if (offlineDebounceTimer) clearTimeout(offlineDebounceTimer);
+        offlineDebounceTimer = setTimeout(function () {
+            if (!navigator.onLine) {
+                showSlowInternet(true);
+            }
+        }, 3500);
     });
-    window.addEventListener('online', hideSlowInternet);
+    window.addEventListener('online', function () {
+        if (offlineDebounceTimer) {
+            clearTimeout(offlineDebounceTimer);
+            offlineDebounceTimer = null;
+        }
+        hideSlowInternet();
+    });
+
     document.addEventListener('visibilitychange', function () {
-        if (document.visibilityState === 'hidden') pauseSlowWatch();
+        if (document.visibilityState === 'hidden') {
+            hideSlowInternet();
+        }
     });
 
     function hookLivewireErrors() {
@@ -463,8 +475,12 @@
         window.__rmsErrorHooked = true;
         Livewire.hook('request', function (hooks) {
             hooks.fail(function (payload) {
+                // If status is 0 or canceled (user navigated away, refreshed, or morph race), skip!
+                if (!payload || !payload.status || payload.status === 0) {
+                    return;
+                }
                 // Prevent Livewire's default raw iframe debug box from taking over the screen
-                if (payload && typeof payload.preventDefault === 'function') {
+                if (typeof payload.preventDefault === 'function') {
                     payload.preventDefault();
                 }
                 var diagnosed = window.rmsDiagnoseError(payload.status, payload.content);

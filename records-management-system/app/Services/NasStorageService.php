@@ -14,11 +14,24 @@ class NasStorageService
      */
     public static function getStatus(): array
     {
+        self::applyRuntimeConfig();
+
         $diskConfig = config('filesystems.disks.s3', []);
         $bucket = $diskConfig['bucket'] ?? 'rms-bucket';
         $endpoint = $diskConfig['endpoint'] ?? 'http://s3-storage:9000';
         $key = $diskConfig['key'] ?? '';
         $region = $diskConfig['region'] ?? 'us-east-1';
+
+        $consoleUrl = null;
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings')) {
+                $consoleUrl = \Illuminate\Support\Facades\DB::table('sys_system_settings')->where('key', 's3_console_url')->value('value');
+            }
+        } catch (\Throwable) {}
+
+        if (!$consoleUrl) {
+            $consoleUrl = 'http://' . request()->getHost() . ':9101';
+        }
 
         $status = [
             'is_connected' => false,
@@ -31,7 +44,7 @@ class NasStorageService
             'total_size_bytes' => 0,
             'total_size_human' => '0 B',
             'server_version' => 'Silo / MinIO Compatible',
-            'console_url' => 'http://' . request()->getHost() . ':9101',
+            'console_url' => $consoleUrl,
         ];
 
         try {
@@ -295,6 +308,238 @@ class NasStorageService
             return null;
         } catch (\Throwable $e) {
             return null;
+        }
+    }
+
+    /**
+     * Ensure runtime S3 disk configuration matches any database settings.
+     */
+    public static function applyRuntimeConfig(): void
+    {
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings')) {
+                $settings = \Illuminate\Support\Facades\DB::table('sys_system_settings')
+                    ->whereIn('key', ['s3_endpoint', 's3_bucket', 's3_access_key', 's3_secret_key', 's3_region', 's3_use_path_style'])
+                    ->pluck('value', 'key');
+
+                if ($settings->isNotEmpty()) {
+                    $needsReset = false;
+                    if (!empty($settings['s3_endpoint']) && config('filesystems.disks.s3.endpoint') !== $settings['s3_endpoint']) {
+                        config(['filesystems.disks.s3.endpoint' => $settings['s3_endpoint']]);
+                        $needsReset = true;
+                    }
+                    if (!empty($settings['s3_bucket']) && config('filesystems.disks.s3.bucket') !== $settings['s3_bucket']) {
+                        config(['filesystems.disks.s3.bucket' => $settings['s3_bucket']]);
+                        $needsReset = true;
+                    }
+                    if (!empty($settings['s3_access_key']) && config('filesystems.disks.s3.key') !== $settings['s3_access_key']) {
+                        config(['filesystems.disks.s3.key' => $settings['s3_access_key']]);
+                        $needsReset = true;
+                    }
+                    if (!empty($settings['s3_secret_key']) && config('filesystems.disks.s3.secret') !== $settings['s3_secret_key']) {
+                        config(['filesystems.disks.s3.secret' => $settings['s3_secret_key']]);
+                        $needsReset = true;
+                    }
+                    if (!empty($settings['s3_region']) && config('filesystems.disks.s3.region') !== $settings['s3_region']) {
+                        config(['filesystems.disks.s3.region' => $settings['s3_region']]);
+                        $needsReset = true;
+                    }
+                    if (isset($settings['s3_use_path_style'])) {
+                        $boolVal = ($settings['s3_use_path_style'] === 'true' || $settings['s3_use_path_style'] === '1');
+                        if (config('filesystems.disks.s3.use_path_style_endpoint') !== $boolVal) {
+                            config(['filesystems.disks.s3.use_path_style_endpoint' => $boolVal]);
+                            $needsReset = true;
+                        }
+                    }
+                    if ($needsReset) {
+                        Storage::forgetDisk('s3');
+                    }
+                }
+            }
+        } catch (\Throwable) {}
+    }
+
+    /**
+     * Load current NAS / S3 configuration parameters.
+     */
+    public static function loadConfiguration(): array
+    {
+        self::applyRuntimeConfig();
+
+        $dbSettings = [];
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings')) {
+                $dbSettings = \Illuminate\Support\Facades\DB::table('sys_system_settings')
+                    ->whereIn('key', ['s3_endpoint', 's3_bucket', 's3_access_key', 's3_secret_key', 's3_region', 's3_use_path_style', 's3_console_url'])
+                    ->pluck('value', 'key')
+                    ->toArray();
+            }
+        } catch (\Throwable) {}
+
+        $endpoint = $dbSettings['s3_endpoint'] ?? env('AWS_ENDPOINT', 'http://s3-storage:9000');
+        $bucket = $dbSettings['s3_bucket'] ?? env('AWS_BUCKET', 'rms-bucket');
+        $accessKey = $dbSettings['s3_access_key'] ?? env('AWS_ACCESS_KEY_ID', 'admin');
+        $secretKey = $dbSettings['s3_secret_key'] ?? env('AWS_SECRET_ACCESS_KEY', 'adminpassword');
+        $region = $dbSettings['s3_region'] ?? env('AWS_DEFAULT_REGION', 'us-east-1');
+        $usePathStyle = isset($dbSettings['s3_use_path_style'])
+            ? ($dbSettings['s3_use_path_style'] === 'true' || $dbSettings['s3_use_path_style'] === '1')
+            : filter_var(env('AWS_USE_PATH_STYLE_ENDPOINT', true), FILTER_VALIDATE_BOOLEAN);
+        $consoleUrl = $dbSettings['s3_console_url'] ?? ('http://' . request()->getHost() . ':9101');
+
+        return [
+            'endpoint' => $endpoint,
+            'bucket' => $bucket,
+            'access_key' => $accessKey,
+            'secret_key' => $secretKey,
+            'region' => $region,
+            'use_path_style' => $usePathStyle,
+            'console_url' => $consoleUrl,
+        ];
+    }
+
+    /**
+     * Save updated NAS credentials to database and .env files.
+     */
+    public static function saveConfiguration(array $data): array
+    {
+        try {
+            $endpoint = trim($data['endpoint'] ?? '');
+            $bucket = trim($data['bucket'] ?? '');
+            $accessKey = trim($data['access_key'] ?? '');
+            $secretKey = trim($data['secret_key'] ?? '');
+            $region = trim($data['region'] ?? 'us-east-1');
+            $usePathStyle = !empty($data['use_path_style']);
+            $consoleUrl = trim($data['console_url'] ?? '');
+
+            // 1. Update sys_system_settings table
+            $records = [
+                's3_endpoint' => $endpoint,
+                's3_bucket' => $bucket,
+                's3_access_key' => $accessKey,
+                's3_secret_key' => $secretKey,
+                's3_region' => $region,
+                's3_use_path_style' => $usePathStyle ? 'true' : 'false',
+            ];
+            if (!empty($consoleUrl)) {
+                $records['s3_console_url'] = $consoleUrl;
+            }
+
+            foreach ($records as $k => $v) {
+                \Illuminate\Support\Facades\DB::table('sys_system_settings')->updateOrInsert(
+                    ['key' => $k],
+                    ['value' => $v, 'updated_at' => now()]
+                );
+            }
+
+            // 2. Update .env files
+            self::updateEnvFiles([
+                'AWS_ENDPOINT' => $endpoint,
+                'AWS_BUCKET' => $bucket,
+                'AWS_ACCESS_KEY_ID' => $accessKey,
+                'AWS_SECRET_ACCESS_KEY' => $secretKey,
+                'AWS_DEFAULT_REGION' => $region,
+                'AWS_USE_PATH_STYLE_ENDPOINT' => $usePathStyle ? 'true' : 'false',
+            ]);
+
+            // 3. Update runtime config & reset disk
+            config([
+                'filesystems.disks.s3.endpoint' => $endpoint,
+                'filesystems.disks.s3.bucket' => $bucket,
+                'filesystems.disks.s3.key' => $accessKey,
+                'filesystems.disks.s3.secret' => $secretKey,
+                'filesystems.disks.s3.region' => $region,
+                'filesystems.disks.s3.use_path_style_endpoint' => $usePathStyle,
+            ]);
+            Storage::forgetDisk('s3');
+
+            // 4. Log admin audit change
+            try {
+                if (auth()->check()) {
+                    \Illuminate\Support\Facades\DB::table('sys_admin_logs')->insert([
+                        'changes' => "Updated NAS / S3 Storage credentials & endpoint ({$endpoint}, bucket: {$bucket}) via Admin Console",
+                        'admin_id' => auth()->id(),
+                        'what_system' => 3,
+                        'when_changes' => now(),
+                    ]);
+                }
+            } catch (\Throwable) {}
+
+            return ['success' => true, 'message' => 'NAS / S3 storage configuration updated and applied successfully!'];
+        } catch (\Throwable $e) {
+            return ['success' => false, 'message' => 'Failed to save NAS configuration: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Test handshake with target S3 / NAS credentials on-the-fly.
+     */
+    public static function testCredentials(array $data): array
+    {
+        try {
+            $endpoint = trim($data['endpoint'] ?? '');
+            $bucket = trim($data['bucket'] ?? '');
+            $accessKey = trim($data['access_key'] ?? '');
+            $secretKey = trim($data['secret_key'] ?? '');
+            $region = trim($data['region'] ?? 'us-east-1');
+            $usePathStyle = !empty($data['use_path_style']);
+
+            $s3Client = new S3Client([
+                'version' => 'latest',
+                'region' => $region,
+                'endpoint' => $endpoint,
+                'use_path_style_endpoint' => $usePathStyle,
+                'credentials' => [
+                    'key' => $accessKey,
+                    'secret' => $secretKey,
+                ],
+                'http' => [
+                    'timeout' => 5,
+                    'connect_timeout' => 5,
+                ],
+            ]);
+
+            $start = microtime(true);
+            $s3Client->headBucket(['Bucket' => $bucket]);
+            $latency = round((microtime(true) - $start) * 1000, 2);
+
+            return [
+                'success' => true,
+                'latency_ms' => $latency,
+                'message' => "Handshake successful! Connected to '{$bucket}' at {$endpoint} in {$latency} ms.",
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'success' => false,
+                'latency_ms' => null,
+                'message' => "Connection failed: " . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Safely update key-value pairs in .env and .env.docker files.
+     */
+    protected static function updateEnvFiles(array $data): void
+    {
+        $paths = [base_path('.env'), base_path('.env.docker')];
+        foreach ($paths as $envPath) {
+            if (!file_exists($envPath)) continue;
+            try {
+                $content = @file_get_contents($envPath);
+                if ($content === false) continue;
+                foreach ($data as $key => $value) {
+                    $valStr = (string) $value;
+                    if (preg_match('/\s/', $valStr)) {
+                        $valStr = '"' . addslashes($valStr) . '"';
+                    }
+                    if (preg_match("/^{$key}=.*/m", $content)) {
+                        $content = preg_replace("/^{$key}=.*/m", "{$key}={$valStr}", $content);
+                    } else {
+                        $content .= "\n{$key}={$valStr}";
+                    }
+                }
+                @file_put_contents($envPath, $content);
+            } catch (\Throwable) {}
         }
     }
 

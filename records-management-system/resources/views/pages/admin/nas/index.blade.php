@@ -24,6 +24,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
     public bool $showUploadModal = false;
     public $uploadedFile = null;
 
+    // Storage configuration modal
+    public bool $showConfigModal = false;
+    public string $configEndpoint = '';
+    public string $configBucket = '';
+    public string $configAccessKey = '';
+    public string $configSecretKey = '';
+    public string $configRegion = 'us-east-1';
+    public bool $configUsePathStyle = true;
+    public string $configConsoleUrl = '';
+    public bool $showSecretKey = false;
+    public ?string $configTestResult = null;
+    public bool $configTestPassed = false;
+    public bool $isTestingConfig = false;
+
     // Feedback
     public ?string $successMessage = null;
     public ?string $errorMessage = null;
@@ -131,6 +145,74 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
             $this->selectedType = 'file';
         } else {
             $this->errorMessage = "Failed to upload '{$filename}' to NAS.";
+        }
+    }
+
+    public function openConfigModal(): void
+    {
+        $cfg = NasStorageService::loadConfiguration();
+        $this->configEndpoint = $cfg['endpoint'];
+        $this->configBucket = $cfg['bucket'];
+        $this->configAccessKey = $cfg['access_key'];
+        $this->configSecretKey = $cfg['secret_key'];
+        $this->configRegion = $cfg['region'];
+        $this->configUsePathStyle = $cfg['use_path_style'];
+        $this->configConsoleUrl = $cfg['console_url'];
+        $this->configTestResult = null;
+        $this->showSecretKey = false;
+        $this->showConfigModal = true;
+    }
+
+    public function closeConfigModal(): void
+    {
+        $this->showConfigModal = false;
+        $this->configTestResult = null;
+    }
+
+    public function testConfigConnection(): void
+    {
+        $this->isTestingConfig = true;
+        $res = NasStorageService::testCredentials([
+            'endpoint' => $this->configEndpoint,
+            'bucket' => $this->configBucket,
+            'access_key' => $this->configAccessKey,
+            'secret_key' => $this->configSecretKey,
+            'region' => $this->configRegion,
+            'use_path_style' => $this->configUsePathStyle,
+        ]);
+        $this->isTestingConfig = false;
+        $this->configTestPassed = $res['success'];
+        $this->configTestResult = $res['message'];
+    }
+
+    public function saveConfiguration(): void
+    {
+        $this->validate([
+            'configEndpoint' => 'required|url',
+            'configBucket' => 'required|string|min:2|max:63',
+            'configAccessKey' => 'required|string|min:1',
+            'configSecretKey' => 'required|string|min:1',
+            'configRegion' => 'required|string|min:2',
+        ]);
+
+        $res = NasStorageService::saveConfiguration([
+            'endpoint' => $this->configEndpoint,
+            'bucket' => $this->configBucket,
+            'access_key' => $this->configAccessKey,
+            'secret_key' => $this->configSecretKey,
+            'region' => $this->configRegion,
+            'use_path_style' => $this->configUsePathStyle,
+            'console_url' => $this->configConsoleUrl,
+        ]);
+
+        if ($res['success']) {
+            $this->successMessage = $res['message'];
+            $this->showConfigModal = false;
+            $this->currentPrefix = '';
+            $this->selectedPath = null;
+            $this->selectedType = null;
+        } else {
+            $this->errorMessage = $res['message'];
         }
     }
 
@@ -627,7 +709,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
             justify-content: space-between;
         }
         .nas-modal-head h3 { margin: 0; font-size: 1rem; font-weight: 700; }
-        .nas-modal-body { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+        .nas-modal-body { padding: 18px; display: flex; flex-direction: column; gap: 12px; max-height: calc(85vh - 120px); overflow-y: auto; }
         .nas-modal-foot { padding: 12px 18px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 8px; }
 
         /* Dark Mode Overrides */
@@ -727,6 +809,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         </div>
 
         <div style="display: flex; align-items: center; gap: 8px;">
+            <button type="button" class="m-btn m-btn-secondary" wire:click="openConfigModal" title="Configure NAS IP, Port, Bucket & S3 Credentials">
+                <i class="fa-solid fa-sliders"></i> Storage Settings
+            </button>
             <button type="button" class="m-btn m-btn-secondary" wire:click="testConnection" title="Probe S3 Read & Write Health">
                 <i class="fa-solid fa-bolt"></i> Probe Connection
             </button>
@@ -1190,6 +1275,97 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
                         <span wire:loading.remove wire:target="submitUpload">Upload Object</span>
                         <span wire:loading wire:target="submitUpload">Uploading…</span>
                     </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Storage Configuration Modal --}}
+    @if($showConfigModal)
+        <div class="nas-modal-overlay">
+            <div class="nas-modal" style="max-width: 540px;">
+                <div class="nas-modal-head">
+                    <h3><i class="fa-solid fa-sliders" style="margin-right: 8px; color: #38bdf8;"></i> NAS & S3 Storage Configuration</h3>
+                    <button type="button" wire:click="closeConfigModal" style="border: none; background: transparent; color: #94a3b8; font-size: 1.2rem; cursor: pointer;">&times;</button>
+                </div>
+                <div class="nas-modal-body">
+                    <p style="font-size: 0.82rem; color: #64748b; margin: 0;">
+                        Configure on-premise NAS IP / hostname, S3 bucket, and authentication credentials. Changes are stored in database and updated in system configuration.
+                    </p>
+
+                    @if($configTestResult)
+                        <div style="padding: 10px 12px; border-radius: 8px; font-size: 0.8rem; display: flex; align-items: flex-start; gap: 8px; {{ $configTestPassed ? 'background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46;' : 'background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;' }}">
+                            <i class="fa-solid {{ $configTestPassed ? 'fa-circle-check' : 'fa-triangle-exclamation' }}" style="margin-top: 2px;"></i>
+                            <div style="flex: 1;">{{ $configTestResult }}</div>
+                        </div>
+                    @endif
+
+                    <div class="m-field-group">
+                        <label class="m-field-label">S3 / NAS Endpoint URL</label>
+                        <input type="text" class="m-field-input" placeholder="http://192.168.1.50:9000 or http://s3-storage:9000" wire:model="configEndpoint">
+                        <span style="font-size: 0.72rem; color: #94a3b8;">Use internal Docker name <code>http://s3-storage:9000</code> or your physical NAS IP / hostname.</span>
+                        @error('configEndpoint') <span style="color: #ef4444; font-size: 0.75rem;">{{ $message }}</span> @enderror
+                    </div>
+
+                    <div class="m-field-group">
+                        <label class="m-field-label">S3 Datastore Bucket</label>
+                        <input type="text" class="m-field-input" placeholder="e.g. rms-bucket" wire:model="configBucket">
+                        @error('configBucket') <span style="color: #ef4444; font-size: 0.75rem;">{{ $message }}</span> @enderror
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="m-field-group">
+                            <label class="m-field-label">Access Key ID</label>
+                            <input type="text" class="m-field-input" placeholder="e.g. admin" wire:model="configAccessKey">
+                            @error('configAccessKey') <span style="color: #ef4444; font-size: 0.75rem;">{{ $message }}</span> @enderror
+                        </div>
+
+                        <div class="m-field-group">
+                            <label class="m-field-label">Secret Access Key</label>
+                            <div style="position: relative; display: flex; align-items: center;">
+                                <input type="{{ $showSecretKey ? 'text' : 'password' }}" class="m-field-input" style="padding-right: 32px;" placeholder="••••••••" wire:model="configSecretKey">
+                                <button type="button" wire:click="$toggle('showSecretKey')" style="position: absolute; right: 8px; border: none; background: transparent; color: #94a3b8; cursor: pointer; font-size: 0.8rem;">
+                                    <i class="fa-solid {{ $showSecretKey ? 'fa-eye-slash' : 'fa-eye' }}"></i>
+                                </button>
+                            </div>
+                            @error('configSecretKey') <span style="color: #ef4444; font-size: 0.75rem;">{{ $message }}</span> @enderror
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="m-field-group">
+                            <label class="m-field-label">AWS / S3 Region</label>
+                            <input type="text" class="m-field-input" placeholder="us-east-1" wire:model="configRegion">
+                            @error('configRegion') <span style="color: #ef4444; font-size: 0.75rem;">{{ $message }}</span> @enderror
+                        </div>
+
+                        <div class="m-field-group">
+                            <label class="m-field-label">Silo Web Console URL</label>
+                            <input type="text" class="m-field-input" placeholder="http://localhost:9101" wire:model="configConsoleUrl">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 8px; padding-top: 4px;">
+                        <input type="checkbox" id="configUsePathStyle" wire:model="configUsePathStyle" style="cursor: pointer;">
+                        <label for="configUsePathStyle" style="font-size: 0.8rem; color: #334155; cursor: pointer; user-select: none;">
+                            <strong>Use Path-Style Endpoint</strong> (Required for MinIO / Silo / Synology / TrueNAS)
+                        </label>
+                    </div>
+                </div>
+                <div class="nas-modal-foot" style="justify-content: space-between;">
+                    <button type="button" class="m-btn m-btn-secondary" wire:click="testConfigConnection" wire:loading.attr="disabled">
+                        <i class="fa-solid fa-plug-circle-bolt"></i>
+                        <span wire:loading.remove wire:target="testConfigConnection">Test Handshake</span>
+                        <span wire:loading wire:target="testConfigConnection">Testing…</span>
+                    </button>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="m-btn m-btn-secondary" wire:click="closeConfigModal">Cancel</button>
+                        <button type="button" class="m-btn m-btn-primary" wire:click="saveConfiguration" wire:loading.attr="disabled">
+                            <i class="fa-solid fa-floppy-disk"></i>
+                            <span wire:loading.remove wire:target="saveConfiguration">Save & Apply</span>
+                            <span wire:loading wire:target="saveConfiguration">Saving…</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

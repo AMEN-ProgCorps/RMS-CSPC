@@ -2258,10 +2258,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
 
         init() {
             this.$watch('drawerOpen', (open) => {
-                const widget = document.getElementById('messify-global-widget') || document.getElementById('messify-global-widget');
+                const widget = document.getElementById('messify-global-widget');
                 if (widget) {
                     widget.style.transition = 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
                     widget.style.transform = open ? 'translateX(-390px)' : 'translateX(0)';
+                }
+                const reportFab = document.querySelector('.rms-report-fab');
+                if (reportFab) {
+                    reportFab.style.transition = 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
+                    reportFab.style.transform = open ? 'translateX(-390px)' : '';
+                }
+                const manualFab = document.querySelector('.rms-manual-fab');
+                if (manualFab) {
+                    manualFab.style.transition = 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
+                    manualFab.style.transform = open ? 'translateX(-390px)' : '';
                 }
             });
             this.syncHeaderHeight();
@@ -2277,9 +2287,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             });
         },
         destroy() {
-            const widget = document.getElementById('messify-global-widget') || document.getElementById('messify-global-widget');
+            const widget = document.getElementById('messify-global-widget');
             if (widget) {
                 widget.style.transform = 'translateX(0)';
+            }
+            const reportFab = document.querySelector('.rms-report-fab');
+            if (reportFab) {
+                reportFab.style.transform = '';
+            }
+            const manualFab = document.querySelector('.rms-manual-fab');
+            if (manualFab) {
+                manualFab.style.transform = '';
             }
         },
 

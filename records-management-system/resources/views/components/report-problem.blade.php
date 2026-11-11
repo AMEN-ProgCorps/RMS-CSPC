@@ -126,7 +126,7 @@ new class extends Component {
         }
     }"
     x-on:rms-open-report-problem.window="$wire.openModal($event.detail.reference || null, $event.detail.title || null, $event.detail.description || null, window.location.href)"
-    x-on:rms-widget-opened.window="if ($event.detail && $event.detail.widget !== 'report' && isOpen) { $wire.closeModal(); }"
+    x-on:rms-widget-opened.window="if ($event.detail && $event.detail.widget !== 'report' && isOpen) { isOpen = false; $wire.closeModal(); }"
 >
     <!-- Floating Trigger Button -->
     <button
@@ -134,7 +134,7 @@ new class extends Component {
         class="rms-report-fab"
         :class="{ 'is-open': isOpen }"
         :data-tooltip="isOpen ? 'Close' : 'Report Issue'"
-        @click="isOpen ? $wire.closeModal() : $wire.openModal(null, null, null, window.location.href)"
+        @click="isOpen ? (isOpen = false, $wire.closeModal()) : $wire.openModal(null, null, null, window.location.href)"
         aria-label="Report a Problem"
     >
         <span class="rms-report-fab-icon" aria-hidden="true">
@@ -153,8 +153,8 @@ new class extends Component {
         role="dialog"
         aria-modal="true"
         aria-labelledby="rms-report-title"
-        @click.outside="if (isOpen) $wire.closeModal()"
-        @keydown.escape.window="if (isOpen) $wire.closeModal()"
+        @click.outside="if (isOpen) { isOpen = false; $wire.closeModal(); }"
+        @keydown.escape.window="if (isOpen) { isOpen = false; $wire.closeModal(); }"
     >
         <!-- Header Bar -->
         <div class="rms-report-widget-header">
@@ -166,11 +166,11 @@ new class extends Component {
 
             <div style="display: flex; align-items: center; gap: 8px;">
                 <!-- Minimize Button -->
-                <button type="button" @click="$wire.closeModal()" title="Minimize" class="rms-report-hdr-btn">
+                <button type="button" @click="isOpen = false; $wire.closeModal()" title="Minimize" class="rms-report-hdr-btn">
                     <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </button>
                 <!-- Close Button -->
-                <button type="button" @click="$wire.closeModal()" title="Close" class="rms-report-hdr-btn">
+                <button type="button" @click="isOpen = false; $wire.closeModal()" title="Close" class="rms-report-hdr-btn">
                     <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>
@@ -185,7 +185,7 @@ new class extends Component {
                 </div>
             </div>
             <div class="rms-report-widget-footer">
-                <button type="button" class="rms-report-btn primary" @click="$wire.closeModal()">Done</button>
+                <button type="button" class="rms-report-btn primary" @click="isOpen = false; $wire.closeModal()">Done</button>
             </div>
         @else
             <form wire:submit.prevent="submit" style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
@@ -224,7 +224,7 @@ new class extends Component {
                 </div>
 
                 <div class="rms-report-widget-footer">
-                    <button type="button" class="rms-report-btn" @click="$wire.closeModal()">Cancel</button>
+                    <button type="button" class="rms-report-btn" @click="isOpen = false; $wire.closeModal()">Cancel</button>
                     <button type="submit" class="rms-report-btn primary" wire:loading.attr="disabled">
                         <span wire:loading.remove wire:target="submit">Submit Ticket</span>
                         <span wire:loading wire:target="submit">Submitting…</span>
@@ -269,6 +269,7 @@ new class extends Component {
         background: #1e293b;
         transform: translateY(-2px);
         box-shadow: 0 14px 32px rgba(15, 23, 42, 0.45);
+        z-index: 1000060 !important;
     }
 
     /* Floating Tooltip Label on top */
@@ -292,7 +293,7 @@ new class extends Component {
         transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        z-index: 1000001;
+        z-index: 1000070 !important;
     }
 
     .rms-report-fab:hover::before {
@@ -332,7 +333,7 @@ new class extends Component {
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        z-index: 999999;
+        z-index: 1000010;
         font-family: 'Inter', system-ui, -apple-system, sans-serif;
         animation: rmsReportCardPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }

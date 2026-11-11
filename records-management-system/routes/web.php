@@ -337,13 +337,15 @@ Route::middleware(['auth'])
 
         $userId = $user->id;
 
-        // 1. Messify unread count (directly based on active conversations in Messify)
+        // 1. Chatify / Messify unread count (DMs + Custom GCs + Office GC)
         $chatUnread = 0;
         try {
+            // A. Direct 1-on-1 conversations unread
+            $dmUnread = 0;
             if (\Illuminate\Support\Facades\Cache::remember('tbl_has_messify_chat_conversations', 3600, fn () =>
                 \Illuminate\Support\Facades\Schema::hasTable('messify_chat_conversations')
             )) {
-                $totalUnread = \Illuminate\Support\Facades\DB::table('messify_chat_conversations')
+                $totalDm = \Illuminate\Support\Facades\DB::table('messify_chat_conversations')
                     ->where('is_active', true)
                     ->where(function ($q) use ($userId) {
                         $q->where('user_1', $userId)
@@ -351,14 +353,72 @@ Route::middleware(['auth'])
                     })
                     ->selectRaw('COALESCE(SUM(CASE WHEN user_1 = ? THEN unread_user_1 ELSE unread_user_2 END), 0) AS total', [$userId])
                     ->value('total');
-                $chatUnread = (int) ($totalUnread ?? 0);
-            } else {
-                $totalUnread = \Illuminate\Support\Facades\DB::table('view_user_unread_chats')
+                $dmUnread = (int) ($totalDm ?? 0);
+            } elseif (\Illuminate\Support\Facades\Schema::hasTable('view_user_unread_chats')) {
+                $totalDm = \Illuminate\Support\Facades\DB::table('view_user_unread_chats')
                     ->where('account_id', $userId)
                     ->value('total_unread');
-                $chatUnread = (int) ($totalUnread ?? 0);
+                $dmUnread = (int) ($totalDm ?? 0);
             }
+
+            // B. Custom Group Chats unread
+            $gcUnread = 0;
+            if (\Illuminate\Support\Facades\Schema::hasTable('messify_chat_custom_group_members') && \Illuminate\Support\Facades\Schema::hasTable('messify_chat_messages')) {
+                $totalGc = \Illuminate\Support\Facades\DB::table('messify_chat_custom_group_members as m')
+                    ->join('messify_chat_messages as msg', function ($join) use ($userId) {
+                        $join->on('msg.conv_id', '=', \Illuminate\Support\Facades\DB::raw("('gc_' || m.group_id)"))
+                             ->where('msg.status', '=', 'active')
+                             ->where('msg.sender_id', '!=', $userId)
+                             ->where(function ($w) {
+                                 $w->where(function ($q1) {
+                                     $q1->where('m.last_read_msg_id', '>', 0)
+                                        ->whereColumn('msg.id', '>', 'm.last_read_msg_id');
+                                 })->orWhere(function ($q2) {
+                                     $q2->where(function ($qNull) {
+                                         $qNull->whereNull('m.last_read_msg_id')
+                                               ->orWhere('m.last_read_msg_id', '<=', 0);
+                                     })
+                                     ->whereNotNull('m.joined_at')
+                                     ->whereColumn('msg.created_at', '>=', 'm.joined_at');
+                                 });
+                             });
+                    })
+                    ->where('m.account_id', $userId)
+                    ->count();
+                $gcUnread = (int) ($totalGc ?? 0);
+            }
+
+            // C. Office Group Chat unread
+            $officeGcUnread = 0;
+            if (\Illuminate\Support\Facades\Schema::hasTable('messify_chat_office_gc_reads') && \Illuminate\Support\Facades\Schema::hasTable('messify_chat_messages')) {
+                $accDetailsTbl = \Illuminate\Support\Facades\Cache::remember('tbl_acc_details', 3600, fn () =>
+                    \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'
+                );
+                $officeId = \Illuminate\Support\Facades\DB::table($accDetailsTbl)
+                    ->where('account_id', $userId)
+                    ->value('office_id');
+
+                if ($officeId) {
+                    $officeConvId = 'office_' . (int) $officeId;
+                    $lastRead = \Illuminate\Support\Facades\DB::table('messify_chat_office_gc_reads')
+                        ->where('account_id', $userId)
+                        ->where('office_id', $officeId)
+                        ->value('last_read_msg_id');
+
+                    if ($lastRead !== null && $lastRead !== false) {
+                        $officeGcUnread = (int) \Illuminate\Support\Facades\DB::table('messify_chat_messages')
+                            ->where('conv_id', $officeConvId)
+                            ->where('status', 'active')
+                            ->where('sender_id', '!=', $userId)
+                            ->where('id', '>', (int) $lastRead)
+                            ->count();
+                    }
+                }
+            }
+
+            $chatUnread = $dmUnread + $gcUnread + $officeGcUnread;
         } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('chat.unread-count error: ' . $e->getMessage());
             $chatUnread = 0;
         }
 
@@ -537,6 +597,7 @@ Route::middleware(['auth'])
     Route::middleware(['can.access.admin'])->group(function () {
         Volt::route('/admin/console', 'pages.admin.console.index')->name('admin.console');
         Volt::route('/admin/tickets', 'pages.admin.tickets.index')->name('admin.tickets');
+        Volt::route('/admin/manuals', 'pages.admin.manuals.index')->name('admin.manuals.index');
 
         Volt::route('/admin/accounts/users', 'pages.admin.accounts.users')->name('admin.accounts.users');
         Volt::route('/admin/accounts/roles', 'pages.admin.accounts.roles')->name('admin.accounts.roles');

@@ -598,6 +598,7 @@ Route::middleware(['auth'])
         Volt::route('/admin/console', 'pages.admin.console.index')->name('admin.console');
         Volt::route('/admin/tickets', 'pages.admin.tickets.index')->name('admin.tickets');
         Volt::route('/admin/manuals', 'pages.admin.manuals.index')->name('admin.manuals.index');
+        Volt::route('/admin/nas', 'pages.admin.nas.index')->name('admin.nas.index');
 
         Volt::route('/admin/accounts/users', 'pages.admin.accounts.users')->name('admin.accounts.users');
         Volt::route('/admin/accounts/roles', 'pages.admin.accounts.roles')->name('admin.accounts.roles');

@@ -13,7 +13,7 @@ Read-only view of your saved DRF (CSPC-F-DCC-06).
 
 ## Body
 - Form fields: Full read-only DRF fields, distribution chips, and signatories.
-- Recurring card: Shown when the DRF was created as recurring.
+- Recurring card: Shown when the DRF was created for a yearly (recurring) document.
 
 > [!TIP]
 > After printing and signing, submit the hard copy to Records. Marking printed is not a button on this page.

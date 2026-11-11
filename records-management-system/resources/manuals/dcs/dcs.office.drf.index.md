@@ -3,7 +3,7 @@ List of DRFs created by your office (form CSPC-F-DCC-06).
 
 ## On this page
 - New DRF: Start a new document request.
-- Recurring DRF: Start a recurring request from a registered document.
+- Recurring DRF: Start a request for a yearly document that is already registered.
 - Table columns: Title, Originator, Status, Date, Date Created, Actions.
 - Status: Simplified to Registered or Submitted on this list. Richer badges appear on Home under Recent DRF.
 - View: Open the saved form.

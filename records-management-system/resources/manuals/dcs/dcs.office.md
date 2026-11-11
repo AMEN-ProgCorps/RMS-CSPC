@@ -6,7 +6,7 @@ Your office DCS home for Document Request Forms, Change Notices, Incoming copies
 
 ## Quick start
 - New DRF: Request a new controlled document (form CSPC-F-DCC-06).
-- Recurring DRF: Request another edition of an already registered document.
+- Recurring DRF: Request a yearly document that is already registered (find it first, then fill the form).
 - New DCN: Request a revision to an existing controlled document (form CSPC-F-DCC-01).
 
 ## Stat cards

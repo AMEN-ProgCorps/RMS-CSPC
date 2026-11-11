@@ -3,7 +3,7 @@ Create form CSPC-F-DCC-06 for a new controlled document request.
 
 ## Entry modes
 - New DRF: Normal create form.
-- Recurring DRF: Find a registered document first, then fill the form.
+- Recurring DRF: For yearly documents. Find the registered document first, then fill the form.
 - From DCN: Continues after a change notice when linked.
 
 ## Fields you fill

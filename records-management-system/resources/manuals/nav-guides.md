@@ -47,7 +47,7 @@ Admin DCS home: search documents, quick register actions, request attention, and
 Mark distributed copies as received; open Appraisal when RDP access is available
 
 # My DRF
-Office list of Document Request Forms — View, Print when unlocked, New/Recurring DRF
+Office list of Document Request Forms — View, Print when unlocked; New DRF or Recurring DRF for yearly documents
 
 # My DCN
 Office list of Document Change Notices — View, Print when unlocked, Create DRF when linked

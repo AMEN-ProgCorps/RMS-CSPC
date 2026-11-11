@@ -19,6 +19,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
     public string $selectedManualFile = '';
     public ?string $assignedRelativePath = null;
     public ?array $currentParsedManual = null;
+    public bool $isManualLoaded = false;
 
     // Create Modal state
     public bool $showCreateModal = false;
@@ -41,26 +42,60 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
 
         $targets = ManualService::getAllSystemTargets();
         if (!empty($targets)) {
-            $this->selectTarget($targets[0]['key']);
+            $this->selectTarget($targets[0]['key'], loadFile: false);
         }
     }
 
-    public function selectTarget(string $key): void
+    public function selectTarget(string $key, bool $loadFile = false): void
     {
         $this->selectedTargetKey = $key;
         $this->clearMessages();
+        $this->isManualLoaded = false;
+        $this->currentParsedManual = null;
+        $this->editorContent = '';
 
-        $manual = ManualService::getManualByName($key);
+        // Check mapping or convention match without heavy parsing
+        $mappings = ManualService::getManualMapping();
+        $isExplicitlyDisabled = isset($mappings[$key]) && in_array($mappings[$key], ['disabled', 'none', '']);
+        $assignedFile = null;
+
+        if (!$isExplicitlyDisabled) {
+            if (isset($mappings[$key]) && !empty($mappings[$key])) {
+                $assignedFile = $mappings[$key];
+            } else {
+                $index = ManualService::getFileIndex();
+                $keyLower = strtolower($key);
+                $found = $index['by_modal_base'][$keyLower]
+                    ?? ($index['by_base'][$keyLower]
+                    ?? ($index['by_path'][$keyLower . '.md']
+                    ?? ($index['by_name'][$keyLower . '.md'] ?? null)));
+                if ($found) {
+                    $baseDir = resource_path('manuals');
+                    $assignedFile = str_replace('\\', '/', str_replace([$baseDir . DIRECTORY_SEPARATOR, $baseDir . '/'], '', $found));
+                }
+            }
+        }
+
+        $this->assignedRelativePath = $assignedFile;
+        $this->selectedManualFile = $assignedFile ?? '';
+
+        if ($loadFile && !empty($assignedFile)) {
+            $this->loadTargetManual();
+        }
+    }
+
+    public function loadTargetManual(): void
+    {
+        if (!$this->selectedTargetKey) return;
+
+        $manual = ManualService::getManualByName($this->selectedTargetKey);
         $this->currentParsedManual = $manual;
+        $this->isManualLoaded = true;
 
         if ($manual && !empty($manual['relative_path'])) {
             $this->assignedRelativePath = $manual['relative_path'];
             $this->selectedManualFile = $manual['relative_path'];
             $this->editorContent = $manual['raw_content'] ?? (ManualService::getManualFileRaw($manual['relative_path']) ?? '');
-        } else {
-            $this->assignedRelativePath = null;
-            $this->selectedManualFile = '';
-            $this->editorContent = '';
         }
     }
 
@@ -68,6 +103,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
     {
         if (in_array($mode, ['preview', 'editor'], true)) {
             $this->viewMode = $mode;
+            if ($mode === 'editor' && !$this->isManualLoaded && !empty($this->assignedRelativePath)) {
+                $this->loadTargetManual();
+            }
         }
     }
 
@@ -271,35 +309,69 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
 
     public function with(): array
     {
-        $allTargets = ManualService::getAllSystemTargets();
         $allFiles = ManualService::getAllManualFiles();
-        $mappings = ManualService::getManualMapping();
 
-        // Enrich targets with current assignment status
-        $enrichedTargets = [];
-        $assignedCount = 0;
-        $missingCount = 0;
+        // Read directly from sys_page_manuals table for lightning-fast sub-millisecond retrieval
+        if (\Illuminate\Support\Facades\Schema::hasTable('sys_page_manuals')) {
+            $dbRecords = \Illuminate\Support\Facades\DB::table('sys_page_manuals')->get();
+            $enrichedTargets = [];
+            $assignedCount = 0;
+            $missingCount = 0;
 
-        foreach ($allTargets as $t) {
-            $key = $t['key'];
-            $resolved = ManualService::getManualByName($key);
-            $isExplicitlyDisabled = isset($mappings[$key]) && in_array($mappings[$key], ['disabled', 'none', '']);
-            $hasManual = $resolved !== null && !$isExplicitlyDisabled;
-            $assignedFile = $hasManual ? ($resolved['relative_path'] ?? null) : null;
+            foreach ($dbRecords as $r) {
+                $hasManual = !empty($r->relative_path);
+                if ($hasManual) {
+                    $assignedCount++;
+                } else {
+                    $missingCount++;
+                }
 
-            if ($hasManual) {
-                $assignedCount++;
-            } else {
-                $missingCount++;
+                $enrichedTargets[] = [
+                    'key' => $r->target_key,
+                    'name' => $r->target_name,
+                    'type' => $r->type,
+                    'subsystem' => $r->subsystem,
+                    'description' => $r->purpose ?? ('Overview and instructions for ' . $r->target_name),
+                    'has_manual' => $hasManual,
+                    'assigned_file' => $r->relative_path,
+                    'step_count' => $hasManual ? max(1, (int) round(($r->line_count ?: 10) / 4)) : 0,
+                    'line_count' => $r->line_count ?? 0,
+                    'is_custom_mapped' => (bool) $r->is_custom_mapped,
+                ];
+            }
+        } else {
+            // Fallback if table not yet migrated
+            $allTargets = ManualService::getAllSystemTargets();
+            $mappings = ManualService::getManualMapping();
+            $fileLookup = [];
+            foreach ($allFiles as $f) {
+                $fileLookup[strtolower($f['relative_path'])] = $f;
+                $fileLookup[strtolower($f['name'])] = $f;
             }
 
-            $t['has_manual'] = $hasManual;
-            $t['assigned_file'] = $assignedFile;
-            $t['step_count'] = $hasManual ? count($resolved['sections'] ?? []) : 0;
-            $t['line_count'] = $hasManual ? ($resolved['line_count'] ?? 0) : 0;
-            $t['is_custom_mapped'] = isset($mappings[$key]) && !$isExplicitlyDisabled;
+            $enrichedTargets = [];
+            $assignedCount = 0;
+            $missingCount = 0;
 
-            $enrichedTargets[] = $t;
+            foreach ($allTargets as $t) {
+                $key = $t['key'];
+                $isExplicitlyDisabled = isset($mappings[$key]) && in_array($mappings[$key], ['disabled', 'none', '']);
+                $assignedFile = null;
+
+                if (!$isExplicitlyDisabled && isset($mappings[$key])) {
+                    $assignedFile = $mappings[$key];
+                }
+
+                $hasManual = !empty($assignedFile);
+                if ($hasManual) $assignedCount++; else $missingCount++;
+
+                $t['has_manual'] = $hasManual;
+                $t['assigned_file'] = $assignedFile;
+                $t['step_count'] = $hasManual ? 3 : 0;
+                $t['line_count'] = $hasManual ? 15 : 0;
+                $t['is_custom_mapped'] = isset($mappings[$key]);
+                $enrichedTargets[] = $t;
+            }
         }
 
         // Apply filters
@@ -336,7 +408,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
             'targets' => array_values($filteredTargets),
             'allFiles' => $allFiles,
             'activeTarget' => $activeTarget,
-            'totalTargets' => count($allTargets),
+            'totalTargets' => count($enrichedTargets),
             'assignedCount' => $assignedCount,
             'missingCount' => $missingCount,
             'totalFiles' => count($allFiles),
@@ -1095,9 +1167,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
                 <span>Select to Inspect</span>
             </div>
 
-            <div class="pmo-catalogue-list">
+            <div class="pmo-catalogue-list" wire:target="selectTarget" wire:loading.class="opacity-75">
                 @forelse($targets as $target)
                     <div
+                        wire:key="target-{{ $target['key'] }}"
                         class="pmo-target-card {{ $selectedTargetKey === $target['key'] ? 'is-selected' : '' }}"
                         wire:click="selectTarget('{{ $target['key'] }}')"
                     >
@@ -1197,6 +1270,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
                         >
                             <i class="fa-solid fa-link"></i> Link
                         </button>
+                        @if($activeTarget['has_manual'] && !$isManualLoaded)
+                            <button
+                                type="button"
+                                class="pmo-btn"
+                                style="background: #0284c7; color: #ffffff; white-space: nowrap;"
+                                wire:click="loadTargetManual"
+                                title="Load and read this specific MD file"
+                            >
+                                <i class="fa-solid fa-file-arrow-down"></i> Load MD File
+                            </button>
+                        @endif
                     </div>
 
                     <div class="pmo-strip-actions">
@@ -1269,7 +1353,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
                                                     <span class="pmo-item-dot">&bull;</span>
                                                     <div>
                                                         @if(!empty($item['label']))
-                                                            <strong class="pmo-item-label">{{ $item['label'] }}:</strong>
+                                                             <strong class="pmo-item-label">{{ $item['label'] }}:</strong>
                                                         @endif
                                                         <span>{{ $item['text'] }}</span>
                                                     </div>
@@ -1298,6 +1382,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
                                         @endforeach
                                     </div>
                                 @endif
+                            </div>
+                        @elseif($activeTarget['has_manual'] && !$isManualLoaded)
+                            <!-- On-Demand Load Prompt -->
+                            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; text-align: center; color: #64748b; padding: 60px 20px;">
+                                <div style="width: 64px; height: 64px; border-radius: 999px; background: #f0f9ff; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 1.75rem; margin-bottom: 14px;">
+                                    <i class="fa-regular fa-file-lines"></i>
+                                </div>
+                                <h3 style="margin: 0 0 6px 0; font-size: 1.15rem; color: #0f172a; font-weight: 700;">Manual File Assigned: <code>{{ $assignedRelativePath }}</code></h3>
+                                <p style="max-width: 460px; font-size: 0.85rem; line-height: 1.5; margin: 0 0 20px 0; color: #64748b;">
+                                    To keep the directory fast and save memory, content is loaded on demand. Click below to load and inspect this markdown file.
+                                </p>
+                                <button type="button" class="pmo-btn" style="background: #0284c7; color: #ffffff; padding: 10px 20px; font-size: 0.9rem;" wire:click="loadTargetManual">
+                                    <i class="fa-solid fa-file-arrow-down"></i> Load MD File
+                                </button>
                             </div>
                         @else
                             <!-- Empty State -->

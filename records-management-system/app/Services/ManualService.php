@@ -24,6 +24,81 @@ class ManualService
     }
 
     /**
+     * In-memory file index cache to prevent disk-thrashing RecursiveDirectoryIterator scans.
+     */
+    protected static ?array $fileIndexCache = null;
+
+    /**
+     * Build or return cached map of all manual markdown files.
+     */
+    public static function getFileIndex(): array
+    {
+        if (self::$fileIndexCache !== null) {
+            return self::$fileIndexCache;
+        }
+
+        $baseDir = resource_path('manuals');
+        $index = [
+            'by_path' => [],       // relative path -> full path
+            'by_name' => [],       // filename -> full path
+            'by_base' => [],       // name without .md -> full path
+            'by_modal_base' => [], // name without .modal.md -> full path
+            'all_files' => [],
+        ];
+
+        if (!is_dir($baseDir)) {
+            return self::$fileIndexCache = $index;
+        }
+
+        $rdi = new \RecursiveDirectoryIterator($baseDir, \RecursiveDirectoryIterator::SKIP_DOTS);
+        $rii = new \RecursiveIteratorIterator($rdi);
+
+        foreach ($rii as $file) {
+            if ($file->isFile() && strtolower($file->getExtension()) === 'md') {
+                $filename = strtolower($file->getFilename());
+                if ($filename === 'nav-guides.md') {
+                    continue;
+                }
+
+                $fullPath = $file->getPathname();
+                $relPath = str_replace([$baseDir . DIRECTORY_SEPARATOR, $baseDir . '/'], '', $fullPath);
+                $relClean = str_replace('\\', '/', $relPath);
+                $relLower = strtolower($relClean);
+
+                $baseName = preg_replace('/\.md$/i', '', $filename);
+                $modalBase = preg_replace('/\.modal$/i', '', $baseName);
+
+                $index['by_path'][$relLower] = $fullPath;
+                $index['by_name'][$filename] = $fullPath;
+                $index['by_base'][$baseName] = $fullPath;
+                $index['by_modal_base'][$modalBase] = $fullPath;
+
+                $index['all_files'][] = [
+                    'name' => $file->getFilename(),
+                    'relative_path' => $relClean,
+                    'full_path' => $fullPath,
+                    'size' => $file->getSize(),
+                    'updated_at' => $file->getMTime(),
+                    'base_name' => $baseName,
+                    'modal_base' => $modalBase,
+                ];
+            }
+        }
+
+        return self::$fileIndexCache = $index;
+    }
+
+    /**
+     * Clear the static in-memory file index cache.
+     */
+    public static function clearFileIndexCache(): void
+    {
+        self::$fileIndexCache = null;
+        self::$parsedManualCache = [];
+        \Illuminate\Support\Facades\Cache::forget('rms_all_manual_files_meta');
+    }
+
+    /**
      * Get parsed manual data by name, identifier, or relative path (e.g. 'dts.create.internal', 'modal.dts.transaction.details').
      */
     public static function getManualByName(string $name): ?array
@@ -39,8 +114,11 @@ class ManualService
         }
 
         $normalized = trim(str_replace(['\\', '/'], '.', $name), '.');
+        $normalizedLower = strtolower($normalized);
         $segments = explode('.', $normalized);
         $subsystem = strtolower($segments[0] ?? '');
+
+        $index = self::getFileIndex();
 
         // 1. Check explicit custom mappings (mappings.json)
         $mappings = self::getManualMapping();
@@ -51,25 +129,37 @@ class ManualService
             if ($mappedPath === '' || $mappedPath === 'none' || $mappedPath === 'disabled') {
                 return null;
             }
-            $targetFull = $baseDir . DIRECTORY_SEPARATOR . ltrim(str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $mappedPath), DIRECTORY_SEPARATOR);
+            $cleanMapped = strtolower(ltrim(str_replace('\\', '/', $mappedPath), '/'));
+            $targetFull = $index['by_path'][$cleanMapped]
+                ?? ($index['by_name'][$cleanMapped]
+                ?? ($baseDir . DIRECTORY_SEPARATOR . ltrim(str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $mappedPath), DIRECTORY_SEPARATOR)));
             if (is_file($targetFull)) {
                 return self::parseManualFile($targetFull);
             }
         }
 
-        // Direct candidate lookups based on organized directory structure
+        // 2. Fast in-memory index exact lookup (zero disk syscalls)
+        $foundPath = $index['by_modal_base'][$normalizedLower]
+            ?? ($index['by_base'][$normalizedLower]
+            ?? ($index['by_path'][$normalizedLower . '.md']
+            ?? ($index['by_name'][$normalizedLower . '.md']
+            ?? ($index['by_path'][$subsystem . '/' . $normalizedLower . '.md']
+            ?? ($index['by_path']['modal/' . $subsystem . '/' . $normalizedLower . '.modal.md']
+            ?? ($index['by_path']['modal/' . $subsystem . '/' . $normalizedLower . '.md']
+            ?? null))))));
+
+        if ($foundPath && is_file($foundPath)) {
+            return self::parseManualFile($foundPath);
+        }
+
+        // 3. Fallback to candidate paths check only if not found in index
         $candidates = [
-            // Subsystem folder: e.g. manuals/dts/dts.create.internal.md
             $baseDir . DIRECTORY_SEPARATOR . $subsystem . DIRECTORY_SEPARATOR . $normalized . '.md',
-            // Direct path: e.g. manuals/dts.create.internal.md
             $baseDir . DIRECTORY_SEPARATOR . $normalized . '.md',
-            // Modal path with prefix: e.g. manuals/modal/dts/transaction.details.modal.md
             $baseDir . DIRECTORY_SEPARATOR . 'modal' . DIRECTORY_SEPARATOR . $subsystem . DIRECTORY_SEPARATOR . $normalized . '.modal.md',
             $baseDir . DIRECTORY_SEPARATOR . 'modal' . DIRECTORY_SEPARATOR . $subsystem . DIRECTORY_SEPARATOR . $normalized . '.md',
-            // Sub-path nested: e.g. manuals/modal/dts/transaction.details.modal.md
             $baseDir . DIRECTORY_SEPARATOR . str_replace('.', DIRECTORY_SEPARATOR, $normalized) . '.modal.md',
             $baseDir . DIRECTORY_SEPARATOR . str_replace('.', DIRECTORY_SEPARATOR, $normalized) . '.md',
-            // If passed modal.xxx, try without 'modal.'
             $baseDir . DIRECTORY_SEPARATOR . 'modal' . DIRECTORY_SEPARATOR . str_replace('.', DIRECTORY_SEPARATOR, preg_replace('/^modal\./i', '', $normalized)) . '.modal.md',
             $baseDir . DIRECTORY_SEPARATOR . 'modal' . DIRECTORY_SEPARATOR . str_replace('.', DIRECTORY_SEPARATOR, preg_replace('/^modal\./i', '', $normalized)) . '.md',
         ];
@@ -80,25 +170,13 @@ class ManualService
             }
         }
 
-        // Fuzzy search in manuals directory (helpful for short modal keys like 'transaction.details' or 'record.series')
-        $needle = strtolower(str_replace(['_', '-'], '.', $normalized));
-        $rdi = new \RecursiveDirectoryIterator($baseDir, \RecursiveDirectoryIterator::SKIP_DOTS);
-        $rii = new \RecursiveIteratorIterator($rdi);
-
-        foreach ($rii as $file) {
-            if ($file->isFile() && strtolower($file->getExtension()) === 'md') {
-                $filename = strtolower($file->getFilename());
-                $nameWithoutExt = str_replace('.md', '', $filename);
-                $nameWithoutModal = str_replace('.modal', '', $nameWithoutExt);
-
-                if (
-                    $nameWithoutExt === $needle ||
-                    $nameWithoutModal === $needle ||
-                    str_ends_with($nameWithoutModal, '.' . $needle) ||
-                    str_ends_with($needle, '.' . $nameWithoutModal)
-                ) {
-                    return self::parseManualFile($file->getPathname());
-                }
+        // 4. Fuzzy match using in-memory list (zero disk I/O)
+        $cleanNeedle = str_replace(['_', '-'], '.', $normalizedLower);
+        foreach ($index['all_files'] as $f) {
+            $mb = $f['modal_base'];
+            $b = $f['base_name'];
+            if ($mb === $cleanNeedle || $b === $cleanNeedle || str_ends_with($mb, '.' . $cleanNeedle) || str_ends_with($cleanNeedle, '.' . $mb)) {
+                return self::parseManualFile($f['full_path']);
             }
         }
 
@@ -107,11 +185,18 @@ class ManualService
 
     /**
      * Parse a markdown manual file into structured lines, sections, and callouts.
+     * Cached in static memory per request to prevent redundant file reads.
      */
+    protected static array $parsedManualCache = [];
+
     public static function parseManualFile(string $filePath): ?array
     {
         if (!is_file($filePath)) {
             return null;
+        }
+
+        if (isset(self::$parsedManualCache[$filePath])) {
+            return self::$parsedManualCache[$filePath];
         }
 
         $lines = file($filePath, FILE_IGNORE_NEW_LINES);
@@ -235,7 +320,7 @@ class ManualService
         $baseDir = resource_path('manuals');
         $relPath = str_replace([$baseDir . DIRECTORY_SEPARATOR, $baseDir . '/'], '', $filePath);
 
-        return [
+        $parsed = [
             'title' => $title ?: 'Page Manual',
             'purpose' => $purpose,
             'sections' => $sections,
@@ -247,6 +332,8 @@ class ManualService
             'file_size' => filesize($filePath) ?: 0,
             'updated_at' => filemtime($filePath) ?: time(),
         ];
+
+        return self::$parsedManualCache[$filePath] = $parsed;
     }
 
     /**
@@ -342,13 +429,30 @@ class ManualService
         }
 
         $mappings = self::getManualMapping();
-        if (empty($fileRelativePath) || $fileRelativePath === 'disabled' || $fileRelativePath === 'none') {
+        $isDisable = empty($fileRelativePath) || $fileRelativePath === 'disabled' || $fileRelativePath === 'none';
+        if ($isDisable) {
             $mappings[$targetKey] = 'disabled';
         } else {
             $mappings[$targetKey] = ltrim(str_replace('\\', '/', $fileRelativePath), '/');
         }
 
-        return self::saveManualMapping($mappings);
+        $saved = self::saveManualMapping($mappings);
+
+        // Also sync to database table if available
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('sys_page_manuals')) {
+                \Illuminate\Support\Facades\DB::table('sys_page_manuals')
+                    ->where('target_key', $targetKey)
+                    ->update([
+                        'relative_path' => $isDisable ? null : $mappings[$targetKey],
+                        'is_custom_mapped' => true,
+                        'parsed_content' => null, // clear cached parse
+                        'updated_at' => now(),
+                    ]);
+            }
+        } catch (\Throwable) {}
+
+        return $saved;
     }
 
     /**
@@ -368,7 +472,35 @@ class ManualService
         $mappings = self::getManualMapping();
         if (isset($mappings[$targetKey])) {
             unset($mappings[$targetKey]);
-            return self::saveManualMapping($mappings);
+            $saved = self::saveManualMapping($mappings);
+
+            // Re-resolve default from file index into DB
+            try {
+                if (\Illuminate\Support\Facades\Schema::hasTable('sys_page_manuals')) {
+                    $index = self::getFileIndex();
+                    $keyLower = strtolower($targetKey);
+                    $found = $index['by_modal_base'][$keyLower]
+                        ?? ($index['by_base'][$keyLower]
+                        ?? ($index['by_path'][$keyLower . '.md']
+                        ?? ($index['by_name'][$keyLower . '.md'] ?? null)));
+                    $rel = null;
+                    if ($found) {
+                        $baseDir = resource_path('manuals');
+                        $rel = str_replace('\\', '/', str_replace([$baseDir . DIRECTORY_SEPARATOR, $baseDir . '/'], '', $found));
+                    }
+
+                    \Illuminate\Support\Facades\DB::table('sys_page_manuals')
+                        ->where('target_key', $targetKey)
+                        ->update([
+                            'relative_path' => $rel,
+                            'is_custom_mapped' => false,
+                            'parsed_content' => null,
+                            'updated_at' => now(),
+                        ]);
+                }
+            } catch (\Throwable) {}
+
+            return $saved;
         }
         return true;
     }
@@ -459,56 +591,64 @@ class ManualService
 
     /**
      * Get all manual files (.md) in resources/manuals.
+     * Uses cache to avoid repeated file system checks on every Livewire update.
      *
-     * @return array<int, array{name: string, relative_path: string, full_path: string, size: int, updated_at: int, subsystem: string, line_count: int, title: string}>
+     * @return array<int, array{name: string, relative_path: string, full_path: string, size: int, updated_at: int, subsystem: string, line_count: int, title: string, purpose: string}>
      */
     public static function getAllManualFiles(): array
     {
-        $baseDir = resource_path('manuals');
-        if (!is_dir($baseDir)) {
-            return [];
-        }
+        return Cache::remember('rms_all_manual_files_meta', 3600, function () {
+            $index = self::getFileIndex();
+            $files = [];
 
-        $files = [];
-        $rdi = new \RecursiveDirectoryIterator($baseDir, \RecursiveDirectoryIterator::SKIP_DOTS);
-        $rii = new \RecursiveIteratorIterator($rdi);
-
-        foreach ($rii as $file) {
-            if ($file->isFile() && strtolower($file->getExtension()) === 'md') {
-                $filename = $file->getFilename();
-                // Exclude system navigation guides
-                if (strtolower($filename) === 'nav-guides.md') {
-                    continue;
-                }
-
-                $fullPath = $file->getPathname();
-                $relPath = str_replace([$baseDir . DIRECTORY_SEPARATOR, $baseDir . '/'], '', $fullPath);
-                $relPathClean = str_replace('\\', '/', $relPath);
-
-                $segments = explode('/', $relPathClean);
+            foreach ($index['all_files'] as $f) {
+                $segments = explode('/', $f['relative_path']);
                 $subsystem = 'common';
                 if (count($segments) > 1) {
                     $subsystem = $segments[0] === 'modal' && isset($segments[1]) ? $segments[1] : $segments[0];
                 }
 
-                $parsed = self::parseManualFile($fullPath);
+                // Fast header read without loading all lines
+                $title = $f['name'];
+                $purpose = '';
+                $lineCount = 0;
+                $handle = @fopen($f['full_path'], 'r');
+                if ($handle) {
+                    $linesRead = 0;
+                    while (($line = fgets($handle)) !== false) {
+                        $trimmed = trim($line);
+                        if ($trimmed !== '') {
+                            $lineCount++;
+                        }
+                        if ($linesRead < 15) {
+                            if (str_starts_with($trimmed, '# ') && $title === $f['name']) {
+                                $title = trim(substr($trimmed, 2));
+                            }
+                            if (preg_match('/^>\s*Purpose:\s*(.*)$/i', $trimmed, $m)) {
+                                $purpose = $m[1];
+                            }
+                            $linesRead++;
+                        }
+                    }
+                    fclose($handle);
+                }
 
                 $files[] = [
-                    'name' => $filename,
-                    'relative_path' => $relPathClean,
-                    'full_path' => $fullPath,
-                    'size' => $file->getSize(),
-                    'updated_at' => $file->getMTime(),
+                    'name' => $f['name'],
+                    'relative_path' => $f['relative_path'],
+                    'full_path' => $f['full_path'],
+                    'size' => $f['size'],
+                    'updated_at' => $f['updated_at'],
                     'subsystem' => strtoupper($subsystem),
-                    'line_count' => $parsed['line_count'] ?? 0,
-                    'title' => $parsed['title'] ?? $filename,
-                    'purpose' => $parsed['purpose'] ?? '',
+                    'line_count' => $lineCount,
+                    'title' => $title,
+                    'purpose' => $purpose,
                 ];
             }
-        }
 
-        usort($files, fn($a, $b) => strcmp($a['relative_path'], $b['relative_path']));
-        return $files;
+            usort($files, fn($a, $b) => strcmp($a['relative_path'], $b['relative_path']));
+            return $files;
+        });
     }
 
     /**

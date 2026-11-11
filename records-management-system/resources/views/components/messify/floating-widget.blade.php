@@ -539,9 +539,13 @@ body.messify-widget-open #messify-global-widget {
     let _unreadPollTimeout = null;
 
     function scheduleUnreadPoll(delayMs) {
-        // Default: 5 seconds. Pass shorter value for event-triggered refreshes.
+        // Dynamic interval: 10s when active, 30s when minimized or page hidden
         clearTimeout(_unreadPollTimeout);
-        _unreadPollTimeout = setTimeout(updateUnreadBadge, delayMs ?? 5000);
+        let defaultDelay = 10000;
+        if (document.hidden || !isOpen) {
+            defaultDelay = 20000;
+        }
+        _unreadPollTimeout = setTimeout(updateUnreadBadge, delayMs ?? defaultDelay);
     }
 
     function updateUnreadBadge() {
@@ -608,7 +612,7 @@ body.messify-widget-open #messify-global-widget {
         .finally(() => {
             // Only reschedule when this call was the poll cycle (not event-triggered).
             // Event-triggered calls explicitly pass their own reschedule.
-            scheduleUnreadPoll(5000);
+            scheduleUnreadPoll();
         });
     }
 

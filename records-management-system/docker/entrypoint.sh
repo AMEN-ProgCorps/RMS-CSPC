@@ -14,6 +14,14 @@ export VIEW_COMPILED_PATH="${VIEW_COMPILED_PATH:-/var/www/html/storage/framework
 mkdir -p "$VIEW_COMPILED_PATH"
 chmod 777 "$VIEW_COMPILED_PATH" || true
 
+# ── Tune PHP-FPM Pool Worker Limits to Prevent Saturation ──────────────────
+if [ -f /usr/local/etc/php-fpm.d/www.conf ]; then
+    sed -i 's/^pm.max_children = .*/pm.max_children = 20/' /usr/local/etc/php-fpm.d/www.conf || true
+    sed -i 's/^pm.start_servers = .*/pm.start_servers = 4/' /usr/local/etc/php-fpm.d/www.conf || true
+    sed -i 's/^pm.min_spare_servers = .*/pm.min_spare_servers = 2/' /usr/local/etc/php-fpm.d/www.conf || true
+    sed -i 's/^pm.max_spare_servers = .*/pm.max_spare_servers = 10/' /usr/local/etc/php-fpm.d/www.conf || true
+fi
+
 # ── Ensure Git is available for rolling updates & repository tracking ─────────
 if ! command -v git >/dev/null 2>&1; then
     if command -v apk >/dev/null 2>&1; then

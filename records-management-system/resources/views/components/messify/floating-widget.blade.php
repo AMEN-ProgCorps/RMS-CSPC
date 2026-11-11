@@ -21,7 +21,7 @@
     $notificationSoundAlert = $user ? $user->notificationSoundAlert() : true;
 @endphp
 
-<div id="messify-global-widget" class="messify-floating-widget messify-floating-widget" style="position: fixed; bottom: 24px; right: 24px; z-index: 999999; font-family: 'Inter', system-ui, -apple-system, sans-serif; transition: bottom 0.35s cubic-bezier(0.34, 1.25, 0.64, 1);">
+<div id="messify-global-widget" class="messify-floating-widget" style="position: fixed; bottom: 24px; right: 24px; z-index: 1000000; font-family: 'Inter', system-ui, -apple-system, sans-serif; transition: bottom 0.35s cubic-bezier(0.34, 1.25, 0.64, 1);">
     <!-- Chat Window Container -->
     <div id="messify-widget-card" 
          style="display: none; opacity: 0; transform: translateY(16px) scale(0.96); transition: opacity 0.25s ease, transform 0.25s ease; position: absolute; bottom: 72px; right: 0; width: 420px; height: 620px; max-width: calc(100vw - 32px); max-height: calc(100vh - 100px); border-radius: 16px; box-shadow: 0 20px 40px -8px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(148, 163, 184, 0.2); background: #ffffff; overflow: hidden; flex-direction: column;">
@@ -57,7 +57,7 @@
     </div>
 
     <!-- Floating Trigger Button Container -->
-    <div style="position: relative;">
+    <div style="position: relative; z-index: 20;">
         <!-- Unread Red Badge Pop-Up -->
         <span id="messify-unread-badge" 
               style="display: none; position: absolute; top: -4px; right: -4px; background: #ef4444; color: #ffffff; font-size: 11px; font-weight: 700; min-width: 22px; height: 22px; border-radius: 11px; padding: 0 6px; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.5), 0 0 0 2px #ffffff; align-items: center; justify-content: center; z-index: 10; pointer-events: none; animation: messify-badge-pop 0.3s ease-out;">
@@ -114,6 +114,11 @@
     box-shadow: 0 12px 28px -4px rgba(37, 99, 235, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.3);
 }
 
+.rms-messify-fab:hover,
+#messify-global-widget:hover {
+    z-index: 1000060 !important;
+}
+
 /* Floating Tooltip Label on top */
 .rms-messify-fab::before {
     content: attr(data-tooltip);
@@ -135,13 +140,17 @@
     transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    z-index: 1000001;
+    z-index: 1000070 !important;
 }
 
 .rms-messify-fab:hover::before {
     opacity: 1;
     visibility: visible;
     transform: translateX(-50%) translateY(0);
+}
+
+body.messify-widget-open #messify-global-widget {
+    z-index: 1000010 !important;
 }
 
 .rms-messify-fab-icon {
@@ -530,9 +539,13 @@
     let _unreadPollTimeout = null;
 
     function scheduleUnreadPoll(delayMs) {
-        // Default: 5 seconds. Pass shorter value for event-triggered refreshes.
+        // Dynamic interval: 10s when active, 30s when minimized or page hidden
         clearTimeout(_unreadPollTimeout);
-        _unreadPollTimeout = setTimeout(updateUnreadBadge, delayMs ?? 5000);
+        let defaultDelay = 10000;
+        if (document.hidden || !isOpen) {
+            defaultDelay = 20000;
+        }
+        _unreadPollTimeout = setTimeout(updateUnreadBadge, delayMs ?? defaultDelay);
     }
 
     function updateUnreadBadge() {
@@ -599,7 +612,7 @@
         .finally(() => {
             // Only reschedule when this call was the poll cycle (not event-triggered).
             // Event-triggered calls explicitly pass their own reschedule.
-            scheduleUnreadPoll(5000);
+            scheduleUnreadPoll();
         });
     }
 
@@ -651,14 +664,14 @@
     window.addEventListener('message', function(event) {
         if (!event.data) return;
 
-        if (event.data.type === 'MESSIFY_NEW_MESSAGE' || event.data.type === 'MESSIFY_NEW_MESSAGE') {
+        if (event.data.type === 'CHATIFY_NEW_MESSAGE' || event.data.type === 'MESSIFY_NEW_MESSAGE') {
             if (typeof event.data.unread_count === 'number') {
                 applyUnreadCounts(event.data.unread_count, lastSystemUnread);
             }
             playNotificationSound();
             // Single debounced refresh — AbortController cancels any in-flight request.
             scheduleUnreadPoll(300);
-        } else if (event.data.type === 'MESSIFY_SYSTEM_NOTIFICATION') {
+        } else if (event.data.type === 'CHATIFY_SYSTEM_NOTIFICATION' || event.data.type === 'MESSIFY_SYSTEM_NOTIFICATION') {
             // Instant DCS/system bell notice from Messify WebSocket (e.g. document distribution).
             // Overlay Alpine plays the sound; just show the popout + refresh counts.
             const notif = event.data.notification || null;
@@ -671,11 +684,11 @@
                 }
             }
             scheduleUnreadPoll(200);
-        } else if (event.data.type === 'MESSIFY_PLAY_SOUND' || event.data.type === 'MESSIFY_PLAY_SOUND') {
+        } else if (event.data.type === 'CHATIFY_PLAY_SOUND' || event.data.type === 'MESSIFY_PLAY_SOUND') {
             playNotificationSound();
-        } else if (event.data.type === 'MESSIFY_USER_INTERACTION' || event.data.type === 'MESSIFY_USER_INTERACTION') {
+        } else if (event.data.type === 'CHATIFY_USER_INTERACTION' || event.data.type === 'MESSIFY_USER_INTERACTION') {
             initAudioContext();
-        } else if (event.data.type === 'MESSIFY_MARK_READ' || event.data.type === 'MESSIFY_MARK_READ' || event.data.type === 'MESSIFY_REFRESH_BADGE' || event.data.type === 'MESSIFY_REFRESH_BADGE') {
+        } else if (event.data.type === 'CHATIFY_MARK_READ' || event.data.type === 'MESSIFY_MARK_READ' || event.data.type === 'CHATIFY_REFRESH_BADGE' || event.data.type === 'MESSIFY_REFRESH_BADGE') {
             if (typeof event.data.unread_count === 'number') {
                 applyUnreadCounts(event.data.unread_count, lastSystemUnread);
             }

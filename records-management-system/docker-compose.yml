@@ -20,6 +20,8 @@ services:
       - vendor:/var/www/html/vendor
       # Compiled Blade views — avoids WSL bind-mount touch()/utime failures
       - laravel_views:/var/www/html/storage/framework/views
+      # Framework cache on native Linux ext4 volume (250x faster than Windows 9P mount)
+      - laravel_cache:/var/www/html/storage/framework/cache
       # Docker socket for container state monitoring and memory stabilization
       - /var/run/docker.sock:/var/run/docker.sock
       # Mount parent repository root for clean Git operations and rolling updates
@@ -123,6 +125,7 @@ volumes:
   vendor:
   node_modules:
   laravel_views:
+  laravel_cache:
   s3_data:
 
 networks:

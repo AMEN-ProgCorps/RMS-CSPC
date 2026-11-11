@@ -67,7 +67,6 @@ new class extends Component {
 ?>
 
 <div>
-@if($manual)
 <div
     x-data="{
         isOpen: @entangle('open'),
@@ -102,15 +101,16 @@ new class extends Component {
         }
     }"
     x-on:rms-open-manual.window="$wire.openManual($event.detail?.name || $event.detail)"
-    x-on:rms-widget-opened.window="if ($event.detail && $event.detail.widget !== 'manual' && isOpen) { $wire.closeModal(); }"
+    x-on:rms-widget-opened.window="if ($event.detail && $event.detail.widget !== 'manual' && isOpen) { isOpen = false; $wire.closeModal(); }"
 >
-    <!-- Floating Trigger Button -->
+    <!-- Floating Trigger Button (rendered if a manual exists for this page) -->
+    @if($manual)
     <button
         type="button"
         class="rms-manual-fab"
         :class="{ 'is-open': isOpen }"
         :data-tooltip="isOpen ? 'Close Guide' : 'Page Guide'"
-        @click="isOpen ? $wire.closeModal() : $wire.openModal()"
+        @click="isOpen ? (isOpen = false, $wire.closeModal()) : $wire.openModal()"
         aria-label="Toggle Page Guide"
     >
         <span class="rms-manual-fab-icon" aria-hidden="true">
@@ -127,6 +127,7 @@ new class extends Component {
             </svg>
         </span>
     </button>
+    @endif
 
     <!-- Floating Manual Widget Card (Docked in bottom-right) -->
     <div
@@ -136,9 +137,10 @@ new class extends Component {
         role="dialog"
         aria-modal="true"
         aria-labelledby="rms-manual-title"
-        @click.outside="if (isOpen) $wire.closeModal()"
-        @keydown.escape.window="if (isOpen) $wire.closeModal()"
+        @click.outside="if (isOpen) { isOpen = false; $wire.closeModal(); }"
+        @keydown.escape.window="if (isOpen) { isOpen = false; $wire.closeModal(); }"
     >
+        @if($manual)
         <!-- Header Bar -->
         <div class="rms-manual-widget-header">
             <div style="display: flex; align-items: center; gap: 10px;">
@@ -250,10 +252,11 @@ new class extends Component {
             <span style="font-size: 11.5px; color: #64748b; font-weight: 500;">
                 <i class="fa-regular fa-file-lines" style="margin-right: 4px;"></i> {{ $currentRoute }}.md
             </span>
-            <button type="button" class="rms-manual-btn primary" @click="$wire.closeModal()">
+            <button type="button" class="rms-manual-btn primary" @click="isOpen = false; $wire.closeModal()">
                 Done
             </button>
         </div>
+        @endif
     </div>
 </div>
 
@@ -291,6 +294,7 @@ new class extends Component {
         background: #0369a1;
         transform: translateY(-2px);
         box-shadow: 0 14px 32px rgba(2, 132, 199, 0.45);
+        z-index: 1000060 !important;
     }
 
     /* Floating Tooltip Label on top */
@@ -314,7 +318,7 @@ new class extends Component {
         transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        z-index: 1000001;
+        z-index: 1000070 !important;
     }
 
     .rms-manual-fab:hover::before {
@@ -357,7 +361,7 @@ new class extends Component {
         background: #ffffff;
         border-radius: 16px;
         box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(15, 23, 42, 0.06);
-        z-index: 1000002;
+        z-index: 1000010;
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -650,7 +654,31 @@ new class extends Component {
         background: #1e293b;
         border-color: #334155;
     }
+
+    @media (max-width: 767px) {
+        .rms-manual-fab {
+            right: 80px;
+            bottom: 24px;
+        }
+        body.no-report-widget .rms-manual-fab {
+            right: 16px;
+        }
+        .rms-manual-widget-card {
+            right: 12px;
+            bottom: 12px;
+            width: calc(100vw - 24px);
+            max-width: calc(100vw - 24px);
+            max-height: calc(100vh - 24px);
+            height: calc(100vh - 24px);
+            border-radius: 16px;
+        }
+    }
+
+    @media print {
+        .rms-manual-fab,
+        .rms-manual-widget-card {
+            display: none !important;
+        }
+    }
 </style>
-</div>
-@endif
 </div>

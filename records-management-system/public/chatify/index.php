@@ -857,7 +857,7 @@ try {
 
   <!-- File Uploading Progress Modal -->
   <div class="modal" id="uploadingModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
-    <div class="modal-content" style="max-width:320px;min-height:0;">
+    <div class="modal-content" style="max-width:340px;min-height:0;">
       <div class="modal-header">
         <h3>Uploading File...</h3>
       </div>
@@ -866,10 +866,14 @@ try {
           <div class="upload-spinner" style="width:32px;height:32px;border:3px solid rgba(27,116,228,0.2);border-top-color:#1b74e4;border-radius:50%;animation:uploadSpin 0.8s linear infinite;"></div>
         </div>
         <p id="uploadingFileName" style="margin:0 0 10px 0;font-size:13px;color:var(--text-secondary);word-break:break-all;line-height:1.4;max-height:calc(1.4em * 2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">Preparing upload...</p>
-        <div style="width:100%;height:6px;background:var(--border-color, #e4e6eb);border-radius:4px;overflow:hidden;margin-bottom:4px;">
-          <div id="uploadProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg, #1b74e4, #00c3ff);transition:width 0.15s ease;border-radius:4px;"></div>
+        <div style="width:100%;height:6px;background:var(--border-color, #e4e6eb);border-radius:4px;overflow:hidden;margin-bottom:6px;">
+          <div id="uploadProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg, #1b74e4, #00c3ff);transition:width 0.1s linear;border-radius:4px;"></div>
         </div>
-        <div id="uploadProgressText" style="font-size:12px;font-weight:600;color:#1b74e4;text-align:right;">0%</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;gap:8px;">
+          <span id="uploadProgressStats" style="font-size:11px;font-weight:500;color:var(--text-secondary);text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px;">0 B / 0 B</span>
+          <span id="uploadProgressText" style="font-size:12px;font-weight:600;color:#1b74e4;text-align:right;min-width:40px;">0%</span>
+        </div>
+        <div id="uploadProgressEta" style="font-size:11px;color:var(--text-secondary);text-align:left;margin-top:4px;">Calculating remaining time...</div>
       </div>
     </div>
   </div>

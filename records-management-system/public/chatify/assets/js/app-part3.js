@@ -6204,11 +6204,30 @@
     }, false);
 
     // ── Upload Progress & Error Modal Controls ────────────────────────────────
-    function showUploadingModal(names) {
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return (bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1) + ' ' + sizes[i];
+    }
+
+    function formatRemainingTime(seconds) {
+      if (!isFinite(seconds) || seconds < 0) return '';
+      if (seconds < 1) return 'Almost done...';
+      if (seconds < 60) return Math.ceil(seconds) + 's remaining';
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.ceil(seconds % 60);
+      return mins + 'm ' + (secs > 0 ? (secs + 's ') : '') + 'remaining';
+    }
+
+    function showUploadingModal(names, totalSize) {
       const modal = document.getElementById('uploadingModal');
       const nameEl = document.getElementById('uploadingFileName');
       const bar = document.getElementById('uploadProgressBar');
       const text = document.getElementById('uploadProgressText');
+      const stats = document.getElementById('uploadProgressStats');
+      const eta = document.getElementById('uploadProgressEta');
 
       // Keep this label short and fixed-size no matter how many files were
       // selected or how long their names are — never join/list every name,
@@ -6227,18 +6246,44 @@
       if (nameEl) nameEl.textContent = label;
       if (bar) bar.style.width = '0%';
       if (text) text.textContent = '0%';
+      if (stats) stats.textContent = (totalSize && totalSize > 0) ? ('0 B / ' + formatBytes(totalSize)) : 'Starting upload...';
+      if (eta) eta.textContent = 'Calculating remaining time...';
       if (modal) {
         modal.style.display = 'flex';
         modal.classList.add('active');
       }
     }
 
-    function updateUploadProgress(percent) {
+    function updateUploadProgress(percent, opts) {
+      opts = opts || {};
       const bar = document.getElementById('uploadProgressBar');
       const text = document.getElementById('uploadProgressText');
+      const stats = document.getElementById('uploadProgressStats');
+      const eta = document.getElementById('uploadProgressEta');
+
       const p = Math.min(100, Math.max(0, Math.round(percent)));
       if (bar) bar.style.width = p + '%';
       if (text) text.textContent = p + '%';
+
+      if (stats) {
+        if (opts.loaded !== undefined && opts.total !== undefined) {
+          const sizeStr = formatBytes(opts.loaded) + ' / ' + formatBytes(opts.total);
+          const speedStr = (opts.speed && opts.speed > 0) ? ' • ' + formatBytes(opts.speed) + '/s' : '';
+          stats.textContent = sizeStr + speedStr;
+        } else if (opts.customStatus) {
+          stats.textContent = opts.customStatus;
+        }
+      }
+
+      if (eta) {
+        if (opts.etaText) {
+          eta.textContent = opts.etaText;
+        } else if (opts.remainingSec !== undefined) {
+          eta.textContent = formatRemainingTime(opts.remainingSec);
+        } else if (p >= 100) {
+          eta.textContent = 'Processing file on server...';
+        }
+      }
     }
 
     function closeUploadingModal() {
@@ -6470,23 +6515,59 @@
       if (!isGlobalChat && typeof activeDMAccountId !== 'undefined' && activeDMAccountId) {
         fd.append('target_id', activeDMAccountId);
       }
+      let totalBytes = 0;
       const names = [];
       for (const file of fileList) {
         fd.append('files[]', file);
         names.push(file.name);
+        totalBytes += (file.size || 0);
       }
 
-      showUploadingModal(names);
+      showUploadingModal(names, totalBytes);
 
       // POST to upload.php
       const xhr = new XMLHttpRequest();
       xhr.open('POST', 'upload.php', true);
 
+      const uploadStartTime = performance.now();
+      let lastTime = uploadStartTime;
+      let lastLoaded = 0;
+      let smoothedSpeed = 0;
+
       if (xhr.upload) {
         xhr.upload.onprogress = function(e) {
-          if (e.lengthComputable) {
-            const percent = (e.loaded / e.total) * 85;
-            updateUploadProgress(percent);
+          if (e.lengthComputable && e.total > 0) {
+            const now = performance.now();
+            const timeDiff = (now - lastTime) / 1000;
+            const totalElapsed = (now - uploadStartTime) / 1000;
+
+            if (timeDiff >= 0.15 || e.loaded === e.total) {
+              const instantSpeed = (e.loaded - lastLoaded) / Math.max(timeDiff, 0.05);
+              smoothedSpeed = smoothedSpeed === 0 ? instantSpeed : (smoothedSpeed * 0.7 + instantSpeed * 0.3);
+              lastTime = now;
+              lastLoaded = e.loaded;
+            }
+
+            const currentSpeed = smoothedSpeed > 0 ? smoothedSpeed : (e.loaded / Math.max(totalElapsed, 0.05));
+            const remainingBytes = Math.max(0, e.total - e.loaded);
+            const remainingSec = currentSpeed > 0 ? (remainingBytes / currentSpeed) : 0;
+            const percent = (e.loaded / e.total) * 100;
+
+            if (percent >= 100) {
+              updateUploadProgress(100, {
+                loaded: e.total,
+                total: e.total,
+                speed: currentSpeed,
+                etaText: 'Processing file on server...'
+              });
+            } else {
+              updateUploadProgress(percent, {
+                loaded: e.loaded,
+                total: e.total,
+                speed: currentSpeed,
+                remainingSec: remainingSec
+              });
+            }
           }
         };
       }
@@ -6516,7 +6597,10 @@
           return;
         }
 
-        updateUploadProgress(92);
+        updateUploadProgress(100, {
+          customStatus: 'Sending message...',
+          etaText: 'Finalizing upload...'
+        });
 
         // Send the uploaded filenames as a message
         const uploadedFiles = result.uploaded;
@@ -6546,8 +6630,13 @@
         }
 
         sendXhr.onload = function() {
-          updateUploadProgress(100);
-          closeUploadingModal();
+          updateUploadProgress(100, {
+            customStatus: 'Complete',
+            etaText: 'Done!'
+          });
+          setTimeout(function() {
+            closeUploadingModal();
+          }, 200);
 
           if (this.status === 200) {
             let resData = null;

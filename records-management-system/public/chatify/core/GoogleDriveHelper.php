@@ -274,7 +274,11 @@ class GoogleDriveHelper
                         fclose($stream);
                     }
                     if ($written) {
-                        self::registerUploadedFile($targetFilename, 'storage_put');
+                        self::registerUploadedFile($targetFilename, $googlePath);
+                        $baseClean = preg_replace('/_thumb\.webp$/', '.webp', $targetFilename);
+                        self::registerUploadedFile($baseClean, $googlePath);
+                        $thumbName = preg_replace('/\.webp$/', '_thumb.webp', $baseClean);
+                        self::registerUploadedFile($thumbName, $googlePath);
                         return [
                             'success' => true,
                             'name'    => $targetFilename,
@@ -337,6 +341,14 @@ class GoogleDriveHelper
             $data = json_decode($resRaw, true);
             if (!empty($data['id'])) {
                 self::registerUploadedFile($targetFilename, $data['id']);
+                // If this is the main image and no thumb registered yet, set fallback
+                if (!str_ends_with($targetFilename, ImageProcessor::THUMB_SUFFIX)) {
+                    $thumbName = pathinfo($targetFilename, PATHINFO_FILENAME) . ImageProcessor::THUMB_SUFFIX;
+                    $map = self::getUploadsMap();
+                    if (empty($map[$thumbName])) {
+                        self::registerUploadedFile($thumbName, $data['id']);
+                    }
+                }
                 return [
                     'success' => true,
                     'id'      => $data['id'],
@@ -347,6 +359,233 @@ class GoogleDriveHelper
 
         error_log("GoogleDriveHelper::uploadFile failed (HTTP {$httpCode}): " . $resRaw);
         return false;
+    }
+
+    /**
+     * Search Google Drive API for a file matching a query.
+     */
+    public static function searchDriveFileId(string $query, ?string $token = null, ?array $creds = null): ?string
+    {
+        $token = $token ?: self::getAccessToken();
+        if (!$token) return null;
+        $creds = $creds ?: self::getCredentials();
+
+        $ch = curl_init('https://www.googleapis.com/drive/v3/files?q=' . urlencode($query) . '&fields=files(id,name)&pageSize=5');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, $creds['verify_ssl']);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $creds['verify_ssl'] ? 2 : 0);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+
+        $searchRaw = curl_exec($ch);
+        curl_close($ch);
+
+        $searchData = json_decode($searchRaw, true);
+        if (!empty($searchData['files'][0]['id'])) {
+            return $searchData['files'][0]['id'];
+        }
+        return null;
+    }
+
+    /**
+     * Check if a file is confirmed in the Google Drive chatify destination folder and not trashed.
+     */
+    public static function isFileInChatifyFolder(string $fileId, string $folderId, ?string $token = null): bool
+    {
+        if (empty($fileId) || strlen($fileId) < 10 || empty($folderId)) {
+            return false;
+        }
+        $token = $token ?: self::getAccessToken();
+        if (!$token) {
+            return false;
+        }
+
+        $creds = self::getCredentials();
+        $ch = curl_init("https://www.googleapis.com/drive/v3/files/{$fileId}?fields=id,parents,trashed");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, $creds['verify_ssl']);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $creds['verify_ssl'] ? 2 : 0);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+
+        $raw = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($code === 200 && $raw) {
+            $data = json_decode($raw, true);
+            if (is_array($data) && empty($data['trashed']) && !empty($data['parents']) && is_array($data['parents'])) {
+                return in_array($folderId, $data['parents'], true);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Ensure a file is linked to the chatify destination folder in Google Drive.
+     */
+    public static function addFileToChatifyFolder(string $fileId, ?string $folderId, ?string $token = null): void
+    {
+        if (empty($fileId) || empty($folderId)) return;
+        $token = $token ?: self::getAccessToken();
+        if (!$token) return;
+
+        try {
+            $ch = curl_init("https://www.googleapis.com/drive/v3/files/{$fileId}?addParents=" . urlencode($folderId) . '&fields=id,parents');
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PATCH');
+            curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+            curl_exec($ch);
+            curl_close($ch);
+        } catch (\Throwable $e) {}
+    }
+
+    /**
+     * Fetch a file's binary contents directly from Google Drive into memory.
+     * Does NOT save anything to local disk.
+     *
+     * @param string $filename Filename on Google Drive e.g. "image_123.webp"
+     * @return string|null Binary contents or null if not found
+     */
+    public static function getFileBinaryFromDrive(string $filename): ?string
+    {
+        if (!self::isConfigured()) {
+            return null;
+        }
+
+        // 1. Try Laravel Storage::disk('google') if available
+        if (class_exists('\Illuminate\Support\Facades\Storage')) {
+            try {
+                $googlePath = "chatify/{$filename}";
+                if (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
+                    $content = \Illuminate\Support\Facades\Storage::disk('google')->get($googlePath);
+                    if ($content !== false && strlen($content) > 0) {
+                        return $content;
+                    }
+                }
+                if (\Illuminate\Support\Facades\Storage::disk('google')->exists($filename)) {
+                    $content = \Illuminate\Support\Facades\Storage::disk('google')->get($filename);
+                    if ($content !== false && strlen($content) > 0) {
+                        return $content;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Fallback to REST API below
+            }
+        }
+
+        // 2. Direct Google Drive REST API lookup
+        $token = self::getAccessToken();
+        if (!$token) {
+            return null;
+        }
+
+        $folderId = self::ensureChatifyFolderId($token);
+        $creds = self::getCredentials();
+        $rootFolderId = !empty($creds['folder_id']) ? $creds['folder_id'] : 'root';
+
+        // 2a. Check if we already have the fileId cached from memory or gdrive_file_list.json
+        $fileId = null;
+        $driveFiles = self::getDriveFilenames();
+        if ($driveFiles !== null) {
+            if (!empty($driveFiles[$filename]) && is_string($driveFiles[$filename]) && strlen($driveFiles[$filename]) > 10 && !str_contains($driveFiles[$filename], '/')) {
+                $fileId = $driveFiles[$filename];
+            }
+        }
+
+        // 2b. Check uploads map
+        if (!$fileId) {
+            $map = self::getUploadsMap();
+            if (!empty($map[$filename]['id']) && is_string($map[$filename]['id']) && strlen($map[$filename]['id']) > 10 && !str_contains($map[$filename]['id'], '/')) {
+                $fileId = $map[$filename]['id'];
+            }
+        }
+
+        // 2c. If not found and is thumbnail, fallback to main image file
+        if (!$fileId && str_ends_with($filename, ImageProcessor::THUMB_SUFFIX)) {
+            $baseName = pathinfo($filename, PATHINFO_FILENAME);
+            $mainName = preg_replace('/_thumb$/', '', $baseName) . '.webp';
+            if ($mainName !== $filename) {
+                $map = self::getUploadsMap();
+                if (!empty($map[$mainName]['id']) && is_string($map[$mainName]['id']) && strlen($map[$mainName]['id']) > 10 && !str_contains($map[$mainName]['id'], '/')) {
+                    $fileId = $map[$mainName]['id'];
+                } elseif ($driveFiles !== null && !empty($driveFiles[$mainName]) && is_string($driveFiles[$mainName]) && strlen($driveFiles[$mainName]) > 10 && !str_contains($driveFiles[$mainName], '/')) {
+                    $fileId = $driveFiles[$mainName];
+                }
+                if (!$fileId) {
+                    return self::getFileBinaryFromDrive($mainName);
+                }
+            }
+        }
+
+        // Verify that the cached fileId is strictly inside the Google Drive 'chatify' folder
+        if ($fileId && $folderId) {
+            if (!self::isFileInChatifyFolder($fileId, $folderId, $token)) {
+                self::unregisterUploadedFile($filename);
+                $baseClean = preg_replace('/_thumb\.webp$/', '.webp', $filename);
+                self::unregisterUploadedFile($baseClean);
+                $thumbName = pathinfo($baseClean, PATHINFO_FILENAME) . ImageProcessor::THUMB_SUFFIX;
+                self::unregisterUploadedFile($thumbName);
+                $fileId = null;
+            }
+        }
+
+        $safeName = str_replace(["\\", "'"], ["\\\\", "\\'"], $filename);
+
+        // 2d. Search strictly inside 'chatify' folder by exact filename
+        if (!$fileId && $folderId) {
+            $q = "'{$folderId}' in parents and name = '{$safeName}' and trashed = false";
+            $fileId = self::searchDriveFileId($q, $token, $creds);
+            if ($fileId) {
+                self::registerUploadedFile($filename, $fileId);
+            }
+        }
+
+        // 2e. Search strictly inside 'chatify' folder by base clean name
+        if (!$fileId && $folderId) {
+            $baseName = pathinfo($filename, PATHINFO_FILENAME);
+            $baseNoThumb = preg_replace('/_thumb$/', '', $baseName);
+            $safeBase = str_replace(["\\", "'"], ["\\\\", "\\'"], $baseNoThumb);
+            $q2 = "'{$folderId}' in parents and name contains '{$safeBase}' and trashed = false";
+            $fileId = self::searchDriveFileId($q2, $token, $creds);
+            if ($fileId) {
+                self::registerUploadedFile($filename, $fileId);
+            }
+        }
+
+        if (!$fileId) {
+            return null;
+        }
+
+        // Download binary media content directly into memory (following any redirects)
+        $ch2 = curl_init("https://www.googleapis.com/drive/v3/files/{$fileId}?alt=media");
+        curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch2, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch2, CURLOPT_SSL_VERIFYPEER, $creds['verify_ssl']);
+        curl_setopt($ch2, CURLOPT_SSL_VERIFYHOST, $creds['verify_ssl'] ? 2 : 0);
+        curl_setopt($ch2, CURLOPT_TIMEOUT, 60);
+        curl_setopt($ch2, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($ch2, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+
+        $binary = curl_exec($ch2);
+        $code = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
+        curl_close($ch2);
+
+        if ($code === 200 && $binary !== false && strlen($binary) > 0) {
+            return $binary;
+        }
+
+        if ($code === 404) {
+            // File was deleted on Google Drive
+            self::unregisterUploadedFile($filename);
+        }
+
+        return null;
     }
 
     /**
@@ -363,77 +602,8 @@ class GoogleDriveHelper
             return true;
         }
 
-        if (!self::isConfigured()) {
-            return false;
-        }
-
-        // 1. Try Laravel Storage::disk('google') if available
-        if (class_exists('\Illuminate\Support\Facades\Storage')) {
-            try {
-                $googlePath = "chatify/{$filename}";
-                if (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
-                    $content = \Illuminate\Support\Facades\Storage::disk('google')->get($googlePath);
-                    if ($content !== false && strlen($content) > 0) {
-                        $dir = dirname($destinationLocalPath);
-                        if (!is_dir($dir)) {
-                            @mkdir($dir, 0777, true);
-                        }
-                        file_put_contents($destinationLocalPath, $content);
-                        return true;
-                    }
-                }
-            } catch (\Throwable $e) {
-                // Fallback to REST API below
-            }
-        }
-
-        // 2. Direct Google Drive REST API lookup
-        $token = self::getAccessToken();
-        if (!$token) {
-            return false;
-        }
-
-        $folderId = self::ensureChatifyFolderId($token);
-        if (!$folderId) {
-            return false;
-        }
-
-        $creds = self::getCredentials();
-
-        // Search for file inside the chatify folder
-        $safeName = addslashes($filename);
-        $q = "'{$folderId}' in parents and name = '{$safeName}' and trashed = false";
-
-        $ch = curl_init('https://www.googleapis.com/drive/v3/files?q=' . urlencode($q) . '&fields=files(id,name)');
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, $creds['verify_ssl']);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $creds['verify_ssl'] ? 2 : 0);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
-
-        $searchRaw = curl_exec($ch);
-        curl_close($ch);
-
-        $searchData = json_decode($searchRaw, true);
-        if (empty($searchData['files'][0]['id'])) {
-            return false;
-        }
-
-        $fileId = $searchData['files'][0]['id'];
-
-        // Download binary media content
-        $ch2 = curl_init("https://www.googleapis.com/drive/v3/files/{$fileId}?alt=media");
-        curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch2, CURLOPT_SSL_VERIFYPEER, $creds['verify_ssl']);
-        curl_setopt($ch2, CURLOPT_SSL_VERIFYHOST, $creds['verify_ssl'] ? 2 : 0);
-        curl_setopt($ch2, CURLOPT_TIMEOUT, 60);
-        curl_setopt($ch2, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
-
-        $binary = curl_exec($ch2);
-        $code = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
-        curl_close($ch2);
-
-        if ($code === 200 && $binary !== false && strlen($binary) > 0) {
+        $binary = self::getFileBinaryFromDrive($filename);
+        if ($binary !== null) {
             $dir = dirname($destinationLocalPath);
             if (!is_dir($dir)) {
                 @mkdir($dir, 0777, true);
@@ -446,8 +616,137 @@ class GoogleDriveHelper
     }
 
     /**
-     * Retrieve the list of files currently in the Google Drive 'chatify' folder.
-     * Caches in-memory per request and file-cached for 15s to keep chat rendering instant.
+     * Absolute path to the persistent uploads map file.
+     */
+    private static function getUploadsMapPath(): string
+    {
+        return (defined('STORAGE_ROOT') ? STORAGE_ROOT : __DIR__ . '/../storage') . '/gdrive_uploads_map.json';
+    }
+
+    /**
+     * Return associative array of all known uploaded files: [filename => ['id' => DriveFileID, 'time' => Timestamp]].
+     */
+    public static function getUploadsMap(): array
+    {
+        $mapFile = self::getUploadsMapPath();
+        if (file_exists($mapFile)) {
+            $data = json_decode(@file_get_contents($mapFile), true);
+            if (is_array($data)) {
+                return $data;
+            }
+        }
+
+        // Bootstrap from gdrive_file_list.json if map file doesn't exist yet
+        $cacheFile = (defined('STORAGE_ROOT') ? STORAGE_ROOT : __DIR__ . '/../storage') . '/gdrive_file_list.json';
+        $bootstrap = [];
+        if (file_exists($cacheFile)) {
+            $data = json_decode(@file_get_contents($cacheFile), true);
+            if (is_array($data) && !empty($data['files']) && is_array($data['files'])) {
+                $now = time();
+                foreach ($data['files'] as $fname => $fid) {
+                    if (is_string($fid) && strlen($fid) > 5 && $fid !== 'storage_put') {
+                        $bootstrap[$fname] = [
+                            'id'   => $fid,
+                            'time' => $now,
+                        ];
+                    }
+                }
+                @file_put_contents($mapFile, json_encode($bootstrap));
+            }
+        }
+        return $bootstrap;
+    }
+
+    /**
+     * Save the persistent uploads map.
+     */
+    public static function saveUploadsMap(array $map): void
+    {
+        $mapFile = self::getUploadsMapPath();
+        @file_put_contents($mapFile, json_encode($map));
+    }
+
+    /**
+     * Check if a specific Google Drive file ID is still alive (not deleted and not in trash).
+     * Has zero search indexing lag.
+     */
+    public static function isDriveFileAlive(string $fileId, ?string $token = null): bool
+    {
+        if (empty($fileId) || strlen($fileId) < 10) {
+            return false;
+        }
+        $token = $token ?: self::getAccessToken();
+        if (!$token) {
+            return false;
+        }
+
+        $creds = self::getCredentials();
+        $ch = curl_init("https://www.googleapis.com/drive/v3/files/{$fileId}?fields=id,trashed");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, $creds['verify_ssl']);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $creds['verify_ssl'] ? 2 : 0);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 4);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+
+        $raw = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($code === 200 && $raw) {
+            $data = json_decode($raw, true);
+            if (is_array($data) && empty($data['trashed'])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if a file ID is confirmed deleted/trashed on Google Drive.
+     * Returns true if 404 or trashed=true.
+     * Returns false if 200 and not trashed (alive).
+     * Returns null if network error, timeout, or rate-limited.
+     */
+    public static function isDriveFileDeleted(string $fileId, ?string $token = null): ?bool
+    {
+        if (empty($fileId) || strlen($fileId) < 10) {
+            return null;
+        }
+        $token = $token ?: self::getAccessToken();
+        if (!$token) {
+            return null;
+        }
+
+        $creds = self::getCredentials();
+        $ch = curl_init("https://www.googleapis.com/drive/v3/files/{$fileId}?fields=id,trashed");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, $creds['verify_ssl']);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $creds['verify_ssl'] ? 2 : 0);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 8);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+
+        $raw = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($code === 404) {
+            return true;
+        }
+        if ($code === 200 && $raw) {
+            $data = json_decode($raw, true);
+            if (is_array($data)) {
+                return !empty($data['trashed']);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Retrieve the list of files currently in the Google Drive storage.
+     * Searches chatify folder, root folder, and My Drive to ensure all uploaded assets are detected.
+     * Caches in-memory per request and file-cached for 15s to keep chat rendering instant without rate-limiting.
      *
      * @param bool $forceRefresh
      * @return array|null Map of [filename => drive_file_id] or null if GDrive is unreachable
@@ -461,7 +760,7 @@ class GoogleDriveHelper
         $cacheFile = (defined('STORAGE_ROOT') ? STORAGE_ROOT : __DIR__ . '/../storage') . '/gdrive_file_list.json';
         if (!$forceRefresh && file_exists($cacheFile)) {
             $data = json_decode(@file_get_contents($cacheFile), true);
-            if (is_array($data) && isset($data['time'], $data['files']) && (time() - $data['time']) < 15) {
+            if (is_array($data) && isset($data['time'], $data['files']) && (time() - $data['time']) < 3) {
                 self::$cachedDriveFiles = $data['files'];
                 return self::$cachedDriveFiles;
             }
@@ -480,10 +779,12 @@ class GoogleDriveHelper
         if (!$folderId) {
             return null;
         }
-
         $creds = self::getCredentials();
+
+        // Query strictly inside chatify folder
         $q = "'{$folderId}' in parents and trashed = false";
-        $ch = curl_init('https://www.googleapis.com/drive/v3/files?q=' . urlencode($q) . '&fields=files(id,name)&pageSize=1000');
+
+        $ch = curl_init('https://www.googleapis.com/drive/v3/files?q=' . urlencode($q) . '&fields=files(id,name,parents)&pageSize=1000');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, $creds['verify_ssl']);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $creds['verify_ssl'] ? 2 : 0);
@@ -495,6 +796,13 @@ class GoogleDriveHelper
         curl_close($ch);
 
         if ($httpCode !== 200 || !$resRaw) {
+            if (file_exists($cacheFile)) {
+                $data = json_decode(@file_get_contents($cacheFile), true);
+                if (is_array($data) && !empty($data['files'])) {
+                    self::$cachedDriveFiles = $data['files'];
+                    return self::$cachedDriveFiles;
+                }
+            }
             return null;
         }
 
@@ -512,14 +820,16 @@ class GoogleDriveHelper
         @file_put_contents($cacheFile, json_encode([
             'time'  => time(),
             'files' => $filenames,
-        ]));
+        ]), LOCK_EX);
+
+        return self::$cachedDriveFiles;
 
         return self::$cachedDriveFiles;
     }
 
     /**
-     * Immediately register a newly uploaded file into the cache so that subsequent
-     * isFileAvailable() calls in the same or concurrent PHP requests see it instantly.
+     * Immediately register a newly uploaded file into persistent map and cache
+     * so that subsequent isFileAvailable() calls in concurrent requests see it instantly.
      */
     public static function registerUploadedFile(string $filename, string $fileId): void
     {
@@ -528,6 +838,15 @@ class GoogleDriveHelper
         }
         self::$cachedDriveFiles[$filename] = $fileId;
 
+        // 1. Update persistent uploads map
+        $map = self::getUploadsMap();
+        $map[$filename] = [
+            'id'   => $fileId,
+            'time' => time(),
+        ];
+        self::saveUploadsMap($map);
+
+        // 2. Update gdrive_file_list.json
         $cacheFile = (defined('STORAGE_ROOT') ? STORAGE_ROOT : __DIR__ . '/../storage') . '/gdrive_file_list.json';
         $data = null;
         if (file_exists($cacheFile)) {
@@ -544,28 +863,74 @@ class GoogleDriveHelper
         @file_put_contents($cacheFile, json_encode($data));
     }
 
-    public const CACHE_RETENTION_SECONDS = 604800; // 7 days (1 week)
+    public const CACHE_RETENTION_SECONDS = 604800; // 7 days (60 * 60 * 24 * 7)
 
     /**
      * Check if a file is currently stored in local uploads cache.
+     * Automatically unlinks expired cache files (exceeding CACHE_RETENTION_SECONDS).
      */
     public static function isLocallyCached(string $filename, string $destinationLocalPath): bool
     {
-        return file_exists($destinationLocalPath) && filesize($destinationLocalPath) > 0;
+        if (empty($destinationLocalPath)) {
+            return false;
+        }
+        @clearstatcache(true, $destinationLocalPath);
+        if (!file_exists($destinationLocalPath) || filesize($destinationLocalPath) === 0) {
+            return false;
+        }
+        $mtime = @filemtime($destinationLocalPath);
+        if ($mtime !== false && (time() - $mtime) >= self::CACHE_RETENTION_SECONDS) {
+            @unlink($destinationLocalPath);
+            $baseName = pathinfo($filename, PATHINFO_FILENAME);
+            $baseNoThumb = preg_replace('/_thumb$/', '', $baseName);
+            $dir = dirname($destinationLocalPath);
+            $mainPath = $dir . '/' . $baseNoThumb . '.webp';
+            $thumbPath = $dir . '/' . $baseNoThumb . ImageProcessor::THUMB_SUFFIX;
+            if (file_exists($mainPath)) {
+                @unlink($mainPath);
+            }
+            if (file_exists($thumbPath)) {
+                @unlink($thumbPath);
+            }
+            return false;
+        }
+        return true;
     }
 
     /**
      * Check if a file exists in Google Drive.
      */
-    public static function isInDrive(string $filename): bool
+    public static function isInDrive(string $filename, bool $forceRefresh = false): bool
     {
         if (!self::isConfigured()) {
             return false;
         }
-        $driveFiles = self::getDriveFilenames();
+
+        $baseClean = preg_replace('/_thumb\.webp$/', '.webp', $filename);
+        $thumbName = preg_replace('/\.webp$/', '_thumb.webp', $baseClean);
+
+        // 1. Check live / cached filenames list strictly for 'chatify' folder
+        $driveFiles = self::getDriveFilenames($forceRefresh);
         if ($driveFiles !== null) {
-            return isset($driveFiles[$filename]);
+            return (isset($driveFiles[$filename]) || isset($driveFiles[$baseClean]) || isset($driveFiles[$thumbName]));
         }
+
+        // 2. Targeted check strictly inside 'chatify' folder
+        $token = self::getAccessToken();
+        if ($token) {
+            $folderId = self::ensureChatifyFolderId($token);
+            if ($folderId) {
+                $creds = self::getCredentials();
+                $safeName = str_replace(["\\", "'"], ["\\\\", "\\'"], $filename);
+                $safeBase = str_replace(["\\", "'"], ["\\\\", "\\'"], $baseClean);
+                $q = "'{$folderId}' in parents and (name = '{$safeName}' or name = '{$safeBase}') and trashed = false";
+                $fileId = self::searchDriveFileId($q, $token, $creds);
+                if ($fileId) {
+                    return true;
+                }
+            }
+        }
+
         if (class_exists('\Illuminate\Support\Facades\Storage')) {
             try {
                 return (bool) \Illuminate\Support\Facades\Storage::disk('google')->exists("chatify/{$filename}");
@@ -576,57 +941,31 @@ class GoogleDriveHelper
 
     /**
      * Check whether an uploaded image or file is valid and available.
-     * When Google Drive is active:
-     * - If the file was created/modified locally within the last 300 seconds, it's a fresh upload:
-     *   always available immediately (avoids any cache race condition!).
-     * - If the file is NOT in Google Drive and not newly uploaded, returns false (and cleans up stale local cache).
-     * - If the file IS in Google Drive, returns true.
-     *   If $autoDownload is true and local copy is missing, it restores the local copy.
+     * When Google Drive is active, checks Google Drive directly.
+     * If missing, cleans up any local residue and returns false.
      * When Google Drive is not configured, checks the local disk.
      */
-    public static function isFileAvailable(string $filename, string $destinationLocalPath, bool $autoDownload = true): bool
+    public static function isFileAvailable(string $filename, string $destinationLocalPath = '', bool $autoDownload = false): bool
     {
-        // 1. Freshly created local file (< 300s): always immediately available!
-        if (file_exists($destinationLocalPath) && (time() - filemtime($destinationLocalPath)) < 300) {
-            return true;
-        }
-
         if (!self::isConfigured()) {
-            return file_exists($destinationLocalPath) && filesize($destinationLocalPath) > 0;
+            return !empty($destinationLocalPath) && file_exists($destinationLocalPath) && filesize($destinationLocalPath) > 0;
         }
 
-        $driveFiles = self::getDriveFilenames();
-
-        // When drive listing succeeds:
-        if ($driveFiles !== null) {
-            if (!isset($driveFiles[$filename])) {
-                // Completely missing from Google Drive!
-                // Only purge if file is NOT brand new (< 300s)
-                if (file_exists($destinationLocalPath) && (time() - filemtime($destinationLocalPath)) >= 300) {
-                    @unlink($destinationLocalPath);
-                    $thumbName = pathinfo($filename, PATHINFO_FILENAME) . '_thumb.webp';
-                    $thumbPath = dirname($destinationLocalPath) . '/' . $thumbName;
-                    if (file_exists($thumbPath)) {
-                        @unlink($thumbPath);
-                    }
-                }
-                return false;
+        $inDrive = self::isInDrive($filename);
+        if (!$inDrive) {
+            // Clean up any stale local copies
+            if (!empty($destinationLocalPath) && file_exists($destinationLocalPath)) {
+                @unlink($destinationLocalPath);
             }
-
-            // Exists in Google Drive!
-            if ($autoDownload && (!file_exists($destinationLocalPath) || filesize($destinationLocalPath) === 0)) {
-                self::ensureLocalCopy($filename, $destinationLocalPath);
-            }
-
-            return true;
+            $baseClean = preg_replace('/_thumb\.webp$/', '.webp', $filename);
+            $thumbName = preg_replace('/\.webp$/', '_thumb.webp', $baseClean);
+            $uploadsDir = !empty($destinationLocalPath) ? dirname($destinationLocalPath) : (__DIR__ . '/../uploads');
+            @unlink($uploadsDir . '/' . $baseClean);
+            @unlink($uploadsDir . '/' . $thumbName);
+            return false;
         }
 
-        // Fallback if drive listing timed out: attempt direct restore if autoDownload requested
-        if ($autoDownload && (!file_exists($destinationLocalPath) || filesize($destinationLocalPath) === 0)) {
-            self::ensureLocalCopy($filename, $destinationLocalPath);
-        }
-
-        return file_exists($destinationLocalPath) && filesize($destinationLocalPath) > 0;
+        return true;
     }
 
     /**
@@ -635,6 +974,7 @@ class GoogleDriveHelper
      */
     public static function pruneLocalCache(string $uploadsDir = __DIR__ . '/../uploads', int $maxAgeSeconds = self::CACHE_RETENTION_SECONDS): int
     {
+        $uploadsDir = rtrim($uploadsDir, '/\\');
         if (!is_dir($uploadsDir) || !self::isConfigured()) {
             return 0;
         }
@@ -652,7 +992,7 @@ class GoogleDriveHelper
         }
 
         foreach ($files as $f) {
-            if ($f === '.' || $f === '..' || str_starts_with($f, '.')) {
+            if ($f === '.' || $f === '..' || str_starts_with($f, '.') || $f === 'index.html' || $f === 'index.php') {
                 continue;
             }
             $fullPath = $uploadsDir . '/' . $f;
@@ -665,13 +1005,18 @@ class GoogleDriveHelper
                 continue;
             }
 
-            // Check if file has exceeded the retention window (default 1 week)
-            if (($now - $mtime) > $maxAgeSeconds) {
+            // Check if file has exceeded the retention window (30s in simulation)
+            if (($now - $mtime) >= $maxAgeSeconds) {
                 $isThumb = str_ends_with($f, '_thumb.webp');
                 $mainFile = $isThumb ? preg_replace('/_thumb\.webp$/', '.webp', $f) : $f;
 
-                // Confirm file is in Google Drive before deleting local cache
-                if (isset($driveFiles[$f]) || isset($driveFiles[$mainFile])) {
+                $canPrune = isset($driveFiles[$f]) || isset($driveFiles[$mainFile]);
+                if (!$canPrune) {
+                    $driveFiles = self::getDriveFilenames(true);
+                    $canPrune = isset($driveFiles[$f]) || isset($driveFiles[$mainFile]) || self::isInDrive($f) || self::isInDrive($mainFile);
+                }
+
+                if ($canPrune) {
                     if (@unlink($fullPath)) {
                         $prunedCount++;
                     }
@@ -683,13 +1028,206 @@ class GoogleDriveHelper
     }
 
     /**
+     * Unregister a file from the local gdrive_file_list.json cache and uploads map.
+     */
+    public static function unregisterUploadedFile(string $filename): void
+    {
+        if (self::$cachedDriveFiles !== null && isset(self::$cachedDriveFiles[$filename])) {
+            unset(self::$cachedDriveFiles[$filename]);
+        }
+
+        // 1. Remove from persistent uploads map
+        $map = self::getUploadsMap();
+        if (isset($map[$filename])) {
+            unset($map[$filename]);
+            self::saveUploadsMap($map);
+        }
+
+        // 2. Remove from gdrive_file_list.json
+        $cacheFile = (defined('STORAGE_ROOT') ? STORAGE_ROOT : __DIR__ . '/../storage') . '/gdrive_file_list.json';
+        if (file_exists($cacheFile)) {
+            $data = json_decode(@file_get_contents($cacheFile), true);
+            if (is_array($data) && isset($data['files'][$filename])) {
+                unset($data['files'][$filename]);
+                @file_put_contents($cacheFile, json_encode($data));
+            }
+        }
+    }
+
+    /**
+     * Delete a single file permanently from Google Drive and local cache.
+     */
+    public static function deleteFile(string $filename): bool
+    {
+        $deleted = false;
+
+        // 1. Try Laravel Storage::disk('google') if available
+        if (class_exists('\Illuminate\Support\Facades\Storage')) {
+            try {
+                $googlePath = "chatify/{$filename}";
+                if (\Illuminate\Support\Facades\Storage::disk('google')->exists($googlePath)) {
+                    $deleted = \Illuminate\Support\Facades\Storage::disk('google')->delete($googlePath);
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        // 2. Direct Google Drive REST API deletion
+        if (self::isConfigured()) {
+            $token = self::getAccessToken();
+            if ($token) {
+                $folderId = self::ensureChatifyFolderId($token);
+                if ($folderId) {
+                    $creds = self::getCredentials();
+                    $fileId = null;
+
+                    // Check cache first
+                    $driveFiles = self::getDriveFilenames();
+                    if (!empty($driveFiles[$filename]) && is_string($driveFiles[$filename]) && strlen($driveFiles[$filename]) > 10 && $driveFiles[$filename] !== 'storage_put') {
+                        $fileId = $driveFiles[$filename];
+                    }
+
+                    // Check uploads map
+                    if (!$fileId) {
+                        $map = self::getUploadsMap();
+                        if (!empty($map[$filename]['id'])) {
+                            $fileId = $map[$filename]['id'];
+                        }
+                    }
+
+                    // If not found in cache, search directly by name
+                    if (!$fileId) {
+                        $safeName = addslashes($filename);
+                        $q = "'{$folderId}' in parents and name = '{$safeName}' and trashed = false";
+                        $ch = curl_init('https://www.googleapis.com/drive/v3/files?q=' . urlencode($q) . '&fields=files(id,name)');
+                        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, $creds['verify_ssl']);
+                        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $creds['verify_ssl'] ? 2 : 0);
+                        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+                        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+                        $res = json_decode(curl_exec($ch), true);
+                        curl_close($ch);
+                        if (!empty($res['files'][0]['id'])) {
+                            $fileId = $res['files'][0]['id'];
+                        }
+                    }
+
+                    // Fallback search by prefix
+                    if (!$fileId) {
+                        $baseName = pathinfo($filename, PATHINFO_FILENAME);
+                        $baseNoThumb = preg_replace('/_thumb$/', '', $baseName);
+                        $safeBase = addslashes($baseNoThumb);
+                        $q2 = "'{$folderId}' in parents and name contains '{$safeBase}' and trashed = false";
+                        $ch2 = curl_init('https://www.googleapis.com/drive/v3/files?q=' . urlencode($q2) . '&fields=files(id,name)');
+                        curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
+                        curl_setopt($ch2, CURLOPT_SSL_VERIFYPEER, $creds['verify_ssl']);
+                        curl_setopt($ch2, CURLOPT_SSL_VERIFYHOST, $creds['verify_ssl'] ? 2 : 0);
+                        curl_setopt($ch2, CURLOPT_TIMEOUT, 15);
+                        curl_setopt($ch2, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+                        $res2 = json_decode(curl_exec($ch2), true);
+                        curl_close($ch2);
+                        if (!empty($res2['files'][0]['id'])) {
+                            $fileId = $res2['files'][0]['id'];
+                        }
+                    }
+
+                    if ($fileId) {
+                        $delCh = curl_init("https://www.googleapis.com/drive/v3/files/{$fileId}");
+                        curl_setopt($delCh, CURLOPT_CUSTOMREQUEST, 'DELETE');
+                        curl_setopt($delCh, CURLOPT_RETURNTRANSFER, true);
+                        curl_setopt($delCh, CURLOPT_SSL_VERIFYPEER, $creds['verify_ssl']);
+                        curl_setopt($delCh, CURLOPT_SSL_VERIFYHOST, $creds['verify_ssl'] ? 2 : 0);
+                        curl_setopt($delCh, CURLOPT_TIMEOUT, 15);
+                        curl_setopt($delCh, CURLOPT_HTTPHEADER, ['Authorization: Bearer ' . $token]);
+                        curl_exec($delCh);
+                        $code = curl_getinfo($delCh, CURLINFO_HTTP_CODE);
+                        curl_close($delCh);
+                        if ($code === 204 || $code === 200) {
+                            $deleted = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Unregister from local JSON registry cache
+        self::unregisterUploadedFile($filename);
+
+        // Delete from local uploads/ folder
+        $local = (defined('UPLOADS_DIR') ? UPLOADS_DIR : __DIR__ . '/../uploads') . '/' . $filename;
+        if (file_exists($local)) {
+            @unlink($local);
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * Delete both main image and thumbnail from Google Drive and local cache.
+     */
+    public static function deleteImageAndThumb(string $filename): bool
+    {
+        $baseName = pathinfo($filename, PATHINFO_FILENAME);
+        $baseNoThumb = preg_replace('/_thumb$/', '', $baseName);
+        $mainFile = $baseNoThumb . '.webp';
+        $thumbFile = $baseNoThumb . ImageProcessor::THUMB_SUFFIX;
+
+        $d1 = self::deleteFile($mainFile);
+        $d2 = self::deleteFile($thumbFile);
+
+        if ($filename !== $mainFile && $filename !== $thumbFile) {
+            self::deleteFile($filename);
+        }
+
+        return $d1 || $d2;
+    }
+
+    /**
+     * Delete all uploaded files and their thumbnails associated with a conversation
+     * from Google Drive and local storage.
+     *
+     * @param string $convId The conversation ID (e.g. '1_2', 'gc_5', 'office_1', 'global')
+     * @return int Number of files processed
+     */
+    public static function deleteChatMediaFiles(string $convId): int
+    {
+        if (empty($convId)) {
+            return 0;
+        }
+
+        $count = 0;
+        try {
+            $pdo = Database::getConnection();
+            $stmt = $pdo->prepare("SELECT message FROM messify_chat_messages WHERE conv_id = :conv_id AND type = 'upload'");
+            $stmt->execute([':conv_id' => $convId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+            foreach ($rows as $row) {
+                $rawPayload = safeDecrypt($row['message'] ?? '');
+                $decoded = json_decode($rawPayload, true);
+                $files = is_array($decoded) ? $decoded : [$rawPayload];
+                foreach ($files as $f) {
+                    $f = basename((string) $f);
+                    if (!empty($f)) {
+                        self::deleteImageAndThumb($f);
+                        $count++;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('GoogleDriveHelper::deleteChatMediaFiles error: ' . $e->getMessage());
+        }
+
+        return $count;
+    }
+
+    /**
      * Throttled local cache pruning (runs at most once every hour).
      */
     public static function maybePruneLocalCache(string $uploadsDir = __DIR__ . '/../uploads'): void
     {
         $flagFile = $uploadsDir . '/.last_cache_prune';
         $now = time();
-        if (file_exists($flagFile) && ($now - (int)@filemtime($flagFile)) < 3600) {
+        if (file_exists($flagFile) && ($now - (int)@filemtime($flagFile)) < 5) {
             return;
         }
         @touch($flagFile);

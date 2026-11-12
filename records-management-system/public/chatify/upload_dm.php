@@ -128,13 +128,24 @@ for ($i = 0; $i < $total; $i++) {
     // ── Sync to Google Drive (RMS folder / chatify subfolder) ────────────────
     try {
         $finalPath = $uploadDir . '/' . $finalName;
+        $upMain = false;
+        $upThumb = false;
         if (file_exists($finalPath)) {
-            GoogleDriveHelper::uploadFile($finalPath, $finalName);
+            $r = GoogleDriveHelper::uploadFile($finalPath, $finalName);
+            if ($r !== false) $upMain = true;
         }
         $thumbName = pathinfo($finalName, PATHINFO_FILENAME) . ImageProcessor::THUMB_SUFFIX;
         $thumbPath = $uploadDir . '/' . $thumbName;
         if (file_exists($thumbPath)) {
-            GoogleDriveHelper::uploadFile($thumbPath, $thumbName);
+            $r2 = GoogleDriveHelper::uploadFile($thumbPath, $thumbName);
+            if ($r2 !== false) $upThumb = true;
+        }
+
+        // Retain in local uploads/ cache for 7 days TTL, then automatically prunes
+        if (file_exists($finalPath)) @touch($finalPath);
+        if (file_exists($thumbPath)) @touch($thumbPath);
+        if (file_exists($target) && $target !== $finalPath && $target !== $thumbPath) {
+            @unlink($target);
         }
     } catch (\Throwable $e) {
         error_log("Upload DM Google Drive sync failed for {$finalName}: " . $e->getMessage());

@@ -59,6 +59,7 @@ if ($targetInfo === null) {
     exit;
 }
 
+try {
 // ── Pagination & Incremental Fetching ──────────────────────────────────────────
 // INITIAL_LOAD = 100 (first open), BACKREAD_BATCH = 50 (scroll-up fetches).
 // The client sends ?limit=100 on the first request and ?limit=50 thereafter.
@@ -168,14 +169,24 @@ function dmBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
         $ext        = strtolower(pathinfo($file, PATHINFO_EXTENSION));
         $imageExts  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
         if (in_array($ext, $imageExts, true) && $file !== '') {
-            $repPath = __DIR__ . '/uploads/' . $file;
-            if (GoogleDriveHelper::isFileAvailable($file, $repPath, false)) {
-                if (GoogleDriveHelper::isLocallyCached($file, $repPath)) {
-                    $fnUrl = htmlspecialchars('uploads/' . rawurlencode($file), ENT_QUOTES);
-                    return "<div class='reply-quote reply-quote-image-container'{$replyToAttr}><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer' onerror=\"this.closest('.reply-quote-image-container,.reply-quote')?.remove()\"></div>";
-                } else {
-                    return "<div class='reply-quote reply-quote-image-container'{$replyToAttr} style='display:inline-flex;align-items:center;gap:4px;padding:2px 8px;'><svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><rect x='3' y='3' width='18' height='18' rx='2'/><circle cx='8.5' cy='8.5' r='1.5'/><polyline points='21 15 16 10 5 21'/></svg><span style='font-size:11px;'>Photo</span></div>";
-                }
+            $baseClean = preg_replace('/_thumb\.webp$/', '.webp', $file);
+            $cleanEsc  = htmlspecialchars($baseClean, ENT_QUOTES);
+            if (!GoogleDriveHelper::isInDrive($baseClean)) {
+                return "<div class='reply-quote reply-quote-image-container reply-quote-broken'{$replyToAttr} data-reply-file='{$cleanEsc}' title='Image unavailable from the server'><div class='broken-img-inner'><svg class='broken-img-icon' viewBox='0 0 24 24' width='20' height='20' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><line x1='2' y1='2' x2='22' y2='22'/><path d='M10.41 10.41a2 2 0 1 0-2.83-2.83'/><line x1='13.5' y1='13.5' x2='6' y2='21'/><line x1='18' y1='12' x2='21' y2='15'/><path d='M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59'/><path d='M21 15V5a2 2 0 0 0-2-2H9'/></svg><span class='broken-img-label'>Unavailable</span></div></div>";
+            }
+
+            $thumbName    = pathinfo($baseClean, PATHINFO_FILENAME) . ImageProcessor::THUMB_SUFFIX;
+            $repThumbPath = __DIR__ . '/uploads/' . $thumbName;
+            $repMainPath  = __DIR__ . '/uploads/' . $baseClean;
+
+            if (GoogleDriveHelper::isLocallyCached($thumbName, $repThumbPath)) {
+                $fnUrl = 'uploads/' . rawurlencode($thumbName);
+                return "<div class='reply-quote reply-quote-image-container'{$replyToAttr} data-reply-file='{$cleanEsc}'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer' draggable='false'></div>";
+            } elseif (GoogleDriveHelper::isLocallyCached($baseClean, $repMainPath)) {
+                $fnUrl = 'uploads/' . rawurlencode($baseClean);
+                return "<div class='reply-quote reply-quote-image-container'{$replyToAttr} data-reply-file='{$cleanEsc}'><img src='{$fnUrl}' class='reply-quote-image' alt='' referrerpolicy='no-referrer' draggable='false'></div>";
+            } else {
+                return "<div class='reply-quote reply-quote-image-container reply-quote-lazy-load'{$replyToAttr} data-reply-file='{$cleanEsc}' data-filename='{$cleanEsc}' onclick='loadCachedImage(this)' title='Click to load image from Google Drive'><div class='load-img-inner'><svg class='load-img-icon' viewBox='0 0 24 24' width='22' height='22' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2' ry='2'/><circle cx='8.5' cy='8.5' r='1.5'/><polyline points='21 15 16 10 5 21'/></svg><span class='load-img-label'>Load image</span></div></div>";
             }
         }
         $snippet = $file !== '' ? $file : 'Attachment';
@@ -199,39 +210,60 @@ function dmBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType
 
 /**
  * DM equivalent of gcChatImageTag() in load.php — builds a chat-bubble
- * <img> whose `src` is the lightweight "_thumb.webp" generated at upload
- * time (core/ImageProcessor.php), lazy-loaded, with `data-full-src` still
- * pointing at the full-size file for the click-to-view handler in
- * app-part3.js. Falls back to the full image as `src` when no thumbnail
- * exists on disk.
+ * <img> whose `src` points to view_file.php directly from Google Drive.
  */
 function dmChatImageTag(string $uploadsDir, string $fn, string $style): string
 {
-    $fnUrl  = 'uploads/' . rawurlencode($fn);
-    $fnEsc  = htmlspecialchars($fn, ENT_QUOTES);
-    $thumb  = ImageProcessor::thumbFilenameFor($uploadsDir, $fn);
-    $srcUrl = $thumb !== null ? 'uploads/' . rawurlencode($thumb) : $fnUrl;
-    $diskFile = $uploadsDir . ($thumb !== null ? $thumb : $fn);
+    $cleanBase = preg_replace('/_thumb\.webp$/', '.webp', $fn);
+    $fnEsc     = htmlspecialchars($cleanBase, ENT_QUOTES);
+    $thumbName = pathinfo($cleanBase, PATHINFO_FILENAME) . ImageProcessor::THUMB_SUFFIX;
+
+    $thumbPath = $uploadsDir . $thumbName;
+    $mainPath  = $uploadsDir . $cleanBase;
+    $srcUrl    = file_exists($thumbPath) ? ('uploads/' . rawurlencode($thumbName)) : ('uploads/' . rawurlencode($cleanBase));
+    $fnUrl     = 'uploads/' . rawurlencode($cleanBase);
+
     $dimAttrs = '';
-    if (is_file($diskFile)) {
-        $info = @getimagesize($diskFile);
-        if (is_array($info) && !empty($info[0]) && !empty($info[1])) {
-            $w = (int) $info[0];
-            $h = (int) $info[1];
-            $scale = min(240 / max($w, 1), 260 / max($h, 1), 1.0);
-            $dw = max(1, (int) round($w * $scale));
-            $dh = max(1, (int) round($h * $scale));
-            $dimAttrs = " width='{$dw}' height='{$dh}'";
-            $style .= "aspect-ratio:{$dw}/{$dh};";
-        }
+    if (method_exists('ImageProcessor', 'getSavedDimensions')) {
+        try {
+            $dim = ImageProcessor::getSavedDimensions($cleanBase);
+            if ($dim !== null && !empty($dim['width']) && !empty($dim['height'])) {
+                $w = (int) $dim['width'];
+                $h = (int) $dim['height'];
+                $scale = min(240 / max($w, 1), 260 / max($h, 1), 1.0);
+                $dw = max(1, (int) round($w * $scale));
+                $dh = max(1, (int) round($h * $scale));
+                $dimAttrs = " width='{$dw}' height='{$dh}'";
+                $style .= "aspect-ratio:{$dw}/{$dh};";
+            }
+        } catch (\Throwable $e) {}
     }
-    return "<img src='{$srcUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}'{$dimAttrs} loading='eager' decoding='async' draggable='false' style='{$style}' onerror=\"const c=this.closest('.message-container'); this.closest('.message-media,.message-bubble')?.remove(); if(c && !c.querySelector('.message-bubble,.message-media,.message-content')) c.remove();\" />";
+
+    return "<img src='{$srcUrl}' alt='{$fnEsc}' class='chat-viewable-image' data-full-src='{$fnUrl}' data-file-name='{$fnEsc}'{$dimAttrs} loading='eager' decoding='async' draggable='false' style='{$style}' />";
 }
 
 function dmChatLoadImageButton(string $fn, string $style = ''): string
 {
     $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
-    return "<div class='chat-image-lazy-load' data-filename='{$fnEsc}' style='{$style}' onclick='loadCachedImage(this)' title='Click to load image from Google Drive'><div class='load-img-inner'><svg class='load-img-icon' viewBox='0 0 24 24' width='22' height='22' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2' ry='2'/><circle cx='8.5' cy='8.5' r='1.5'/><polyline points='21 15 16 10 5 21'/></svg><span class='load-img-label'>Load image</span></div></div>";
+    return "<div class='chat-image-lazy-load' data-filename='{$fnEsc}' style='{$style}' onclick='loadCachedImage(this)' title='Click to load image from Google Drive'>"
+        . "<div class='load-img-inner'>"
+        . "<svg class='load-img-icon' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+        . "<rect x='3' y='3' width='18' height='18' rx='2' ry='2'/><circle cx='8.5' cy='8.5' r='1.5'/><polyline points='21 15 16 10 5 21'/>"
+        . "</svg>"
+        . "<span class='load-img-label'>Load image</span>"
+        . "</div></div>";
+}
+
+function dmChatBrokenImageTag(string $style = 'width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;', string $fn = ''): string
+{
+    $fnAttr = $fn !== '' ? " data-filename='" . htmlspecialchars($fn, ENT_QUOTES) . "' data-file-name='" . htmlspecialchars($fn, ENT_QUOTES) . "'" : '';
+    return "<div class='chat-image-broken'{$fnAttr} style='{$style}' title='Image unavailable from the server'>"
+        . "<div class='broken-img-inner'>"
+        . "<svg class='broken-img-icon' viewBox='0 0 24 24' width='26' height='26' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'>"
+        . "<line x1='2' y1='2' x2='22' y2='22'/><path d='M10.41 10.41a2 2 0 1 0-2.83-2.83'/><line x1='13.5' y1='13.5' x2='6' y2='21'/><line x1='18' y1='12' x2='21' y2='15'/><path d='M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59'/><path d='M21 15V5a2 2 0 0 0-2-2H9'/>"
+        . "</svg>"
+        . "<span class='broken-img-label'>Image unavailable</span>"
+        . "</div></div>";
 }
 
 function dmInitials2(string $name): string
@@ -285,29 +317,32 @@ for ($i = 0; $i < $msgCount; $i++) {
     }
 
     $fullTimeDisplay = '';
+    $msgUnix = time();
     if (!empty($msg['timestamp'])) {
         $dt = DateTime::createFromFormat('Y-m-d H:i:s.u', $msg['timestamp'], new DateTimeZone('Asia/Manila'));
         if ($dt === false) {
             $dt = DateTime::createFromFormat('Y-m-d H:i:s', $msg['timestamp'], new DateTimeZone('Asia/Manila'));
         }
         $fullTimeDisplay = $dt ? $dt->format('F j, Y \a\t g:i A') : date('F j, Y \a\t g:i A');
+        $msgUnix = $dt ? $dt->getTimestamp() : strtotime($msg['timestamp']);
     } else {
         $fullTimeDisplay = date('F j, Y \a\t g:i A');
     }
 
-    $msgBodyHtml = '';
+    $isAvailable      = true;
+    $ext              = '';
+    $uploadMovedClass = '';
+    $msgBodyHtml      = '';
+
+    // Reply quote (for both text and uploads that reply to an earlier message)
+    $replyQuoteHtml = '';
+    if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
+        $replyQuoteHtml = dmBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid']);
+    }
 
     if ($type === 'text') {
         $content     = safeDecrypt($msg['message'] ?? '');
         $contentEsc  = htmlspecialchars($content, ENT_QUOTES);
-
-        // See gcBuildReplyQuoteHtml() in load.php for the same helper —
-        // duplicated here (dmBuildReplyQuoteHtml) rather than shared, since
-        // load.php/load_dm.php don't currently share a common include.
-        $replyQuoteHtml = '';
-        if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
-            $replyQuoteHtml = dmBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid']);
-        }
 
         $msgBodyHtml .= "<div class='bubble-wrapper'>";
         $msgBodyHtml .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
@@ -341,28 +376,22 @@ for ($i = 0; $i < $msgCount; $i++) {
             }
 
             if ($allImages) {
-                // Only keep images whose files exist in Google Drive or local storage
-                $existingFiles = array_values(array_filter($decoded, function ($fn) use ($uploadsDir) {
-                    $base = basename((string)$fn);
-                    $path = $uploadsDir . $base;
-                    return GoogleDriveHelper::isFileAvailable($base, $path, false);
-                }));
-
-                if (!empty($existingFiles)) {
-                    $uploadBodyHtml .= "<div class='message-media' style='display:flex; flex-direction:column; gap:8px;'>";
-                    foreach ($existingFiles as $fn) {
-                        $fn = basename((string)$fn);
-                        $fnPath = $uploadsDir . $fn;
+                $uploadBodyHtml .= "<div class='message-media' style='display:flex; flex-direction:column; gap:8px;'>";
+                foreach ($decoded as $fn) {
+                    $fn = basename((string)$fn);
+                    $fnPath = $uploadsDir . $fn;
+                    if (GoogleDriveHelper::isInDrive($fn)) {
                         if (GoogleDriveHelper::isLocallyCached($fn, $fnPath)) {
                             $uploadBodyHtml .= dmChatImageTag($uploadsDir, $fn, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);');
                         } else {
-                            $uploadBodyHtml .= dmChatLoadImageButton($fn, 'width:100%;max-width:240px;height:160px;border-radius:12px;');
+                            $uploadBodyHtml .= dmChatLoadImageButton($fn, 'width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;');
                         }
+                    } else {
+                        $uploadBodyHtml .= dmChatBrokenImageTag('width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;');
                     }
-                    $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
-                    $uploadBodyHtml .= "</div>"; // .message-media
                 }
-                // If no files remain, no media container is emitted at all.
+                $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
+                $uploadBodyHtml .= "</div>"; // .message-media
             } else {
                 // Mixed files — render each as its own attachment link, skipping
                 // any file whose underlying upload no longer exists
@@ -371,18 +400,22 @@ for ($i = 0; $i < $msgCount; $i++) {
                 foreach ($decoded as $fn) {
                     $fn    = basename((string)$fn);
                     $fnPath = $uploadsDir . $fn;
-                    if (!GoogleDriveHelper::isFileAvailable($fn, $fnPath, false)) {
-                        continue;
-                    }
                     $fnEsc = htmlspecialchars($fn, ENT_QUOTES);
                     $fnExt = strtolower(pathinfo($fn, PATHINFO_EXTENSION));
                     if (in_array($fnExt, $imageExts, true)) {
-                        if (GoogleDriveHelper::isLocallyCached($fn, $fnPath)) {
-                            $itemsHtml .= dmChatImageTag($uploadsDir, $fn, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;');
+                        if (GoogleDriveHelper::isInDrive($fn)) {
+                            if (GoogleDriveHelper::isLocallyCached($fn, $fnPath)) {
+                                $itemsHtml .= dmChatImageTag($uploadsDir, $fn, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;');
+                            } else {
+                                $itemsHtml .= dmChatLoadImageButton($fn, 'width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;');
+                            }
                         } else {
-                            $itemsHtml .= dmChatLoadImageButton($fn, 'width:100%;max-width:240px;height:160px;border-radius:12px;');
+                            $itemsHtml .= dmChatBrokenImageTag('width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;', $fn);
                         }
                     } else {
+                        if (!GoogleDriveHelper::isFileAvailable($fn, $fnPath, false)) {
+                            continue;
+                        }
                         $viewUrl = 'view_file.php?file=' . rawurlencode($fn);
                         $itemsHtml .= "<a href='{$viewUrl}' target='_blank' rel='noopener' style='color:{$linkColor};text-decoration:underline;font-size:13px;word-break:break-all;'>{$fnEsc}</a>";
                     }
@@ -399,24 +432,27 @@ for ($i = 0; $i < $msgCount; $i++) {
 
         } else {
             // ── Single file (or single-element JSON array) ────────────────────
-            $file     = $isGrid ? basename((string)$decoded[0]) : basename($rawPayload);
+            $file     = is_array($decoded) && !empty($decoded) ? basename((string)$decoded[0]) : basename($rawPayload);
             $filePath = $uploadsDir . $file;
-            $isAvailable = GoogleDriveHelper::isFileAvailable($file, $filePath, false);
-            $ext     = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-            $fileEsc = htmlspecialchars($file, ENT_QUOTES);
+            $ext      = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+            $fileEsc  = htmlspecialchars($file, ENT_QUOTES);
+            $isAvailable = in_array($ext, $imageExts, true)
+                ? GoogleDriveHelper::isInDrive($file)
+                : GoogleDriveHelper::isFileAvailable($file, $filePath, false);
 
             if (in_array($ext, $imageExts, true)) {
+                $uploadBodyHtml .= "<div class='message-media'>";
                 if ($isAvailable) {
-                    $uploadBodyHtml .= "<div class='message-media'>";
                     if (GoogleDriveHelper::isLocallyCached($file, $filePath)) {
                         $uploadBodyHtml .= dmChatImageTag($uploadsDir, $file, 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);');
                     } else {
-                        $uploadBodyHtml .= dmChatLoadImageButton($file, 'width:100%;max-width:240px;height:160px;border-radius:12px;');
+                        $uploadBodyHtml .= dmChatLoadImageButton($file, 'width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;');
                     }
-                    $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
-                    $uploadBodyHtml .= "</div>";
+                } else {
+                    $uploadBodyHtml .= dmChatBrokenImageTag('width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;', $file);
                 }
-                // else: deleted / missing — completely omitted!
+                $uploadBodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
+                $uploadBodyHtml .= "</div>";
 
             } elseif (in_array($ext, $audioExts, true)) {
                 if ($isAvailable) {
@@ -444,7 +480,7 @@ for ($i = 0; $i < $msgCount; $i++) {
         }
 
         if ($uploadBodyHtml !== '') {
-            $msgBodyHtml = "<div class='bubble-wrapper'><div class='message-click-timestamp show-timestamp'>{$fullTimeDisplay}</div>{$uploadBodyHtml}"
+            $msgBodyHtml = "<div class='bubble-wrapper'><div class='message-click-timestamp show-timestamp'>{$fullTimeDisplay}</div>{$replyQuoteHtml}{$uploadBodyHtml}"
                 . Reactions::buildBadgesHtml($reactions[$msgId] ?? [], $myAccountId)
                 . "</div>"; // .bubble-wrapper
         }
@@ -459,7 +495,8 @@ for ($i = 0; $i < $msgCount; $i++) {
     $rawTimestamp = htmlspecialchars($msg['timestamp'] ?? '', ENT_QUOTES);
     $replyToAttr = !empty($msg['reply_to_msg_uuid']) ? " data-reply-to='" . htmlspecialchars($msg['reply_to_msg_uuid'], ENT_QUOTES) . "'" : '';
     $editCount = (int)($msg['edit_count'] ?? 0);
-    $html .= "<div class='message-container {$msgClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}' data-edit-count='{$editCount}'{$replyToAttr}>";
+    $uploadMovedClass = (!$isAvailable && in_array($ext, $imageExts, true)) ? ' user-moved' : '';
+    $html .= "<div class='message-container {$msgClass}{$uploadMovedClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}' data-created-time='{$msgUnix}' data-edit-count='{$editCount}'{$replyToAttr}>";
     $html .= "<div class='message-avatar' data-sender-name='{$senderDisplayNameEsc}'>{$avatarInner}</div>";
     $html .= $msgBodyHtml;
     $html .= "</div>"; // .message-container
@@ -484,7 +521,7 @@ if (ob_get_length()) {
     ob_clean();
 }
 header('Content-Type: application/json; charset=utf-8');
-echo json_encode([
+$jsonRes = json_encode([
     'html'       => $html,
     'hasMore'    => $hasMore,
     'nextCursor' => $nextCursor,   // pass as before_uuid for next "load older" request
@@ -492,3 +529,33 @@ echo json_encode([
     'jumpMode'   => $jumpMode,     // true when fetched via around_uuid (reply-quote jump)
     'jumpTarget' => $aroundUuid,   // the UUID the client should scroll+blink to
 ], JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR | JSON_UNESCAPED_UNICODE);
+
+if ($jsonRes === false) {
+    echo json_encode([
+        'html'       => '',
+        'hasMore'    => false,
+        'nextCursor' => null,
+        'readUpTo'   => null,
+        'jumpMode'   => false,
+        'jumpTarget' => null,
+    ]);
+} else {
+    echo $jsonRes;
+}
+} catch (Throwable $e) {
+    error_log("[Chatify load_dm error] " . $e->getMessage() . " at " . $e->getFile() . ":" . $e->getLine());
+    if (ob_get_length()) {
+        ob_clean();
+    }
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'html'       => "<div class='empty-chat'><p>Unable to load conversation. Please try again.</p></div>",
+        'hasMore'    => false,
+        'nextCursor' => null,
+        'readUpTo'   => null,
+        'jumpMode'   => false,
+        'jumpTarget' => null,
+        'error'      => $e->getMessage(),
+    ], JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR | JSON_UNESCAPED_UNICODE);
+    exit;
+}

@@ -173,7 +173,7 @@ try {
   <title>CSPC - Chatify</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta charset="UTF-8">
-  <meta name="description" content="Messify - real-time messaging para sa CSPC.">
+  <meta name="description" content="Chatify - real-time messaging para sa CSPC.">
   <link rel="icon" href="cspc.webp" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -857,7 +857,7 @@ try {
 
   <!-- File Uploading Progress Modal -->
   <div class="modal" id="uploadingModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
-    <div class="modal-content" style="max-width:320px;min-height:0;">
+    <div class="modal-content" style="max-width:340px;min-height:0;">
       <div class="modal-header">
         <h3>Uploading File...</h3>
       </div>
@@ -866,10 +866,14 @@ try {
           <div class="upload-spinner" style="width:32px;height:32px;border:3px solid rgba(27,116,228,0.2);border-top-color:#1b74e4;border-radius:50%;animation:uploadSpin 0.8s linear infinite;"></div>
         </div>
         <p id="uploadingFileName" style="margin:0 0 10px 0;font-size:13px;color:var(--text-secondary);word-break:break-all;line-height:1.4;max-height:calc(1.4em * 2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">Preparing upload...</p>
-        <div style="width:100%;height:6px;background:var(--border-color, #e4e6eb);border-radius:4px;overflow:hidden;margin-bottom:4px;">
-          <div id="uploadProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg, #1b74e4, #00c3ff);transition:width 0.15s ease;border-radius:4px;"></div>
+        <div style="width:100%;height:6px;background:var(--border-color, #e4e6eb);border-radius:4px;overflow:hidden;margin-bottom:6px;">
+          <div id="uploadProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg, #1b74e4, #00c3ff);transition:width 0.1s linear;border-radius:4px;"></div>
         </div>
-        <div id="uploadProgressText" style="font-size:12px;font-weight:600;color:#1b74e4;text-align:right;">0%</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;gap:8px;">
+          <span id="uploadProgressStats" style="font-size:11px;font-weight:500;color:var(--text-secondary);text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px;">0 B / 0 B</span>
+          <span id="uploadProgressText" style="font-size:12px;font-weight:600;color:#1b74e4;text-align:right;min-width:40px;">0%</span>
+        </div>
+        <div id="uploadProgressEta" style="font-size:11px;color:var(--text-secondary);text-align:left;margin-top:4px;">Calculating remaining time...</div>
       </div>
     </div>
   </div>
@@ -941,6 +945,9 @@ try {
         </label>
         <div class="image-staging-grid" id="imageStagingGrid">
           <div class="image-staging-empty">No files added yet.</div>
+        </div>
+        <div class="image-staging-caption-wrap">
+          <textarea id="imageStagingCaptionInput" class="image-staging-caption-input" placeholder="Type a message..." rows="1" maxlength="2000" autocomplete="off" enterkeyhint="enter"></textarea>
         </div>
       </div>
       <div class="modal-footer">
@@ -1086,14 +1093,14 @@ try {
 
       <!-- Header -->
       <div class="modal-header">
-        <h3 id="legalAuthTitle">Messify — Authorization &amp; Usage Policy</h3>
+        <h3 id="legalAuthTitle">Chatify — Authorization &amp; Usage Policy</h3>
       </div>
 
       <!-- Body -->
       <div class="modal-body" style="max-height: 55vh; overflow-y: auto; touch-action: pan-y;">
 
         <p style="margin: 0 0 12px; color: var(--text-primary); font-size: 13.5px; line-height: 1.55;">
-          Before accessing Messify, please read and acknowledge the following usage policy.
+          Before accessing Chatify, please read and acknowledge the following usage policy.
         </p>
 
         <div style="background: rgba(27,116,228,0.07);
@@ -1102,7 +1109,7 @@ try {
             MONITORED COMMUNICATION
           </p>
           <p style="margin: 6px 0 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
-            All communication within Messify — including messages, file transfers, and user
+            All communication within Chatify — including messages, file transfers, and user
             actions — is recorded and monitored by CSPC administration for institutional
             and security purposes.
           </p>
@@ -1110,7 +1117,7 @@ try {
 
         <p style="margin: 0 0 8px; font-size: 12px; font-weight: 600;
                   color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.4px;">
-          By using Messify, you agree to the following:
+          By using Chatify, you agree to the following:
         </p>
 
         <ul style="margin: 0 0 14px; padding-left: 18px;
@@ -1118,7 +1125,7 @@ try {
                    line-height: 1.6; display: flex; flex-direction: column; gap: 4px;">
           <li>You acknowledge that this system is intended solely for <strong style="color:var(--text-primary);">authorized academic, administrative, and institutional use</strong>.</li>
           <li>You will not send any content that is <strong style="color:var(--text-primary);">abusive, threatening, or illegal</strong>.</li>
-          <li>You will not use Messify for <strong style="color:var(--text-primary);">unauthorized personal or commercial activities</strong>.</li>
+          <li>You will not use Chatify for <strong style="color:var(--text-primary);">unauthorized personal or commercial activities</strong>.</li>
           <li>Your actions within the system may be <strong style="color:var(--text-primary);">reviewed by authorized administrators</strong> at any time.</li>
           <li>Violations of this policy may result in <strong style="color:var(--text-primary);">disciplinary action</strong> under CSPC regulations.</li>
         </ul>

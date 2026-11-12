@@ -39,7 +39,6 @@ class UserResolver
                 'SELECT ad.account_id FROM ' . Database::t('account_details') . ' ad
                  LEFT JOIN ' . Database::t('account') . ' a ON a.id = ad.account_id
                  WHERE LOWER(ad.email) = LOWER(:val)
-                    OR LOWER(ad.first_name || \' \' || ad.last_name) = LOWER(:val)
                     OR LOWER(a.username) = LOWER(:val)
                     OR ad.account_id::text = :val
                  LIMIT 1'

@@ -28,7 +28,7 @@ class ImageProcessor
     private const THUMB_QUALITY    = 65;
     private const FULL_MAX_DIM     = 1600;
     private const FULL_QUALITY     = 82;
-    private const THUMB_SUFFIX     = '_thumb.webp';
+    public const THUMB_SUFFIX      = '_thumb.webp';
 
     /**
      * Attempt to convert a freshly-uploaded image in place.
@@ -77,6 +77,15 @@ class ImageProcessor
             }
         }
 
+        // Cache image dimensions so placeholders can match original size even when pruned
+        if (function_exists('imagesx') && function_exists('imagesy')) {
+            $w = (int) imagesx($img);
+            $h = (int) imagesy($img);
+            if ($w > 0 && $h > 0) {
+                self::saveDimensions($finalName, $w, $h);
+            }
+        }
+
         // In PHP 8.0+, GdImage instances are automatically freed when they fall out of scope.
         // imagedestroy() has had no effect since PHP 8.0 and is deprecated in PHP 8.5+.
         if (PHP_VERSION_ID < 80000 && is_resource($img)) {
@@ -96,6 +105,78 @@ class ImageProcessor
     {
         $thumb = pathinfo($file, PATHINFO_FILENAME) . self::THUMB_SUFFIX;
         return is_file($uploadsDir . $thumb) ? $thumb : null;
+    }
+
+    /**
+     * Quickly generate only the lightweight thumbnail for an existing local file
+     * without touching or re-encoding the full-size image.
+     */
+    public static function createThumbnail(string $uploadDir, string $file): ?string
+    {
+        if (!function_exists('imagewebp')) {
+            return null;
+        }
+        $ext       = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        $baseNoExt = pathinfo($file, PATHINFO_FILENAME);
+        $thumbName = $baseNoExt . self::THUMB_SUFFIX;
+        $thumbPath = rtrim($uploadDir, '/\\') . '/' . $thumbName;
+
+        if (file_exists($thumbPath) && filesize($thumbPath) > 0) {
+            return $thumbName;
+        }
+
+        $srcPath = rtrim($uploadDir, '/\\') . '/' . $file;
+        if (!file_exists($srcPath) || filesize($srcPath) === 0) {
+            return null;
+        }
+
+        $img = self::load($srcPath, $ext);
+        if ($img === false) {
+            return null;
+        }
+
+        $ok = self::resizeAndSaveWebp($img, $thumbPath, self::THUMB_MAX_DIM, self::THUMB_QUALITY);
+        if (PHP_VERSION_ID < 80000 && is_resource($img)) {
+            imagedestroy($img);
+        }
+        return $ok ? $thumbName : null;
+    }
+
+    public static function saveDimensions(string $filename, int $w, int $h): void
+    {
+        if ($w <= 0 || $h <= 0) return;
+        $dir = defined('STORAGE_ROOT') ? STORAGE_ROOT : __DIR__ . '/../storage';
+        if (!is_dir($dir)) @mkdir($dir, 0777, true);
+        $file = $dir . '/image_dimensions.json';
+        $data = file_exists($file) ? json_decode(@file_get_contents($file), true) : [];
+        if (!is_array($data)) $data = [];
+        $data[$filename] = [$w, $h];
+        @file_put_contents($file, json_encode($data));
+    }
+
+    public static function getDimensions(string $filename): ?array
+    {
+        $dir = defined('STORAGE_ROOT') ? STORAGE_ROOT : __DIR__ . '/../storage';
+        $file = $dir . '/image_dimensions.json';
+        if (file_exists($file)) {
+            $data = json_decode(@file_get_contents($file), true);
+            if (is_array($data) && !empty($data[$filename]) && is_array($data[$filename])) {
+                return $data[$filename];
+            }
+        }
+        return null;
+    }
+
+    public static function getSavedDimensions(string $filename): ?array
+    {
+        $dims = self::getDimensions($filename);
+        if ($dims !== null && isset($dims[0], $dims[1]) && $dims[0] > 0 && $dims[1] > 0) {
+            return [
+                'width'  => (int) $dims[0],
+                'height' => (int) $dims[1],
+            ];
+        }
+        return null;
     }
 
     /** @return resource|\GdImage|false */

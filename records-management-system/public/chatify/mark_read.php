@@ -39,8 +39,11 @@ if ($convIdInput !== '') {
     }
 }
 
-$targetInput = $_POST['target_id'] ?? $_GET['target_id'] ?? $_POST['target_user'] ?? $_GET['target_user'] ?? '';
-$targetId    = UserResolver::resolveAccountId($targetInput);
+$targetId = isset($_POST['target_id']) ? (int) trim($_POST['target_id']) : (isset($_GET['target_id']) ? (int) trim($_GET['target_id']) : 0);
+if ($targetId <= 0) {
+    $targetInput = $_POST['target_user'] ?? $_GET['target_user'] ?? '';
+    $targetId    = UserResolver::resolveAccountId($targetInput);
+}
 
 if ($targetId <= 0 || $targetId === $myAccountId) {
     header('Content-Type: application/json');

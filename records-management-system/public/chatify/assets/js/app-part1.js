@@ -792,13 +792,12 @@
               const curPartnerId = activeDMAccountId ? Number(activeDMAccountId) : (activeDMUserObj ? Number(activeDMUserObj.account_id) : 0);
 
               // Check if this message belongs to the active DM conversation
-              const isForThisConv = (curPartnerId > 0 && (
-                ((sender === myAccId && recip === curPartnerId) || (sender === curPartnerId && recip === myAccId)) ||
-                (sender === curPartnerId || recip === curPartnerId)
-              )) || (activeDM && (
-                (data.sender_user && data.sender_user === activeDM) ||
-                (data.recipient_user && data.recipient_user === activeDM)
-              ));
+              const isForThisConv = (curPartnerId > 0 && myAccId > 0)
+                ? ((sender === myAccId && recip === curPartnerId) || (sender === curPartnerId && recip === myAccId))
+                : (activeDM && (
+                    (data.sender_user && data.sender_user === activeDM) ||
+                    (data.recipient_user && data.recipient_user === activeDM)
+                  ));
 
               if (isForThisConv) {
                 if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
@@ -856,7 +855,7 @@
               }
               const otherUser = allUsersData.find(u => Number(u.account_id) === Number(data.sender_id));
               if (otherUser) {
-                bumpSidebarUser(otherUser.username, { incrementUnread: true });
+                bumpSidebarUser(otherUser.account_id || otherUser.username, { incrementUnread: true, lastMessage: data.message });
               } else {
                 fetchUsers();
               }
@@ -1851,7 +1850,7 @@
           user.last_online_time = wsLastOnlineTime.get(accId);
         }
 
-        const item = sidebarUserItems.get(user.username);
+        const item = (typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null) || sidebarUserItems.get(user.username);
         if (item) {
           const dot = item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
           if (dot) {
@@ -1899,7 +1898,7 @@
           if (bestTs) user.last_online_time = bestTs;
         }
 
-        const item = sidebarUserItems.get(user.username);
+        const item = (typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null) || sidebarUserItems.get(user.username);
         if (item) {
           const dot = item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
           if (dot) {
@@ -2285,7 +2284,15 @@
       }
     }
 
-    const sidebarUserItems = new Map(); // username -> item element
+    function getUserItemKey(u) {
+      if (!u) return '';
+      if (u.is_office_gc) return u.conv_id || ('office_' + (u.office_id || ''));
+      if (u.is_custom_gc) return u.conv_id || ('gc_' + (u.gc_id || ''));
+      if (u.account_id && Number(u.account_id) > 0) return 'user_' + String(u.account_id);
+      return u.username || u.email || '';
+    }
+
+    const sidebarUserItems = new Map(); // user item key -> item element
     let latestTotalUnread = 0;
 
     // In-memory snapshot of the last-rendered page of messages per DM
@@ -2297,41 +2304,60 @@
     // purely a "paint something correct immediately" optimization, not a
     // replacement for the real fetch. Capped and LRU-evicted (Map preserves
     // insertion order) so a long session doesn't grow this unbounded.
-    const dmMessageCache = new Map(); // username -> {html, hasMore, nextCursor, readUpTo, _raw}
+    const dmMessageCache = new Map(); // username/acc_id -> {html, hasMore, nextCursor, readUpTo, _raw}
     const DM_CACHE_LIMIT = 30;
-    const dmPrefetchInFlight = new Set(); // username set for active prefetch requests
-    const dmPrefetchPromises = new Map(); // username -> Promise
+    const dmPrefetchInFlight = new Set(); // key set for active prefetch requests
+    const dmPrefetchPromises = new Map(); // key -> Promise
     window.dmPrefetchPromises = dmPrefetchPromises;
 
-    function cacheDmSnapshot(username, data) {
-      if (!username || !data) return;
+    function cacheDmSnapshot(target, data) {
+      if (!target || !data) return;
+      const username = (typeof target === 'object') ? (target.username || '') : String(target);
+      const accId = (typeof target === 'object' && target.account_id) ? Number(target.account_id) : (Number(target) > 0 ? Number(target) : 0);
+
       let readUpToVal = (typeof data.readUpTo !== 'undefined' && data.readUpTo !== null)
         ? data.readUpTo
-        : ((typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(username)) ? (dmReadUpToMap.get(username) || null) : null);
+        : ((typeof dmReadUpToMap !== 'undefined' && ((username && dmReadUpToMap.has(username)) ? dmReadUpToMap.get(username) : (accId && dmReadUpToMap.has(String(accId)) ? dmReadUpToMap.get(String(accId)) : null))) || null);
+
       if (typeof dmReadUpToMap !== 'undefined' && readUpToVal !== null) {
-        dmReadUpToMap.set(username, readUpToVal);
+        if (username) dmReadUpToMap.set(username, readUpToVal);
+        if (accId > 0) dmReadUpToMap.set(String(accId), readUpToVal);
       }
       if (typeof data === 'object' && data !== null && readUpToVal !== null) {
         data.readUpTo = readUpToVal;
       }
-      dmMessageCache.delete(username); // re-insert at the end = most-recently-used
-      dmMessageCache.set(username, {
+
+      const cacheObj = {
         html: data.html || '',
         hasMore: data.hasMore || false,
         nextCursor: data.nextCursor || '',
         readUpTo: readUpToVal,
         _raw: data
-      });
-      if (dmMessageCache.size > DM_CACHE_LIMIT) {
+      };
+
+      if (accId > 0) {
+        dmMessageCache.delete('id_' + accId);
+        dmMessageCache.delete(String(accId));
+        dmMessageCache.set('id_' + accId, cacheObj);
+        dmMessageCache.set(String(accId), cacheObj);
+      }
+      if (username) {
+        dmMessageCache.delete(username);
+        dmMessageCache.set(username, cacheObj);
+      }
+      if (dmMessageCache.size > DM_CACHE_LIMIT * 2) {
         const oldestKey = dmMessageCache.keys().next().value;
         dmMessageCache.delete(oldestKey);
       }
     }
 
     function speculateConversationCard(user, cardElement) {
-      if (!user || !user.username) return;
+      if (!user) return;
+      const accId = (user.account_id && Number(user.account_id) > 0) ? Number(user.account_id) : 0;
+      const cacheKey = accId > 0 ? ('id_' + accId) : user.username;
+      if (!cacheKey) return;
       if (cardElement && cardElement.dataset.preloaded === 'true') return;
-      if (dmMessageCache.has(user.username) || dmPrefetchInFlight.has(user.username) || dmPrefetchPromises.has(user.username)) {
+      if (dmMessageCache.has(cacheKey) || (user.username && dmMessageCache.has(user.username)) || dmPrefetchInFlight.has(cacheKey) || dmPrefetchPromises.has(cacheKey)) {
         if (cardElement) cardElement.dataset.preloaded = 'true';
         return;
       }
@@ -2341,9 +2367,9 @@
 
       // Register Speculation Rules API rule dynamically for Chrome's speculative engine
       if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
-        const url = 'load_dm.php?target_id=' + encodeURIComponent(user.account_id || 0) +
-                    '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=&limit=' + INITIAL_LOAD;
-        const ruleId = 'speculation-rule-conv-' + String(user.username).replace(/[^a-zA-Z0-9_-]/g, '');
+        const url = 'load_dm.php?target_id=' + encodeURIComponent(accId) +
+                    '&target_user=' + encodeURIComponent(user.username || '') + '&before_uuid=&limit=' + INITIAL_LOAD;
+        const ruleId = 'speculation-rule-conv-' + (accId > 0 ? ('acc-' + accId) : String(user.username || '').replace(/[^a-zA-Z0-9_-]/g, ''));
         if (!document.getElementById(ruleId)) {
           try {
             const ruleScript = document.createElement('script');
@@ -2370,34 +2396,39 @@
     // itself (selectDM) can paint from cache immediately instead of only
     // benefiting revisits.
     function prefetchDmSnapshot(user) {
-      if (!user || !user.username) return Promise.resolve(null);
-      if (dmMessageCache.has(user.username)) return Promise.resolve(dmMessageCache.get(user.username));
-      if (dmPrefetchPromises.has(user.username)) return dmPrefetchPromises.get(user.username);
+      if (!user) return Promise.resolve(null);
+      const accId = (user.account_id && Number(user.account_id) > 0) ? Number(user.account_id) : 0;
+      const cacheKey = accId > 0 ? ('id_' + accId) : user.username;
+      if (!cacheKey) return Promise.resolve(null);
+      if (dmMessageCache.has(cacheKey) || (user.username && dmMessageCache.has(user.username))) {
+        return Promise.resolve(dmMessageCache.get(cacheKey) || (user.username ? dmMessageCache.get(user.username) : null));
+      }
+      if (dmPrefetchPromises.has(cacheKey)) return dmPrefetchPromises.get(cacheKey);
 
-      dmPrefetchInFlight.add(user.username);
+      dmPrefetchInFlight.add(cacheKey);
       const promise = new Promise(function(resolve) {
         const xhr = new XMLHttpRequest();
-        const url = 'load_dm.php?target_id=' + encodeURIComponent(user.account_id || 0) +
-                    '&target_user=' + encodeURIComponent(user.username) + '&before_uuid=&limit=' + INITIAL_LOAD;
+        const url = 'load_dm.php?target_id=' + encodeURIComponent(accId) +
+                    '&target_user=' + encodeURIComponent(user.username || '') + '&before_uuid=&limit=' + INITIAL_LOAD;
         xhr.open('GET', url, true);
         xhr.onload = function() {
-          dmPrefetchInFlight.delete(user.username);
-          dmPrefetchPromises.delete(user.username);
+          dmPrefetchInFlight.delete(cacheKey);
+          dmPrefetchPromises.delete(cacheKey);
           if (this.status === 200) {
-            try { cacheDmSnapshot(user.username, JSON.parse(this.responseText)); }
+            try { cacheDmSnapshot(user, JSON.parse(this.responseText)); }
             catch (e) { /* ignore malformed response */ }
           }
-          resolve(dmMessageCache.get(user.username) || null);
+          resolve(dmMessageCache.get(cacheKey) || (user.username ? dmMessageCache.get(user.username) : null) || null);
         };
         xhr.onerror = function() {
-          dmPrefetchInFlight.delete(user.username);
-          dmPrefetchPromises.delete(user.username);
+          dmPrefetchInFlight.delete(cacheKey);
+          dmPrefetchPromises.delete(cacheKey);
           resolve(null);
         };
         xhr.send();
       });
 
-      dmPrefetchPromises.set(user.username, promise);
+      dmPrefetchPromises.set(cacheKey, promise);
       return promise;
     }
 
@@ -2420,12 +2451,14 @@
     // list, so the caller can fall back to a real fetch in that one case.
     function bumpSidebarUser(identifier, opts) {
       opts = opts || {};
+      const numId = Number(identifier);
+      const isNum = !isNaN(numId) && numId > 0;
       const idx = (allUsersData || []).findIndex(u =>
+        (isNum && u.account_id && Number(u.account_id) === numId) ||
         u.username === identifier ||
         u.conv_id === identifier ||
         (u.is_custom_gc && ('gc_' + u.gc_id) === String(identifier)) ||
-        (u.is_office_gc && ('office_' + u.office_id) === String(identifier)) ||
-        (u.account_id && Number(u.account_id) === Number(identifier))
+        (u.is_office_gc && ('office_' + u.office_id) === String(identifier))
       );
       if (idx === -1) {
         if (typeof fetchUsers === 'function') fetchUsers();
@@ -2610,9 +2643,10 @@
 
         if (isThisActive) u.unreadCount = 0;
         const hasUnread = u.unreadCount > 0 && !isThisActive;
-        seen.add(u.username);
+        const uItemKey = getUserItemKey(u);
+        seen.add(uItemKey);
 
-        let item = sidebarUserItems.get(u.username);
+        let item = sidebarUserItems.get(uItemKey) || (u.username ? sidebarUserItems.get(u.username) : null);
         let avatar, dot, info, nameRow, nameEl, officeEl, actionsRight;
 
         if (!item) {
@@ -2654,8 +2688,9 @@
           item._officeEl = officeEl;
           item._actionsRight = actionsRight;
 
-          sidebarUserItems.set(u.username, item);
+          sidebarUserItems.set(uItemKey, item);
         } else {
+          sidebarUserItems.set(uItemKey, item);
           avatar = item._avatar || item.querySelector('.user-avatar');
           dot = item._dot || item.querySelector('.status-dot');
           info = item._info || item.querySelector('.user-info');
@@ -2774,7 +2809,17 @@
           } else if (u.is_office_gc) {
             newOffice = (u.office_name && u.office_name !== u.name) ? u.office_name : ((window.currentOfficeInfo && window.currentOfficeInfo.office_name) ? window.currentOfficeInfo.office_name : (u.office_name || 'College of Computer Studies'));
           } else {
-            newOffice = u.office_name ? u.office_name : 'No office assigned';
+            // Disambiguate users with duplicate full name / display name
+            const hasDuplicateName = allUsersData.some(other =>
+              other !== u && !other.is_custom_gc && !other.is_office_gc &&
+              ((other.name && u.name && other.name.trim().toLowerCase() === u.name.trim().toLowerCase()) ||
+               (other.full_name && u.full_name && other.full_name.trim().toLowerCase() === u.full_name.trim().toLowerCase()))
+            );
+            if (hasDuplicateName && u.email) {
+              newOffice = (u.office_name ? (u.office_name + ' • ') : '') + u.email;
+            } else {
+              newOffice = u.office_name ? u.office_name : 'No office assigned';
+            }
           }
           if (officeEl.textContent !== newOffice) {
             officeEl.textContent = newOffice;
@@ -2861,10 +2906,10 @@
         }
       });
 
-      for (const [username, item] of sidebarUserItems) {
-        if (!seen.has(username)) {
+      for (const [key, item] of sidebarUserItems) {
+        if (!seen.has(key)) {
           item.remove();
-          sidebarUserItems.delete(username);
+          sidebarUserItems.delete(key);
         }
       }
 
@@ -3936,7 +3981,7 @@
       applyHeaderAvatar(u);
       updateHeaderActiveStatus(u);
       
-      const cached = dmMessageCache.get(activeDM) || (u.username ? dmMessageCache.get(u.username) : null) || (activeDMAccountId ? dmMessageCache.get(String(activeDMAccountId)) : null);
+      const cached = (activeDMAccountId ? (dmMessageCache.get('id_' + activeDMAccountId) || dmMessageCache.get(String(activeDMAccountId))) : null) || dmMessageCache.get(activeDM) || (u.username ? dmMessageCache.get(u.username) : null);
       chatBox.innerHTML = '';
       chatBox.scrollTop = 0;
       removePaginationBtn();

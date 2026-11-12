@@ -2858,7 +2858,11 @@
         removePaginationBtn();
         forceBottomScrollState(activeDM);
         if (typeof dmMessageCache !== 'undefined' && dmMessageCache && dmMessageCache.delete) {
-          dmMessageCache.delete(activeDM);
+          if (activeDM) dmMessageCache.delete(activeDM);
+          if (activeDMAccountId) {
+            dmMessageCache.delete('id_' + activeDMAccountId);
+            dmMessageCache.delete(String(activeDMAccountId));
+          }
         }
         chatBox.innerHTML = '';
         isFirstLoad = true;
@@ -3391,26 +3395,36 @@
       dmHasMore = data.hasMore || false;
       if (typeof data.readUpTo !== 'undefined' && data.readUpTo !== null) {
         dmReadUpTo = data.readUpTo;
-        if (typeof dmReadUpToMap !== 'undefined') dmReadUpToMap.set(requestedUser, data.readUpTo);
-        const cachedObj = typeof dmMessageCache !== 'undefined' ? dmMessageCache.get(requestedUser) : null;
-        if (cachedObj) {
-          cachedObj.readUpTo = data.readUpTo;
-          if (cachedObj._raw) cachedObj._raw.readUpTo = data.readUpTo;
+        if (typeof dmReadUpToMap !== 'undefined') {
+          dmReadUpToMap.set(requestedUser, data.readUpTo);
+          if (activeDMAccountId) dmReadUpToMap.set(String(activeDMAccountId), data.readUpTo);
+        }
+        if (typeof dmMessageCache !== 'undefined') {
+          const cachedObj = dmMessageCache.get(requestedUser) || (activeDMAccountId ? (dmMessageCache.get('id_' + activeDMAccountId) || dmMessageCache.get(String(activeDMAccountId))) : null);
+          if (cachedObj) {
+            cachedObj.readUpTo = data.readUpTo;
+            if (cachedObj._raw) cachedObj._raw.readUpTo = data.readUpTo;
+          }
         }
       } else {
-        const existingMarker = (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(requestedUser))
-          ? dmReadUpToMap.get(requestedUser)
+        const existingMarker = (typeof dmReadUpToMap !== 'undefined' && (dmReadUpToMap.get(requestedUser) || (activeDMAccountId && dmReadUpToMap.get(String(activeDMAccountId)))))
+          ? (dmReadUpToMap.get(requestedUser) || (activeDMAccountId ? dmReadUpToMap.get(String(activeDMAccountId)) : null))
           : null;
         if (existingMarker) {
           dmReadUpTo = existingMarker;
           if (typeof data === 'object' && data !== null) data.readUpTo = existingMarker;
         } else {
           dmReadUpTo = null;
-          if (typeof dmReadUpToMap !== 'undefined') dmReadUpToMap.set(requestedUser, null);
-          const cachedObj = typeof dmMessageCache !== 'undefined' ? dmMessageCache.get(requestedUser) : null;
-          if (cachedObj) {
-            cachedObj.readUpTo = null;
-            if (cachedObj._raw) cachedObj._raw.readUpTo = null;
+          if (typeof dmReadUpToMap !== 'undefined') {
+            dmReadUpToMap.set(requestedUser, null);
+            if (activeDMAccountId) dmReadUpToMap.set(String(activeDMAccountId), null);
+          }
+          if (typeof dmMessageCache !== 'undefined') {
+            const cachedObj = dmMessageCache.get(requestedUser) || (activeDMAccountId ? (dmMessageCache.get('id_' + activeDMAccountId) || dmMessageCache.get(String(activeDMAccountId))) : null);
+            if (cachedObj) {
+              cachedObj.readUpTo = null;
+              if (cachedObj._raw) cachedObj._raw.readUpTo = null;
+            }
           }
         }
       }
@@ -3630,19 +3644,35 @@
       // Consume preloaded snapshot from hover cache if available on initial open for instant paint,
       // but do NOT return early so we still perform background fetch from load_dm.php to reconcile new messages.
       if (!loadOlderMode && !isAutoPoll) {
-        const cacheKey = activeDM || (activeDMAccountId ? String(activeDMAccountId) : null);
-        if (cacheKey && dmMessageCache.has(cacheKey)) {
-          const cachedData = dmMessageCache.get(cacheKey);
-          if (cachedData && cachedData._raw) {
-            processChatData(cachedData._raw, cacheKey, false);
+        const idKey = (activeDMAccountId && Number(activeDMAccountId) > 0) ? ('id_' + activeDMAccountId) : null;
+        const strIdKey = (activeDMAccountId && Number(activeDMAccountId) > 0) ? String(activeDMAccountId) : null;
+        const userKey = activeDM || null;
+
+        let cachedData = null;
+        if (idKey && dmMessageCache.has(idKey)) {
+          cachedData = dmMessageCache.get(idKey);
+        } else if (strIdKey && dmMessageCache.has(strIdKey)) {
+          cachedData = dmMessageCache.get(strIdKey);
+        } else if (userKey && dmMessageCache.has(userKey)) {
+          cachedData = dmMessageCache.get(userKey);
+        }
+
+        if (cachedData && cachedData._raw) {
+          processChatData(cachedData._raw, userKey || strIdKey, false);
+        } else {
+          const fetchKey = idKey || userKey;
+          if (fetchKey && window.dmPrefetchPromises && window.dmPrefetchPromises.has(fetchKey)) {
+            const requestedPartner = activeDMAccountId ? Number(activeDMAccountId) : activeDM;
+            window.dmPrefetchPromises.get(fetchKey).then(function() {
+              const currentPartner = activeDMAccountId ? Number(activeDMAccountId) : activeDM;
+              if (requestedPartner === currentPartner) {
+                const fresh = (idKey && dmMessageCache.get(idKey)) || (strIdKey && dmMessageCache.get(strIdKey)) || (userKey && dmMessageCache.get(userKey));
+                if (fresh && fresh._raw) {
+                  processChatData(fresh._raw, userKey || strIdKey, false);
+                }
+              }
+            });
           }
-        } else if (cacheKey && window.dmPrefetchPromises && window.dmPrefetchPromises.has(cacheKey)) {
-          const requestedUser = cacheKey;
-          window.dmPrefetchPromises.get(cacheKey).then(function() {
-            if (requestedUser === activeDM && dmMessageCache.has(cacheKey)) {
-              processChatData(dmMessageCache.get(cacheKey)._raw, cacheKey, false);
-            }
-          });
         }
       }
 
@@ -3804,8 +3834,12 @@
           hideScrollIndicator(true);
           // Capture conv identifiers before resetToHome() nulls them
           const clearedDM       = activeDM;
-          if (clearedDM) dmMessageCache.delete(clearedDM); // this conversation's snapshot is now stale
           const clearedDMAccId  = activeDMAccountId;
+          if (clearedDM) dmMessageCache.delete(clearedDM); // this conversation's snapshot is now stale
+          if (clearedDMAccId) {
+            dmMessageCache.delete('id_' + clearedDMAccId);
+            dmMessageCache.delete(String(clearedDMAccId));
+          }
           const clearedAdminConv = activeAdminConv;
           const clearedGlobal   = isGlobalChat;
 
@@ -4281,8 +4315,12 @@
     // being open.
     let _loadChatForcedTimer = null;
     function loadChatForced() {
-      if (typeof dmMessageCache !== 'undefined' && activeDM) {
-        dmMessageCache.delete(activeDM);
+      if (typeof dmMessageCache !== 'undefined') {
+        if (activeDM) dmMessageCache.delete(activeDM);
+        if (activeDMAccountId) {
+          dmMessageCache.delete('id_' + activeDMAccountId);
+          dmMessageCache.delete(String(activeDMAccountId));
+        }
       }
       if (_loadChatForcedTimer) clearTimeout(_loadChatForcedTimer);
       _loadChatForcedTimer = setTimeout(function() {
@@ -4495,8 +4533,12 @@
       // animation above already gives instant visual feedback that the send
       // was registered, so re-enable send controls right after dispatching.
       // Invalidate cache for active DM when sending a message so next load is fresh
-      if (typeof dmMessageCache !== 'undefined' && activeDM) {
-        dmMessageCache.delete(activeDM);
+      if (typeof dmMessageCache !== 'undefined') {
+        if (activeDM) dmMessageCache.delete(activeDM);
+        if (activeDMAccountId) {
+          dmMessageCache.delete('id_' + activeDMAccountId);
+          dmMessageCache.delete(String(activeDMAccountId));
+        }
       }
 
       try { xhr.send(payload); } catch (e) { /* ignore send errors here */ }

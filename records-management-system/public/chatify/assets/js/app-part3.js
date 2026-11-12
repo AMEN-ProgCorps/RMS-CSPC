@@ -5914,9 +5914,11 @@
           if (messageInput && messageInput.value.trim() !== '' && !imageStagingCaptionInput.value.trim()) {
             imageStagingCaptionInput.value = messageInput.value.trim();
           }
-          imageStagingCaptionInput.style.height = 'auto';
-          if (imageStagingCaptionInput.scrollHeight > 0) {
-            imageStagingCaptionInput.style.height = Math.min(imageStagingCaptionInput.scrollHeight, 120) + 'px';
+          if (!imageStagingCaptionInput.value.trim()) {
+            imageStagingCaptionInput.style.height = '40px';
+          } else {
+            imageStagingCaptionInput.style.height = 'auto';
+            imageStagingCaptionInput.style.height = Math.min(Math.max(imageStagingCaptionInput.scrollHeight, 40), 120) + 'px';
           }
           setTimeout(function() {
             imageStagingCaptionInput.focus();
@@ -5946,7 +5948,7 @@
       }
       if (imageStagingCaptionInput) {
         imageStagingCaptionInput.value = '';
-        imageStagingCaptionInput.style.height = 'auto';
+        imageStagingCaptionInput.style.height = '40px';
       }
       if (imageStagingDropzone) imageStagingDropzone.classList.remove('drag-active');
       stagingDragCount = 0;
@@ -5983,8 +5985,12 @@
 
     if (imageStagingCaptionInput) {
       imageStagingCaptionInput.addEventListener('input', function() {
+        if (!this.value.trim()) {
+          this.style.height = '40px';
+          return;
+        }
         this.style.height = 'auto';
-        this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        this.style.height = Math.min(Math.max(this.scrollHeight, 40), 120) + 'px';
       });
     }
 

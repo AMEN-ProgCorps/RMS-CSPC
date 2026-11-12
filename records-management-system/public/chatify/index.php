@@ -943,7 +943,7 @@ try {
           <div class="image-staging-empty">No files added yet.</div>
         </div>
         <div class="image-staging-caption-wrap">
-          <textarea id="imageStagingCaptionInput" class="image-staging-caption-input" placeholder="Add a message..." rows="1" maxlength="2000" autocomplete="off"></textarea>
+          <textarea id="imageStagingCaptionInput" class="image-staging-caption-input" placeholder="Type a message..." rows="1" maxlength="2000" autocomplete="off" enterkeyhint="enter"></textarea>
         </div>
       </div>
       <div class="modal-footer">

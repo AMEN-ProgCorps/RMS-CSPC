@@ -181,9 +181,10 @@ function adminChatLoadImageButton(string $fn, string $style = ''): string
         . "</div></div>";
 }
 
-function adminChatBrokenImageTag(string $style = 'width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;'): string
+function adminChatBrokenImageTag(string $style = 'width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;', string $fn = ''): string
 {
-    return "<div class='chat-image-broken' style='{$style}' title='Image unavailable from Google Drive'>"
+    $fnAttr = $fn !== '' ? " data-filename='" . htmlspecialchars($fn, ENT_QUOTES) . "' data-file-name='" . htmlspecialchars($fn, ENT_QUOTES) . "'" : '';
+    return "<div class='chat-image-broken'{$fnAttr} style='{$style}' title='Image unavailable from the server'>"
         . "<div class='broken-img-inner'>"
         . "<svg class='broken-img-icon' viewBox='0 0 24 24' width='26' height='26' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'>"
         . "<line x1='2' y1='2' x2='22' y2='22'/><path d='M10.41 10.41a2 2 0 1 0-2.83-2.83'/><line x1='13.5' y1='13.5' x2='6' y2='21'/><line x1='18' y1='12' x2='21' y2='15'/><path d='M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59'/><path d='M21 15V5a2 2 0 0 0-2-2H9'/>"
@@ -233,7 +234,7 @@ function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyT
             $baseClean = preg_replace('/_thumb\.webp$/', '.webp', $file);
             $cleanEsc  = htmlspecialchars($baseClean, ENT_QUOTES);
             if (!GoogleDriveHelper::isInDrive($baseClean)) {
-                return "<div class='reply-quote reply-quote-image-container reply-quote-broken'{$replyToAttr} title='Image unavailable from Google Drive'><div class='broken-img-inner'><svg class='broken-img-icon' viewBox='0 0 24 24' width='20' height='20' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><line x1='2' y1='2' x2='22' y2='22'/><path d='M10.41 10.41a2 2 0 1 0-2.83-2.83'/><line x1='13.5' y1='13.5' x2='6' y2='21'/><line x1='18' y1='12' x2='21' y2='15'/><path d='M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59'/><path d='M21 15V5a2 2 0 0 0-2-2H9'/></svg><span class='broken-img-label'>Unavailable</span></div></div>";
+                return "<div class='reply-quote reply-quote-image-container reply-quote-broken'{$replyToAttr} data-reply-file='{$cleanEsc}' title='Image unavailable from the server'><div class='broken-img-inner'><svg class='broken-img-icon' viewBox='0 0 24 24' width='20' height='20' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><line x1='2' y1='2' x2='22' y2='22'/><path d='M10.41 10.41a2 2 0 1 0-2.83-2.83'/><line x1='13.5' y1='13.5' x2='6' y2='21'/><line x1='18' y1='12' x2='21' y2='15'/><path d='M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59'/><path d='M21 15V5a2 2 0 0 0-2-2H9'/></svg><span class='broken-img-label'>Unavailable</span></div></div>";
             }
 
             $thumbName    = pathinfo($baseClean, PATHINFO_FILENAME) . ImageProcessor::THUMB_SUFFIX;
@@ -416,7 +417,7 @@ for ($i = 0; $i < $msgCount; $i++) {
                                 $itemsHtml .= adminChatLoadImageButton($fn, 'width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;');
                             }
                         } else {
-                            $itemsHtml .= adminChatBrokenImageTag('width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;');
+                            $itemsHtml .= adminChatBrokenImageTag('width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;', $fn);
                         }
                     } else {
                         if (!GoogleDriveHelper::isFileAvailable($fn, $fnPath, false)) {
@@ -438,7 +439,7 @@ for ($i = 0; $i < $msgCount; $i++) {
 
         } else {
             // ── Single file (or single-element JSON array) ────────────────────
-            $file     = $isGrid ? basename((string) $decoded[0]) : basename(is_array($decoded) ? (string) ($decoded[0] ?? '') : $rawPayload);
+            $file     = is_array($decoded) && !empty($decoded) ? basename((string)$decoded[0]) : basename($rawPayload);
             $filePath = $uploadsDir . $file;
             $ext      = strtolower(pathinfo($file, PATHINFO_EXTENSION));
             $fileEsc  = htmlspecialchars($file, ENT_QUOTES);
@@ -455,7 +456,7 @@ for ($i = 0; $i < $msgCount; $i++) {
                         $bodyHtml .= adminChatLoadImageButton($file, 'width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;');
                     }
                 } else {
-                    $bodyHtml .= adminChatBrokenImageTag('width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;');
+                    $bodyHtml .= adminChatBrokenImageTag('width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;', $file);
                 }
                 $bodyHtml .= "<div class='message-info' style='padding:3px 2px;'><span class='message-sender'>{$senderLabel}</span></div>";
                 $bodyHtml .= "</div>";

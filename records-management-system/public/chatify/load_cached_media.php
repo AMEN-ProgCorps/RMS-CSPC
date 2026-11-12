@@ -87,9 +87,19 @@ try {
         }
 
         if (!$restored || !file_exists($mainPath) || filesize($mainPath) === 0) {
-            if (file_exists($mainPath)) @unlink($mainPath);
+            if (file_exists($mainPath))  @unlink($mainPath);
             if (file_exists($thumbPath)) @unlink($thumbPath);
             if (file_exists($localPath)) @unlink($localPath);
+
+            GoogleDriveHelper::unregisterUploadedFile($file);
+            GoogleDriveHelper::unregisterUploadedFile($mainFile);
+            GoogleDriveHelper::unregisterUploadedFile($thumbName);
+            GoogleDriveHelper::unregisterUploadedFile($baseNoThumb);
+
+            try {
+                WsPush::broadcast('media_deleted', ['file' => $mainFile]);
+            } catch (\Throwable $e) {}
+
             echo json_encode(['success' => false, 'not_found' => true, 'error' => 'No image available from the server']);
             exit;
         }

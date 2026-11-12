@@ -12,9 +12,43 @@ header('Content-Type: application/json');
 
 $rawInput = file_get_contents('php://input');
 $data     = json_decode($rawInput, true);
-$files    = $data['files'] ?? [];
 
-if (!is_array($files) || empty($files)) {
+$loadedInput = isset($data['loaded']) && is_array($data['loaded']) ? $data['loaded'] : null;
+$lazyInput   = isset($data['lazy']) && is_array($data['lazy']) ? $data['lazy'] : null;
+$legacyFiles = isset($data['files']) && is_array($data['files']) ? $data['files'] : [];
+
+$loadedSet = [];
+if ($loadedInput !== null) {
+    foreach ($loadedInput as $f) {
+        $b = basename(trim((string)$f));
+        if ($b !== '') {
+            $baseClean = preg_replace('/_thumb\.webp$/i', '.webp', $b);
+            $thumbName = preg_replace('/\.webp$/i', '_thumb.webp', $baseClean);
+            $loadedSet[strtolower($b)] = true;
+            $loadedSet[strtolower($baseClean)] = true;
+            $loadedSet[strtolower($thumbName)] = true;
+        }
+    }
+}
+
+if ($loadedInput !== null || $lazyInput !== null) {
+    $files = array_unique(array_merge($loadedInput ?? [], $lazyInput ?? []));
+} else {
+    $files = $legacyFiles;
+    // In legacy mode without explicit loaded/lazy partition, assume passed files are loaded
+    foreach ($files as $f) {
+        $b = basename(trim((string)$f));
+        if ($b !== '') {
+            $baseClean = preg_replace('/_thumb\.webp$/i', '.webp', $b);
+            $thumbName = preg_replace('/\.webp$/i', '_thumb.webp', $baseClean);
+            $loadedSet[strtolower($b)] = true;
+            $loadedSet[strtolower($baseClean)] = true;
+            $loadedSet[strtolower($thumbName)] = true;
+        }
+    }
+}
+
+if (empty($files)) {
     echo json_encode(['success' => true, 'deleted' => [], 'expired' => []]);
     exit;
 }
@@ -35,8 +69,8 @@ if ($driveFiles !== null) {
         $file = basename(trim((string)$file));
         if ($file === '') continue;
 
-        $baseClean = preg_replace('/_thumb\.webp$/', '.webp', $file);
-        $thumbName = preg_replace('/\.webp$/', '_thumb.webp', $baseClean);
+        $baseClean = preg_replace('/_thumb\.webp$/i', '.webp', $file);
+        $thumbName = preg_replace('/\.webp$/i', '_thumb.webp', $baseClean);
 
         $mainLocalPath  = $uploadsDir . '/' . $baseClean;
         $thumbLocalPath = $uploadsDir . '/' . $thumbName;
@@ -70,30 +104,27 @@ if ($driveFiles !== null) {
         }
 
         // File is alive in Google Drive chatify folder!
-        // If it is NOT cached locally (e.g. deleted directly from uploads/ folder),
-        // or if local 30s retention cache has expired, mark as expired so the
-        // chat UI reverts the loaded image back to "Load image" in real-time.
-        if (!$hasAnyLocal) {
-            $expired[] = $file;
-            $expired[] = $baseClean;
-            $expired[] = $thumbName;
-
-            try {
-                WsPush::broadcast('media_expired', ['file' => $baseClean]);
-            } catch (\Throwable $e) {}
-        } else {
-            if (!GoogleDriveHelper::isLocallyCached($baseClean, $mainLocalPath) && !GoogleDriveHelper::isLocallyCached($file, $fileLocalPath)) {
+        // Check for local cache expiration ONLY if the client is currently displaying it as loaded.
+        $isLoadedOnClient = isset($loadedSet[strtolower($file)]) || isset($loadedSet[strtolower($baseClean)]);
+        if ($isLoadedOnClient) {
+            if (!$hasAnyLocal) {
                 $expired[] = $file;
                 $expired[] = $baseClean;
                 $expired[] = $thumbName;
+            } else {
+                if (!GoogleDriveHelper::isLocallyCached($baseClean, $mainLocalPath) && !GoogleDriveHelper::isLocallyCached($file, $fileLocalPath)) {
+                    $expired[] = $file;
+                    $expired[] = $baseClean;
+                    $expired[] = $thumbName;
 
-                if (file_exists($mainLocalPath))  @unlink($mainLocalPath);
-                if (file_exists($thumbLocalPath)) @unlink($thumbLocalPath);
-                if (file_exists($fileLocalPath))  @unlink($fileLocalPath);
+                    if (file_exists($mainLocalPath))  @unlink($mainLocalPath);
+                    if (file_exists($thumbLocalPath)) @unlink($thumbLocalPath);
+                    if (file_exists($fileLocalPath))  @unlink($fileLocalPath);
 
-                try {
-                    WsPush::broadcast('media_expired', ['file' => $baseClean]);
-                } catch (\Throwable $e) {}
+                    try {
+                        WsPush::broadcast('media_expired', ['file' => $baseClean]);
+                    } catch (\Throwable $e) {}
+                }
             }
         }
     }
@@ -103,8 +134,8 @@ if ($driveFiles !== null) {
         $file = basename(trim((string)$file));
         if ($file === '') continue;
 
-        $baseClean = preg_replace('/_thumb\.webp$/', '.webp', $file);
-        $thumbName = preg_replace('/\.webp$/', '_thumb.webp', $baseClean);
+        $baseClean = preg_replace('/_thumb\.webp$/i', '.webp', $file);
+        $thumbName = preg_replace('/\.webp$/i', '_thumb.webp', $baseClean);
 
         $mainLocalPath  = $uploadsDir . '/' . $baseClean;
         $thumbLocalPath = $uploadsDir . '/' . $thumbName;
@@ -120,9 +151,12 @@ if ($driveFiles !== null) {
 
         if (!$hasAnyLocal) {
             if (GoogleDriveHelper::isInDrive($baseClean)) {
-                $expired[] = $file;
-                $expired[] = $baseClean;
-                $expired[] = $thumbName;
+                $isLoadedOnClient = isset($loadedSet[strtolower($file)]) || isset($loadedSet[strtolower($baseClean)]);
+                if ($isLoadedOnClient) {
+                    $expired[] = $file;
+                    $expired[] = $baseClean;
+                    $expired[] = $thumbName;
+                }
             } else {
                 $deleted[] = $file;
                 $deleted[] = $baseClean;

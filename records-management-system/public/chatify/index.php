@@ -173,7 +173,7 @@ try {
   <title>CSPC - Chatify</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta charset="UTF-8">
-  <meta name="description" content="Messify - real-time messaging para sa CSPC.">
+  <meta name="description" content="Chatify - real-time messaging para sa CSPC.">
   <link rel="icon" href="cspc.webp" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1093,14 +1093,14 @@ try {
 
       <!-- Header -->
       <div class="modal-header">
-        <h3 id="legalAuthTitle">Messify — Authorization &amp; Usage Policy</h3>
+        <h3 id="legalAuthTitle">Chatify — Authorization &amp; Usage Policy</h3>
       </div>
 
       <!-- Body -->
       <div class="modal-body" style="max-height: 55vh; overflow-y: auto; touch-action: pan-y;">
 
         <p style="margin: 0 0 12px; color: var(--text-primary); font-size: 13.5px; line-height: 1.55;">
-          Before accessing Messify, please read and acknowledge the following usage policy.
+          Before accessing Chatify, please read and acknowledge the following usage policy.
         </p>
 
         <div style="background: rgba(27,116,228,0.07);
@@ -1109,7 +1109,7 @@ try {
             MONITORED COMMUNICATION
           </p>
           <p style="margin: 6px 0 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
-            All communication within Messify — including messages, file transfers, and user
+            All communication within Chatify — including messages, file transfers, and user
             actions — is recorded and monitored by CSPC administration for institutional
             and security purposes.
           </p>
@@ -1117,7 +1117,7 @@ try {
 
         <p style="margin: 0 0 8px; font-size: 12px; font-weight: 600;
                   color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.4px;">
-          By using Messify, you agree to the following:
+          By using Chatify, you agree to the following:
         </p>
 
         <ul style="margin: 0 0 14px; padding-left: 18px;
@@ -1125,7 +1125,7 @@ try {
                    line-height: 1.6; display: flex; flex-direction: column; gap: 4px;">
           <li>You acknowledge that this system is intended solely for <strong style="color:var(--text-primary);">authorized academic, administrative, and institutional use</strong>.</li>
           <li>You will not send any content that is <strong style="color:var(--text-primary);">abusive, threatening, or illegal</strong>.</li>
-          <li>You will not use Messify for <strong style="color:var(--text-primary);">unauthorized personal or commercial activities</strong>.</li>
+          <li>You will not use Chatify for <strong style="color:var(--text-primary);">unauthorized personal or commercial activities</strong>.</li>
           <li>Your actions within the system may be <strong style="color:var(--text-primary);">reviewed by authorized administrators</strong> at any time.</li>
           <li>Violations of this policy may result in <strong style="color:var(--text-primary);">disciplinary action</strong> under CSPC regulations.</li>
         </ul>

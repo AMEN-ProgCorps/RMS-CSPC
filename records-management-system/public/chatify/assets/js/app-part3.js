@@ -413,6 +413,20 @@
 
     // ── On-demand loader for 30-second cached images purged from local uploads/ ──
     const activeImageExpiryTimers = new Map();
+    const knownUnavailableImages = new Set();
+    window.knownUnavailableImages = knownUnavailableImages;
+
+    function applyKnownUnavailableImages() {
+      if (!chatBox || !knownUnavailableImages.size) return;
+      chatBox.querySelectorAll('.chat-image-lazy-load, .chat-viewable-image, .reply-quote-lazy-load, .reply-quote-image-container:not(.reply-quote-broken)').forEach(function(el) {
+        const fn = (el.getAttribute('data-file-name') || el.getAttribute('data-filename') || el.getAttribute('data-reply-file') || '').toLowerCase().trim();
+        const cleanBase = fn.replace(/_thumb\.webp$/, '.webp');
+        if (fn && (knownUnavailableImages.has(fn) || knownUnavailableImages.has(cleanBase))) {
+          markImageUnavailable(el, fn);
+        }
+      });
+    }
+    window.applyKnownUnavailableImages = applyKnownUnavailableImages;
 
     function revertImageToLazyLoad(img, filename) {
       if (!img || !img.parentNode) return;
@@ -421,11 +435,20 @@
         activeImageExpiryTimers.delete(img);
       }
 
+      const fnLower = (filename || '').toLowerCase().trim();
+      const cleanBase = fnLower.replace(/_thumb\.webp$/, '.webp');
+      const thumbBase = cleanBase.replace(/\.webp$/, '_thumb.webp');
+      if (knownUnavailableImages.has(fnLower) || knownUnavailableImages.has(cleanBase) || knownUnavailableImages.has(thumbBase)) {
+        markImageUnavailable(img, filename);
+        return;
+      }
+
       const loadBtn = document.createElement('div');
       loadBtn.className = 'chat-image-lazy-load';
       loadBtn.dataset.filename = filename;
+      loadBtn.setAttribute('data-file-name', filename);
       loadBtn.setAttribute('style', 'width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;');
-      loadBtn.title = 'Click to load image from Google Drive';
+      loadBtn.title = 'Click to load image from the server';
       loadBtn.onclick = function() { loadCachedImage(loadBtn); };
       loadBtn.innerHTML = '<div class="load-img-inner">' +
         '<svg class="load-img-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
@@ -450,10 +473,18 @@
 
     function revertReplyQuoteToLazyLoad(rq, filename) {
       if (!rq) return;
+      const fnLower = (filename || '').toLowerCase().trim();
+      const cleanBase = fnLower.replace(/_thumb\.webp$/, '.webp');
+      const thumbBase = cleanBase.replace(/\.webp$/, '_thumb.webp');
+      if (knownUnavailableImages.has(fnLower) || knownUnavailableImages.has(cleanBase) || knownUnavailableImages.has(thumbBase)) {
+        markImageUnavailable(rq, filename);
+        return;
+      }
+
       rq.className = 'reply-quote reply-quote-image-container reply-quote-lazy-load';
       rq.setAttribute('data-reply-file', filename);
       rq.setAttribute('data-filename', filename);
-      rq.title = 'Click to load image from Google Drive';
+      rq.title = 'Click to load image from the server';
       rq.onclick = function() { loadCachedImage(rq); };
       rq.innerHTML = '<div class="load-img-inner">' +
         '<svg class="load-img-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
@@ -634,11 +665,16 @@
     window.loadCachedImage = loadCachedImage;
 
     function markImageUnavailable(el, filename) {
-      if (!el) return;
-      const cleanBase = (filename || el.dataset.filename || el.dataset.replyFile || '').replace(/_thumb\.webp$/, '.webp');
-      const thumbBase = cleanBase.replace(/\.webp$/, '_thumb.webp');
+      const targetFn = filename || (el && (el.dataset?.filename || el.dataset?.replyFile || (typeof el.getAttribute === 'function' ? (el.getAttribute('data-file-name') || el.getAttribute('data-reply-file')) : ''))) || '';
+      const cleanBase = targetFn.replace(/_thumb\.webp$/, '.webp').trim();
+      const thumbBase = cleanBase.replace(/\.webp$/, '_thumb.webp').trim();
 
-      const brokenHtml = '<div class="chat-image-broken" style="width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;" title="Image unavailable from Google Drive">' +
+      if (targetFn)  knownUnavailableImages.add(targetFn.toLowerCase());
+      if (cleanBase) knownUnavailableImages.add(cleanBase.toLowerCase());
+      if (thumbBase) knownUnavailableImages.add(thumbBase.toLowerCase());
+
+      const cleanEsc = escapeHtml(cleanBase);
+      const brokenHtml = `<div class="chat-image-broken" data-filename="${cleanEsc}" data-file-name="${cleanEsc}" style="width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;" title="Image unavailable from the server">` +
         '<div class="broken-img-inner">' +
         '<svg class="broken-img-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
         '<line x1="2" y1="2" x2="22" y2="22"/><path d="M10.41 10.41a2 2 0 1 0-2.83-2.83"/><line x1="13.5" y1="13.5" x2="6" y2="21"/><line x1="18" y1="12" x2="21" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/>' +
@@ -652,23 +688,25 @@
       const replyQuotes = document.querySelectorAll(`.reply-quote-image-container[data-reply-file="${cleanBase}"], .reply-quote-lazy-load[data-filename="${cleanBase}"]`);
       replyQuotes.forEach(function(rq) {
         rq.className = 'reply-quote reply-quote-image-container reply-quote-broken';
+        rq.title = 'Image unavailable from the server';
         rq.onclick = null;
-        rq.removeAttribute('data-filename');
-        rq.removeAttribute('data-reply-file');
+        rq.setAttribute('data-reply-file', cleanBase);
+        rq.setAttribute('data-filename', cleanBase);
         rq.innerHTML = brokenQuoteHtml;
       });
 
-      if (el.classList.contains('reply-quote') || el.classList.contains('reply-quote-lazy-load') || el.classList.contains('reply-quote-image-container')) {
+      if (el && (el.classList.contains('reply-quote') || el.classList.contains('reply-quote-lazy-load') || el.classList.contains('reply-quote-image-container'))) {
         el.className = 'reply-quote reply-quote-image-container reply-quote-broken';
+        el.title = 'Image unavailable from the server';
         el.onclick = null;
-        el.removeAttribute('data-filename');
-        el.removeAttribute('data-reply-file');
+        el.setAttribute('data-reply-file', cleanBase);
+        el.setAttribute('data-filename', cleanBase);
         el.innerHTML = brokenQuoteHtml;
       }
 
-      const mainCards = document.querySelectorAll(`.chat-image-lazy-load[data-filename="${cleanBase}"], .chat-image-lazy-load[data-filename="${thumbBase}"], .chat-image-lazy-load[data-filename="${filename}"]`);
+      const mainCards = document.querySelectorAll(`.chat-image-lazy-load[data-filename="${cleanBase}"], .chat-image-lazy-load[data-filename="${thumbBase}"], .chat-image-lazy-load[data-filename="${targetFn}"], .chat-viewable-image[data-file-name="${cleanBase}"], .chat-viewable-image[data-file-name="${thumbBase}"], .chat-viewable-image[data-file-name="${targetFn}"]`);
       const allCards = Array.from(mainCards);
-      if (el.classList.contains('chat-image-lazy-load') && !allCards.includes(el)) {
+      if (el && (el.classList.contains('chat-image-lazy-load') || el.classList.contains('chat-viewable-image')) && !allCards.includes(el)) {
         allCards.push(el);
       }
 
@@ -688,6 +726,18 @@
         const brokenEl = temp.firstElementChild;
         card.replaceWith(brokenEl);
       });
+
+      // Synchronize dmMessageCache so subsequent instant paint never flashes "Load image"
+      if (typeof dmMessageCache !== 'undefined' && chatBox) {
+        const activeKey = activeDM || (activeDMAccountId ? String(activeDMAccountId) : null);
+        if (activeKey) {
+          const cached = dmMessageCache.get(activeKey) || (activeDMAccountId ? dmMessageCache.get('id_' + activeDMAccountId) : null);
+          if (cached && cached._raw) {
+            cached._raw.html = chatBox.innerHTML;
+            cached.html = chatBox.innerHTML;
+          }
+        }
+      }
     }
     window.markImageUnavailable = markImageUnavailable;
 
@@ -715,15 +765,30 @@
         const rq = target.closest('.reply-quote-image-container') || target.closest('.reply-quote');
         if (rq) {
           const fn = rq.getAttribute('data-reply-file') || target.alt || '';
-          const cleanBase = fn.replace(/_thumb\.webp$/, '.webp');
+          const fnLower = fn.toLowerCase().trim();
+          const cleanBase = fnLower.replace(/_thumb\.webp$/, '.webp');
+          if (knownUnavailableImages.has(fnLower) || knownUnavailableImages.has(cleanBase)) {
+            markImageUnavailable(rq, fn);
+            return;
+          }
           rq.className = 'reply-quote reply-quote-image-container reply-quote-lazy-load';
           rq.setAttribute('data-filename', cleanBase);
+          rq.setAttribute('data-reply-file', cleanBase);
           rq.onclick = function() { loadCachedImage(this); };
           rq.innerHTML = `<div class="load-img-inner"><svg class="load-img-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span class="load-img-label">Load image</span></div>`;
         }
         return;
       }
       if (target && target.tagName === 'IMG' && target.classList.contains('chat-viewable-image')) {
+        const fn = target.getAttribute('data-file-name') || target.alt || '';
+        const fnLower = fn.toLowerCase().trim();
+        const cleanBase = fnLower.replace(/_thumb\.webp$/, '.webp');
+
+        if (knownUnavailableImages.has(fnLower) || knownUnavailableImages.has(cleanBase)) {
+          markImageUnavailable(target, fn);
+          return;
+        }
+
         if (!target.dataset.retried) {
           target.dataset.retried = '1';
           setTimeout(function() {
@@ -735,30 +800,9 @@
           return;
         }
 
-        const fn = target.getAttribute('data-file-name') || target.alt || '';
-        if (fn && typeof revertImageToLazyLoad === 'function') {
-          revertImageToLazyLoad(target, fn);
-          return;
-        }
-
-        const container = target.closest('.message-container');
-        if (container) {
-          const temp = document.createElement('div');
-          temp.innerHTML = '<div class="chat-image-broken" style="width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;" title="Image unavailable from Google Drive">' +
-            '<div class="broken-img-inner">' +
-            '<svg class="broken-img-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
-            '<line x1="2" y1="2" x2="22" y2="22"/><path d="M10.41 10.41a2 2 0 1 0-2.83-2.83"/><line x1="13.5" y1="13.5" x2="6" y2="21"/><line x1="18" y1="12" x2="21" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/>' +
-            '</svg><span class="broken-img-label">Image unavailable</span></div></div>';
-          target.replaceWith(temp.firstElementChild);
-
-          if (typeof hideReplyBanner === 'function' && typeof replyState !== 'undefined' && replyState && replyState.msgId === container.getAttribute('data-msg-id')) {
-            hideReplyBanner();
-          }
-          if (typeof hoveredReplyContainer !== 'undefined' && hoveredReplyContainer === container) {
-            if (typeof hoverReplyBtn !== 'undefined' && hoverReplyBtn) hoverReplyBtn.classList.remove('visible');
-            hoveredReplyContainer = null;
-          }
-        }
+        // If retried and still failed, mark as unavailable directly (never flash "Load image")
+        markImageUnavailable(target, fn);
+        return;
       }
     }, true);
 
@@ -770,29 +814,43 @@
       if (isVerifyingImages || document.hidden) return;
       if (!chatBox) return;
 
-      const imgElements = chatBox.querySelectorAll('.chat-viewable-image, .reply-quote-image-container img, .chat-image-lazy-load, .reply-quote-lazy-load');
-      if (!imgElements.length) return;
+      const loadedElements = chatBox.querySelectorAll('.chat-viewable-image, .reply-quote-image-container img');
+      const lazyElements   = chatBox.querySelectorAll('.chat-image-lazy-load, .reply-quote-lazy-load');
+      if (!loadedElements.length && !lazyElements.length) return;
 
-      const filesToCheck = new Set();
-      imgElements.forEach(function(img) {
+      const loadedFiles = new Set();
+      loadedElements.forEach(function(img) {
         let fn = img.getAttribute('data-file-name') || img.getAttribute('data-reply-file') || img.getAttribute('data-filename');
         if (!fn) {
           const src = img.getAttribute('data-full-src') || img.getAttribute('src') || '';
           const m = src.match(/[?&]file=([^&#]+)/) || src.match(/uploads\/([^?&#]+)/);
           if (m) fn = decodeURIComponent(m[1]);
         }
-        if (fn) {
-          filesToCheck.add(fn);
-        }
+        if (fn) loadedFiles.add(fn);
       });
 
-      if (!filesToCheck.size) return;
+      const lazyFiles = new Set();
+      lazyElements.forEach(function(el) {
+        let fn = el.getAttribute('data-file-name') || el.getAttribute('data-reply-file') || el.getAttribute('data-filename');
+        if (!fn) {
+          const src = el.getAttribute('data-full-src') || el.getAttribute('src') || '';
+          const m = src.match(/[?&]file=([^&#]+)/) || src.match(/uploads\/([^?&#]+)/);
+          if (m) fn = decodeURIComponent(m[1]);
+        }
+        if (fn && !loadedFiles.has(fn)) lazyFiles.add(fn);
+      });
+
+      if (!loadedFiles.size && !lazyFiles.size) return;
 
       isVerifyingImages = true;
       fetch('check_media.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: Array.from(filesToCheck) })
+        body: JSON.stringify({
+          loaded: Array.from(loadedFiles),
+          lazy: Array.from(lazyFiles),
+          files: Array.from(new Set([...loadedFiles, ...lazyFiles]))
+        })
       })
       .then(function(r) { return r.json(); })
       .then(function(data) {
@@ -805,6 +863,9 @@
             delSet.add(delFn.toLowerCase().trim());
             delSet.add(cleanBase);
             delSet.add(thumbBase);
+            knownUnavailableImages.add(delFn.toLowerCase().trim());
+            knownUnavailableImages.add(cleanBase);
+            knownUnavailableImages.add(thumbBase);
           });
 
           // 1. Process reply quotes FIRST — NEVER touch the message container
@@ -819,10 +880,12 @@
               }
             }
             if (fn && delSet.has(fn)) {
+              const cleanEsc = escapeHtml(fn.replace(/_thumb\.webp$/, '.webp'));
               rq.className = 'reply-quote reply-quote-image-container reply-quote-broken';
               rq.onclick = null;
-              rq.removeAttribute('data-filename');
-              rq.removeAttribute('data-reply-file');
+              rq.title = 'Image unavailable from the server';
+              rq.setAttribute('data-filename', cleanEsc);
+              rq.setAttribute('data-reply-file', cleanEsc);
               rq.innerHTML = '<div class="broken-img-inner">' +
                 '<svg class="broken-img-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
                 '<line x1="2" y1="2" x2="22" y2="22"/><path d="M10.41 10.41a2 2 0 1 0-2.83-2.83"/><line x1="13.5" y1="13.5" x2="6" y2="21"/><line x1="18" y1="12" x2="21" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/>' +
@@ -831,12 +894,6 @@
           });
 
           // 2. Process main message media separately — replace image/card directly with broken image placeholder
-          const brokenHtml = '<div class="chat-image-broken" style="width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;" title="Image unavailable from Google Drive">' +
-            '<div class="broken-img-inner">' +
-            '<svg class="broken-img-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
-            '<line x1="2" y1="2" x2="22" y2="22"/><path d="M10.41 10.41a2 2 0 1 0-2.83-2.83"/><line x1="13.5" y1="13.5" x2="6" y2="21"/><line x1="18" y1="12" x2="21" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/>' +
-            '</svg><span class="broken-img-label">Image unavailable</span></div></div>';
-
           chatBox.querySelectorAll('.message-container .chat-viewable-image, .message-container .chat-image-lazy-load').forEach(function(img) {
             if (img.closest('.reply-quote')) return;
 
@@ -858,12 +915,29 @@
                   hideReplyBanner();
                 }
               }
+              const cleanEsc = escapeHtml(fn.replace(/_thumb\.webp$/, '.webp'));
               const temp = document.createElement('div');
-              temp.innerHTML = brokenHtml;
+              temp.innerHTML = `<div class="chat-image-broken" data-filename="${cleanEsc}" data-file-name="${cleanEsc}" style="width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;" title="Image unavailable from the server">` +
+                '<div class="broken-img-inner">' +
+                '<svg class="broken-img-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+                '<line x1="2" y1="2" x2="22" y2="22"/><path d="M10.41 10.41a2 2 0 1 0-2.83-2.83"/><line x1="13.5" y1="13.5" x2="6" y2="21"/><line x1="18" y1="12" x2="21" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/>' +
+                '</svg><span class="broken-img-label">Image unavailable</span></div></div>';
               const brokenEl = temp.firstElementChild;
               img.replaceWith(brokenEl);
             }
           });
+
+          // Synchronize dmMessageCache so subsequent instant paint never flashes "Load image"
+          if (typeof dmMessageCache !== 'undefined' && chatBox) {
+            const activeKey = activeDM || (activeDMAccountId ? String(activeDMAccountId) : null);
+            if (activeKey) {
+              const cached = dmMessageCache.get(activeKey) || (activeDMAccountId ? dmMessageCache.get('id_' + activeDMAccountId) : null);
+              if (cached && cached._raw) {
+                cached._raw.html = chatBox.innerHTML;
+                cached.html = chatBox.innerHTML;
+              }
+            }
+          }
         }
 
         if (data && data.success && Array.isArray(data.expired) && data.expired.length > 0) {
@@ -3013,11 +3087,12 @@
         const msgId = el.getAttribute('data-msg-id');
         if (msgId) {
           const isMoved = el.classList && el.classList.contains('user-moved') ? 'moved' : 'active';
-          const content = el.querySelector('.message-content')?.textContent?.trim() || '';
+          const content = (el.querySelector('.message-content') || el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent?.trim() || '';
           const replyTo = el.getAttribute('data-reply-to') || '';
-          const rqText = el.querySelector('.reply-quote')?.textContent?.trim() || '';
-          const mediaFile = el.querySelector('.chat-viewable-image, .chat-image-lazy-load')?.getAttribute('data-file-name')
-            || el.querySelector('.chat-viewable-image, .chat-image-lazy-load')?.getAttribute('data-filename') || '';
+          const rqEl = el.querySelector('.reply-quote');
+          const rqText = rqEl ? (rqEl.getAttribute('data-reply-file') || rqEl.getAttribute('data-filename') || rqEl.textContent?.trim() || '') : '';
+          const mediaFile = el.querySelector('.chat-viewable-image, .chat-image-lazy-load, .chat-image-broken')?.getAttribute('data-file-name')
+            || el.querySelector('.chat-viewable-image, .chat-image-lazy-load, .chat-image-broken')?.getAttribute('data-filename') || '';
           return msgId + '|' + isMoved + '|' + replyTo + '|' + rqText + '|' + mediaFile + '|' + content;
         }
       }
@@ -3026,7 +3101,7 @@
       }
       const sender  = (el.querySelector('.message-sender')?.textContent?.trim() || '').toLowerCase();
       const time    = (el.querySelector('.message-time') || el.querySelector('.message-click-timestamp'))?.textContent?.trim() || '';
-      const content = el.querySelector('.message-content')?.textContent?.trim() || '';
+      const content = (el.querySelector('.message-content') || el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent?.trim() || '';
       return sender + '|' + time + '|' + content;
     }
 
@@ -6441,6 +6516,9 @@
 
       if (typeof observeLazyImages === 'function') {
         observeLazyImages();
+      }
+      if (typeof applyKnownUnavailableImages === 'function') {
+        applyKnownUnavailableImages();
       }
     }
 

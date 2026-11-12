@@ -639,6 +639,10 @@
           if (data.file && typeof handleMediaExpired === 'function') {
             handleMediaExpired(data.file);
           }
+        } else if (data.type === 'media_deleted') {
+          if (data.file && typeof markImageUnavailable === 'function') {
+            markImageUnavailable(null, data.file);
+          }
         } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
           // Deduplication: if message UUID was already processed, drop duplicate immediately
@@ -833,7 +837,12 @@
                       dmMessageCache.delete(activeDM);
                     }
                     if (curPartnerId) dmMessageCache.delete(String(curPartnerId));
-                    if (!dmViewingOlder) loadChatForced();
+                    if (!dmViewingOlder) {
+                      const msgUuid = data.msg_uuid || data.id;
+                      if (!msgUuid || !chatBox || !chatBox.querySelector(`.message-container[data-msg-id="${msgUuid}"]`)) {
+                        loadChatForced();
+                      }
+                    }
                   }
                 }
               }

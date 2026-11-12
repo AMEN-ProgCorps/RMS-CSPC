@@ -61,6 +61,7 @@ if ($isCustomGc || ($isGlobal && str_starts_with($convId, 'gc_'))) {
 
     $gcConvId    = 'gc_' . $gcId;
     $hadMessages = GlobalChatManager::countRaw($gcConvId) > 0;
+    GoogleDriveHelper::deleteChatMediaFiles($gcConvId);
     GlobalChatManager::softClearChat($gcConvId);
     GlobalChatManager::clearReactions($gcConvId);
 
@@ -94,6 +95,7 @@ if ($isGlobal || $targetOfficeId) {
 
     $channelConvId = $targetOfficeId ? $convId : 'global';
     $hadMessages   = GlobalChatManager::countRaw($channelConvId) > 0;
+    GoogleDriveHelper::deleteChatMediaFiles($channelConvId);
     GlobalChatManager::softClearChat($channelConvId);
     GlobalChatManager::clearReactions($channelConvId);
 
@@ -167,6 +169,7 @@ if (!ConversationManager::verifySecretKey($secret)) {
 // never touched or cloned here. Backups are now a separate, explicit admin
 // action (/backup — see backup_dm.php) so the two operations can't be
 // silently coupled again.
+GoogleDriveHelper::deleteChatMediaFiles($convId);
 $deleted = ConversationManager::deleteConversation($convId, $myAccountId, $isAdmin);
 
 if ($deleted) {

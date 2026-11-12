@@ -942,6 +942,9 @@ try {
         <div class="image-staging-grid" id="imageStagingGrid">
           <div class="image-staging-empty">No files added yet.</div>
         </div>
+        <div class="image-staging-caption-wrap">
+          <textarea id="imageStagingCaptionInput" class="image-staging-caption-input" placeholder="Add a message..." rows="1" maxlength="2000" autocomplete="off"></textarea>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="modal-button cancel-button" id="imageStagingCancelBtn">Cancel</button>

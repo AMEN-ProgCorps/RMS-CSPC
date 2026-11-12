@@ -101,8 +101,44 @@ if ($isCustomGc) {
     }
 }
 
+if ($uploadedRaw !== '') {
+    // Accept either a JSON array of filenames (current upload flow) or a
+    // single bare filename string (legacy / backward-compat).
+    $decoded   = json_decode($uploadedRaw, true);
+    $filenames = (is_array($decoded) && count($decoded) > 0)
+        ? array_map(static fn($f) => basename((string) $f), $decoded)
+        : [basename($uploadedRaw)];
+
+    foreach ($filenames as $filename) {
+        if ($filename === '') continue;
+
+        if (GoogleDriveHelper::isConfigured()) {
+            if (!GoogleDriveHelper::isInDrive($filename)) {
+                $errors[] = "Uploaded file not found: {$filename}";
+                continue;
+            }
+        } else {
+            $filePath = UPLOADS_DIR . '/' . $filename;
+            if (!file_exists($filePath)) {
+                $errors[] = "Uploaded file not found: {$filename}";
+                continue;
+            }
+        }
+
+        $thisReplyTo = (empty($allResults)) ? $replyToUuid : null;
+        $msgResult   = GlobalChatManager::addUploadMessage($senderId, $filename, $thisReplyTo, $convId);
+        if ($msgResult === false) {
+            $errors[] = "Failed to save upload record: {$filename}";
+            continue;
+        }
+        $msgResult['plaintext'] = $filename;
+        $allResults[] = $msgResult;
+    }
+}
+
 if ($message !== '') {
-    $result = GlobalChatManager::addTextMessage($senderId, $message, $replyToUuid, $mentionedIds, $convId);
+    $thisReplyTo = (empty($allResults)) ? $replyToUuid : null;
+    $result = GlobalChatManager::addTextMessage($senderId, $message, $thisReplyTo, $mentionedIds, $convId);
     if ($result === false) {
         $errors[] = 'Failed to save text message.';
     } else {
@@ -115,37 +151,6 @@ if ($message !== '') {
             }
         }
         $allResults[] = $result;
-    }
-}
-
-if ($uploadedRaw !== '') {
-    // Accept either a JSON array of filenames (current upload flow) or a
-    // single bare filename string (legacy / backward-compat).
-    $decoded   = json_decode($uploadedRaw, true);
-    $filenames = (is_array($decoded) && count($decoded) > 0)
-        ? array_map(static fn($f) => basename((string) $f), $decoded)
-        : [basename($uploadedRaw)];
-
-    foreach ($filenames as $filename) {
-        if ($filename === '') continue;
-
-        $filePath = UPLOADS_DIR . '/' . $filename;
-        if (!file_exists($filePath)) {
-            GoogleDriveHelper::ensureLocalCopy($filename, $filePath);
-        }
-
-        if (!file_exists($filePath)) {
-            $errors[] = "Uploaded file not found: {$filename}";
-            continue;
-        }
-
-        $thisReplyTo = (empty($allResults)) ? $replyToUuid : null;
-        $msgResult   = GlobalChatManager::addUploadMessage($senderId, $filename, $thisReplyTo, $convId);
-        if ($msgResult === false) {
-            $errors[] = "Failed to save upload record: {$filename}";
-            continue;
-        }
-        $allResults[] = $msgResult;
     }
 }
 
@@ -169,6 +174,7 @@ if (empty($errors) && !empty($allResults)) {
             'sender_avatar'     => $_SESSION['avatar_url'] ?? null,
             'msg_uuid'          => $msgData['id'],
             'message'           => $msgData['plaintext'] ?? '',
+            'upload_file'       => $msgData['plaintext'] ?? '',
             'created_at'        => date('c'),
             'has_upload'        => ($msgData['type'] ?? '') === 'upload',
             'reply_to_msg_uuid' => $msgData['reply_to_msg_uuid'] ?? null,

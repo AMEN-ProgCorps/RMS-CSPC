@@ -65,8 +65,9 @@ try {
     exit;
 }
 
-// Also delete messages for this group's conv_id to clean up
+// Also delete messages and media files for this group's conv_id to clean up
 try {
+    GoogleDriveHelper::deleteChatMediaFiles($convId);
     $stmt2 = $pdo->prepare("DELETE FROM messify_chat_messages WHERE conv_id = :conv_id");
     $stmt2->execute([':conv_id' => $convId]);
 } catch (Throwable $e) {

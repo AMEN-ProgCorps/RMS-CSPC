@@ -118,9 +118,15 @@
     const imageViewerCloseBtn    = document.getElementById('imageViewerCloseBtn');
     const imageViewerDownloadBtn = document.getElementById('imageViewerDownloadBtn');
 
-    function openImageViewer(src, alt) {
+    function openImageViewer(src, alt, thumbSrc) {
       if (!imageViewerModal || !imageViewerImg) return;
       delete imageViewerImg.dataset.retryDone;
+
+      // If we have a thumbnail preview, display it immediately so user sees something while full image loads
+      if (thumbSrc) {
+        imageViewerImg.src = thumbSrc;
+      }
+
       imageViewerImg.onerror = function() {
         const fnMatch = src.match(/uploads\/([^?#]+)/);
         if (fnMatch && !this.dataset.retryDone) {
@@ -129,13 +135,40 @@
           fetch('load_cached_media.php?file=' + encodeURIComponent(fn))
             .then(function(r) { return r.json(); })
             .then(function(d) {
-              if (d && d.success && imageViewerImg) {
+              if (d && d.success && imageViewerImg && imageViewerModal.classList.contains('active')) {
                 imageViewerImg.src = d.url + '?t=' + Date.now();
               }
             }).catch(function() {});
         }
       };
-      imageViewerImg.src = src;
+
+      if (!thumbSrc || thumbSrc === src) {
+        imageViewerImg.src = src;
+      } else {
+        // Preload full high-res image and swap when loaded
+        const fullImg = new Image();
+        fullImg.onload = function() {
+          if (imageViewerImg && imageViewerModal.classList.contains('active')) {
+            imageViewerImg.src = fullImg.src;
+          }
+        };
+        fullImg.onerror = function() {
+          const fnMatch = src.match(/uploads\/([^?#]+)/);
+          if (fnMatch && !imageViewerImg.dataset.retryDone) {
+            imageViewerImg.dataset.retryDone = '1';
+            const fn = decodeURIComponent(fnMatch[1]);
+            fetch('load_cached_media.php?file=' + encodeURIComponent(fn))
+              .then(function(r) { return r.json(); })
+              .then(function(d) {
+                if (d && d.success && imageViewerImg && imageViewerModal.classList.contains('active')) {
+                  imageViewerImg.src = d.url + '?t=' + Date.now();
+                }
+              }).catch(function() {});
+          }
+        };
+        fullImg.src = src;
+      }
+
       imageViewerImg.alt = alt || '';
       imageViewerModal.style.display = 'flex';
       // Force reflow so the opacity/visibility transition actually plays.
@@ -375,13 +408,113 @@
       const img = e.target.closest('.chat-viewable-image');
       if (!img) return;
       e.preventDefault();
-      openImageViewer(img.dataset.fullSrc || img.src, img.alt);
+      openImageViewer(img.dataset.fullSrc || img.src, img.alt, img.src);
     });
 
-    // ── On-demand loader for 1-week cached images purged from local uploads/ ──
+    // ── On-demand loader for 30-second cached images purged from local uploads/ ──
+    const activeImageExpiryTimers = new Map();
+
+    function revertImageToLazyLoad(img, filename) {
+      if (!img || !img.parentNode) return;
+      if (activeImageExpiryTimers.has(img)) {
+        clearTimeout(activeImageExpiryTimers.get(img));
+        activeImageExpiryTimers.delete(img);
+      }
+
+      const loadBtn = document.createElement('div');
+      loadBtn.className = 'chat-image-lazy-load';
+      loadBtn.dataset.filename = filename;
+      loadBtn.setAttribute('style', 'width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;');
+      loadBtn.title = 'Click to load image from Google Drive';
+      loadBtn.onclick = function() { loadCachedImage(loadBtn); };
+      loadBtn.innerHTML = '<div class="load-img-inner">' +
+        '<svg class="load-img-icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>' +
+        '</svg>' +
+        '<span class="load-img-label">Load image</span>' +
+        '</div>';
+
+      // Hide hover reply button if it was anchored to this container
+      const container = img.closest('.message-container');
+      if (typeof hoveredReplyContainer !== 'undefined' && hoveredReplyContainer === container) {
+        if (typeof hoverReplyBtn !== 'undefined' && hoverReplyBtn) hoverReplyBtn.classList.remove('visible');
+        hoveredReplyContainer = null;
+      }
+
+      img.replaceWith(loadBtn);
+    }
+    window.revertImageToLazyLoad = revertImageToLazyLoad;
+
+    function revertReplyQuoteToLazyLoad(rq, filename) {
+      if (!rq) return;
+      rq.className = 'reply-quote reply-quote-image-container reply-quote-lazy-load';
+      rq.setAttribute('data-reply-file', filename);
+      rq.setAttribute('data-filename', filename);
+      rq.title = 'Click to load image from Google Drive';
+      rq.onclick = function() { loadCachedImage(rq); };
+      rq.innerHTML = '<div class="load-img-inner">' +
+        '<svg class="load-img-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>' +
+        '</svg>' +
+        '<span class="load-img-label">Load image</span>' +
+        '</div>';
+    }
+    window.revertReplyQuoteToLazyLoad = revertReplyQuoteToLazyLoad;
+
+    function handleMediaExpired(filename) {
+      if (!filename || !chatBox) return;
+      const cleanBase = filename.replace(/_thumb\.webp$/, '.webp');
+      const thumbBase = cleanBase.replace(/\.webp$/, '_thumb.webp');
+
+      // 1. Revert any chat-viewable-image matching this file
+      const imgElements = chatBox.querySelectorAll('img.chat-viewable-image');
+      imgElements.forEach(function(img) {
+        let fn = img.getAttribute('data-file-name') || img.alt;
+        if (!fn) {
+          const src = img.getAttribute('data-full-src') || img.src || '';
+          if (src.includes(cleanBase) || src.includes(thumbBase)) {
+            fn = cleanBase;
+          }
+        }
+        if (fn === cleanBase || fn === thumbBase || fn === filename) {
+          revertImageToLazyLoad(img, cleanBase);
+        }
+      });
+
+      // 2. Revert any reply quotes matching this file to "Load image" style card
+      const replyQuotes = chatBox.querySelectorAll(`.reply-quote-image-container[data-reply-file="${cleanBase}"]`);
+      replyQuotes.forEach(function(rq) {
+        revertReplyQuoteToLazyLoad(rq, cleanBase);
+      });
+    }
+    window.handleMediaExpired = handleMediaExpired;
+
+    function scheduleImageCacheExpiry(img, filename) {
+      if (!img || !filename) return;
+      if (activeImageExpiryTimers.has(img)) {
+        clearTimeout(activeImageExpiryTimers.get(img));
+      }
+
+      const cleanBase = filename.replace(/_thumb\.webp$/, '.webp');
+      const timerId = setTimeout(function() {
+        activeImageExpiryTimers.delete(img);
+        if (!img || !img.parentNode) return;
+        if (!document.body.contains(img)) return;
+
+        // Call backend to prune the expired file from local uploads/ folder and notify peers
+        fetch('load_cached_media.php?action=prune&file=' + encodeURIComponent(cleanBase), { method: 'POST' })
+          .catch(function() {});
+
+        // Revert img element and reply quote(s) back to "Load image" style cards
+        handleMediaExpired(cleanBase);
+      }, 30000); // 30 seconds
+
+      activeImageExpiryTimers.set(img, timerId);
+    }
+
     function loadCachedImage(el) {
       if (!el || el.classList.contains('loading')) return;
-      const filename = el.dataset.filename;
+      const filename = el.dataset.filename || el.dataset.replyFile;
       if (!filename) return;
 
       el.classList.add('loading');
@@ -391,36 +524,69 @@
 
       fetch('load_cached_media.php?file=' + encodeURIComponent(filename))
         .then(function(res) {
-          if (!res.ok) throw new Error('HTTP error ' + res.status);
           return res.json();
         })
         .then(function(data) {
           if (data && data.success) {
-            const img = document.createElement('img');
-            img.src = (data.thumb_url || data.url);
-            img.dataset.fullSrc = data.url;
-            img.alt = filename;
-            img.className = 'chat-viewable-image';
-            img.loading = 'eager';
-            img.decoding = 'async';
-            img.draggable = false;
-            const style = el.getAttribute('style') || '';
-            img.style.cssText = style;
-            if (img.style.height === '160px') {
-              img.style.height = 'auto';
+            const cleanBase = filename.replace(/_thumb\.webp$/, '.webp');
+            const mainImgUrl = data.url;
+            const thumbImgUrl = data.thumb_url || data.url;
+
+            // 1. Rehydrate any reply quotes waiting for this image
+            const replyQuotes = document.querySelectorAll(`.reply-quote-image-container[data-reply-file="${cleanBase}"]`);
+            replyQuotes.forEach(function(rq) {
+              rq.className = 'reply-quote reply-quote-image-container';
+              rq.title = '';
+              rq.onclick = null;
+              rq.innerHTML = `<img src="${thumbImgUrl}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false">`;
+            });
+
+            // 2. Rehydrate all .chat-image-lazy-load buttons for this file
+            const lazyButtons = document.querySelectorAll(`.chat-image-lazy-load[data-filename="${cleanBase}"], .chat-image-lazy-load[data-filename="${filename}"]`);
+            lazyButtons.forEach(function(card) {
+              const img = document.createElement('img');
+              img.src = thumbImgUrl;
+              img.dataset.fullSrc = mainImgUrl;
+              img.dataset.fileName = cleanBase;
+              img.alt = cleanBase;
+              img.className = 'chat-viewable-image';
+              img.loading = 'eager';
+              img.decoding = 'async';
+              img.draggable = false;
+              img.style.cssText = 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);';
+              card.replaceWith(img);
+              scheduleImageCacheExpiry(img, cleanBase);
+            });
+
+            // If the clicked element itself was a reply quote or lazy card not captured above
+            if (el.parentNode) {
+              if (el.classList.contains('reply-quote-lazy-load') || el.classList.contains('reply-quote-image-container')) {
+                el.className = 'reply-quote reply-quote-image-container';
+                el.title = '';
+                el.onclick = null;
+                el.innerHTML = `<img src="${thumbImgUrl}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false">`;
+              } else if (el.classList.contains('chat-image-lazy-load')) {
+                const img = document.createElement('img');
+                img.src = thumbImgUrl;
+                img.dataset.fullSrc = mainImgUrl;
+                img.dataset.fileName = cleanBase;
+                img.alt = cleanBase;
+                img.className = 'chat-viewable-image';
+                img.loading = 'eager';
+                img.decoding = 'async';
+                img.draggable = false;
+                img.style.cssText = 'width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);';
+                el.replaceWith(img);
+                scheduleImageCacheExpiry(img, cleanBase);
+              }
             }
-            img.style.objectFit = 'cover';
-            img.onerror = function() {
-              const c = this.closest('.message-container');
-              this.closest('.message-media,.message-bubble')?.remove();
-              if (c && !c.querySelector('.message-bubble,.message-media,.message-content')) c.remove();
-            };
-            el.replaceWith(img);
-            if (typeof attachImageLoadListeners === 'function') {
-              attachImageLoadListeners();
-            }
+          } else if (data && data.not_found) {
+            // File confirmed not found on Google Drive (deleted/unavailable) -> convert to red note bubble
+            markImageUnavailable(el, filename);
           } else {
-            throw new Error((data && data.error) || 'Failed to load');
+            // Transient error -> restore button state so user can retry
+            el.classList.remove('loading');
+            if (label) label.textContent = originalText || 'Load image';
           }
         })
         .catch(function(err) {
@@ -431,18 +597,235 @@
     }
     window.loadCachedImage = loadCachedImage;
 
-    // Auto-remove any broken or missing chat images so they totally disappear
+    function markImageUnavailable(el, filename) {
+      if (!el) return;
+      const cleanBase = (filename || el.dataset.filename || el.dataset.replyFile || '').replace(/_thumb\.webp$/, '.webp');
+      const thumbBase = cleanBase.replace(/\.webp$/, '_thumb.webp');
+
+      const brokenHtml = '<div class="chat-image-broken" style="width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;" title="Image unavailable from Google Drive">' +
+        '<div class="broken-img-inner">' +
+        '<svg class="broken-img-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+        '<line x1="2" y1="2" x2="22" y2="22"/><path d="M10.41 10.41a2 2 0 1 0-2.83-2.83"/><line x1="13.5" y1="13.5" x2="6" y2="21"/><line x1="18" y1="12" x2="21" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/>' +
+        '</svg><span class="broken-img-label">Image unavailable</span></div></div>';
+
+      const brokenQuoteHtml = '<div class="broken-img-inner">' +
+        '<svg class="broken-img-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+        '<line x1="2" y1="2" x2="22" y2="22"/><path d="M10.41 10.41a2 2 0 1 0-2.83-2.83"/><line x1="13.5" y1="13.5" x2="6" y2="21"/><line x1="18" y1="12" x2="21" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/>' +
+        '</svg><span class="broken-img-label">Unavailable</span></div>';
+
+      const replyQuotes = document.querySelectorAll(`.reply-quote-image-container[data-reply-file="${cleanBase}"], .reply-quote-lazy-load[data-filename="${cleanBase}"]`);
+      replyQuotes.forEach(function(rq) {
+        rq.className = 'reply-quote reply-quote-image-container reply-quote-broken';
+        rq.onclick = null;
+        rq.removeAttribute('data-filename');
+        rq.removeAttribute('data-reply-file');
+        rq.innerHTML = brokenQuoteHtml;
+      });
+
+      if (el.classList.contains('reply-quote') || el.classList.contains('reply-quote-lazy-load') || el.classList.contains('reply-quote-image-container')) {
+        el.className = 'reply-quote reply-quote-image-container reply-quote-broken';
+        el.onclick = null;
+        el.removeAttribute('data-filename');
+        el.removeAttribute('data-reply-file');
+        el.innerHTML = brokenQuoteHtml;
+      }
+
+      const mainCards = document.querySelectorAll(`.chat-image-lazy-load[data-filename="${cleanBase}"], .chat-image-lazy-load[data-filename="${thumbBase}"], .chat-image-lazy-load[data-filename="${filename}"]`);
+      const allCards = Array.from(mainCards);
+      if (el.classList.contains('chat-image-lazy-load') && !allCards.includes(el)) {
+        allCards.push(el);
+      }
+
+      allCards.forEach(function(card) {
+        const temp = document.createElement('div');
+        temp.innerHTML = brokenHtml;
+        const brokenEl = temp.firstElementChild;
+        card.replaceWith(brokenEl);
+      });
+    }
+    window.markImageUnavailable = markImageUnavailable;
+
+    function observeLazyImages() {
+      if (!chatBox) return;
+      const images = chatBox.querySelectorAll('img.chat-viewable-image');
+      images.forEach(function(img) {
+        let fn = img.getAttribute('data-file-name') || img.alt;
+        if (!fn) {
+          const src = img.getAttribute('data-full-src') || img.src || '';
+          const m = src.match(/uploads\/([^?&#]+)/) || src.match(/[?&]file=([^&#]+)/);
+          if (m) fn = decodeURIComponent(m[1]);
+        }
+        if (fn) {
+          scheduleImageCacheExpiry(img, fn);
+        }
+      });
+    }
+    window.observeLazyImages = observeLazyImages;
+
+    // Auto-replace any broken or missing chat images with lazy load button or red note
     document.addEventListener('error', function(e) {
       const target = e.target;
-      if (target && target.tagName === 'IMG' && (target.classList.contains('chat-viewable-image') || target.classList.contains('reply-quote-image'))) {
+      if (target && target.tagName === 'IMG' && target.classList.contains('reply-quote-image')) {
+        const rq = target.closest('.reply-quote-image-container') || target.closest('.reply-quote');
+        if (rq) {
+          const fn = rq.getAttribute('data-reply-file') || target.alt || '';
+          const cleanBase = fn.replace(/_thumb\.webp$/, '.webp');
+          rq.className = 'reply-quote reply-quote-image-container reply-quote-lazy-load';
+          rq.setAttribute('data-filename', cleanBase);
+          rq.onclick = function() { loadCachedImage(this); };
+          rq.innerHTML = `<div class="load-img-inner"><svg class="load-img-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span class="load-img-label">Load image</span></div>`;
+        }
+        return;
+      }
+      if (target && target.tagName === 'IMG' && target.classList.contains('chat-viewable-image')) {
+        if (!target.dataset.retried) {
+          target.dataset.retried = '1';
+          setTimeout(function() {
+            if (target && target.parentNode) {
+              const baseSrc = target.src.replace(/([?&])_r=\d+/, '');
+              target.src = baseSrc + (baseSrc.indexOf('?') >= 0 ? '&' : '?') + '_r=' + Date.now();
+            }
+          }, 800);
+          return;
+        }
+
+        const fn = target.getAttribute('data-file-name') || target.alt || '';
+        if (fn && typeof revertImageToLazyLoad === 'function') {
+          revertImageToLazyLoad(target, fn);
+          return;
+        }
+
         const container = target.closest('.message-container');
-        const media = target.closest('.message-media, .message-bubble, .reply-quote-image-container');
-        if (media) media.remove();
-        if (container && !container.querySelector('.message-bubble, .message-media, .message-content')) {
-          container.remove();
+        if (container) {
+          const temp = document.createElement('div');
+          temp.innerHTML = '<div class="chat-image-broken" style="width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;" title="Image unavailable from Google Drive">' +
+            '<div class="broken-img-inner">' +
+            '<svg class="broken-img-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+            '<line x1="2" y1="2" x2="22" y2="22"/><path d="M10.41 10.41a2 2 0 1 0-2.83-2.83"/><line x1="13.5" y1="13.5" x2="6" y2="21"/><line x1="18" y1="12" x2="21" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/>' +
+            '</svg><span class="broken-img-label">Image unavailable</span></div></div>';
+          target.replaceWith(temp.firstElementChild);
+
+          if (typeof hideReplyBanner === 'function' && typeof replyState !== 'undefined' && replyState && replyState.msgId === container.getAttribute('data-msg-id')) {
+            hideReplyBanner();
+          }
+          if (typeof hoveredReplyContainer !== 'undefined' && hoveredReplyContainer === container) {
+            if (typeof hoverReplyBtn !== 'undefined' && hoverReplyBtn) hoverReplyBtn.classList.remove('visible');
+            hoveredReplyContainer = null;
+          }
         }
       }
     }, true);
+
+    // ── Real-time Google Drive image checker ────────────────────────────────
+    let imageVerifyTimer = null;
+    let isVerifyingImages = false;
+
+    function verifyChatImages() {
+      if (isVerifyingImages || document.hidden) return;
+      if (!chatBox) return;
+
+      const imgElements = chatBox.querySelectorAll('.chat-viewable-image, .reply-quote-image-container img, .chat-image-lazy-load, .reply-quote-lazy-load');
+      if (!imgElements.length) return;
+
+      const filesToCheck = new Set();
+      imgElements.forEach(function(img) {
+        let fn = img.getAttribute('data-file-name') || img.getAttribute('data-reply-file') || img.getAttribute('data-filename');
+        if (!fn) {
+          const src = img.getAttribute('data-full-src') || img.getAttribute('src') || '';
+          const m = src.match(/[?&]file=([^&#]+)/) || src.match(/uploads\/([^?&#]+)/);
+          if (m) fn = decodeURIComponent(m[1]);
+        }
+        if (fn) {
+          filesToCheck.add(fn);
+        }
+      });
+
+      if (!filesToCheck.size) return;
+
+      isVerifyingImages = true;
+      fetch('check_media.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: Array.from(filesToCheck) })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        isVerifyingImages = false;
+        if (data && data.success && Array.isArray(data.deleted) && data.deleted.length > 0) {
+          const delSet = new Set();
+          data.deleted.forEach(function(delFn) {
+            const cleanBase = delFn.replace(/_thumb\.webp$/, '.webp').toLowerCase().trim();
+            const thumbBase = cleanBase.replace(/\.webp$/, '_thumb.webp').toLowerCase().trim();
+            delSet.add(delFn.toLowerCase().trim());
+            delSet.add(cleanBase);
+            delSet.add(thumbBase);
+          });
+
+          // 1. Process reply quotes FIRST — NEVER touch the message container
+          chatBox.querySelectorAll('.reply-quote-image-container, .reply-quote-lazy-load').forEach(function(rq) {
+            let fn = (rq.getAttribute('data-reply-file') || rq.getAttribute('data-filename') || '').toLowerCase().trim();
+            if (!fn) {
+              const img = rq.querySelector('img');
+              if (img) {
+                const src = img.getAttribute('src') || '';
+                const m = src.match(/uploads\/([^?&#]+)/) || src.match(/[?&]file=([^&#]+)/);
+                if (m) fn = decodeURIComponent(m[1]).toLowerCase().trim();
+              }
+            }
+            if (fn && delSet.has(fn)) {
+              rq.className = 'reply-quote reply-quote-image-container reply-quote-broken';
+              rq.onclick = null;
+              rq.removeAttribute('data-filename');
+              rq.removeAttribute('data-reply-file');
+              rq.innerHTML = '<div class="broken-img-inner">' +
+                '<svg class="broken-img-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+                '<line x1="2" y1="2" x2="22" y2="22"/><path d="M10.41 10.41a2 2 0 1 0-2.83-2.83"/><line x1="13.5" y1="13.5" x2="6" y2="21"/><line x1="18" y1="12" x2="21" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/>' +
+                '</svg><span class="broken-img-label">Unavailable</span></div>';
+            }
+          });
+
+          // 2. Process main message media separately — replace image/card directly with broken image placeholder
+          const brokenHtml = '<div class="chat-image-broken" style="width:140px;height:140px;aspect-ratio:1/1;border-radius:12px;" title="Image unavailable from Google Drive">' +
+            '<div class="broken-img-inner">' +
+            '<svg class="broken-img-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+            '<line x1="2" y1="2" x2="22" y2="22"/><path d="M10.41 10.41a2 2 0 1 0-2.83-2.83"/><line x1="13.5" y1="13.5" x2="6" y2="21"/><line x1="18" y1="12" x2="21" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/>' +
+            '</svg><span class="broken-img-label">Image unavailable</span></div></div>';
+
+          chatBox.querySelectorAll('.message-container .chat-viewable-image, .message-container .chat-image-lazy-load').forEach(function(img) {
+            if (img.closest('.reply-quote')) return;
+
+            let fn = (img.getAttribute('data-file-name') || img.getAttribute('data-filename') || '').toLowerCase().trim();
+            if (!fn) {
+              const src = img.getAttribute('data-full-src') || img.getAttribute('src') || '';
+              const m = src.match(/[?&]file=([^&#]+)/) || src.match(/uploads\/([^?&#]+)/);
+              if (m) fn = decodeURIComponent(m[1]).toLowerCase().trim();
+            }
+
+            if (fn && delSet.has(fn)) {
+              const temp = document.createElement('div');
+              temp.innerHTML = brokenHtml;
+              const brokenEl = temp.firstElementChild;
+              img.replaceWith(brokenEl);
+            }
+          });
+        }
+
+        if (data && data.success && Array.isArray(data.expired) && data.expired.length > 0) {
+          data.expired.forEach(function(expFn) {
+            handleMediaExpired(expFn);
+          });
+        }
+      })
+      .catch(function() {
+        isVerifyingImages = false;
+      });
+    }
+
+    function startRealtimeImageVerifier() {
+      if (imageVerifyTimer) return;
+      imageVerifyTimer = setInterval(verifyChatImages, 2500);
+    }
+    startRealtimeImageVerifier();
 
     // Close: X button or Escape key.
     if (imageViewerCloseBtn) {
@@ -1262,8 +1645,16 @@
       if (replyBanner) replyBanner.classList.remove('active');
     }
 
+    function isWarningContainer(container) {
+      if (!container) return false;
+      if (container.classList.contains('user-moved')) return true;
+      if (container.querySelector('.message-bubble > .no-image-note, .message-bubble .message-content.no-image-note')) return true;
+      if (container.querySelector('.chat-image-lazy-load')) return true;
+      return false;
+    }
+
     function openReplyForContainer(container) {
-      if (!container || container.classList.contains('user-moved')) return;
+      if (!container || isWarningContainer(container) || container.querySelector('.chat-image-lazy-load')) return;
       const snippet = getReplySnippet(container);
       replyState = {
         msgId: container.getAttribute('data-msg-id') || '',
@@ -1290,7 +1681,11 @@
     let hoverReplyHideTimer = null;
 
     function positionHoverReplyBtn(container) {
-      if (!container || !chatBox) return;
+      if (!container || !chatBox || isWarningContainer(container) || container.querySelector('.chat-image-lazy-load')) {
+        hoverReplyBtn.classList.remove('visible');
+        hoveredReplyContainer = null;
+        return;
+      }
       // Match both text bubbles and image/audio media containers
       const bubble = container.querySelector('.message-bubble, .message-media');
       if (!bubble) return;
@@ -1354,8 +1749,8 @@
       if (isAdminAllChatsView || activeAdminConv) return;
       const container = e.target.closest('.message-container[data-msg-id]');
       if (!container) return;
-      // Never offer reply on the transient "sending..." optimistic bubble
-      if (container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return;
+      // Never offer reply on transient bubbles or unloaded images
+      if (container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid') || container.querySelector('.chat-image-lazy-load')) return;
       cancelHideHoverReplyBtn();
       positionHoverReplyBtn(container);
     });
@@ -1429,7 +1824,7 @@
       // button above (mouseover/click); this touch path was missing it.
       if (isAdminAllChatsView || activeAdminConv) return;
       const container = e.target.closest('.message-container[data-msg-id]');
-      if (!container || container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return;
+      if (!container || isWarningContainer(container) || container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid') || container.querySelector('.chat-image-lazy-load')) return;
 
       swipeContainer = container;
       swipeAvatarEl = container.querySelector('.message-avatar');
@@ -1722,7 +2117,7 @@
     function canReactToContainer(container) {
       if (!container) return false;
       if (isAdminAllChatsView || activeAdminConv) return false;
-      if (container.classList.contains('user-moved')) return false;
+      if (isWarningContainer(container)) return false;
       if (container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return false;
       return !!container.getAttribute('data-msg-id');
     }
@@ -2538,7 +2933,11 @@
         if (msgId) {
           const isMoved = el.classList && el.classList.contains('user-moved') ? 'moved' : 'active';
           const content = el.querySelector('.message-content')?.textContent?.trim() || '';
-          return msgId + '|' + isMoved + '|' + content;
+          const replyTo = el.getAttribute('data-reply-to') || '';
+          const rqText = el.querySelector('.reply-quote')?.textContent?.trim() || '';
+          const mediaFile = el.querySelector('.chat-viewable-image, .chat-image-lazy-load')?.getAttribute('data-file-name')
+            || el.querySelector('.chat-viewable-image, .chat-image-lazy-load')?.getAttribute('data-filename') || '';
+          return msgId + '|' + isMoved + '|' + replyTo + '|' + rqText + '|' + mediaFile + '|' + content;
         }
       }
       if (el && el.classList && el.classList.contains('empty-chat')) {
@@ -2677,7 +3076,14 @@
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
-            if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
+            const existingEl = msgId ? chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`) : null;
+            if (existingEl) {
+              if (!existingEl.querySelector('.message-avatar')) {
+                const incomingAvatar = el.querySelector('.message-avatar');
+                if (incomingAvatar) {
+                  existingEl.insertBefore(incomingAvatar.cloneNode(true), existingEl.firstChild);
+                }
+              }
               return;
             }
             actuallyAddedCount++;
@@ -3042,7 +3448,14 @@
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
-            if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
+            const existingEl = msgId ? chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`) : null;
+            if (existingEl) {
+              if (!existingEl.querySelector('.message-avatar')) {
+                const incomingAvatar = el.querySelector('.message-avatar');
+                if (incomingAvatar) {
+                  existingEl.insertBefore(incomingAvatar.cloneNode(true), existingEl.firstChild);
+                }
+              }
               return;
             }
             actuallyAddedCount++;
@@ -4118,6 +4531,7 @@
                   } else {
                     sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
                     sendingBubble.setAttribute('data-created-at', new Date().toISOString());
+                    sendingBubble.setAttribute('data-created-time', String(Math.floor(Date.now() / 1000)));
                     sendingBubble.setAttribute('data-edit-count', '0');
                     const replyUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid) ? confirmedMsg.reply_to_msg_uuid : (activeReply ? activeReply.msgId : null);
                     if (replyUuid) {
@@ -4154,8 +4568,12 @@
                     if (!replyUuid || !snippetText) return '';
                     if (String(snippetText).startsWith('image:')) {
                       const imgFile = String(snippetText).slice(6);
-                      const imgSrc  = 'uploads/' + imgFile;
-                      return `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(replyUuid)}"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
+                      const cleanFile = imgFile.replace(/_thumb\.webp$/, '.webp');
+                      const thumbFile = cleanFile.replace(/\.webp$/, '_thumb.webp');
+                      const targetCont = chatBox ? chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`) : null;
+                      const targetImg = targetCont ? targetCont.querySelector('img.chat-viewable-image') : null;
+                      const imgSrc = (targetImg && targetImg.src) ? targetImg.src : ('uploads/' + encodeURIComponent(thumbFile));
+                      return `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(replyUuid)}" data-reply-file="${escapeHtml(cleanFile)}"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="const rq=this.closest('.reply-quote-image-container'); if(rq){ rq.className='reply-quote reply-quote-image-container reply-quote-lazy-load'; rq.setAttribute('data-filename', '${escapeHtml(cleanFile)}'); rq.onclick=function(){ loadCachedImage(this); }; rq.innerHTML='<div class=\\'load-img-inner\\'><svg class=\\'load-img-icon\\' viewBox=\\'0 0 24 24\\' width=\\'22\\' height=\\'22\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><rect x=\\'3\\' y=\\'3\\' width=\\'18\\' height=\\'18\\' rx=\\'2\\' ry=\\'2\\'/><circle cx=\\'8.5\\' cy=\\'8.5\\' r=\\'1.5\\'/><polyline points=\\'21 15 16 10 5 21\\'/></svg><span class=\\'load-img-label\\'>Load image</span></div>'; }"></div>`;
                     }
                     return `<div class="reply-quote" data-reply-to="${escapeHtml(replyUuid)}"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
                   })();
@@ -5318,12 +5736,13 @@
     // ==========================================================================
     // IMAGE STAGING MODAL — drop an image, then drop in more before sending
     // ==========================================================================
-    const imageStagingModal     = document.getElementById('imageStagingModal');
-    const imageStagingDropzone  = document.getElementById('imageStagingDropzone');
-    const imageStagingGrid      = document.getElementById('imageStagingGrid');
-    const imageStagingFileInput = document.getElementById('imageStagingFileInput');
-    const imageStagingCancelBtn = document.getElementById('imageStagingCancelBtn');
-    const imageStagingSendBtn   = document.getElementById('imageStagingSendBtn');
+    const imageStagingModal        = document.getElementById('imageStagingModal');
+    const imageStagingDropzone     = document.getElementById('imageStagingDropzone');
+    const imageStagingGrid         = document.getElementById('imageStagingGrid');
+    const imageStagingCaptionInput = document.getElementById('imageStagingCaptionInput');
+    const imageStagingFileInput    = document.getElementById('imageStagingFileInput');
+    const imageStagingCancelBtn    = document.getElementById('imageStagingCancelBtn');
+    const imageStagingSendBtn      = document.getElementById('imageStagingSendBtn');
 
     let stagedImages     = []; // { id, file, url }
     let stagedImageSeq   = 0;
@@ -5451,7 +5870,20 @@
         imageStagingModal.style.display = 'flex';
         imageStagingModal.classList.add('active');
         imageStagingModal.setAttribute('aria-hidden', 'false');
-        if (imageStagingSendBtn) {
+
+        // Pre-fill caption if user had already typed something in the main chat input
+        if (imageStagingCaptionInput) {
+          if (messageInput && messageInput.value.trim() !== '' && !imageStagingCaptionInput.value.trim()) {
+            imageStagingCaptionInput.value = messageInput.value.trim();
+          }
+          imageStagingCaptionInput.style.height = 'auto';
+          if (imageStagingCaptionInput.scrollHeight > 0) {
+            imageStagingCaptionInput.style.height = Math.min(imageStagingCaptionInput.scrollHeight, 120) + 'px';
+          }
+          setTimeout(function() {
+            imageStagingCaptionInput.focus();
+          }, 60);
+        } else if (imageStagingSendBtn) {
           setTimeout(function() {
             if (imageStagingSendBtn && !imageStagingSendBtn.disabled) {
               imageStagingSendBtn.focus();
@@ -5474,6 +5906,10 @@
         stagedImages = [];
         renderImageStagingGrid();
       }
+      if (imageStagingCaptionInput) {
+        imageStagingCaptionInput.value = '';
+        imageStagingCaptionInput.style.height = 'auto';
+      }
       if (imageStagingDropzone) imageStagingDropzone.classList.remove('drag-active');
       stagingDragCount = 0;
     }
@@ -5492,15 +5928,25 @@
         // upload request itself, but the server now always saves ONE
         // message per file (never a shared grid bundle) — so each image
         // ends up individually reply-able, same as any other message.
-        const imageBatch = stagedImages.filter(function(item) { return item.isImage; })
-                                        .map(function(item) { return item.file; });
-        const otherFiles = stagedImages.filter(function(item) { return !item.isImage; })
-                                        .map(function(item) { return item.file; });
+        const allFiles = stagedImages.map(function(item) { return item.file; });
+        const captionText = imageStagingCaptionInput ? imageStagingCaptionInput.value.trim() : '';
 
-        if (imageBatch.length > 0) uploadAndSend(imageBatch, true);
-        for (const file of otherFiles) uploadAndSend([file], false);
+        uploadAndSend(allFiles, captionText);
+
+        if (captionText && messageInput) {
+          messageInput.value = '';
+          messageInput.style.height = 'auto';
+          if (typeof renderMentionHighlight === 'function') renderMentionHighlight();
+        }
 
         closeImageStagingModal(true);
+      });
+    }
+
+    if (imageStagingCaptionInput) {
+      imageStagingCaptionInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 120) + 'px';
       });
     }
 
@@ -5509,6 +5955,7 @@
       if (!imageStagingModal || !imageStagingModal.classList.contains('active')) return;
 
       if (e.key === 'Enter') {
+        if (e.shiftKey) return; // Allow multiline in caption textarea
         e.preventDefault();
         e.stopPropagation();
         if (imageStagingSendBtn && !imageStagingSendBtn.disabled) {
@@ -5821,6 +6268,10 @@
           }
         });
       });
+
+      if (typeof observeLazyImages === 'function') {
+        observeLazyImages();
+      }
     }
 
     // ── Core upload handler ───────────────────────────────────────────────────
@@ -5872,7 +6323,7 @@
     }
 
     // ── Upload files → save message ───────────────────────────────────────────
-    function uploadAndSend(fileList, isImageBatch) {
+    function uploadAndSend(fileList, captionMessage) {
       if (isAdminAllChatsView || activeAdminConv) {
         return;
       }
@@ -5883,7 +6334,7 @@
       // Capture + clear any active reply before the async upload starts, so
       // a second reply started while this one is still uploading can't leak
       // into this batch. The server only attaches it to the first message
-      // it saves out of this batch (text, or otherwise the first file) —
+      // it saves out of this batch (the first file) —
       // see send.php / send_dm.php.
       const replyForThisSend = (replyState && !editingMsgId) ? replyState.msgId : null;
       if (replyForThisSend) hideReplyBanner();
@@ -5952,14 +6403,18 @@
         sendXhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
 
         let params = 'uploaded_files=' + encodeURIComponent(filesPayload);
+        const trimmedCaption = (typeof captionMessage === 'string') ? captionMessage.trim() : '';
+        if (trimmedCaption !== '') {
+          params += '&message=' + encodeURIComponent(trimmedCaption);
+        }
         if (isGlobalChat) {
           const targetConvId = (typeof getActiveChannelConvId === 'function')
             ? getActiveChannelConvId()
             : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
           params += '&conv_id=' + encodeURIComponent(targetConvId);
         }
-        if (!isGlobalChat && activeDM) {
-          params += '&target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM);
+        if (!isGlobalChat && (activeDM || activeDMAccountId)) {
+          params += '&target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM || '');
         }
         if (replyForThisSend) {
           params += '&reply_to=' + encodeURIComponent(replyForThisSend);
@@ -5967,7 +6422,7 @@
 
         sendXhr.onload = function() {
           updateUploadProgress(100);
-          setTimeout(closeUploadingModal, 300);
+          closeUploadingModal();
 
           if (this.status === 200) {
             let resData = null;
@@ -5981,6 +6436,116 @@
               shouldAutoScroll = true;
               scrollToBottom(true, true);
               hideScrollIndicator(true);
+
+              // ── Immediate optimistic display of uploaded messages in chat UI ──
+              const msgList = (resData && Array.isArray(resData.messages)) ? resData.messages : (resData && resData.message ? [resData.message] : []);
+              if (msgList.length > 0 && chatBox) {
+                const emptyChat = chatBox.querySelector('.empty-chat, #noChatSelectedState');
+                if (emptyChat) emptyChat.remove();
+
+                const d = new Date();
+                const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
+                const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
+                const fullTimeDisplay = `${dateStr} at ${timeStr}`;
+
+                const curDisplayName = (typeof wsConfig !== 'undefined' && wsConfig && wsConfig.name)
+                  ? wsConfig.name
+                  : ((typeof userName !== 'undefined' && userName) ? userName : ((typeof nameInput !== 'undefined' && nameInput && nameInput.value.trim()) ? nameInput.value.trim() : 'You'));
+
+                const curAvatarUrl = (typeof wsConfig !== 'undefined' && wsConfig && wsConfig.avatarUrl)
+                  ? wsConfig.avatarUrl
+                  : null;
+
+                const curInitials = (typeof getInitials === 'function')
+                  ? getInitials(curDisplayName)
+                  : curDisplayName.slice(0, 2).toUpperCase();
+
+                const curSenderId = (typeof wsConfig !== 'undefined' && wsConfig && wsConfig.accountId)
+                  ? wsConfig.accountId
+                  : (typeof myAccountId !== 'undefined' ? myAccountId : '');
+
+                const senderLabel = curDisplayName.toLowerCase();
+
+                const avatarInner = (typeof avatarInnerHtml === 'function')
+                  ? avatarInnerHtml(curAvatarUrl, curInitials)
+                  : (curAvatarUrl
+                      ? `<img src="${escapeHtml(curAvatarUrl)}" class="avatar-img" alt="" loading="eager" referrerpolicy="no-referrer" draggable="false" ondragstart="return false;">`
+                      : escapeHtml(curInitials));
+
+                const senderAvatarHtml = `<div class="message-avatar" data-sender-name="${escapeHtml(curDisplayName)}">${avatarInner}</div>`;
+
+                msgList.forEach(function(msgData) {
+                  if (!msgData || !msgData.id) return;
+                  if (chatBox.querySelector(`.message-container[data-msg-id="${msgData.id}"]`)) return;
+
+                  const fn = msgData.plaintext || (typeof msgData.message === 'string' ? msgData.message : '');
+                  const cleanBase = fn.replace(/_thumb\.webp$/, '.webp');
+                  const thumbName = cleanBase.replace(/\.webp$/, '_thumb.webp');
+                  const fnExt = (cleanBase.split('.').pop() || '').toLowerCase();
+                  const isImg = IMAGE_EXTS.has(fnExt) || cleanBase.endsWith('.webp');
+
+                  const msgEl = document.createElement('div');
+                  msgEl.className = 'message-container sent msg-animate-sent';
+                  msgEl.setAttribute('data-msg-id', msgData.id);
+                  if (curSenderId) {
+                    msgEl.setAttribute('data-sender-id', String(curSenderId));
+                  }
+                  msgEl.setAttribute('data-created-at', msgData.created_at || new Date().toISOString());
+                  msgEl.setAttribute('data-created-time', String(Math.floor(Date.now() / 1000)));
+
+                  const replyUuid = msgData.reply_to_msg_uuid || replyForThisSend;
+                  if (replyUuid) {
+                    msgEl.setAttribute('data-reply-to', replyUuid);
+                  }
+
+                  let optimisticReplyHtml = '';
+                  const repSnippet = msgData.reply_snippet || (replyState && replyState.snippet) || '';
+                  if (replyUuid && repSnippet) {
+                    if (String(repSnippet).startsWith('image:')) {
+                      const repImg = String(repSnippet).slice(6);
+                      const cleanRep = repImg.replace(/_thumb\.webp$/, '.webp');
+                      optimisticReplyHtml = `<div class="reply-quote reply-quote-image-container reply-quote-lazy-load" data-reply-to="${escapeHtml(replyUuid)}" data-reply-file="${escapeHtml(cleanRep)}" data-filename="${escapeHtml(cleanRep)}" onclick="loadCachedImage(this)" title="Click to load image from Google Drive"><div class="load-img-inner"><svg class="load-img-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span class="load-img-label">Load image</span></div></div>`;
+                    } else {
+                      optimisticReplyHtml = `<div class="reply-quote" data-reply-to="${escapeHtml(replyUuid)}"><div class="reply-quote-text">${escapeHtml(String(repSnippet).slice(0, 120))}</div></div>`;
+                    }
+                  }
+
+                  if (isImg) {
+                    const imgUrl = 'uploads/' + encodeURIComponent(cleanBase);
+                    msgEl.innerHTML = senderAvatarHtml +
+                      `<div class="bubble-wrapper">` +
+                      `<div class="message-click-timestamp show-timestamp">${fullTimeDisplay}</div>` +
+                      optimisticReplyHtml +
+                      `<div class="message-media">` +
+                      `<img src="${imgUrl}" alt="${cleanBase}" class="chat-viewable-image" data-full-src="${imgUrl}" data-file-name="${cleanBase}" loading="eager" decoding="async" draggable="false" style="width:100%;max-width:240px;max-height:260px;height:auto;border-radius:12px;display:block;cursor:pointer;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.18);" />` +
+                      `<div class="message-info" style="padding:3px 2px;"><span class="message-sender">${senderLabel}</span></div>` +
+                      `</div></div>`;
+                    chatBox.appendChild(msgEl);
+                    const renderedImg = msgEl.querySelector('img.chat-viewable-image');
+                    if (renderedImg) {
+                      scheduleImageCacheExpiry(renderedImg, cleanBase);
+                    }
+                  } else {
+                    const fileDownloadUrl = 'uploads/' + encodeURIComponent(cleanBase);
+                    msgEl.innerHTML = senderAvatarHtml +
+                      `<div class="bubble-wrapper">` +
+                      `<div class="message-click-timestamp show-timestamp">${fullTimeDisplay}</div>` +
+                      optimisticReplyHtml +
+                      `<div class="message-file">` +
+                      `<a href="${fileDownloadUrl}" target="_blank" class="file-attachment" download="${cleanBase}"><i class="fas fa-file"></i> <span>${escapeHtml(cleanBase)}</span></a>` +
+                      `<div class="message-info" style="padding:3px 2px;"><span class="message-sender">${senderLabel}</span></div>` +
+                      `</div></div>`;
+                    chatBox.appendChild(msgEl);
+                  }
+                });
+
+                if (typeof applyAdminBadges === 'function') applyAdminBadges();
+                attachImageLoadListeners();
+                if (typeof updateSeenIndicator === 'function') updateSeenIndicator();
+                scrollToBottom(true, true);
+              }
+
+              const lastSnippet = trimmedCaption || 'Sent a file';
               if (isGlobalChat) {
                 isLoadingGC = false;
                 loadGlobalChat(false, false, true);
@@ -5988,14 +6553,16 @@
                   ? getActiveChannelConvId()
                   : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
                 if (targetConvId && (targetConvId.startsWith('gc_') || targetConvId.startsWith('office_'))) {
-                  bumpSidebarUser(targetConvId, { lastMessage: 'Sent a file' });
+                  bumpSidebarUser(targetConvId, { lastMessage: lastSnippet });
                 }
-              } else if (activeDM) {
-                if (typeof dmMessageCache !== 'undefined' && activeDM) {
-                  dmMessageCache.delete(activeDM);
+              } else if (activeDM || activeDMAccountId) {
+                if (typeof dmMessageCache !== 'undefined') {
+                  if (activeDM) dmMessageCache.delete(activeDM);
+                  if (activeDMAccountId) dmMessageCache.delete(String(activeDMAccountId));
                 }
                 loadChatForced();
-                bumpSidebarUser(activeDM, { lastMessage: 'Sent a file' });
+                if (activeDM) bumpSidebarUser(activeDM, { lastMessage: lastSnippet });
+                else if (activeDMAccountId) bumpSidebarUser(String(activeDMAccountId), { lastMessage: lastSnippet });
               }
             }
           } else {

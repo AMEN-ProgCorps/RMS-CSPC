@@ -666,7 +666,7 @@
     }
 
     /* Hide scrollbars across all modals */
-    .modal, .modal-content, .modal-body, #notifyContentModal .modal-body, #uploadErrorList, .image-staging-grid {
+    .modal, .modal-content, .modal-body, #notifyContentModal .modal-body, #uploadErrorList, .image-staging-grid, .image-staging-caption-input, #imageStagingModal, #imageStagingModal * {
       scrollbar-width: none !important;
       -ms-overflow-style: none !important;
     }
@@ -675,8 +675,14 @@
     .modal-body::-webkit-scrollbar,
     #notifyContentModal .modal-body::-webkit-scrollbar,
     #uploadErrorList::-webkit-scrollbar,
-    .image-staging-grid::-webkit-scrollbar {
+    .image-staging-grid::-webkit-scrollbar,
+    .image-staging-caption-input::-webkit-scrollbar,
+    #imageStagingModal::-webkit-scrollbar,
+    #imageStagingModal *::-webkit-scrollbar {
       display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+      background: transparent !important;
     }
 
     /* ── Image Staging Modal — drop several images here before sending ─── */
@@ -735,6 +741,15 @@
       gap: 8px;
       max-height: 260px;
       overflow-y: auto;
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
+
+    .image-staging-grid::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+      background: transparent !important;
     }
 
     .image-staging-empty {
@@ -845,6 +860,50 @@
     #imageStagingSendBtn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    .image-staging-caption-wrap {
+      margin-top: 10px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .image-staging-caption-input {
+      width: 100%;
+      box-sizing: border-box;
+      resize: none;
+      border: 1px solid var(--border-color);
+      background: var(--bg-input, var(--bg-secondary));
+      color: var(--text-primary);
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 13.5px;
+      line-height: 1.45;
+      min-height: 40px;
+      max-height: 120px;
+      overflow-y: auto;
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .image-staging-caption-input::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+      background: transparent !important;
+    }
+
+    .image-staging-caption-input:focus {
+      outline: none !important;
+      border-color: var(--border-color) !important;
+      box-shadow: none !important;
+    }
+
+    .image-staging-caption-input::placeholder {
+      color: var(--text-secondary);
+      opacity: 0.8;
     }
 
     /* Notification mention modal — same layout as readMoreModal */
@@ -1552,6 +1611,21 @@
       border-radius: 12px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.25);
     }
+    .reply-quote-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 110px;
+      border-radius: 12px;
+      background: #e9ecef;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+      box-sizing: border-box;
+      user-select: none;
+    }
+    .reply-quote-placeholder svg {
+      opacity: 0.65;
+    }
     /* Ensure the real message bubble sits on top of the image thumbnail */
     .reply-quote-image-container + .message-bubble {
       position: relative;
@@ -1750,23 +1824,49 @@
       justify-content: flex-start;
     }
 
-    /* Moved user bubble in office GC */
-    .message-container.user-moved .message-bubble {
-      background: var(--bg-secondary, #f0f2f5) !important;
-      border: 1px dashed var(--border-color, #ccd0d5) !important;
-      color: var(--text-secondary, #65676b) !important;
+    /* Moved user / warning bubble in all views (sent, received, admin) */
+    .message-container.user-moved .message-bubble,
+    .message-container.sent.user-moved .message-bubble,
+    .message-container.received.user-moved .message-bubble,
+    .message-bubble:has(.no-image-note) {
+      background: #ffffff !important;
+      border: 1px solid #fee2e2 !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+      color: #e53e3e !important;
       font-style: italic !important;
       cursor: default !important;
       user-select: none;
     }
-    .message-container.user-moved .message-content {
+    .message-container.user-moved .message-content,
+    .message-container.user-moved .message-content.no-image-note,
+    .message-content.no-image-note,
+    .reply-quote-text.no-image-note {
       font-style: italic !important;
-      color: var(--text-secondary, #65676b) !important;
-      opacity: 0.85;
+      color: #e53e3e !important;
+      font-weight: 500 !important;
+      opacity: 1 !important;
       font-size: 13px;
     }
     .message-container.user-moved .message-sender {
-      color: var(--text-secondary, #65676b) !important;
+      color: #94a3b8 !important;
+    }
+
+    /* Warning / deleted image reply-quote bubble */
+    .reply-quote.reply-quote-warning,
+    .reply-quote:has(.no-image-note),
+    .sent .reply-quote.reply-quote-warning,
+    .sent .reply-quote:has(.no-image-note),
+    .received .reply-quote.reply-quote-warning,
+    .received .reply-quote:has(.no-image-note) {
+      background: #ffffff !important;
+      border: 1px solid #fee2e2 !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+      opacity: 1 !important;
+      max-width: 92%;
+      width: auto !important;
+      min-width: 0 !important;
+      margin-bottom: -12px !important;
+      padding: 7px 12px 18px 12px !important;
     }
 
     /* Avatar Styles */
@@ -1967,8 +2067,9 @@
       cursor: pointer;
       user-select: none;
       transition: background 0.18s, border-color 0.18s, transform 0.15s;
-      min-width: 140px;
-      min-height: 100px;
+      width: 100%;
+      max-width: 200px;
+      aspect-ratio: 1 / 1;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     }
     .chat-image-lazy-load:hover {
@@ -2011,6 +2112,145 @@
     @keyframes spinLoadImg {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
+    }
+
+    /* ── Reply Quote Unloaded Image Card (matches "Load image" style) ───── */
+    .reply-quote.reply-quote-image-container.reply-quote-lazy-load,
+    .reply-quote-image-placeholder {
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-secondary, #f0f2f5) !important;
+      border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12)) !important;
+      border-radius: 12px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.18s, border-color 0.18s, transform 0.15s;
+      width: 140px;
+      height: 90px;
+      min-width: 140px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      margin-bottom: -20px;
+      box-sizing: border-box;
+    }
+    .reply-quote.reply-quote-image-container.reply-quote-lazy-load:hover,
+    .reply-quote-image-placeholder:hover {
+      background: var(--bg-hover, #e4e6eb) !important;
+      border-color: #1b74e4 !important;
+      transform: translateY(-1px);
+    }
+    .reply-quote.reply-quote-image-container.reply-quote-lazy-load:active,
+    .reply-quote-image-placeholder:active {
+      transform: translateY(0);
+    }
+    .reply-quote.reply-quote-image-container.reply-quote-lazy-load .load-img-inner,
+    .reply-quote-placeholder-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      color: var(--text-secondary, #65676b);
+      padding: 6px;
+      pointer-events: none;
+    }
+    .reply-quote.reply-quote-image-container.reply-quote-lazy-load:hover .load-img-inner,
+    .reply-quote-image-placeholder:hover .reply-quote-placeholder-inner {
+      color: #1b74e4;
+    }
+    .reply-quote.reply-quote-image-container.reply-quote-lazy-load .load-img-icon,
+    .reply-quote-image-placeholder svg {
+      stroke: currentColor;
+      transition: stroke 0.18s;
+    }
+    .reply-quote.reply-quote-image-container.reply-quote-lazy-load .load-img-label {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+    .reply-quote.reply-quote-image-container.reply-quote-lazy-load.loading,
+    .reply-quote-image-placeholder.loading {
+      cursor: wait;
+      pointer-events: none;
+      opacity: 0.7;
+    }
+    .reply-quote.reply-quote-image-container.reply-quote-lazy-load.loading .load-img-icon,
+    .reply-quote-image-placeholder.loading svg {
+      animation: spinLoadImg 1s linear infinite;
+    }
+
+    /* ── Broken / Unavailable Image Card (same size as load image thumbnail) ─── */
+    .chat-image-broken {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-secondary, #f0f2f5);
+      border: 1px dashed var(--border-color, rgba(0, 0, 0, 0.2));
+      border-radius: 12px;
+      user-select: none;
+      width: 140px;
+      height: 140px;
+      max-width: 200px;
+      aspect-ratio: 1 / 1;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+      box-sizing: border-box;
+      cursor: default;
+    }
+    .chat-image-broken .broken-img-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-secondary, #8a8d91);
+      padding: 12px;
+      pointer-events: none;
+      text-align: center;
+    }
+    .chat-image-broken .broken-img-icon {
+      stroke: var(--text-secondary, #8a8d91);
+      opacity: 0.85;
+    }
+    .chat-image-broken .broken-img-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary, #8a8d91);
+      letter-spacing: 0.01em;
+    }
+
+    .reply-quote.reply-quote-image-container.reply-quote-broken {
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-secondary, #f0f2f5) !important;
+      border: 1px dashed var(--border-color, rgba(0, 0, 0, 0.2)) !important;
+      border-radius: 12px;
+      user-select: none;
+      width: 140px;
+      height: 90px;
+      min-width: 140px;
+      margin-bottom: -20px;
+      box-sizing: border-box;
+      cursor: default;
+    }
+    .reply-quote.reply-quote-image-container.reply-quote-broken .broken-img-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      color: var(--text-secondary, #8a8d91);
+      padding: 6px;
+      pointer-events: none;
+      text-align: center;
+    }
+    .reply-quote.reply-quote-image-container.reply-quote-broken .broken-img-icon {
+      stroke: var(--text-secondary, #8a8d91);
+      opacity: 0.85;
+    }
+    .reply-quote.reply-quote-image-container.reply-quote-broken .broken-img-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-secondary, #8a8d91);
     }
 
     /* ── Attachment / paperclip button ───────────────────────── */

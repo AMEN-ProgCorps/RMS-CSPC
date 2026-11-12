@@ -306,6 +306,8 @@
       if (msgId) container.setAttribute('data-msg-id', msgId);
       if (msgData.sender_id) container.setAttribute('data-sender-id', String(msgData.sender_id));
       if (msgData.created_at) container.setAttribute('data-created-at', String(msgData.created_at));
+      const createdTime = msgData.created_time || Math.floor(Date.now() / 1000);
+      container.setAttribute('data-created-time', String(createdTime));
       if (msgData.reply_to_msg_uuid) container.setAttribute('data-reply-to', String(msgData.reply_to_msg_uuid));
       container.setAttribute('data-edit-count', String(msgData.edit_count || 0));
       container.addEventListener('animationend', () => container.classList.remove('msg-animate-sent', 'msg-animate-received'), { once: true });
@@ -354,8 +356,12 @@
       if (msgData.reply_to_msg_uuid && replySnippetText) {
         if (String(replySnippetText).startsWith('image:')) {
           const imgFile = String(replySnippetText).slice(6);
-          const imgSrc  = 'uploads/' + imgFile;
-          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
+          const cleanFile = imgFile.replace(/_thumb\.webp$/, '.webp');
+          const thumbFile = cleanFile.replace(/\.webp$/, '_thumb.webp');
+          const targetCont = chatBox ? chatBox.querySelector(`.message-container[data-msg-id="${msgData.reply_to_msg_uuid}"]`) : null;
+          const targetImg = targetCont ? targetCont.querySelector('img.chat-viewable-image') : null;
+          const imgSrc = (targetImg && targetImg.src) ? targetImg.src : ('uploads/' + encodeURIComponent(thumbFile));
+          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}" data-reply-file="${escapeHtml(cleanFile)}"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="const rq=this.closest('.reply-quote-image-container'); if(rq){ rq.className='reply-quote reply-quote-image-container reply-quote-lazy-load'; rq.setAttribute('data-filename', '${escapeHtml(cleanFile)}'); rq.onclick=function(){ loadCachedImage(this); }; rq.innerHTML='<div class=\\'load-img-inner\\'><svg class=\\'load-img-icon\\' viewBox=\\'0 0 24 24\\' width=\\'22\\' height=\\'22\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><rect x=\\'3\\' y=\\'3\\' width=\\'18\\' height=\\'18\\' rx=\\'2\\' ry=\\'2\\'/><circle cx=\\'8.5\\' cy=\\'8.5\\' r=\\'1.5\\'/><polyline points=\\'21 15 16 10 5 21\\'/></svg><span class=\\'load-img-label\\'>Load image</span></div>'; }"></div>`;
         } else {
           replyQuoteHtml = `<div class="reply-quote" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
         }
@@ -434,6 +440,8 @@
       if (msgId) container.setAttribute('data-msg-id', msgId);
       if (msgData.sender_id) container.setAttribute('data-sender-id', String(msgData.sender_id));
       if (msgData.created_at) container.setAttribute('data-created-at', String(msgData.created_at));
+      const createdTime = msgData.created_time || Math.floor(Date.now() / 1000);
+      container.setAttribute('data-created-time', String(createdTime));
       if (msgData.reply_to_msg_uuid) container.setAttribute('data-reply-to', String(msgData.reply_to_msg_uuid));
       container.setAttribute('data-edit-count', String(msgData.edit_count || 0));
       container.addEventListener('animationend', () => container.classList.remove('msg-animate-received'), { once: true });
@@ -481,15 +489,19 @@
       if (msgData.reply_to_msg_uuid && replySnippetText) {
         if (String(replySnippetText).startsWith('image:')) {
           const imgFile = String(replySnippetText).slice(6);
-          const imgSrc  = 'uploads/' + imgFile;
-          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
+          const cleanFile = imgFile.replace(/_thumb\.webp$/, '.webp');
+          const thumbFile = cleanFile.replace(/\.webp$/, '_thumb.webp');
+          const targetCont = chatBox ? chatBox.querySelector(`.message-container[data-msg-id="${msgData.reply_to_msg_uuid}"]`) : null;
+          const targetImg = targetCont ? targetCont.querySelector('img.chat-viewable-image') : null;
+          const imgSrc = (targetImg && targetImg.src) ? targetImg.src : ('uploads/' + encodeURIComponent(thumbFile));
+          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}" data-reply-file="${escapeHtml(cleanFile)}"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="const rq=this.closest('.reply-quote-image-container'); if(rq){ rq.className='reply-quote reply-quote-image-container reply-quote-lazy-load'; rq.setAttribute('data-filename', '${escapeHtml(cleanFile)}'); rq.onclick=function(){ loadCachedImage(this); }; rq.innerHTML='<div class=\\'load-img-inner\\'><svg class=\\'load-img-icon\\' viewBox=\\'0 0 24 24\\' width=\\'22\\' height=\\'22\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><rect x=\\'3\\' y=\\'3\\' width=\\'18\\' height=\\'18\\' rx=\\'2\\' ry=\\'2\\'/><circle cx=\\'8.5\\' cy=\\'8.5\\' r=\\'1.5\\'/><polyline points=\\'21 15 16 10 5 21\\'/></svg><span class=\\'load-img-label\\'>Load image</span></div>'; }"></div>`;
         } else {
           replyQuoteHtml = `<div class="reply-quote" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
         }
       }
 
       const bubbleContentHtml = isSenderMoved
-        ? `<div class="message-content" style="font-style:italic;opacity:0.85;">${escapeHtml(movedNoticeText)}</div>`
+        ? `<div class="message-content no-image-note" style="font-style:italic;color:#e53e3e !important;font-weight:500;">${escapeHtml(movedNoticeText)}</div>`
         : `<div class="message-content">${escapeHtml(msgText)}</div>`;
 
       container.innerHTML = `
@@ -622,6 +634,10 @@
           const fn = window.renderReactionsForMessage || (typeof renderReactionsForMessage === 'function' ? renderReactionsForMessage : null);
           if (fn && data.msg_uuid) {
             fn(data.msg_uuid, data.reactions || {});
+          }
+        } else if (data.type === 'media_expired') {
+          if (data.file && typeof handleMediaExpired === 'function') {
+            handleMediaExpired(data.file);
           }
         } else if (data.type === 'message') {
           console.log('Received WebSocket real-time update notice:', data);
@@ -1227,8 +1243,10 @@
                   }
                   if (contentEl) {
                     contentEl.textContent = noticeText;
+                    contentEl.className = 'message-content no-image-note';
                     contentEl.style.fontStyle = 'italic';
-                    contentEl.style.opacity = '0.85';
+                    contentEl.style.color = '#e53e3e';
+                    contentEl.style.fontWeight = '500';
                   }
                   container.querySelectorAll('.chat-attachment-container, img.chat-image, video, audio, .message-media').forEach(el => el.remove());
                 });
@@ -1237,8 +1255,8 @@
                   chatBox.querySelectorAll('.reply-quote[data-reply-to]').forEach(rq => {
                     const replyTo = rq.getAttribute('data-reply-to');
                     if (replyTo && changedMsgIds.has(replyTo)) {
-                      rq.classList.remove('reply-quote-image-container');
-                      rq.innerHTML = `<div class="reply-quote-text" style="font-style:italic;opacity:0.8;">${escapeHtml(noticeText)}</div>`;
+                      rq.className = 'reply-quote reply-quote-warning';
+                      rq.innerHTML = `<div class="reply-quote-text no-image-note" style="font-style:italic;color:#e53e3e !important;font-weight:500;">${escapeHtml(noticeText)}</div>`;
                     }
                   });
                 }
@@ -1287,8 +1305,10 @@
                 }
                 if (contentEl) {
                   contentEl.textContent = noticeText;
+                  contentEl.className = 'message-content no-image-note';
                   contentEl.style.fontStyle = 'italic';
-                  contentEl.style.opacity = '0.85';
+                  contentEl.style.color = '#e53e3e';
+                  contentEl.style.fontWeight = '500';
                 }
                 container.querySelectorAll('.chat-attachment-container, img.chat-image, video, audio, .message-media').forEach(el => el.remove());
               });
@@ -1297,8 +1317,8 @@
                 chatBox.querySelectorAll('.reply-quote[data-reply-to]').forEach(rq => {
                   const replyTo = rq.getAttribute('data-reply-to');
                   if (replyTo && changedMsgIds.has(replyTo)) {
-                    rq.classList.remove('reply-quote-image-container');
-                    rq.innerHTML = `<div class="reply-quote-text" style="font-style:italic;opacity:0.8;">${escapeHtml(noticeText)}</div>`;
+                    rq.className = 'reply-quote reply-quote-warning';
+                    rq.innerHTML = `<div class="reply-quote-text no-image-note" style="font-style:italic;color:#e53e3e !important;font-weight:500;">${escapeHtml(noticeText)}</div>`;
                   }
                 });
               }

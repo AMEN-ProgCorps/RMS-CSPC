@@ -6810,7 +6810,7 @@
                     const emojiOnlyClass = (typeof isEmojiOnly === 'function' && isEmojiOnly(textContent)) ? ' emoji-only' : '';
                     msgEl.innerHTML = senderAvatarHtml +
                       `<div class="bubble-wrapper">` +
-                      `<div class="message-click-timestamp show-timestamp">${fullTimeDisplay}</div>` +
+                      `<div class="message-click-timestamp">${fullTimeDisplay}</div>` +
                       optimisticReplyHtml +
                       `<div class="message-bubble${emojiOnlyClass}">` +
                       `<div class="message-content">${escapeHtml(textContent)}</div>` +

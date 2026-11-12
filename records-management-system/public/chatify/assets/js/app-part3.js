@@ -466,29 +466,62 @@
 
     function handleMediaExpired(filename) {
       if (!filename || !chatBox) return;
-      const cleanBase = filename.replace(/_thumb\.webp$/, '.webp');
-      const thumbBase = cleanBase.replace(/\.webp$/, '_thumb.webp');
+      const cleanBase  = filename.replace(/_thumb\.webp$/i, '.webp').trim();
+      const thumbBase  = cleanBase.replace(/\.webp$/i, '_thumb.webp').trim();
+      const cleanLower = cleanBase.toLowerCase();
+      const thumbLower = thumbBase.toLowerCase();
+      const fnLower    = filename.toLowerCase().trim();
 
       // 1. Revert any chat-viewable-image matching this file
-      const imgElements = chatBox.querySelectorAll('img.chat-viewable-image');
+      const imgElements = chatBox.querySelectorAll('img.chat-viewable-image, .message-media img');
       imgElements.forEach(function(img) {
-        let fn = img.getAttribute('data-file-name') || img.alt;
-        if (!fn) {
-          const src = img.getAttribute('data-full-src') || img.src || '';
-          if (src.includes(cleanBase) || src.includes(thumbBase)) {
-            fn = cleanBase;
+        if (img.closest('.reply-quote')) return;
+        let fn = (img.getAttribute('data-file-name') || img.getAttribute('data-filename') || img.alt || '').toLowerCase().trim();
+        const src = (img.getAttribute('data-full-src') || img.src || '').toLowerCase();
+
+        let matches = (fn === cleanLower || fn === thumbLower || fn === fnLower);
+        if (!matches) {
+          if (src.includes('/' + cleanLower) || src.includes('/' + thumbLower) ||
+              src.includes('file=' + cleanLower) || src.includes('file=' + thumbLower) ||
+              src.includes(cleanLower) || src.includes(thumbLower)) {
+            matches = true;
           }
         }
-        if (fn === cleanBase || fn === thumbBase || fn === filename) {
+        if (matches) {
           revertImageToLazyLoad(img, cleanBase);
         }
       });
 
       // 2. Revert any reply quotes matching this file to "Load image" style card
-      const replyQuotes = chatBox.querySelectorAll(`.reply-quote-image-container[data-reply-file="${cleanBase}"]`);
+      const replyQuotes = chatBox.querySelectorAll('.reply-quote-image-container:not(.reply-quote-broken)');
       replyQuotes.forEach(function(rq) {
-        revertReplyQuoteToLazyLoad(rq, cleanBase);
+        let rqFn = (rq.getAttribute('data-reply-file') || rq.getAttribute('data-filename') || '').toLowerCase().trim();
+        if (!rqFn) {
+          const rqImg = rq.querySelector('img');
+          if (rqImg) {
+            const rqSrc = (rqImg.getAttribute('src') || '').toLowerCase();
+            if (rqSrc.includes('/' + cleanLower) || rqSrc.includes('/' + thumbLower) ||
+                rqSrc.includes('file=' + cleanLower) || rqSrc.includes('file=' + thumbLower) ||
+                rqSrc.includes(cleanLower) || rqSrc.includes(thumbLower)) {
+              rqFn = cleanLower;
+            }
+          }
+        }
+        if (rqFn === cleanLower || rqFn === thumbLower || rqFn === fnLower) {
+          revertReplyQuoteToLazyLoad(rq, cleanBase);
+        }
       });
+
+      // 3. If image viewer is currently active displaying this image, close it
+      if (typeof imageViewerModal !== 'undefined' && imageViewerModal && imageViewerModal.classList.contains('active')) {
+        const ivImg = document.getElementById('imageViewerImg');
+        if (ivImg) {
+          const ivSrc = (ivImg.getAttribute('src') || '').toLowerCase();
+          if (ivSrc.includes(cleanLower) || ivSrc.includes(thumbLower)) {
+            closeImageViewer();
+          }
+        }
+      }
     }
     window.handleMediaExpired = handleMediaExpired;
 
@@ -849,6 +882,12 @@
       imageVerifyTimer = setInterval(verifyChatImages, 2500);
     }
     startRealtimeImageVerifier();
+
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden) {
+        verifyChatImages();
+      }
+    });
 
     // Close: X button or Escape key.
     if (imageViewerCloseBtn) {

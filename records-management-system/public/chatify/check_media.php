@@ -42,6 +42,10 @@ if ($driveFiles !== null) {
         $thumbLocalPath = $uploadsDir . '/' . $thumbName;
         $fileLocalPath  = $uploadsDir . '/' . $file;
 
+        @clearstatcache(true, $mainLocalPath);
+        @clearstatcache(true, $thumbLocalPath);
+        @clearstatcache(true, $fileLocalPath);
+
         $hasAnyLocal = (file_exists($mainLocalPath) && filesize($mainLocalPath) > 0)
             || (file_exists($thumbLocalPath) && filesize($thumbLocalPath) > 0)
             || (file_exists($fileLocalPath) && filesize($fileLocalPath) > 0);
@@ -65,21 +69,64 @@ if ($driveFiles !== null) {
             continue;
         }
 
-        // File is alive in Google Drive chatify folder
-        // Check if local cache has expired for downloaded images (30s retention)
-        if ($hasAnyLocal) {
+        // File is alive in Google Drive chatify folder!
+        // If it is NOT cached locally (e.g. deleted directly from uploads/ folder),
+        // or if local 30s retention cache has expired, mark as expired so the
+        // chat UI reverts the loaded image back to "Load image" in real-time.
+        if (!$hasAnyLocal) {
+            $expired[] = $file;
+            $expired[] = $baseClean;
+            $expired[] = $thumbName;
+
+            try {
+                WsPush::broadcast('media_expired', ['file' => $baseClean]);
+            } catch (\Throwable $e) {}
+        } else {
             if (!GoogleDriveHelper::isLocallyCached($baseClean, $mainLocalPath) && !GoogleDriveHelper::isLocallyCached($file, $fileLocalPath)) {
                 $expired[] = $file;
                 $expired[] = $baseClean;
                 $expired[] = $thumbName;
 
-                @unlink($mainLocalPath);
-                @unlink($thumbLocalPath);
-                @unlink($fileLocalPath);
+                if (file_exists($mainLocalPath))  @unlink($mainLocalPath);
+                if (file_exists($thumbLocalPath)) @unlink($thumbLocalPath);
+                if (file_exists($fileLocalPath))  @unlink($fileLocalPath);
 
                 try {
                     WsPush::broadcast('media_expired', ['file' => $baseClean]);
                 } catch (\Throwable $e) {}
+            }
+        }
+    }
+} else {
+    // Fallback if bulk file list from Google Drive temporarily failed
+    foreach ($files as $file) {
+        $file = basename(trim((string)$file));
+        if ($file === '') continue;
+
+        $baseClean = preg_replace('/_thumb\.webp$/', '.webp', $file);
+        $thumbName = preg_replace('/\.webp$/', '_thumb.webp', $baseClean);
+
+        $mainLocalPath  = $uploadsDir . '/' . $baseClean;
+        $thumbLocalPath = $uploadsDir . '/' . $thumbName;
+        $fileLocalPath  = $uploadsDir . '/' . $file;
+
+        @clearstatcache(true, $mainLocalPath);
+        @clearstatcache(true, $thumbLocalPath);
+        @clearstatcache(true, $fileLocalPath);
+
+        $hasAnyLocal = (file_exists($mainLocalPath) && filesize($mainLocalPath) > 0)
+            || (file_exists($thumbLocalPath) && filesize($thumbLocalPath) > 0)
+            || (file_exists($fileLocalPath) && filesize($fileLocalPath) > 0);
+
+        if (!$hasAnyLocal) {
+            if (GoogleDriveHelper::isInDrive($baseClean)) {
+                $expired[] = $file;
+                $expired[] = $baseClean;
+                $expired[] = $thumbName;
+            } else {
+                $deleted[] = $file;
+                $deleted[] = $baseClean;
+                $deleted[] = $thumbName;
             }
         }
     }

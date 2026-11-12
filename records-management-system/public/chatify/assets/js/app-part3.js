@@ -3093,7 +3093,8 @@
           const rqText = rqEl ? (rqEl.getAttribute('data-reply-file') || rqEl.getAttribute('data-filename') || rqEl.textContent?.trim() || '') : '';
           const mediaFile = el.querySelector('.chat-viewable-image, .chat-image-lazy-load, .chat-image-broken')?.getAttribute('data-file-name')
             || el.querySelector('.chat-viewable-image, .chat-image-lazy-load, .chat-image-broken')?.getAttribute('data-filename') || '';
-          return msgId + '|' + isMoved + '|' + replyTo + '|' + rqText + '|' + mediaFile + '|' + content;
+          const bubbleType = el.querySelector('.message-bubble') ? 'bubble' : (el.querySelector('.message-media') ? 'media' : 'file');
+          return msgId + '|' + isMoved + '|' + replyTo + '|' + rqText + '|' + mediaFile + '|' + bubbleType + '|' + content;
         }
       }
       if (el && el.classList && el.classList.contains('empty-chat')) {
@@ -6770,11 +6771,13 @@
                   if (!msgData || !msgData.id) return;
                   if (chatBox.querySelector(`.message-container[data-msg-id="${msgData.id}"]`)) return;
 
-                  const fn = msgData.plaintext || (typeof msgData.message === 'string' ? msgData.message : '');
-                  const cleanBase = fn.replace(/_thumb\.webp$/, '.webp');
+                  const rawContent = msgData.plaintext || (typeof msgData.message === 'string' ? msgData.message : '');
+                  const cleanBase = rawContent.replace(/_thumb\.webp$/, '.webp');
                   const thumbName = cleanBase.replace(/\.webp$/, '_thumb.webp');
                   const fnExt = (cleanBase.split('.').pop() || '').toLowerCase();
-                  const isImg = IMAGE_EXTS.has(fnExt) || cleanBase.endsWith('.webp');
+                  const isImg = msgData.type !== 'text' && (IMAGE_EXTS.has(fnExt) || cleanBase.endsWith('.webp'));
+                  const isAudio = msgData.type !== 'text' && ((typeof AUDIO_EXTS !== 'undefined' && AUDIO_EXTS.has(fnExt)) || ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'opus'].includes(fnExt));
+                  const isText = (msgData.type === 'text') || (msgData.msg_type === 'text') || (!msgData.has_upload && !isImg && !isAudio && (cleanBase.indexOf('.') === -1 || cleanBase === trimmedCaption));
 
                   const msgEl = document.createElement('div');
                   msgEl.className = 'message-container sent msg-animate-sent';
@@ -6802,7 +6805,24 @@
                     }
                   }
 
-                  if (isImg) {
+                  if (isText) {
+                    const textContent = rawContent;
+                    const emojiOnlyClass = (typeof isEmojiOnly === 'function' && isEmojiOnly(textContent)) ? ' emoji-only' : '';
+                    msgEl.innerHTML = senderAvatarHtml +
+                      `<div class="bubble-wrapper">` +
+                      `<div class="message-click-timestamp show-timestamp">${fullTimeDisplay}</div>` +
+                      optimisticReplyHtml +
+                      `<div class="message-bubble${emojiOnlyClass}">` +
+                      `<div class="message-content">${escapeHtml(textContent)}</div>` +
+                      `<div class="message-info"><span class="message-sender">${senderLabel}</span></div>` +
+                      `</div></div>`;
+                    chatBox.appendChild(msgEl);
+                    const contentEl = msgEl.querySelector('.message-content');
+                    if (contentEl) {
+                      if (typeof linkifyContent === 'function') linkifyContent(contentEl);
+                      if (typeof applyReadMoreToElement === 'function') applyReadMoreToElement(contentEl);
+                    }
+                  } else if (isImg) {
                     const imgUrl = 'uploads/' + encodeURIComponent(cleanBase);
                     msgEl.innerHTML = senderAvatarHtml +
                       `<div class="bubble-wrapper">` +
@@ -6817,15 +6837,30 @@
                     if (renderedImg) {
                       scheduleImageCacheExpiry(renderedImg, cleanBase);
                     }
-                  } else {
-                    const fileDownloadUrl = 'uploads/' + encodeURIComponent(cleanBase);
+                  } else if (isAudio) {
+                    const viewUrl = 'view_file.php?file=' + encodeURIComponent(cleanBase);
+                    const mime = (typeof mimeMap !== 'undefined' && mimeMap[fnExt]) ? mimeMap[fnExt] : ('audio/' + fnExt);
                     msgEl.innerHTML = senderAvatarHtml +
                       `<div class="bubble-wrapper">` +
                       `<div class="message-click-timestamp show-timestamp">${fullTimeDisplay}</div>` +
                       optimisticReplyHtml +
-                      `<div class="message-file">` +
-                      `<a href="${fileDownloadUrl}" target="_blank" class="file-attachment" download="${cleanBase}"><i class="fas fa-file"></i> <span>${escapeHtml(cleanBase)}</span></a>` +
-                      `<div class="message-info" style="padding:3px 2px;"><span class="message-sender">${senderLabel}</span></div>` +
+                      `<div class="message-bubble">` +
+                      `<div class="message-content">` +
+                      `<div style="font-size:12px;margin-bottom:6px;font-weight:500;opacity:0.85;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(cleanBase)}</div>` +
+                      `<audio controls preload="metadata" style="width:240px;max-width:100%;display:block;border-radius:6px;"><source src="${viewUrl}" type="${mime}"></audio>` +
+                      `</div>` +
+                      `<div class="message-info"><span class="message-sender">${senderLabel}</span></div>` +
+                      `</div></div>`;
+                    chatBox.appendChild(msgEl);
+                  } else {
+                    const viewUrl = 'view_file.php?file=' + encodeURIComponent(cleanBase);
+                    msgEl.innerHTML = senderAvatarHtml +
+                      `<div class="bubble-wrapper">` +
+                      `<div class="message-click-timestamp show-timestamp">${fullTimeDisplay}</div>` +
+                      optimisticReplyHtml +
+                      `<div class="message-bubble">` +
+                      `<div class="message-content"><a href="${viewUrl}" target="_blank" rel="noopener" style="color:white;text-decoration:underline;font-weight:500;font-size:13px;word-break:break-all;">${escapeHtml(cleanBase)}</a></div>` +
+                      `<div class="message-info"><span class="message-sender">${senderLabel}</span></div>` +
                       `</div></div>`;
                     chatBox.appendChild(msgEl);
                   }

@@ -58,7 +58,7 @@ try {
     $thumbName   = $baseNoThumb . ImageProcessor::THUMB_SUFFIX;
     $thumbPath   = $uploadsDir . '/' . $thumbName;
 
-    // Check if main file exists locally and is still within 30-second cache
+    // Check if main file exists locally and is still within 7-day cache
     $hasMain = file_exists($mainPath) && filesize($mainPath) > 0;
     if ($hasMain) {
         $mtime = @filemtime($mainPath);
@@ -105,7 +105,7 @@ try {
         }
     }
 
-    // Touch main file to reset the 30-second TTL
+    // Touch main file to reset the 7-day TTL
     @touch($mainPath);
 
     // Ensure thumbnail exists in uploads/

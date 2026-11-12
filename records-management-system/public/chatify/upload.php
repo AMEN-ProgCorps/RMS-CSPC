@@ -166,7 +166,7 @@ for ($i = 0; $i < $total; $i++) {
             if ($r2 !== false) $upThumb = true;
         }
 
-        // Retain in local uploads/ cache for 30s TTL, then automatically prunes
+        // Retain in local uploads/ cache for 7 days TTL, then automatically prunes
         if (file_exists($finalPath)) @touch($finalPath);
         if (file_exists($thumbPath)) @touch($thumbPath);
         if (file_exists($target) && $target !== $finalPath && $target !== $thumbPath) {

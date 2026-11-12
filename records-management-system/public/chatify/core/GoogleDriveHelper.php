@@ -863,7 +863,7 @@ class GoogleDriveHelper
         @file_put_contents($cacheFile, json_encode($data));
     }
 
-    public const CACHE_RETENTION_SECONDS = 30; // 30s simulation for testing (normal: 604800 / 7 days)
+    public const CACHE_RETENTION_SECONDS = 604800; // 7 days (60 * 60 * 24 * 7)
 
     /**
      * Check if a file is currently stored in local uploads cache.

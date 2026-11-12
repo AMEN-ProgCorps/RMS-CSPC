@@ -81,7 +81,7 @@ if (GoogleDriveHelper::isConfigured()) {
         die('File not found in storage');
     }
 
-    // Cache locally for 30s TTL
+    // Cache locally for 7 days TTL
     @file_put_contents($localPath, $binary);
 
     header('Content-Type: ' . $mime);

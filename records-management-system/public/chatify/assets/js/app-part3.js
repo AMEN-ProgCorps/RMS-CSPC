@@ -411,7 +411,7 @@
       openImageViewer(img.dataset.fullSrc || img.src, img.alt, img.src);
     });
 
-    // ── On-demand loader for 30-second cached images purged from local uploads/ ──
+    // ── On-demand loader for cached images purged from local uploads/ after 7 days ──
     const activeImageExpiryTimers = new Map();
     const knownUnavailableImages = new Set();
     window.knownUnavailableImages = knownUnavailableImages;
@@ -574,7 +574,7 @@
 
         // Revert img element and reply quote(s) back to "Load image" style cards
         handleMediaExpired(cleanBase);
-      }, 30000); // 30 seconds
+      }, 604800000); // 7 days (604,800 seconds)
 
       activeImageExpiryTimers.set(img, timerId);
     }

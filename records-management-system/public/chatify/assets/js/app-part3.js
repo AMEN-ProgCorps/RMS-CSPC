@@ -434,11 +434,14 @@
         '<span class="load-img-label">Load image</span>' +
         '</div>';
 
-      // Hide hover reply button if it was anchored to this container
+      // Hide hover reply button if it was anchored to this container, and cancel active reply if replying to this
       const container = img.closest('.message-container');
       if (typeof hoveredReplyContainer !== 'undefined' && hoveredReplyContainer === container) {
         if (typeof hoverReplyBtn !== 'undefined' && hoverReplyBtn) hoverReplyBtn.classList.remove('visible');
         hoveredReplyContainer = null;
+      }
+      if (container && typeof hideReplyBanner === 'function' && typeof replyState !== 'undefined' && replyState && replyState.msgId === container.getAttribute('data-msg-id')) {
+        hideReplyBanner();
       }
 
       img.replaceWith(loadBtn);
@@ -637,6 +640,16 @@
       }
 
       allCards.forEach(function(card) {
+        const container = card.closest('.message-container');
+        if (container) {
+          if (typeof hoveredReplyContainer !== 'undefined' && hoveredReplyContainer === container) {
+            if (typeof hoverReplyBtn !== 'undefined' && hoverReplyBtn) hoverReplyBtn.classList.remove('visible');
+            hoveredReplyContainer = null;
+          }
+          if (typeof hideReplyBanner === 'function' && typeof replyState !== 'undefined' && replyState && replyState.msgId === container.getAttribute('data-msg-id')) {
+            hideReplyBanner();
+          }
+        }
         const temp = document.createElement('div');
         temp.innerHTML = brokenHtml;
         const brokenEl = temp.firstElementChild;
@@ -802,6 +815,16 @@
             }
 
             if (fn && delSet.has(fn)) {
+              const container = img.closest('.message-container');
+              if (container) {
+                if (typeof hoveredReplyContainer !== 'undefined' && hoveredReplyContainer === container) {
+                  if (typeof hoverReplyBtn !== 'undefined' && hoverReplyBtn) hoverReplyBtn.classList.remove('visible');
+                  hoveredReplyContainer = null;
+                }
+                if (typeof hideReplyBanner === 'function' && typeof replyState !== 'undefined' && replyState && replyState.msgId === container.getAttribute('data-msg-id')) {
+                  hideReplyBanner();
+                }
+              }
               const temp = document.createElement('div');
               temp.innerHTML = brokenHtml;
               const brokenEl = temp.firstElementChild;
@@ -1648,13 +1671,30 @@
     function isWarningContainer(container) {
       if (!container) return false;
       if (container.classList.contains('user-moved')) return true;
-      if (container.querySelector('.message-bubble > .no-image-note, .message-bubble .message-content.no-image-note')) return true;
-      if (container.querySelector('.chat-image-lazy-load')) return true;
+      if (container.querySelector('.message-bubble > .no-image-note, .message-bubble .message-content.no-image-note, .no-image-note')) return true;
+      if (container.querySelector('.chat-image-lazy-load, .chat-image-broken')) return true;
       return false;
     }
 
+    function canReplyToContainer(container) {
+      if (!container) return false;
+      if (isAdminAllChatsView || activeAdminConv) return false;
+      if (container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return false;
+      if (container.classList.contains('user-moved')) return false;
+      if (container.querySelector('.message-bubble > .no-image-note, .message-bubble .message-content.no-image-note, .no-image-note')) return false;
+
+      // Disallow replying to unloaded images ("Load image") and unavailable images (broken image placeholder)
+      if (container.querySelector('.chat-image-lazy-load, .chat-image-broken')) return false;
+
+      // If container has media, ensure it does not contain any unloaded or broken elements
+      const media = container.querySelector('.message-media');
+      if (media && media.querySelector('.chat-image-lazy-load, .chat-image-broken')) return false;
+
+      return !!container.getAttribute('data-msg-id');
+    }
+
     function openReplyForContainer(container) {
-      if (!container || isWarningContainer(container) || container.querySelector('.chat-image-lazy-load')) return;
+      if (!canReplyToContainer(container)) return;
       const snippet = getReplySnippet(container);
       replyState = {
         msgId: container.getAttribute('data-msg-id') || '',
@@ -1681,7 +1721,7 @@
     let hoverReplyHideTimer = null;
 
     function positionHoverReplyBtn(container) {
-      if (!container || !chatBox || isWarningContainer(container) || container.querySelector('.chat-image-lazy-load')) {
+      if (!canReplyToContainer(container) || !chatBox) {
         hoverReplyBtn.classList.remove('visible');
         hoveredReplyContainer = null;
         return;
@@ -1748,9 +1788,7 @@
       // Admin spy mode is read-only — never offer the reply button there.
       if (isAdminAllChatsView || activeAdminConv) return;
       const container = e.target.closest('.message-container[data-msg-id]');
-      if (!container) return;
-      // Never offer reply on transient bubbles or unloaded images
-      if (container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid') || container.querySelector('.chat-image-lazy-load')) return;
+      if (!container || !canReplyToContainer(container)) return;
       cancelHideHoverReplyBtn();
       positionHoverReplyBtn(container);
     });
@@ -1824,7 +1862,7 @@
       // button above (mouseover/click); this touch path was missing it.
       if (isAdminAllChatsView || activeAdminConv) return;
       const container = e.target.closest('.message-container[data-msg-id]');
-      if (!container || isWarningContainer(container) || container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid') || container.querySelector('.chat-image-lazy-load')) return;
+      if (!container || !canReplyToContainer(container)) return;
 
       swipeContainer = container;
       swipeAvatarEl = container.querySelector('.message-avatar');

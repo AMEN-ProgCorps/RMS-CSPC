@@ -20,7 +20,46 @@ class ManualService
             return null;
         }
 
+        // DCS office intake vs admin/full controllers share some routes (e.g. dashboard).
+        // Prefer role-specific manuals when present: dcs.office.md / dcs.admin.md,
+        // or route-named variants like dcs.dashboard.office.md.
+        if (str_starts_with($routeName, 'dcs')) {
+            $role = self::dcsManualRoleSuffix();
+            if ($role !== null) {
+                $roleManual = self::getManualByName($routeName.'.'.$role);
+                if ($roleManual) {
+                    return $roleManual;
+                }
+                if (in_array($routeName, ['dcs', 'dcs.dashboard'], true)) {
+                    $roleManual = self::getManualByName('dcs.'.$role);
+                    if ($roleManual) {
+                        return $roleManual;
+                    }
+                }
+            }
+        }
+
         return self::getManualByName($routeName);
+    }
+
+    /**
+     * office = limited DCS / office intake; admin = full DCS controller.
+     */
+    protected static function dcsManualRoleSuffix(): ?string
+    {
+        if (! class_exists(\App\Helpers\RegisterQueryHelper::class)) {
+            return null;
+        }
+
+        if (\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()) {
+            return 'office';
+        }
+
+        if (\App\Helpers\RegisterQueryHelper::isFullDcsUser()) {
+            return 'admin';
+        }
+
+        return null;
     }
 
     /**
@@ -240,18 +279,18 @@ class ManualService
                         $callouts[] = $activeCallout;
                     }
                     $type = strtolower($m[1]) === 'tip' ? 'tip' : 'note';
-                    $activeCallout = ['type' => $type, 'title' => ucfirst(strtolower($m[1])), 'text' => trim($m[2])];
+                    $activeCallout = ['type' => $type, 'title' => ucfirst(strtolower($m[1])), 'text' => self::stripManualMarkdown(trim($m[2]))];
                 } elseif (preg_match('/^\[!(WARNING|CAUTION|ALERT)\]\s*(.*)$/i', $calloutText, $m)) {
                     if ($activeCallout) {
                         $callouts[] = $activeCallout;
                     }
-                    $activeCallout = ['type' => 'warning', 'title' => ucfirst(strtolower($m[1])), 'text' => trim($m[2])];
+                    $activeCallout = ['type' => 'warning', 'title' => ucfirst(strtolower($m[1])), 'text' => self::stripManualMarkdown(trim($m[2]))];
                 } elseif ($activeCallout !== null) {
-                    $activeCallout['text'] = trim($activeCallout['text'] . ' ' . $calloutText);
+                    $activeCallout['text'] = trim($activeCallout['text'] . ' ' . self::stripManualMarkdown($calloutText));
                 } elseif (empty($purpose)) {
-                    $purpose = preg_replace('/^(Purpose:\s*)/i', '', $calloutText);
+                    $purpose = preg_replace('/^(Purpose:\s*)/i', '', self::stripManualMarkdown($calloutText));
                 } else {
-                    $callouts[] = ['type' => 'note', 'title' => 'Note', 'text' => $calloutText];
+                    $callouts[] = ['type' => 'note', 'title' => 'Note', 'text' => self::stripManualMarkdown($calloutText)];
                 }
                 continue;
             } else {
@@ -280,13 +319,19 @@ class ManualService
                     $currentSection = ['title' => 'Instructions', 'items' => []];
                 }
 
-                // Check for bold label like "**Field Name**: description"
+                // Check for bold/plain label like "**Field Name**: description" or "Field Name: description"
                 $label = '';
                 $desc = $cleanText;
                 if (preg_match('/^\*\*(.*?)\*\*:\s*(.*)$/', $cleanText, $matches)) {
                     $label = $matches[1];
                     $desc = $matches[2];
+                } elseif (preg_match('/^([^:\n]{1,80}):\s+(.+)$/', $cleanText, $matches)) {
+                    $label = trim($matches[1]);
+                    $desc = $matches[2];
                 }
+
+                $label = self::stripManualMarkdown($label);
+                $desc = self::stripManualMarkdown($desc);
 
                 $currentSection['items'][] = [
                     'label' => $label,
@@ -334,6 +379,17 @@ class ManualService
         ];
 
         return self::$parsedManualCache[$filePath] = $parsed;
+    }
+
+    /**
+     * Remove markdown bold markers so the page guide UI never shows literal **.
+     */
+    protected static function stripManualMarkdown(string $text): string
+    {
+        $text = preg_replace('/\*\*(.*?)\*\*/s', '$1', $text) ?? $text;
+        $text = preg_replace('/__(.*?)__/s', '$1', $text) ?? $text;
+
+        return str_replace(['**', '__'], '', $text);
     }
 
     /**

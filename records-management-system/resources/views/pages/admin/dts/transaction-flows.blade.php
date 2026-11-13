@@ -1981,6 +1981,43 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         .m-item.active .m-item-sub {
             color: #0284c7;
         }
+        .m-code-chip {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 9.5px;
+            background: #f1f5f9;
+            padding: 1px 4px;
+            border-radius: 3px;
+            color: #334155;
+            border: 1px solid #e2e8f0;
+        }
+        .m-rdp-chip {
+            font-size: 8.5px;
+            background: #e0e7ff;
+            color: #4338ca;
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-weight: 700;
+            border: 1px solid #c7d2fe;
+        }
+        .m-batch-import-btn {
+            width: 100%;
+            background: #f8fafc;
+            border: 1px dashed #cbd5e1;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: #0284c7;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .m-batch-import-btn:hover {
+            background: #e0f2fe;
+            border-color: #7dd3fc;
+        }
         .m-item-arrow {
             font-size: 9px;
             color: #94a3b8;
@@ -2263,6 +2300,321 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             color: #991b1b;
             border: 1px solid #fecaca;
         }
+
+        /* -------------------------------------------------------------
+           DARK MODE — DTS Transaction Flow Manager only
+           ------------------------------------------------------------- */
+        [data-theme="dark"] .miller-container {
+            color: #e2e8f0 !important;
+        }
+
+        [data-theme="dark"] .miller-container h1,
+        [data-theme="dark"] .miller-container [style*="color: #0f172a"],
+        [data-theme="dark"] .miller-container [style*="color:#0f172a"] {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .miller-container [style*="color: #64748b"],
+        [data-theme="dark"] .miller-container [style*="color:#64748b"],
+        [data-theme="dark"] .miller-container [style*="color: #94a3b8"],
+        [data-theme="dark"] .miller-container [style*="color:#94a3b8"] {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-scope-nav {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-scope-tab {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-scope-tab:hover {
+            color: #e2e8f0 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-scope-tab.active {
+            background: #1e293b !important;
+            color: #7dd3fc !important;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+        }
+
+        [data-theme="dark"] .miller-container .miller-browser {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35) !important;
+        }
+
+        [data-theme="dark"] .miller-container .miller-column {
+            background: #131c2e !important;
+            border-right-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-col-header {
+            background: #0f172a !important;
+            border-bottom-color: #1e293b !important;
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-col-search {
+            background: #131c2e !important;
+            border-bottom-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-col-search input {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-col-search input::placeholder {
+            color: #64748b !important;
+            opacity: 1 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-col-search input:focus {
+            border-color: #0284c7 !important;
+            background: #0b1220 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-col-search i.search-icon {
+            color: #64748b !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-item {
+            color: #e2e8f0 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-item:hover {
+            background: #1e293b !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-item.active {
+            background: #0c4a6e !important;
+            color: #e0f2fe !important;
+            border-color: #0369a1 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-item-title {
+            color: inherit !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-item-sub {
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-item.active .m-item-sub,
+        [data-theme="dark"] .miller-container .m-item.active .m-item-arrow {
+            color: #7dd3fc !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-code-chip {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+            color: #e2e8f0 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-rdp-chip {
+            background: #312e81 !important;
+            border-color: #4338ca !important;
+            color: #c7d2fe !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-batch-import-btn {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #7dd3fc !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-batch-import-btn:hover {
+            background: #0c4a6e !important;
+            border-color: #0284c7 !important;
+            color: #e0f2fe !important;
+        }
+
+        /* Catch remaining light chips that still use inline slate colors */
+        [data-theme="dark"] .miller-container [style*="background: #f1f5f9"],
+        [data-theme="dark"] .miller-container [style*="background:#f1f5f9"],
+        [data-theme="dark"] .miller-container [style*="background: #f8fafc"],
+        [data-theme="dark"] .miller-container [style*="background:#f8fafc"] {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+        }
+
+        [data-theme="dark"] .miller-container [style*="color: #475569"],
+        [data-theme="dark"] .miller-container [style*="color:#475569"],
+        [data-theme="dark"] .miller-container [style*="color: #334155"],
+        [data-theme="dark"] .miller-container [style*="color:#334155"] {
+            color: #e2e8f0 !important;
+        }
+
+        [data-theme="dark"] .miller-container [style*="background: #e0e7ff"],
+        [data-theme="dark"] .miller-container [style*="background:#e0e7ff"] {
+            background: #312e81 !important;
+            border-color: #4338ca !important;
+        }
+
+        [data-theme="dark"] .miller-container [style*="color: #4338ca"],
+        [data-theme="dark"] .miller-container [style*="color:#4338ca"] {
+            color: #c7d2fe !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-item-badge {
+            background: #1e293b !important;
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-item.active .m-item-badge {
+            background: #0369a1 !important;
+            color: #e0f2fe !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-item-arrow {
+            color: #64748b !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-item.is-dragging,
+        [data-theme="dark"] .miller-container .drop-target-hover {
+            background: #0c4a6e !important;
+            border-color: #0284c7 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-inspector {
+            background: #131c2e !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-field-label {
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-field-input,
+        [data-theme="dark"] .miller-container .m-field-select {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-field-input:focus,
+        [data-theme="dark"] .miller-container .m-field-select:focus {
+            border-color: #0284c7 !important;
+            box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.25) !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-pipe-tabs {
+            background: #0f172a !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-pipe-tab {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-pipe-tab.active {
+            background: #1e293b !important;
+            color: #7dd3fc !important;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35) !important;
+        }
+
+        [data-theme="dark"] .miller-container .step-item {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #e2e8f0 !important;
+        }
+
+        [data-theme="dark"] .miller-container .step-item:hover {
+            border-color: #475569 !important;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35) !important;
+        }
+
+        [data-theme="dark"] .miller-container .step-badge {
+            background: #1e293b !important;
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .miller-container .step-origin {
+            background: #064e3b !important;
+            color: #6ee7b7 !important;
+            border-color: #059669 !important;
+        }
+
+        [data-theme="dark"] .miller-container .step-hub {
+            background: #1e3a8a !important;
+            color: #93c5fd !important;
+            border-color: #3b82f6 !important;
+        }
+
+        [data-theme="dark"] .miller-container .step-btn {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .miller-container .step-btn:hover:not(:disabled) {
+            background: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .miller-container .step-btn-remove {
+            color: #f87171 !important;
+            background: rgba(127, 29, 29, 0.35) !important;
+            border-color: #7f1d1d !important;
+        }
+
+        [data-theme="dark"] .miller-container .step-btn-remove:hover {
+            background: rgba(153, 27, 27, 0.55) !important;
+        }
+
+        [data-theme="dark"] .miller-container .step-item.step-dragging,
+        [data-theme="dark"] .miller-container .step-item.step-drop-hover {
+            background: #0c4a6e !important;
+            border-color: #0284c7 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-dropdown-results {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+            color: #e2e8f0 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-dropdown-row {
+            border-bottom-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-dropdown-row:hover {
+            background: #0c4a6e !important;
+            color: #7dd3fc !important;
+        }
+
+        [data-theme="dark"] .miller-container .miller-path-bar {
+            background: #0f172a !important;
+            border-color: #1e293b !important;
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .miller-container .m-empty-state {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .miller-container .toast-banner.success {
+            background: #064e3b !important;
+            color: #a7f3d0 !important;
+            border-color: #059669 !important;
+        }
+
+        [data-theme="dark"] .miller-container .toast-banner.error {
+            background: #7f1d1d !important;
+            color: #fecaca !important;
+            border-color: #b91c1c !important;
+        }
+
+        [data-theme="dark"] .miller-container .slider {
+            background-color: #475569 !important;
+        }
+
+        [data-theme="dark"] .miller-container input:checked + .slider {
+            background-color: #10b981 !important;
+        }
     </style>
 @endpush
 
@@ -2442,7 +2794,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     </div>
 
                     <div style="margin-top: 12px; padding: 6px;">
-                        <button type="button" wire:click="startImport" style="width: 100%; background: #f8fafc; border: 1px dashed #cbd5e1; padding: 8px 10px; border-radius: 6px; font-size: 11.5px; font-weight: 600; color: #0284c7; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                        <button type="button" wire:click="startImport" class="m-batch-import-btn">
                             <i class="fa-solid fa-file-arrow-up"></i> Batch TXT Import
                         </button>
                     </div>
@@ -2474,10 +2826,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                 <div class="m-item-text" style="min-width: 0;">
                                     <span class="m-item-title">{{ $f->flow_name }}</span>
                                     <div style="display: flex; align-items: center; gap: 4px; margin-top: 2px;">
-                                        <span style="font-family: monospace; font-size: 9.5px; background: #f1f5f9; padding: 1px 4px; border-radius: 3px; color: #475569;">{{ $f->flow_code }}</span>
+                                        <span class="m-code-chip">{{ $f->flow_code }}</span>
                                         <span class="m-item-badge" style="font-size: 9px; padding: 1px 5px;">{{ $f->step_count }} stops</span>
                                         @if($f->rdp_series_title)
-                                            <span style="font-size: 8.5px; background: #e0e7ff; color: #4338ca; padding: 1px 4px; border-radius: 3px; font-weight: 700;">RDP</span>
+                                            <span class="m-rdp-chip">RDP</span>
                                         @endif
                                     </div>
                                 </div>

@@ -288,6 +288,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
             background: #eff6ff; border: 1px solid #bfdbfe;
             padding: 4px 10px; border-radius: 999px;
         }
+
+        [data-theme="dark"] .area-badge.office-intake {
+            background: rgba(168, 85, 247, 0.28) !important;
+            color: #e9d5ff !important;
+            border: 1px solid rgba(192, 132, 252, 0.45);
+        }
+        [data-theme="dark"] .area-badge.dcs {
+            background: rgba(59, 130, 246, 0.28) !important;
+            color: #bfdbfe !important;
+            border: 1px solid rgba(96, 165, 250, 0.45);
+        }
+        [data-theme="dark"] .action-badge.intake {
+            background: rgba(168, 85, 247, 0.28) !important;
+            color: #e9d5ff !important;
+        }
+        [data-theme="dark"] .subsystem-ref {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+            color: #93c5fd !important;
+        }
     </style>
 @endpush
 

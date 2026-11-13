@@ -34,6 +34,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
             return;
         }
 
+        \App\Services\ErrorTicketRecorder::consolidateHistoricalDuplicates();
+
+        $this->autoSelectFirstTicket();
+    }
+
+    public function consolidateTickets(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (! $perms || (! $perms->is_sadm && ! $perms->can_access_activity_logs)) {
+            abort(403, 'Unauthorized access.');
+        }
+
+        $count = \App\Services\ErrorTicketRecorder::consolidateHistoricalDuplicates();
+        $this->successMessage = $count > 0
+            ? "Consolidated {$count} duplicate tickets into unified threads."
+            : "All duplicate tickets are already consolidated.";
+        $this->resetPage();
         $this->autoSelectFirstTicket();
     }
 
@@ -156,6 +173,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         }
 
         $ticket->save();
+        \App\Services\ErrorTicketRecorder::clearGuardsCache();
 
         if ($newAssignee && $newAssignee !== $previousAssignee && $newAssignee !== (int) auth()->id()) {
             $this->notifyTicketAssignee($ticket, $newAssignee);
@@ -609,6 +627,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         .m-item.active .m-item-tag {
             color: rgba(255, 255, 255, 0.85);
         }
+        .m-item.active .m-forum-footer,
+        .m-item.active .m-forum-footer span {
+            color: rgba(255, 255, 255, 0.9) !important;
+        }
         .m-item-left {
             display: flex;
             align-items: center;
@@ -814,18 +836,62 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         }
         .m-inspector-pre {
             background: #f8fafc;
-            border: 1px solid #e2e8f0;
+            border: 1px solid #cbd5e1;
             border-radius: 6px;
-            padding: 10px;
+            padding: 10px 12px;
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
             font-size: 11.5px;
-            line-height: 1.45;
-            color: #334155;
-            max-height: 160px;
+            line-height: 1.5;
+            color: #1e293b;
+            min-height: 80px;
+            max-height: 240px;
             overflow-y: auto;
             white-space: pre-wrap;
             word-break: break-word;
             margin: 6px 0 12px 0;
+            flex-shrink: 0;
+            box-sizing: border-box;
+        }
+        .m-inspector-pre::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .m-inspector-pre::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.04);
+            border-radius: 4px;
+        }
+        .m-inspector-pre::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        .m-inspector-pre::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        .m-copy-diag-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 9px;
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            border-radius: 5px;
+            color: #475569;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+            line-height: 1.4;
+        }
+        .m-copy-diag-btn:hover {
+            background: #e2e8f0;
+            color: #0f172a;
+            border-color: #94a3b8;
+        }
+        .m-copy-diag-btn.is-copied {
+            background: #ecfdf5 !important;
+            border-color: #6ee7b7 !important;
+            color: #059669 !important;
         }
 
         /* Triage Form in Inspector */
@@ -1028,6 +1094,30 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
             border-color: #334155;
             color: #e2e8f0;
         }
+        [data-theme="dark"] .m-inspector-pre::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.04);
+        }
+        [data-theme="dark"] .m-inspector-pre::-webkit-scrollbar-thumb {
+            background: #334155;
+        }
+        [data-theme="dark"] .m-inspector-pre::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        [data-theme="dark"] .m-copy-diag-btn {
+            background: #1e293b;
+            border-color: #334155;
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .m-copy-diag-btn:hover {
+            background: #334155;
+            color: #f1f5f9;
+            border-color: #475569;
+        }
+        [data-theme="dark"] .m-copy-diag-btn.is-copied {
+            background: rgba(16, 185, 129, 0.2) !important;
+            border-color: #10b981 !important;
+            color: #34d399 !important;
+        }
         [data-theme="dark"] .triage-box {
             background: #0f172a;
             border-color: #334155;
@@ -1092,6 +1182,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                     <span class="pill-num">{{ $stats['source_user_auto'] }}</span>
                 </button>
             </div>
+
+            <button type="button" class="m-tool-btn" wire:click="consolidateTickets" wire:loading.attr="disabled" title="Consolidate duplicate tickets for the same pages into unified threads">
+                <i class="fa-solid fa-layer-group" wire:loading.remove wire:target="consolidateTickets"></i>
+                <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="consolidateTickets"></i>
+                <span>Consolidate</span>
+            </button>
 
             <button type="button" class="m-tool-btn" wire:click="exportCsv" wire:loading.attr="disabled" title="Export tickets as CSV">
                 <i class="fa-solid fa-file-csv" wire:loading.remove wire:target="exportCsv"></i>
@@ -1280,65 +1376,77 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                         @php
                             $isSelected = $selectedId === (int) $t->id;
                             $seen = $t->last_seen_at ? \Carbon\Carbon::parse($t->last_seen_at) : ($t->created_at ? \Carbon\Carbon::parse($t->created_at) : null);
+                            $urlPath = $t->url ? (parse_url($t->url, PHP_URL_PATH) ?: $t->url) : null;
                         @endphp
                         <div class="m-item {{ $isSelected ? 'active' : '' }}"
                              wire:click="selectTicket({{ $t->id }})"
-                             wire:key="queue-ticket-{{ $t->id }}">
-                            <div class="m-item-left">
+                             wire:key="queue-ticket-{{ $t->id }}"
+                             style="flex-direction: column; align-items: stretch; gap: 6px; padding: 12px 14px;">
+                            {{-- Forum Tags Row (Discord Forum Post Style) --}}
+                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                                 <span class="status-dot {{ $t->status }}" title="Status: {{ $t->status }}"></span>
 
-                                <div style="overflow: hidden; flex: 1;">
-                                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
-                                        <strong class="m-item-title" style="font-size: 12.5px;">{{ $t->ticket_number }}</strong>
-                                        @if($t->reference && $t->reference !== $t->ticket_number)
-                                            <span style="font-size: 10px; opacity: 0.75; font-family: monospace;">{{ $t->reference }}</span>
-                                        @endif
-                                        @if((int) $t->occurrence_count > 1)
-                                            <span class="m-item-badge" style="font-size: 9.5px; padding: 1px 4px;">×{{ $t->occurrence_count }}</span>
-                    @endif
-                </div>
-
-                                    <div class="m-item-subtext" title="{{ $t->title }}">
-                                        {{ $t->title }}
-        </div>
-
-                                    <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px;">
-                                        @if($t->status === 'notice')
-                                            <span class="notice-pill">
-                                                <i class="fa-solid fa-circle-info" style="font-size: 9.5px;"></i> Notice
-                                            </span>
-                                        @endif
-
-                                        <span class="source-tag {{ $t->source }}">
-                                            @if($t->source === 'user')
-                                                <i class="fa-solid fa-user-pen" style="font-size: 9.5px;"></i> User
-                                            @elseif($t->source === 'user_auto')
-                                                <i class="fa-solid fa-wand-magic-sparkles" style="font-size: 9.5px;"></i> User | Auto
-                                            @else
-                                                <i class="fa-solid fa-robot" style="font-size: 9.5px;"></i> Auto
-                                        @endif
+                                @if($t->subsystem)
+                                    <span style="font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 4px; background: rgba(59, 130, 246, 0.12); color: #2563eb; text-transform: uppercase;">
+                                        [{{ $t->subsystem }}]
                                     </span>
+                                @endif
 
-                                        @if($t->subsystem)
-                                            <span style="opacity: 0.75; font-size: 10.5px; text-transform: uppercase;">
-                                                {{ $t->subsystem }}
+                                @if($t->http_status)
+                                    <span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: #fee2e2; color: #dc2626;">
+                                        {{ $t->http_status }}
                                     </span>
-                                        @endif
+                                @endif
 
-                                        @if($seen)
-                                            <span style="opacity: 0.65; margin-left: auto; font-size: 10.5px;">
-                                                {{ $seen->diffForHumans() }}
-                                            </span>
-                                        @endif
-                                    </div>
+                                <span class="source-tag {{ $t->source }}" style="font-size: 10px; padding: 1px 6px;">
+                                    @if($t->source === 'user')
+                                        <i class="fa-solid fa-user-pen" style="font-size: 9px;"></i> User
+                                    @elseif($t->source === 'user_auto')
+                                        <i class="fa-solid fa-wand-magic-sparkles" style="font-size: 9px;"></i> User | Auto
+                                    @else
+                                        <i class="fa-solid fa-robot" style="font-size: 9px;"></i> Auto
+                                    @endif
+                                </span>
+
+                                <span class="priority-pill {{ $t->priority }}" style="margin-left: auto; font-size: 9.5px; padding: 1px 6px;">
+                                    {{ $t->priority }}
+                                </span>
+                            </div>
+
+                            {{-- Forum Post Header / Page Target --}}
+                            <div>
+                                <strong class="m-item-title" style="font-size: 13px; font-weight: 700; line-height: 1.35; display: block;">
+                                    @if($urlPath)
+                                        {{ $urlPath }}
+                                    @else
+                                        {{ $t->ticket_number }}
+                                    @endif
+                                </strong>
+                                <div class="m-item-subtext" style="font-size: 11.5px; margin-top: 2px; line-height: 1.4;" title="{{ $t->title }}">
+                                    {{ $t->title }}
                                 </div>
                             </div>
 
-                            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-left: 10px;">
-                                <span class="priority-pill {{ $t->priority }}">
-                                    {{ $t->priority }}
-                                </span>
-                                <i class="fa-solid fa-chevron-right m-item-arrow" style="margin-top: 6px;"></i>
+                            {{-- Forum Post Footer: Occurrences / Clustered Hits, Reporter, Time --}}
+                            <div class="m-forum-footer" style="display: flex; align-items: center; justify-content: space-between; margin-top: 2px; font-size: 11px; color: #64748b; border-top: 1px dashed rgba(226, 232, 240, 0.6); padding-top: 5px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span title="Occurrences (Clustered hits on this error)" style="display: inline-flex; align-items: center; gap: 4px; font-weight: 700; color: #0284c7;">
+                                        <i class="fa-regular fa-comment-dots"></i> {{ $t->occurrence_count }}
+                                    </span>
+                                    <span title="Ticket Number" style="font-family: monospace; font-size: 10.5px; opacity: 0.85;">
+                                        {{ $t->ticket_number }}
+                                    </span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span title="Reporter" style="display: inline-flex; align-items: center; gap: 4px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                        <i class="fa-regular fa-user" style="font-size: 10px;"></i> {{ $t->reporter_username ?? 'daemon' }}
+                                    </span>
+                                    @if($seen)
+                                        <span style="opacity: 0.75; font-size: 10.5px;">
+                                            {{ $seen->diffForHumans(short: true) }}
+                                        </span>
+                                    @endif
+                                </div>
                             </div>
                         </div>
                         @empty
@@ -1495,8 +1603,48 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
 
                     {{-- Diagnostics / Description Box --}}
                     @if($selected->description)
-                        <div class="m-inspector-section-title" style="margin-top: 12px;">Diagnostics & User Notes</div>
-                        <div class="m-inspector-pre">{{ $selected->description }}</div>
+                        <div x-data="{ copied: false }" style="margin-top: 14px; margin-bottom: 12px; flex-shrink: 0;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                                <div class="m-inspector-section-title" style="margin: 0;">Diagnostics & User Notes</div>
+                                <button
+                                    type="button"
+                                    class="m-copy-diag-btn"
+                                    :class="copied ? 'is-copied' : ''"
+                                    @click="
+                                        const text = $refs.diagText ? ($refs.diagText.innerText || $refs.diagText.textContent || '') : '';
+                                        const onCopied = () => { copied = true; setTimeout(() => copied = false, 2000); };
+                                        if (navigator.clipboard && window.isSecureContext) {
+                                            navigator.clipboard.writeText(text).then(onCopied).catch(() => {
+                                                const ta = document.createElement('textarea');
+                                                ta.value = text;
+                                                ta.style.position = 'fixed';
+                                                ta.style.left = '-9999px';
+                                                document.body.appendChild(ta);
+                                                ta.select();
+                                                document.execCommand('copy');
+                                                document.body.removeChild(ta);
+                                                onCopied();
+                                            });
+                                        } else {
+                                            const ta = document.createElement('textarea');
+                                            ta.value = text;
+                                            ta.style.position = 'fixed';
+                                            ta.style.left = '-9999px';
+                                            document.body.appendChild(ta);
+                                            ta.select();
+                                            document.execCommand('copy');
+                                            document.body.removeChild(ta);
+                                            onCopied();
+                                        }
+                                    "
+                                    title="Copy diagnostics to clipboard"
+                                >
+                                    <i :class="copied ? 'fa-solid fa-check' : 'fa-regular fa-copy'"></i>
+                                    <span x-text="copied ? 'Copied!' : 'Copy'">Copy</span>
+                                </button>
+                            </div>
+                            <div class="m-inspector-pre" x-ref="diagText">{{ $selected->description }}</div>
+                        </div>
                     @endif
 
                     {{-- Notice Explanatory Banner --}}

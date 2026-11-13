@@ -436,42 +436,100 @@ class ManualService
 
     /**
      * Get path to the JSON mapping file.
+     * Prefers writable storage/app/manuals/mappings.json, falls back to resources/manuals/mappings.json.
      */
     public static function getMappingsFilePath(): string
     {
+        $storagePath = storage_path('app/manuals/mappings.json');
+        if (is_file($storagePath)) {
+            return $storagePath;
+        }
+
         return resource_path('manuals/mappings.json');
     }
 
     /**
-     * Get all custom manual mappings from mappings.json.
+     * Get all custom manual mappings from storage, resources, and database.
      *
      * @return array<string, string> Key: route or modal name, Value: relative path in manuals/ or 'disabled'
      */
     public static function getManualMapping(): array
     {
-        $path = self::getMappingsFilePath();
-        if (!is_file($path)) {
-            return [];
+        $mappings = [];
+
+        // 1. Initial base seed from resource_path (if present)
+        $resPath = resource_path('manuals/mappings.json');
+        if (is_file($resPath)) {
+            try {
+                $seed = json_decode((string) @file_get_contents($resPath), true);
+                if (is_array($seed)) {
+                    $mappings = $seed;
+                }
+            } catch (\Throwable) {}
         }
+
+        // 2. Dynamic runtime overrides from storage_path
+        $storagePath = storage_path('app/manuals/mappings.json');
+        if (is_file($storagePath)) {
+            try {
+                $custom = json_decode((string) @file_get_contents($storagePath), true);
+                if (is_array($custom)) {
+                    $mappings = array_merge($mappings, $custom);
+                }
+            } catch (\Throwable) {}
+        }
+
+        // 3. Fallback/Sync from database if available
         try {
-            $data = json_decode((string) file_get_contents($path), true);
-            return is_array($data) ? $data : [];
-        } catch (\Throwable) {
-            return [];
-        }
+            if (\Illuminate\Support\Facades\Schema::hasTable('sys_page_manuals')) {
+                $dbCustom = \Illuminate\Support\Facades\DB::table('sys_page_manuals')
+                    ->where('is_custom_mapped', true)
+                    ->pluck('relative_path', 'target_key')
+                    ->all();
+                foreach ($dbCustom as $k => $v) {
+                    $mappings[$k] = $v ?? 'disabled';
+                }
+            }
+        } catch (\Throwable) {}
+
+        return $mappings;
     }
 
     /**
-     * Save manual mappings to mappings.json.
+     * Save manual mappings safely to storage_path and resource_path without throwing permission errors.
      */
     public static function saveManualMapping(array $mappings): bool
     {
-        $path = self::getMappingsFilePath();
-        $dir = dirname($path);
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
-        }
-        return file_put_contents($path, json_encode($mappings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) !== false;
+        $encoded = json_encode($mappings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        $written = false;
+
+        // 1. Always save to storage_path (configured as writable for web process in Laravel)
+        try {
+            $storageDir = storage_path('app/manuals');
+            if (!is_dir($storageDir)) {
+                @mkdir($storageDir, 0775, true);
+            }
+            $storageFile = $storageDir . DIRECTORY_SEPARATOR . 'mappings.json';
+            if (@file_put_contents($storageFile, $encoded) !== false) {
+                $written = true;
+            }
+        } catch (\Throwable) {}
+
+        // 2. Also try updating resources/manuals/mappings.json if permissions allow (local/dev)
+        try {
+            $resPath = resource_path('manuals/mappings.json');
+            $resDir = dirname($resPath);
+            if (!is_dir($resDir)) {
+                @mkdir($resDir, 0775, true);
+            }
+            if (is_writable($resDir) || (file_exists($resPath) && is_writable($resPath))) {
+                if (@file_put_contents($resPath, $encoded) !== false) {
+                    $written = true;
+                }
+            }
+        } catch (\Throwable) {}
+
+        return $written;
     }
 
     /**
@@ -493,22 +551,25 @@ class ManualService
         }
 
         $saved = self::saveManualMapping($mappings);
+        $dbUpdated = false;
 
-        // Also sync to database table if available
+        // Also sync to database table if available (permanent persistence)
         try {
             if (\Illuminate\Support\Facades\Schema::hasTable('sys_page_manuals')) {
-                \Illuminate\Support\Facades\DB::table('sys_page_manuals')
-                    ->where('target_key', $targetKey)
-                    ->update([
+                \Illuminate\Support\Facades\DB::table('sys_page_manuals')->updateOrInsert(
+                    ['target_key' => $targetKey],
+                    [
                         'relative_path' => $isDisable ? null : $mappings[$targetKey],
                         'is_custom_mapped' => true,
                         'parsed_content' => null, // clear cached parse
                         'updated_at' => now(),
-                    ]);
+                    ]
+                );
+                $dbUpdated = true;
             }
         } catch (\Throwable) {}
 
-        return $saved;
+        return $saved || $dbUpdated;
     }
 
     /**
@@ -652,13 +713,29 @@ class ManualService
      */
     public static function saveManualFileContent(string $relativePath, string $content): bool
     {
-        $baseDir = resource_path('manuals');
-        $fullPath = $baseDir . DIRECTORY_SEPARATOR . ltrim(str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $relativePath), DIRECTORY_SEPARATOR);
-        $dir = dirname($fullPath);
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
+        try {
+            $baseDir = resource_path('manuals');
+            $fullPath = $baseDir . DIRECTORY_SEPARATOR . ltrim(str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $relativePath), DIRECTORY_SEPARATOR);
+            $dir = dirname($fullPath);
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0775, true);
+            }
+            if (@file_put_contents($fullPath, $content) !== false) {
+                return true;
+            }
+        } catch (\Throwable) {}
+
+        try {
+            $storageDir = storage_path('app/manuals');
+            $fullPath = $storageDir . DIRECTORY_SEPARATOR . ltrim(str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $relativePath), DIRECTORY_SEPARATOR);
+            $dir = dirname($fullPath);
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0775, true);
+            }
+            return @file_put_contents($fullPath, $content) !== false;
+        } catch (\Throwable) {
+            return false;
         }
-        return file_put_contents($fullPath, $content) !== false;
     }
 
     /**
@@ -678,15 +755,31 @@ class ManualService
         $relativeDir = $subsystem ? $subsystem : '';
         $targetDir = $relativeDir ? $baseDir . DIRECTORY_SEPARATOR . $relativeDir : $baseDir;
 
-        if (!is_dir($targetDir)) {
-            @mkdir($targetDir, 0755, true);
-        }
+        try {
+            if (!is_dir($targetDir)) {
+                @mkdir($targetDir, 0775, true);
+            }
 
-        $fullPath = $targetDir . DIRECTORY_SEPARATOR . $fileName;
-        if (file_put_contents($fullPath, $content) !== false) {
-            $rel = $relativeDir ? ($relativeDir . '/' . $fileName) : $fileName;
-            return str_replace('\\', '/', $rel);
-        }
+            $fullPath = $targetDir . DIRECTORY_SEPARATOR . $fileName;
+            if (@file_put_contents($fullPath, $content) !== false) {
+                $rel = $relativeDir ? ($relativeDir . '/' . $fileName) : $fileName;
+                return str_replace('\\', '/', $rel);
+            }
+        } catch (\Throwable) {}
+
+        // Fallback to storage/app/manuals
+        try {
+            $storageBase = storage_path('app/manuals');
+            $targetDir = $relativeDir ? $storageBase . DIRECTORY_SEPARATOR . $relativeDir : $storageBase;
+            if (!is_dir($targetDir)) {
+                @mkdir($targetDir, 0775, true);
+            }
+            $fullPath = $targetDir . DIRECTORY_SEPARATOR . $fileName;
+            if (@file_put_contents($fullPath, $content) !== false) {
+                $rel = $relativeDir ? ($relativeDir . '/' . $fileName) : $fileName;
+                return str_replace('\\', '/', $rel);
+            }
+        } catch (\Throwable) {}
 
         return null;
     }

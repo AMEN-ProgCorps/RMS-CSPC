@@ -2113,16 +2113,6 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                                             Completed &amp; Forwarded: {{ $step->hub_forwarded_count ?? 0 }} / {{ $step->hub_total ?? 0 }} offices
                                                         </div>
                                                     @endif
-                                                        @elseif ($isCurrentOffice || $isInTransitToThisOffice)
-                                                            <span style="background: #78350f; color: #fde68a; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">🚚 In Transit</span>
-                                                        @else
-                                                            <span style="background: #334155; color: #cbd5e1; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">⏳ Pending</span>
-                                                        @endif
-                                                    </div>
-                                                    
-                                                    <div style="font-size: 10.5px; font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">
-                                                        {{ $step->office_name }}
-                                                    </div>
 
                                                     <div style="font-size: 10px; color: #94a3b8; display: flex; flex-direction: column; gap: 2px;">
                                                         <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>

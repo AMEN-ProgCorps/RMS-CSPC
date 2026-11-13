@@ -9,7 +9,7 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Component {
+new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public int $id;
 
     public function mount($id): void

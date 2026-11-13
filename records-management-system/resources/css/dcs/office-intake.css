@@ -68,7 +68,8 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     flex-wrap: wrap;
     gap: 12px;
     margin: 12px 0 28px;
-    padding: 16px 0 4px;
+    /* Clear fixed Guide + Report + Messify FABs along the bottom edge. */
+    padding: 16px 0 80px;
     border-top: 1px solid #e2e8f0;
 }
 
@@ -1496,6 +1497,7 @@ body.ofi-docno-use-open {
     grid-template-columns: minmax(0, 1fr) 340px;
     gap: 18px;
     align-items: start;
+    padding-bottom: 72px;
 }
 .ofi-request-preview-panel {
     display: flex;
@@ -1656,6 +1658,23 @@ body.ofi-docno-use-open {
     background: #fff;
     box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
 }
+
+.ofi-alert.ofi-from-dcn-banner {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.ofi-alert.ofi-from-dcn-banner .ofi-from-dcn-banner-body {
+    flex: 1 1 280px;
+    min-width: 0;
+}
+.ofi-alert.ofi-from-dcn-banner .ofi-from-dcn-banner-link {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    margin-top: 0;
+}
 .ofi-request-actions-head h2 {
     margin: 0 0 4px;
     font-size: 1rem;
@@ -1797,7 +1816,8 @@ body.ofi-docno-use-open {
 .ofi-sig-group {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
+    margin-bottom: 6px;
 }
 .ofi-sig-label {
     margin: 0;
@@ -3304,11 +3324,11 @@ body.ofi-modal-open {
 }
 .ofi-list-table-wrap .ofi-table th:first-child,
 .ofi-list-table-wrap .ofi-table td:first-child {
-    padding-left: 4px;
+    padding-left: 16px;
 }
 .ofi-list-table-wrap .ofi-table th:last-child,
 .ofi-list-table-wrap .ofi-table td:last-child {
-    padding-right: 4px;
+    padding-right: 16px;
 }
 .ofi-title-cell {
     max-width: 340px;
@@ -3327,13 +3347,18 @@ body.ofi-modal-open {
     text-decoration: underline;
 }
 .ofi-actions-col {
-    width: 220px;
+    width: 1%;
+    white-space: nowrap;
 }
 .ofi-actions {
-    display: flex;
-    flex-wrap: wrap;
+    display: inline-flex;
+    flex-wrap: nowrap;
     gap: 6px;
     align-items: center;
+    white-space: nowrap;
+}
+.ofi-actions .ofi-icon-action {
+    flex: 0 0 auto;
 }
 .ofi-icon-action {
     display: inline-flex;

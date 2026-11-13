@@ -1646,6 +1646,13 @@ class OfficeIntakeHelper
             'sub_type_id' => (int) ($row->sub_type_id ?? 0),
             'distribute_office_ids' => self::distributionOfficeIdsForRequest($requestId),
             'approvals' => self::approvalsForRegisteredRequest($requestId),
+            // Prefer signatories saved on the registered DRF; else Settings assignment for this type.
+            'signatories' => self::signatoriesForRegisteredRequest($requestId)
+                ?? self::drfSignatoryPrefill(
+                    $kind,
+                    (int) ($row->doc_type_id ?? 0) ?: null,
+                    (int) ($row->sub_type_id ?? 0) ?: null
+                ),
         ];
         $open = self::findOpenDuplicateDcn(
             (string) ($row->doc_no ?? ''),
@@ -1663,6 +1670,63 @@ class OfficeIntakeHelper
         }
 
         return $payload;
+    }
+
+    /**
+     * Signatories saved on the registered DRF for this document request (recurring DRF prefill).
+     *
+     * @return array{
+     *     prepared_by_name: string,
+     *     prepared_by_designation: string,
+     *     reviewed_by_name: string,
+     *     reviewed_by_designation: string,
+     *     approved_by_name: string,
+     *     approved_by_designation: string
+     * }|null
+     */
+    private static function signatoriesForRegisteredRequest(int $requestId): ?array
+    {
+        if ($requestId < 1 || ! Schema::hasTable('dcs_document_request_form')) {
+            return null;
+        }
+
+        $columns = [
+            'prepared_by_name',
+            'prepared_by_designation',
+            'reviewed_by_name',
+            'reviewed_by_designation',
+            'approved_by_name',
+            'approved_by_designation',
+        ];
+        $select = [];
+        foreach ($columns as $column) {
+            if (Schema::hasColumn('dcs_document_request_form', $column)) {
+                $select[] = $column;
+            }
+        }
+        if ($select === []) {
+            return null;
+        }
+
+        $row = DB::table('dcs_document_request_form')
+            ->where('request_id', $requestId)
+            ->orderByDesc('id')
+            ->first($select);
+        if (! $row) {
+            return null;
+        }
+
+        $payload = [];
+        $hasAny = false;
+        foreach ($columns as $column) {
+            $value = in_array($column, $select, true) ? trim((string) ($row->{$column} ?? '')) : '';
+            $payload[$column] = $value;
+            if ($value !== '') {
+                $hasAny = true;
+            }
+        }
+
+        return $hasAny ? $payload : null;
     }
 
     /** @return list<array{position: string, name: string}> */
@@ -6411,7 +6475,48 @@ class OfficeIntakeHelper
 
         $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
         $peer = self::linkedIntakePeer($type, $id);
-        $peerNotified = $peer !== null && ! empty($peer['record']->rfio_print_notified_at ?? null);
+        $peerAlsoNotified = false;
+
+        // Linked DCN+DRF: one RFIO confirm marks both forms ready and sends a single pair notice.
+        // Hold only when the peer is still unlocked for correction.
+        if ($peer !== null && empty($peer['record']->rfio_print_notified_at ?? null)) {
+            if (! empty($peer['record']->edit_unlocked_at)) {
+                return array_merge([
+                    'ok' => true,
+                    'type' => $type,
+                    'id' => $id,
+                    'notifiedOffices' => $officeCodes,
+                    'noticeHeld' => true,
+                    'pairComplete' => false,
+                    'peerAlsoNotified' => false,
+                    'pairLabel' => strtoupper((string) $peer['type']),
+                ], self::intakePrintNotifiedState($record));
+            }
+
+            $peerTable = $peer['type'] === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+            self::ensureOfficePrintedColumns($peerTable);
+            if (Schema::hasColumn($peerTable, 'rfio_print_notified_at')) {
+                $peerUpdate = [
+                    'rfio_print_notified_at' => $now,
+                    'rfio_print_notified_by' => $userId > 0 ? $userId : null,
+                    'updated_at' => $now,
+                ];
+                if (Schema::hasColumn($peerTable, 'office_printed_at')) {
+                    $peerUpdate['office_printed_at'] = null;
+                }
+                if (Schema::hasColumn($peerTable, 'office_printed_by')) {
+                    $peerUpdate['office_printed_by'] = null;
+                }
+                DB::table($peerTable)->where('id', (int) $peer['id'])->update($peerUpdate);
+                self::bumpOfficeInventoryCache();
+                $peerAlsoNotified = true;
+                $peer['record'] = $peer['type'] === 'dcn'
+                    ? self::findOfficeDcn((int) $peer['id'])
+                    : self::findOfficeDrf((int) $peer['id']);
+            }
+        }
+
+        $peerNotified = $peer === null || ! empty($peer['record']->rfio_print_notified_at ?? null);
         $noticeHeld = $peer !== null && ! $peerNotified;
         $sent = 0;
 
@@ -6438,7 +6543,8 @@ class OfficeIntakeHelper
             'id' => $id,
             'notifiedOffices' => $officeCodes,
             'noticeHeld' => $noticeHeld,
-            'pairComplete' => $peer !== null && $peerNotified,
+            'pairComplete' => $peer === null || $peerNotified,
+            'peerAlsoNotified' => $peerAlsoNotified || ($peer !== null && $peerNotified),
             'pairLabel' => $peer ? strtoupper((string) $peer['type']) : '',
         ], self::intakePrintNotifiedState($record));
     }

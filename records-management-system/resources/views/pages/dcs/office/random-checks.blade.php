@@ -11,7 +11,7 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.dcs')] #[Title('Random Check Results — CSPC DCS')] class extends Component {
+new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public function mount(): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();

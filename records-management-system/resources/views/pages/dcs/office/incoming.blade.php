@@ -15,7 +15,7 @@ use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 
-new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class extends Component {
+new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     use WithPagination;
 
     #[Url]

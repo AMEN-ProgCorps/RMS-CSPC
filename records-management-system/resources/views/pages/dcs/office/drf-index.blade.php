@@ -11,7 +11,7 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 
-new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Component {
+new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     use WithPagination;
 
     public function mount(): void

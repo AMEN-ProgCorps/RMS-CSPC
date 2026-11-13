@@ -11,7 +11,7 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class extends Component {
+new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public string $type;
     public int $id;
 
@@ -322,8 +322,8 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                         </div>
                     </div>
 
-                    <div class="ofi-request-step is-final">
-                        <div class="ofi-request-step-num" aria-hidden="true">{{ $panelReceived ? '3' : '4' }}</div>
+                    <div class="ofi-request-step is-final" data-ofi-final-step>
+                        <div class="ofi-request-step-num" aria-hidden="true">3</div>
                         <div class="ofi-request-step-body">
                             <p class="ofi-request-step-label">Proceed to registration</p>
                             <div class="ofi-alert err" data-ofi-action-error hidden></div>

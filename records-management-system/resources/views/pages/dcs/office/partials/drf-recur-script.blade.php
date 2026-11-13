@@ -120,6 +120,51 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         box.textContent = duplicateMessage;
     }
 
+    const sigFieldMap = {
+        prepared_by_name: 'preparedByName',
+        prepared_by_designation: 'preparedByDesignation',
+        reviewed_by_name: 'reviewedByName',
+        reviewed_by_designation: 'reviewedByDesignation',
+        approved_by_name: 'approvedByName',
+        approved_by_designation: 'approvedByDesignation',
+    };
+    let seededSignatoryKeys = [];
+
+    function clearSeededSignatories() {
+        seededSignatoryKeys.forEach(function (key) {
+            const input = document.getElementById(sigFieldMap[key])
+                || form.querySelector('[data-sig-key="' + key + '"]');
+            if (input) input.value = '';
+        });
+        seededSignatoryKeys = [];
+    }
+
+    function seedSignatories(signatories) {
+        clearSeededSignatories();
+        if (!signatories || typeof signatories !== 'object') return;
+        Object.keys(sigFieldMap).forEach(function (key) {
+            const value = String(signatories[key] || '').trim();
+            if (!value) return;
+            const input = document.getElementById(sigFieldMap[key])
+                || form.querySelector('[data-sig-key="' + key + '"]');
+            if (!input) return;
+            input.value = value;
+            input.dataset.autoFilled = '1';
+            seededSignatoryKeys.push(key);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    }
+
+    function refreshSignatoriesAfterLock(signatories) {
+        if (typeof window.__ofiRefreshDrfSignatories === 'function') {
+            window.__ofiRefreshDrfSignatories();
+        }
+        // API payload wins (registered DRF or Settings assignment for the locked type).
+        if (signatories) {
+            seedSignatories(signatories);
+        }
+    }
+
     function clearSeededFormFields() {
         const titleInput = document.getElementById('drfTitle');
         const originInput = document.getElementById('drfOriginatorName')
@@ -137,6 +182,7 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
             originInput.placeholder = 'Separate multiple originators with a comma';
         }
         clearDistributeOffices();
+        clearSeededSignatories();
         unlockDocTypeKind();
     }
 
@@ -264,10 +310,16 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
                     if (childId && [].some.call(subSelect.options, function (o) { return o.value === childId; })) {
                         subSelect.value = childId;
                         subSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    } else if (childId) {
+                        // Option may not exist yet after parent rebuild — force value then refresh.
+                        subSelect.value = childId;
                     }
                     subSelect.disabled = true;
                     subSelect.removeAttribute('name');
                     ensureHidden('subTypeId', subSelect.value || childId || '');
+                    if (typeof window.__ofiRefreshDrfSignatories === 'function') {
+                        window.__ofiRefreshDrfSignatories();
+                    }
                 };
                 applySub();
                 setTimeout(applySub, 0);
@@ -411,6 +463,14 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
             if (data.doc_type_kind || data.doc_type_id || data.sub_type_id) {
                 lockDocTypeKind(data.doc_type_kind, data.doc_type_id, data.sub_type_id);
             }
+            refreshSignatoriesAfterLock(data.signatories || null);
+            // Sub-type lock applies on the next tick — refresh again so disabled selects still resolve.
+            setTimeout(function () {
+                refreshSignatoriesAfterLock(data.signatories || null);
+            }, 0);
+            setTimeout(function () {
+                refreshSignatoriesAfterLock(data.signatories || null);
+            }, 60);
             showSelected(data);
             // Park focus on the finder card — never Distribute, never a removed suggestion btn.
             if (finderCard && typeof finderCard.focus === 'function') {
@@ -542,6 +602,7 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
                 originInput.value = '';
                 originInput.placeholder = 'Separate multiple originators with a comma';
             }
+            clearSeededSignatories();
             setStatus('Enter the latest document number, title, and originator, then find it again.', false);
             finderNo.focus({ preventScroll: true });
             window.scrollTo(0, scrollY);

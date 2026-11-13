@@ -192,6 +192,48 @@
     function syncUnlock(received) {
         if (!unlockBlock) return;
         unlockBlock.hidden = !!received;
+        renumberSteps();
+    }
+
+    function renumberSteps() {
+        let n = 0;
+        root.querySelectorAll('.ofi-request-step').forEach(function (step) {
+            if (step.hasAttribute('hidden') || step.hidden) return;
+            n += 1;
+            const badge = step.querySelector('.ofi-request-step-num');
+            if (badge) badge.textContent = String(n);
+        });
+    }
+
+    function markPanelPrintNotified(panel, metaText) {
+        if (!panel) return;
+        panel.setAttribute('data-print-notified', '1');
+        const label = panel.querySelector('[data-ofi-notify-label]');
+        if (label) label.textContent = 'Resend print & sign notice';
+        const meta = panel.querySelector('[data-ofi-notify-meta]');
+        if (meta) {
+            meta.textContent = metaText || 'Client notified';
+            meta.hidden = false;
+        }
+        const wait = panel.querySelector('[data-ofi-notify-wait]');
+        if (wait) wait.hidden = true;
+        const unlockReasonEl = panel.querySelector('[data-ofi-unlock-reason]');
+        if (unlockReasonEl) unlockReasonEl.disabled = true;
+        const unlockBtnEl = panel.querySelector('[data-ofi-unlock-btn]');
+        if (unlockBtnEl) {
+            unlockBtnEl.disabled = true;
+            unlockBtnEl.title = 'Not available after notifying the office that the form is correct.';
+            const icon = unlockBtnEl.querySelector('i');
+            if (icon) {
+                icon.classList.remove('fa-unlock');
+                icon.classList.add('fa-lock');
+            }
+        }
+        const unlockMetaEl = panel.querySelector('[data-ofi-unlock-meta]');
+        if (unlockMetaEl) {
+            unlockMetaEl.textContent = 'Locked — office was already notified that this submission is correct.';
+            unlockMetaEl.hidden = false;
+        }
     }
 
     function lockUnlockAfterPrintNotify() {
@@ -445,7 +487,9 @@
             if (notifyMeta) {
                 let text = data.noticeHeld
                     ? ('Print unlocked. The office is notified after the linked ' + (data.pairLabel || pairLabel) + ' is also confirmed.')
-                    : 'Client notified';
+                    : (data.peerAlsoNotified
+                        ? ('Client notified for this form and the linked ' + (data.pairLabel || pairLabel))
+                        : 'Client notified');
                 if (!data.noticeHeld && data.printNotifiedAt) text += ' on ' + data.printNotifiedAt;
                 if (!data.noticeHeld && data.printNotifiedBy) text += ' by ' + data.printNotifiedBy;
                 notifyMeta.textContent = text;
@@ -456,11 +500,20 @@
                     if (data.pairComplete) other.setAttribute('data-pair-notified', '1');
                     return;
                 }
+                // Peer panel: this form was just confirmed, so pair is notified from their side.
                 other.setAttribute('data-pair-notified', '1');
+                if (data.peerAlsoNotified || data.pairComplete) {
+                    markPanelPrintNotified(
+                        other,
+                        'Client notified with the linked ' + String(type).toUpperCase() + ' notice.'
+                    );
+                    other.setAttribute('data-pair-notified', '1');
+                }
                 other.dispatchEvent(new CustomEvent('ofi-pair-notified'));
             });
             const receivedNow = check ? check.checked : root.getAttribute('data-received') === '1';
             syncProceed(receivedNow);
+            renumberSteps();
         } catch (err) {
             showPanelError(err.message || 'Could not notify the office.');
         } finally {
@@ -668,6 +721,7 @@
         syncNotifyWhileUnlocked();
     }
     hardenProceedUi();
+    renumberSteps();
     window.addEventListener('pageshow', hardenProceedUi);
     root.addEventListener('ofi-pair-sync', function () {
         syncProceed(isReceived());

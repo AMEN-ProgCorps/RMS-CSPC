@@ -34,6 +34,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
             return;
         }
 
+        \App\Services\ErrorTicketRecorder::consolidateHistoricalDuplicates();
+
+        $this->autoSelectFirstTicket();
+    }
+
+    public function consolidateTickets(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (! $perms || (! $perms->is_sadm && ! $perms->can_access_activity_logs)) {
+            abort(403, 'Unauthorized access.');
+        }
+
+        $count = \App\Services\ErrorTicketRecorder::consolidateHistoricalDuplicates();
+        $this->successMessage = $count > 0
+            ? "Consolidated {$count} duplicate tickets into unified threads."
+            : "All duplicate tickets are already consolidated.";
+        $this->resetPage();
         $this->autoSelectFirstTicket();
     }
 
@@ -1165,6 +1182,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                     <span class="pill-num">{{ $stats['source_user_auto'] }}</span>
                 </button>
             </div>
+
+            <button type="button" class="m-tool-btn" wire:click="consolidateTickets" wire:loading.attr="disabled" title="Consolidate duplicate tickets for the same pages into unified threads">
+                <i class="fa-solid fa-layer-group" wire:loading.remove wire:target="consolidateTickets"></i>
+                <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="consolidateTickets"></i>
+                <span>Consolidate</span>
+            </button>
 
             <button type="button" class="m-tool-btn" wire:click="exportCsv" wire:loading.attr="disabled" title="Export tickets as CSV">
                 <i class="fa-solid fa-file-csv" wire:loading.remove wire:target="exportCsv"></i>

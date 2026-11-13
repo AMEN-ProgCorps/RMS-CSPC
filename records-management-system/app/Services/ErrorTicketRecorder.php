@@ -325,6 +325,83 @@ class ErrorTicketRecorder
         } catch (\Throwable) {}
     }
 
+    /**
+     * Consolidate historical open/in-progress tickets for the same page/fingerprint into unified threads.
+     * Preserves total occurrences, updates last_seen_at, and retains historical reference codes.
+     */
+    public static function consolidateHistoricalDuplicates(): int
+    {
+        if (! Schema::hasTable('sys_error_tickets')) {
+            return 0;
+        }
+
+        try {
+            $tickets = ErrorTicket::query()
+                ->whereIn('status', [ErrorTicket::STATUS_OPEN, ErrorTicket::STATUS_IN_PROGRESS, ErrorTicket::STATUS_NOTICE])
+                ->orderBy('created_at', 'asc')
+                ->get();
+
+            if ($tickets->isEmpty()) {
+                return 0;
+            }
+
+            $groups = $tickets->groupBy(function ($t) {
+                if ($t->url) {
+                    $path = parse_url($t->url, PHP_URL_PATH);
+                    if ($path && $path !== '/' && ! str_contains($path, '/api/')) {
+                        return 'path:'.strtolower(rtrim($path, '/'));
+                    }
+                }
+
+                return 'fp:'.($t->fingerprint ?: $t->title);
+            });
+
+            $mergedCount = 0;
+
+            foreach ($groups as $key => $items) {
+                if ($items->count() <= 1) {
+                    continue;
+                }
+
+                // Master ticket is the latest ticket
+                /** @var ErrorTicket $master */
+                $master = $items->last();
+                $others = $items->slice(0, $items->count() - 1);
+
+                $totalOccurrences = (int) $items->sum('occurrence_count');
+                $maxLastSeen = $items->max('last_seen_at') ?? now();
+                $hasUserReport = $items->contains(fn ($t) => in_array($t->source, [ErrorTicket::SOURCE_USER, ErrorTicket::SOURCE_USER_AUTO], true));
+
+                $master->occurrence_count = max($totalOccurrences, (int) $master->occurrence_count);
+                $master->last_seen_at = $maxLastSeen;
+
+                if ($hasUserReport && $master->source === ErrorTicket::SOURCE_AUTO) {
+                    $master->source = ErrorTicket::SOURCE_USER_AUTO;
+                }
+
+                $allRefs = $items->pluck('reference')->filter()->unique()->values()->all();
+                if (! empty($allRefs)) {
+                    $ctx = is_array($master->context) ? $master->context : [];
+                    $ctx['historical_references'] = $allRefs;
+                    $master->context = $ctx;
+                }
+
+                $master->save();
+
+                ErrorTicket::query()->whereIn('id', $others->pluck('id'))->delete();
+                $mergedCount += $others->count();
+            }
+
+            if ($mergedCount > 0) {
+                self::clearGuardsCache();
+            }
+
+            return $mergedCount;
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
     public static function getActiveGuards(): array
     {
         try {

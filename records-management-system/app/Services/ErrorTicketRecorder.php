@@ -58,7 +58,7 @@ class ErrorTicketRecorder
 
             $isNotice = self::isSlowInternet($payload);
 
-            return ErrorTicket::query()->create([
+            $created = ErrorTicket::query()->create([
                 'ticket_number' => $reference !== '' ? $reference : self::nextTicketNumber('SRV'),
                 'source' => ErrorTicket::SOURCE_AUTO,
                 'reference' => $reference !== '' ? $reference : null,
@@ -79,6 +79,10 @@ class ErrorTicketRecorder
                 'last_seen_at' => now(),
                 'reported_by' => Auth::id(),
             ]);
+
+            self::clearGuardsCache();
+
+            return $created;
         } catch (Throwable) {
             return null;
         }
@@ -304,6 +308,7 @@ class ErrorTicketRecorder
         }
 
         $ticket->save();
+        self::clearGuardsCache();
 
         return $ticket;
     }
@@ -311,6 +316,80 @@ class ErrorTicketRecorder
     private static function fingerprint(string $class, string $file, int $line, string $message): string
     {
         return hash('sha256', strtolower($class).'|'.strtolower($file).'|'.$line.'|'.md5(strtolower(trim($message))));
+    }
+
+    public static function clearGuardsCache(): void
+    {
+        try {
+            \Illuminate\Support\Facades\Cache::forget('rms_active_error_guards');
+        } catch (\Throwable) {}
+    }
+
+    public static function getActiveGuards(): array
+    {
+        try {
+            if (! Schema::hasTable('sys_error_tickets')) {
+                return ['pages' => [], 'modals' => []];
+            }
+
+            return \Illuminate\Support\Facades\Cache::remember('rms_active_error_guards', 10, function () {
+                $tickets = ErrorTicket::query()
+                    ->whereIn('source', [ErrorTicket::SOURCE_AUTO, ErrorTicket::SOURCE_USER_AUTO])
+                    ->whereIn('status', [ErrorTicket::STATUS_OPEN, ErrorTicket::STATUS_IN_PROGRESS])
+                    ->select('id', 'ticket_number', 'url', 'title', 'subsystem', 'kind', 'reference', 'context', 'last_seen_at')
+                    ->get();
+
+                $pages = [];
+                $modals = [];
+
+                foreach ($tickets as $t) {
+                    if ($t->url) {
+                        $path = parse_url($t->url, PHP_URL_PATH);
+                        if ($path && $path !== '/' && !str_contains($path, '/api/')) {
+                            $pages[strtolower(rtrim($path, '/'))] = [
+                                'ticket' => $t->ticket_number,
+                                'title' => $t->title,
+                                'ref' => $t->reference,
+                                'subsystem' => $t->subsystem,
+                                'url' => $t->url,
+                            ];
+                        }
+                    }
+                    if (!empty($t->kind) && (str_starts_with($t->kind, 'modal:') || str_starts_with($t->kind, 'modal_'))) {
+                        $clean = strtolower(preg_replace('/^modal[:_]/', '', $t->kind));
+                        $info = [
+                            'ticket' => $t->ticket_number,
+                            'title' => $t->title,
+                            'ref' => $t->reference,
+                        ];
+                        $modals[strtolower($t->kind)] = $info;
+                        $modals[$clean] = $info;
+                    }
+                    if (is_array($t->context)) {
+                        if (!empty($t->context['component'])) {
+                            $cKey = strtolower((string) $t->context['component']);
+                            $modals[$cKey] = [
+                                'ticket' => $t->ticket_number,
+                                'title' => $t->title,
+                                'ref' => $t->reference,
+                            ];
+                        }
+                        if (!empty($t->context['modal'])) {
+                            $mKey = strtolower((string) $t->context['modal']);
+                            $modals[$mKey] = [
+                                'ticket' => $t->ticket_number,
+                                'title' => $t->title,
+                                'ref' => $t->reference,
+                            ];
+                        }
+                    }
+                }
+
+                return ['pages' => $pages, 'modals' => $modals];
+            });
+        } catch (\Throwable) {
+            return ['pages' => [], 'modals' => []];
+        }
     }
 
     private static function nextTicketNumber(string $prefix): string

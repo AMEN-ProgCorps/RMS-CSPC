@@ -317,6 +317,11 @@ Route::post('/api/errors/auto-capture', function (\Illuminate\Http\Request $requ
     ]);
 })->name('api.errors.auto-capture');
 
+// Active automated error guards for client-side circuit breaking and modal interception
+Route::get('/api/errors/active-guards', function () {
+    return response()->json(\App\Services\ErrorTicketRecorder::getActiveGuards());
+})->name('api.errors.active-guards');
+
 // Secured routes (behind auth middleware)
 Route::middleware(['auth'])
     ->group(function () {

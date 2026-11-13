@@ -530,4 +530,239 @@
             if (event && typeof event.preventDefault === 'function') event.preventDefault();
         }
     });
+
+    /* =========================================================================
+     * ACTIVE CIRCUIT BREAKER, MODAL GUARD & SIDE DUAL-SLOT STACKING
+     * ========================================================================= */
+
+    function normalizePath(url) {
+        if (!url) return null;
+        try {
+            var parsed = new URL(url, location.origin);
+            if (parsed.origin !== location.origin) return null;
+            var path = parsed.pathname.toLowerCase();
+            if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+            return path;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function syncActiveGuards() {
+        try {
+            fetch('/api/errors/active-guards')
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && typeof data === 'object') {
+                        window.__rmsActiveGuards = data;
+                    }
+                })
+                .catch(function () {});
+        } catch (e) {}
+    }
+
+    if (!window.__rmsActiveGuards) {
+        syncActiveGuards();
+    }
+    window.addEventListener('focus', syncActiveGuards);
+
+    function getOrCreateSideStack() {
+        var stack = document.getElementById('rms-side-alert-stack');
+        if (!stack) {
+            stack = document.createElement('div');
+            stack.id = 'rms-side-alert-stack';
+            stack.style.cssText = 'position:fixed;bottom:84px;right:24px;z-index:999999;display:flex;flex-direction:column;gap:10px;max-width:380px;width:calc(100vw - 48px);pointer-events:none;';
+            document.body.appendChild(stack);
+        }
+        return stack;
+    }
+
+    window.rmsPromoteSideCard = function (type) {
+        var errorCard = document.getElementById('rms-side-error-card');
+        var notifCard = document.getElementById('rms-side-notif-container') || document.querySelector('.notif-overlay-container');
+        if (!errorCard) return;
+        if (type === 'notif') {
+            if (notifCard) notifCard.style.order = '1';
+            errorCard.style.order = '2';
+        } else {
+            errorCard.style.order = '1';
+            if (notifCard) notifCard.style.order = '2';
+        }
+    };
+
+    function rmsShowSideErrorCard(info) {
+        var stack = getOrCreateSideStack();
+        var card = document.getElementById('rms-side-error-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'rms-side-error-card';
+            card.style.cssText = 'pointer-events:auto;background:#ffffff;border:1px solid #fecaca;border-left:4px solid #ef4444;border-radius:10px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.06);padding:14px 16px;font-family:Inter,system-ui,sans-serif;color:#1e293b;transition:all 0.25s ease;order:1;position:relative;';
+            
+            card.addEventListener('mouseenter', function () {
+                window.rmsPromoteSideCard('error');
+            });
+            card.addEventListener('click', function () {
+                window.rmsPromoteSideCard('error');
+            });
+
+            stack.appendChild(card);
+        }
+
+        // Error card is placed at the top (order: 1) by default when both coexist
+        card.style.order = '1';
+        var notifCard = document.getElementById('rms-side-notif-container') || document.querySelector('.notif-overlay-container');
+        if (notifCard) notifCard.style.order = '2';
+
+        var isRepeat = !!info.isRepeat;
+        var headerLabel = isRepeat ? 'Access Blocked: Error Page' : 'Page Temporarily Unavailable';
+        var badge = info.ticket ? ('Ticket ' + info.ticket) : (info.ref ? ('Ref ' + info.ref) : 'Active Incident');
+        var message = isRepeat
+            ? 'You are attempting to access an error page. Please wait for an administrator to fix it before trying again.'
+            : (info.type === 'modal'
+                ? 'This feature is temporarily unavailable due to an active system error. Please wait for an admin to resolve it.'
+                : 'The page <code style="background:#f1f5f9;padding:2px 5px;border-radius:4px;font-size:11px;color:#dc2626;">' + (info.path || '') + '</code> encountered an automated crash. Reverted to current page to prevent interruption.');
+
+        card.innerHTML =
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
+                '<div style="display:flex;align-items:center;gap:7px;">' +
+                    '<span style="width:8px;height:8px;border-radius:50%;background:#ef4444;box-shadow:0 0 6px #ef4444;display:inline-block;"></span>' +
+                    '<strong style="font-size:12.5px;color:#b91c1c;">' + headerLabel + '</strong>' +
+                '</div>' +
+                '<div style="display:flex;align-items:center;gap:6px;">' +
+                    '<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:2px 6px;border-radius:999px;">' + badge + '</span>' +
+                    '<button type="button" id="rms-side-error-close" style="border:none;background:transparent;color:#94a3b8;font-size:16px;line-height:1;cursor:pointer;padding:0 2px;">&times;</button>' +
+                '</div>' +
+            '</div>' +
+            '<p style="margin:6px 0 10px 0;font-size:12px;color:#475569;line-height:1.45;">' + message + '</p>' +
+            '<div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;">' +
+                '<button type="button" id="rms-side-error-report" style="border:1px solid #cbd5e1;background:#f8fafc;color:#334155;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">Report / Info</button>' +
+                '<button type="button" id="rms-side-error-dismiss" style="border:none;background:#ef4444;color:#ffffff;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;">Dismiss</button>' +
+            '</div>';
+
+        card.style.display = 'block';
+
+        var closeBtn = document.getElementById('rms-side-error-close');
+        var dismissBtn = document.getElementById('rms-side-error-dismiss');
+        var reportBtn = document.getElementById('rms-side-error-report');
+
+        var closeCard = function () {
+            card.style.display = 'none';
+        };
+
+        if (closeBtn) closeBtn.onclick = closeCard;
+        if (dismissBtn) dismissBtn.onclick = closeCard;
+        if (reportBtn) {
+            reportBtn.onclick = function () {
+                window.dispatchEvent(new CustomEvent('rms-open-report-problem', {
+                    detail: {
+                        reference: info.ticket || info.ref || null,
+                        title: 'Error on ' + (info.path || info.modalKey || 'feature'),
+                        description: 'Encountered automated circuit breaker block for ticket ' + (info.ticket || '') + ' on ' + (info.path || '')
+                    }
+                }));
+                closeCard();
+            };
+        }
+    }
+
+    // Expose Side Stacking & Modal Guard APIs
+    window.rmsShowSideErrorCard = rmsShowSideErrorCard;
+
+    window.rmsCheckPageGuard = function (targetUrl) {
+        var path = normalizePath(targetUrl);
+        if (!path) return false;
+
+        var currentPath = normalizePath(location.pathname);
+        if (path === currentPath) return false;
+
+        var guards = (window.__rmsActiveGuards && window.__rmsActiveGuards.pages) || {};
+        var error = guards[path];
+        if (!error) return false;
+
+        window.__rmsAttemptedPages = window.__rmsAttemptedPages || {};
+        var isRepeat = !!window.__rmsAttemptedPages[path];
+        window.__rmsAttemptedPages[path] = true;
+
+        rmsShowSideErrorCard({
+            type: 'page',
+            path: path,
+            targetUrl: targetUrl,
+            ticket: error.ticket,
+            title: error.title,
+            ref: error.ref,
+            subsystem: error.subsystem,
+            isRepeat: isRepeat
+        });
+
+        return true; // Navigation blocked
+    };
+
+    window.rmsCheckModalGuard = function (modalKey) {
+        var modals = (window.__rmsActiveGuards && window.__rmsActiveGuards.modals) || {};
+        var cleanKey = String(modalKey || '').toLowerCase();
+        var error = modals[cleanKey] || modals['modal:' + cleanKey] || modals[cleanKey.replace(/^modal[:_]/, '')];
+        if (!error) return false;
+
+        window.__rmsAttemptedModals = window.__rmsAttemptedModals || {};
+        var isRepeat = !!window.__rmsAttemptedModals[cleanKey];
+        window.__rmsAttemptedModals[cleanKey] = true;
+
+        rmsShowSideErrorCard({
+            type: 'modal',
+            modalKey: modalKey,
+            ticket: error.ticket,
+            title: error.title,
+            ref: error.ref,
+            isRepeat: isRepeat
+        });
+
+        return true; // Modal open blocked
+    };
+
+    window.rmsHasActiveModalError = function (modalKey) {
+        var modals = (window.__rmsActiveGuards && window.__rmsActiveGuards.modals) || {};
+        var cleanKey = String(modalKey || '').toLowerCase();
+        return !!(modals[cleanKey] || modals['modal:' + cleanKey] || modals[cleanKey.replace(/^modal[:_]/, '')]);
+    };
+
+    // Wrap navigation calls (proccedto)
+    var prevProccedto = window.proccedto;
+    window.proccedto = function (url) {
+        if (window.rmsCheckPageGuard && window.rmsCheckPageGuard(url)) {
+            return false;
+        }
+        if (typeof prevProccedto === 'function' && prevProccedto !== window.proccedto) {
+            return prevProccedto(url);
+        }
+        window.location.href = url;
+    };
+
+    // Intercept standard internal anchor clicks
+    document.addEventListener('click', function (e) {
+        var link = e.target.closest('a[href]');
+        if (link) {
+            var href = link.getAttribute('href');
+            if (href && href.charAt(0) === '/' && !href.startsWith('//') && !href.startsWith('/#') && !href.startsWith('/api/')) {
+                if (window.rmsCheckPageGuard && window.rmsCheckPageGuard(href)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                }
+            }
+        }
+    }, true);
+
+    // Intercept clicks on elements with modal guard attributes
+    document.addEventListener('click', function (e) {
+        var trigger = e.target.closest('[data-modal-guard], [data-modal]');
+        if (trigger) {
+            var key = trigger.getAttribute('data-modal-guard') || trigger.getAttribute('data-modal');
+            if (key && window.rmsCheckModalGuard && window.rmsCheckModalGuard(key)) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                return false;
+            }
+        }
+    }, true);
 })();

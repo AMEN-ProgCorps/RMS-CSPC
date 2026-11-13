@@ -156,6 +156,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         }
 
         $ticket->save();
+        \App\Services\ErrorTicketRecorder::clearGuardsCache();
 
         if ($newAssignee && $newAssignee !== $previousAssignee && $newAssignee !== (int) auth()->id()) {
             $this->notifyTicketAssignee($ticket, $newAssignee);
@@ -608,6 +609,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         .m-item.active .m-item-subtext,
         .m-item.active .m-item-tag {
             color: rgba(255, 255, 255, 0.85);
+        }
+        .m-item.active .m-forum-footer,
+        .m-item.active .m-forum-footer span {
+            color: rgba(255, 255, 255, 0.9) !important;
         }
         .m-item-left {
             display: flex;
@@ -1348,65 +1353,77 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                         @php
                             $isSelected = $selectedId === (int) $t->id;
                             $seen = $t->last_seen_at ? \Carbon\Carbon::parse($t->last_seen_at) : ($t->created_at ? \Carbon\Carbon::parse($t->created_at) : null);
+                            $urlPath = $t->url ? (parse_url($t->url, PHP_URL_PATH) ?: $t->url) : null;
                         @endphp
                         <div class="m-item {{ $isSelected ? 'active' : '' }}"
                              wire:click="selectTicket({{ $t->id }})"
-                             wire:key="queue-ticket-{{ $t->id }}">
-                            <div class="m-item-left">
+                             wire:key="queue-ticket-{{ $t->id }}"
+                             style="flex-direction: column; align-items: stretch; gap: 6px; padding: 12px 14px;">
+                            {{-- Forum Tags Row (Discord Forum Post Style) --}}
+                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                                 <span class="status-dot {{ $t->status }}" title="Status: {{ $t->status }}"></span>
 
-                                <div style="overflow: hidden; flex: 1;">
-                                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
-                                        <strong class="m-item-title" style="font-size: 12.5px;">{{ $t->ticket_number }}</strong>
-                                        @if($t->reference && $t->reference !== $t->ticket_number)
-                                            <span style="font-size: 10px; opacity: 0.75; font-family: monospace;">{{ $t->reference }}</span>
-                                        @endif
-                                        @if((int) $t->occurrence_count > 1)
-                                            <span class="m-item-badge" style="font-size: 9.5px; padding: 1px 4px;">×{{ $t->occurrence_count }}</span>
-                    @endif
-                </div>
-
-                                    <div class="m-item-subtext" title="{{ $t->title }}">
-                                        {{ $t->title }}
-        </div>
-
-                                    <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px;">
-                                        @if($t->status === 'notice')
-                                            <span class="notice-pill">
-                                                <i class="fa-solid fa-circle-info" style="font-size: 9.5px;"></i> Notice
-                                            </span>
-                                        @endif
-
-                                        <span class="source-tag {{ $t->source }}">
-                                            @if($t->source === 'user')
-                                                <i class="fa-solid fa-user-pen" style="font-size: 9.5px;"></i> User
-                                            @elseif($t->source === 'user_auto')
-                                                <i class="fa-solid fa-wand-magic-sparkles" style="font-size: 9.5px;"></i> User | Auto
-                                            @else
-                                                <i class="fa-solid fa-robot" style="font-size: 9.5px;"></i> Auto
-                                        @endif
+                                @if($t->subsystem)
+                                    <span style="font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 4px; background: rgba(59, 130, 246, 0.12); color: #2563eb; text-transform: uppercase;">
+                                        [{{ $t->subsystem }}]
                                     </span>
+                                @endif
 
-                                        @if($t->subsystem)
-                                            <span style="opacity: 0.75; font-size: 10.5px; text-transform: uppercase;">
-                                                {{ $t->subsystem }}
+                                @if($t->http_status)
+                                    <span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: #fee2e2; color: #dc2626;">
+                                        {{ $t->http_status }}
                                     </span>
-                                        @endif
+                                @endif
 
-                                        @if($seen)
-                                            <span style="opacity: 0.65; margin-left: auto; font-size: 10.5px;">
-                                                {{ $seen->diffForHumans() }}
-                                            </span>
-                                        @endif
-                                    </div>
+                                <span class="source-tag {{ $t->source }}" style="font-size: 10px; padding: 1px 6px;">
+                                    @if($t->source === 'user')
+                                        <i class="fa-solid fa-user-pen" style="font-size: 9px;"></i> User
+                                    @elseif($t->source === 'user_auto')
+                                        <i class="fa-solid fa-wand-magic-sparkles" style="font-size: 9px;"></i> User | Auto
+                                    @else
+                                        <i class="fa-solid fa-robot" style="font-size: 9px;"></i> Auto
+                                    @endif
+                                </span>
+
+                                <span class="priority-pill {{ $t->priority }}" style="margin-left: auto; font-size: 9.5px; padding: 1px 6px;">
+                                    {{ $t->priority }}
+                                </span>
+                            </div>
+
+                            {{-- Forum Post Header / Page Target --}}
+                            <div>
+                                <strong class="m-item-title" style="font-size: 13px; font-weight: 700; line-height: 1.35; display: block;">
+                                    @if($urlPath)
+                                        {{ $urlPath }}
+                                    @else
+                                        {{ $t->ticket_number }}
+                                    @endif
+                                </strong>
+                                <div class="m-item-subtext" style="font-size: 11.5px; margin-top: 2px; line-height: 1.4;" title="{{ $t->title }}">
+                                    {{ $t->title }}
                                 </div>
                             </div>
 
-                            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-left: 10px;">
-                                <span class="priority-pill {{ $t->priority }}">
-                                    {{ $t->priority }}
-                                </span>
-                                <i class="fa-solid fa-chevron-right m-item-arrow" style="margin-top: 6px;"></i>
+                            {{-- Forum Post Footer: Occurrences / Clustered Hits, Reporter, Time --}}
+                            <div class="m-forum-footer" style="display: flex; align-items: center; justify-content: space-between; margin-top: 2px; font-size: 11px; color: #64748b; border-top: 1px dashed rgba(226, 232, 240, 0.6); padding-top: 5px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span title="Occurrences (Clustered hits on this error)" style="display: inline-flex; align-items: center; gap: 4px; font-weight: 700; color: #0284c7;">
+                                        <i class="fa-regular fa-comment-dots"></i> {{ $t->occurrence_count }}
+                                    </span>
+                                    <span title="Ticket Number" style="font-family: monospace; font-size: 10.5px; opacity: 0.85;">
+                                        {{ $t->ticket_number }}
+                                    </span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span title="Reporter" style="display: inline-flex; align-items: center; gap: 4px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                        <i class="fa-regular fa-user" style="font-size: 10px;"></i> {{ $t->reporter_username ?? 'daemon' }}
+                                    </span>
+                                    @if($seen)
+                                        <span style="opacity: 0.75; font-size: 10.5px;">
+                                            {{ $seen->diffForHumans(short: true) }}
+                                        </span>
+                                    @endif
+                                </div>
                             </div>
                         </div>
                         @empty

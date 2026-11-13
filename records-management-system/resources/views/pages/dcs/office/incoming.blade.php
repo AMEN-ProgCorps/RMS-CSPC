@@ -6,8 +6,6 @@
 
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
-use App\Services\RdpIntakeService;
-use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
@@ -71,7 +69,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function with(): array
     {
         $groups = OfficeIntakeHelper::officeDocumentGroups(null, false, 'pending');
-        $total = OfficeIntakeHelper::officeDocumentTotal(null, 'pending');
         $active = $this->type;
         $keys = array_column($groups, 'key');
 
@@ -83,70 +80,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ? 'All'
             : OfficeIntakeHelper::documentGroupLabel($active);
 
-        $rows = OfficeIntakeHelper::listOfficeDocuments($active, null, 'pending');
-        $canAppraise = (bool) (auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp);
-        // Always keep received-but-not-yet-appraised rows visible on Incoming (even without RDP).
-        // Appraisal button appears only after the user is granted RDP access.
-        $receivedRows = OfficeIntakeHelper::listOfficeDocuments($active, null, 'received_for_appraisal');
-        $appraisalUrls = RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
-            RegisterQueryHelper::currentOfficeCode(),
-            $receivedRows
-        );
-        $seen = [];
-        foreach ($rows as $row) {
-            $seen[(int) ($row['request_id'] ?? 0)] = true;
-        }
-        foreach ($receivedRows as $row) {
-            $requestId = (int) ($row['request_id'] ?? 0);
-            $docNo = trim((string) ($row['doc_no'] ?? ''));
-            $url = ($docNo !== '' ? ($appraisalUrls[$docNo] ?? null) : null)
-                ?? ($appraisalUrls['request:'.$requestId] ?? null)
-                ?? ($appraisalUrls[RdpIntakeService::documentCodeForRequest($requestId, $docNo)] ?? null);
-            // Include rows with a pending RDP intake even when this user cannot open Appraisal yet.
-            $hasPendingIntake = $url !== null
-                || OfficeIntakeHelper::officeHasPendingAppraisalIntake(
-                    RegisterQueryHelper::currentOfficeCode(),
-                    $requestId,
-                    $docNo
-                );
-            if ($requestId < 1 || isset($seen[$requestId]) || ! $hasPendingIntake) {
-                continue;
-            }
-            $row['appraisal_url'] = ($canAppraise && $url) ? $url : null;
-            $row['awaiting_appraisal'] = true;
-            $row['can_receive'] = false;
-            $rows[] = $row;
-            $seen[$requestId] = true;
-        }
-        if ($active === 'all') {
-            $total = count($rows);
-        }
-        $activeCount = count($rows);
         $perPage = max(10, min(100, (int) $this->perPage));
         $page = max(1, (int) $this->getPage());
-        $lastPage = max(1, (int) ceil($activeCount / $perPage));
-        if ($page > $lastPage) {
-            $page = $lastPage;
-        }
-        $slice = array_slice($rows, ($page - 1) * $perPage, $perPage);
-        $paginator = new LengthAwarePaginator(
-            $slice,
-            $activeCount,
-            $perPage,
-            $page,
-            [
-                'path' => request()->url(),
-                'pageName' => 'page',
-            ]
-        );
+        $incoming = OfficeIntakeHelper::paginateOfficeIncomingDocuments($active, null, $perPage, $page);
+
+        // "All" badge = every pending receipt + every awaiting-appraisal copy.
+        $total = OfficeIntakeHelper::officeDocumentTotal(null, 'pending')
+            + OfficeIntakeHelper::officeDocumentTotal(null, 'received_for_appraisal');
 
         return [
             'groups' => $groups,
             'total' => $total,
             'activeType' => $active,
             'activeLabel' => $activeLabel,
-            'activeCount' => $activeCount,
-            'rows' => $paginator,
+            'activeCount' => (int) ($incoming['active_count'] ?? 0),
+            'rows' => $incoming['rows'],
             'officeName' => auth()->user()?->details?->office?->office_name
                 ?? auth()->user()?->details?->office?->office_code
                 ?? 'Your office',

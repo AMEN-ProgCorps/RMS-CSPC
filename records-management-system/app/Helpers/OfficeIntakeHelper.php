@@ -45,7 +45,8 @@ use Illuminate\Validation\ValidationException;
  * mergeDistributeOfficeBackup, intakeReceivedState, markReceived, clearReceived, registerPrefillForDrf,
  * registerPrefillForDcn, documentGroupDefs, documentGroupScope, documentGroupKeysForScope,
  * documentGroupLabel, docTypeIdsForGroup, dcnDocumentGroupKeys, officeDocumentTotal,
- * officeDocumentGroups, listOfficeDocuments, markOfficeDocumentReceived,
+ * officeDocumentGroups, listOfficeDocuments, paginateOfficeDocuments,
+ * paginateOfficeIncomingDocuments, markOfficeDocumentReceived,
  * listDocumentsForCheck, officeDocumentGroupsForCheck, listDistributedDocumentsForCheck.
 */
 class OfficeIntakeHelper
@@ -2403,7 +2404,11 @@ class OfficeIntakeHelper
         }
     }
 
-    private static function rememberOfficeInventory(string $suffix, callable $loader, int $ttl = 20): mixed
+    /**
+     * Workday-friendly default TTL: repeated Incoming/Masterlist polls reuse
+     * totals/groups/pages instead of re-scanning distribution rows every click.
+     */
+    private static function rememberOfficeInventory(string $suffix, callable $loader, int $ttl = 90): mixed
     {
         $officeId = (int) (RegisterQueryHelper::currentOfficeId() ?? 0);
         $rdp = auth()->user()?->permissions?->can_access_rdp ? '1' : '0';
@@ -7624,12 +7629,13 @@ class OfficeIntakeHelper
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
 
         return (int) self::rememberOfficeInventory(
-            'total.' . $receiptFilter . '.' . (int) ($officeId ?? 0),
+            'total.v2.' . $receiptFilter . '.' . (int) ($officeId ?? 0),
             function () use ($officeId, $receiptFilter) {
-                $query = self::officeMasterlistQuery($officeId, null);
-                self::applyOfficeReceiptFilter($query, (int) ($officeId ?? 0), $receiptFilter);
+                if (! $officeId) {
+                    return 0;
+                }
 
-                return (int) $query->count();
+                return (int) self::officeDocumentsDistinctQuery('all', (int) $officeId, $receiptFilter)->count();
             }
         );
     }
@@ -7648,30 +7654,14 @@ class OfficeIntakeHelper
         }
 
         return self::rememberOfficeInventory(
-            'incoming.attention.'.(int) ($officeId ?? 0),
+            'incoming.attention.v2.'.(int) ($officeId ?? 0),
             function () use ($officeId) {
-        $pending = self::officeDocumentTotal($officeId, 'pending');
+                $pending = self::officeDocumentTotal($officeId, 'pending');
                 $appraisable = 0;
-        $perms = auth()->user()?->permissions;
-                if ($perms && ($perms->is_sadm || $perms->can_access_rdp)) {
-                    // Match Incoming page: only count held docs that have an RDP appraisal link.
-                    $heldRows = self::listOfficeDocuments('all', $officeId, 'received_for_appraisal');
-                    if ($heldRows !== []) {
-                        $urls = \App\Services\RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
-                            RegisterQueryHelper::currentOfficeCode(),
-                            $heldRows
-                        );
-                        foreach ($heldRows as $row) {
-                            $requestId = (int) ($row['request_id'] ?? 0);
-                            $docNo = trim((string) ($row['doc_no'] ?? ''));
-                            $url = ($docNo !== '' ? ($urls[$docNo] ?? null) : null)
-                                ?? ($urls['request:'.$requestId] ?? null)
-                                ?? ($urls[\App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo)] ?? null);
-                            if ($url) {
-                                $appraisable++;
-                            }
-                        }
-                    }
+                $perms = auth()->user()?->permissions;
+                if ($perms && ($perms->is_sadm || $perms->can_access_rdp) && $officeId) {
+                    // SQL distinct count only — no row hydration for the nav badge.
+                    $appraisable = self::officeDocumentTotal($officeId, 'received_for_appraisal');
                 }
 
                 return [
@@ -7680,7 +7670,7 @@ class OfficeIntakeHelper
                     'total' => $pending + $appraisable,
                 ];
             },
-            15
+            45
         );
     }
 
@@ -7874,7 +7864,7 @@ class OfficeIntakeHelper
         $onlyFlag = $onlyWithDocuments ? '1' : '0';
 
         return self::rememberOfficeInventory(
-            'groups.' . $receiptFilter . '.' . $onlyFlag . '.' . (int) ($officeId ?? 0),
+            'groups.v2.' . $receiptFilter . '.' . $onlyFlag . '.' . (int) ($officeId ?? 0),
             function () use ($officeId, $onlyWithDocuments, $receiptFilter) {
                 return self::buildOfficeDocumentGroups($officeId, $onlyWithDocuments, $receiptFilter);
             }
@@ -7891,13 +7881,10 @@ class OfficeIntakeHelper
     ): array {
         $groups = [];
         foreach (self::documentGroupDefs() as $key => $label) {
-            $scope = self::documentGroupScope($key);
-            $query = self::applyMasterlistGroupFilter(
-                self::officeMasterlistQuery($officeId, $scope),
-                $key
-            );
-            self::applyOfficeReceiptFilter($query, (int) ($officeId ?? 0), $receiptFilter);
-            $count = (int) $query->count();
+            $count = 0;
+            if ($officeId) {
+                $count = (int) self::officeDocumentsDistinctQuery($key, (int) $officeId, $receiptFilter)->count();
+            }
             if ($onlyWithDocuments && $count < 1) {
                 continue;
             }
@@ -7951,7 +7938,9 @@ class OfficeIntakeHelper
         // A copy with a pending DCS appraisal stays on Incoming until that office creates the record.
         if ($receiptFilter === 'received') {
             RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
-            if (! $keepAwaitingAppraisal) {
+            if ($keepAwaitingAppraisal) {
+                self::onlyPendingAppraisal($query, $officeId);
+            } else {
                 self::excludePendingAppraisal($query, $officeId);
             }
         }
@@ -8031,30 +8020,62 @@ class OfficeIntakeHelper
      */
     protected static function excludePendingAppraisal($query, int $officeId): void
     {
-        if ($officeId < 1 || ! Schema::hasTable('rdp_received_documents')) {
+        $officeCode = self::officeCodeForAppraisalFilter($officeId);
+        if ($officeCode === null) {
             return;
+        }
+
+        $query->whereNotExists(function ($q) use ($officeCode) {
+            self::applyPendingAppraisalExists($q, $officeCode);
+        });
+    }
+
+    /**
+     * Incoming "awaiting appraisal" — only received copies still held by a pending RDP intake.
+     */
+    protected static function onlyPendingAppraisal($query, int $officeId): void
+    {
+        $officeCode = self::officeCodeForAppraisalFilter($officeId);
+        if ($officeCode === null) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $query->whereExists(function ($q) use ($officeCode) {
+            self::applyPendingAppraisalExists($q, $officeCode);
+        });
+    }
+
+    protected static function officeCodeForAppraisalFilter(int $officeId): ?string
+    {
+        if ($officeId < 1 || ! Schema::hasTable('rdp_received_documents')) {
+            return null;
         }
 
         $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $officeCode = DB::table($officeTbl)->where('id', $officeId)->value('office_code');
         if (! is_string($officeCode) || trim($officeCode) === '') {
-            return;
+            return null;
         }
 
-        $query->whereNotExists(function ($q) use ($officeCode) {
-            $q->select(DB::raw(1))
-                ->from('rdp_received_documents as rdp_hold')
-                ->where('rdp_hold.source_subsystem', 'DCS')
-                ->where('rdp_hold.status', 'pending')
-                ->whereRaw('LOWER(rdp_hold.target_office) = ?', [strtolower(trim($officeCode))])
-                ->where(function ($match) {
-                    $match->whereColumn('rdp_hold.document_code', 'ml.doc_no')
-                        ->orWhereRaw("COALESCE(rdp_hold.metadata->>'dcs_request_id', '') = ml.request_id::text")
-                        ->orWhereRaw(
-                            "rdp_hold.document_code = CONCAT('DCS-REQ-', ml.request_id::text)"
-                        );
-                });
-        });
+        return trim($officeCode);
+    }
+
+    protected static function applyPendingAppraisalExists($q, string $officeCode): void
+    {
+        $q->select(DB::raw(1))
+            ->from('rdp_received_documents as rdp_hold')
+            ->where('rdp_hold.source_subsystem', 'DCS')
+            ->where('rdp_hold.status', 'pending')
+            ->whereRaw('LOWER(rdp_hold.target_office) = ?', [strtolower($officeCode)])
+            ->where(function ($match) {
+                $match->whereColumn('rdp_hold.document_code', 'ml.doc_no')
+                    ->orWhereRaw("COALESCE(rdp_hold.metadata->>'dcs_request_id', '') = ml.request_id::text")
+                    ->orWhereRaw(
+                        "rdp_hold.document_code = CONCAT('DCS-REQ-', ml.request_id::text)"
+                    );
+            });
     }
 
     /**
@@ -8109,7 +8130,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * @param  'all'|'received'|'pending'  $receiptFilter
+     * @param  'all'|'received'|'pending'|'received_for_appraisal'  $receiptFilter
      * @return list<array{
      *     item_no: int,
      *     request_id: int,
@@ -8126,38 +8147,239 @@ class OfficeIntakeHelper
     public static function listOfficeDocuments(
         string $groupKey,
         ?int $officeId = null,
-        string $receiptFilter = 'all'
+        string $receiptFilter = 'all',
+        ?int $limit = null
     ): array {
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
         if (! $officeId) {
             return [];
         }
 
+        // Hard cap so accidental full scans cannot blow memory on large offices.
+        $limit = $limit === null ? null : max(1, min(500, $limit));
+        $cacheKey = 'rows.v2.' . $receiptFilter . '.' . ($groupKey === '' ? 'all' : $groupKey)
+            . '.' . (int) $officeId . '.' . ($limit ?? 'all');
+
         return self::rememberOfficeInventory(
-            'rows.' . $receiptFilter . '.' . ($groupKey === '' ? 'all' : $groupKey) . '.' . (int) $officeId,
-            function () use ($groupKey, $officeId, $receiptFilter) {
-                return self::buildOfficeDocumentRows($groupKey, (int) $officeId, $receiptFilter);
+            $cacheKey,
+            function () use ($groupKey, $officeId, $receiptFilter, $limit) {
+                return self::buildOfficeDocumentRows($groupKey, (int) $officeId, $receiptFilter, $limit, 1);
             }
         );
     }
 
     /**
-     * @return list<array<string, mixed>>
+     * DB-paged office document list (distinct current copy per doc no + title).
+     *
+     * @param  'all'|'received'|'pending'|'received_for_appraisal'  $receiptFilter
      */
-    private static function buildOfficeDocumentRows(
+    public static function paginateOfficeDocuments(
+        string $groupKey,
+        ?int $officeId = null,
+        string $receiptFilter = 'all',
+        int $perPage = 25,
+        ?int $page = null
+    ): \Illuminate\Pagination\LengthAwarePaginator {
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+        $perPage = max(10, min(100, $perPage));
+        $page = max(1, (int) ($page ?? request()->input('page', 1)));
+
+        if (! $officeId) {
+            return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage, $page);
+        }
+
+        $cacheKey = 'page.v2.' . $receiptFilter . '.' . ($groupKey === '' ? 'all' : $groupKey)
+            . '.' . (int) $officeId . '.' . $perPage . '.' . $page;
+
+        /** @var array{total:int,page:int,rows:list<array<string,mixed>>} $payload */
+        $payload = self::rememberOfficeInventory(
+            $cacheKey,
+            function () use ($groupKey, $officeId, $receiptFilter, $perPage, $page) {
+                $distinct = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, $receiptFilter);
+                $total = (int) (clone $distinct)->count();
+                $lastPage = max(1, (int) ceil(max(0, $total) / $perPage));
+                $page = min($page, $lastPage);
+                $records = (clone $distinct)
+                    ->orderByRaw("CASE WHEN COALESCE(TRIM(doc_no), '') = '' THEN 1 ELSE 0 END")
+                    ->orderBy('doc_no')
+                    ->orderByDesc('revise_no')
+                    ->orderBy('id')
+                    ->forPage($page, $perPage)
+                    ->get();
+
+                return [
+                    'total' => $total,
+                    'page' => $page,
+                    'rows' => self::mapOfficeDocumentRows($records, (int) $officeId, (($page - 1) * $perPage) + 1),
+                ];
+            },
+            60
+        );
+
+        $page = max(1, (int) ($payload['page'] ?? $page));
+
+        return new \Illuminate\Pagination\LengthAwarePaginator(
+            $payload['rows'] ?? [],
+            (int) ($payload['total'] ?? 0),
+            $perPage,
+            $page,
+            [
+                'path' => request()->url(),
+                'pageName' => 'page',
+            ]
+        );
+    }
+
+    /**
+     * Incoming queue: pending receipts first, then received-awaiting-appraisal — DB-paged.
+     *
+     * @return array{
+     *     rows: \Illuminate\Pagination\LengthAwarePaginator,
+     *     total: int,
+     *     pending_total: int,
+     *     appraisal_total: int,
+     *     active_count: int
+     * }
+     */
+    public static function paginateOfficeIncomingDocuments(
+        string $groupKey,
+        ?int $officeId = null,
+        int $perPage = 25,
+        ?int $page = null
+    ): array {
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+        $perPage = max(10, min(100, $perPage));
+        $page = max(1, (int) ($page ?? request()->input('page', 1)));
+
+        if (! $officeId) {
+            $empty = new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage, 1);
+
+            return [
+                'rows' => $empty,
+                'total' => 0,
+                'pending_total' => 0,
+                'appraisal_total' => 0,
+                'active_count' => 0,
+            ];
+        }
+
+        $cacheKey = 'incoming.page.v2.' . ($groupKey === '' ? 'all' : $groupKey)
+            . '.' . (int) $officeId . '.' . $perPage . '.' . $page;
+
+        /** @var array{total:int,page:int,pending_total:int,appraisal_total:int,rows:list<array<string,mixed>>} $payload */
+        $payload = self::rememberOfficeInventory(
+            $cacheKey,
+            function () use ($groupKey, $officeId, $perPage, $page) {
+                $pendingTotal = (int) self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'pending')->count();
+                $appraisalTotal = (int) self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'received_for_appraisal')->count();
+                $total = $pendingTotal + $appraisalTotal;
+                $lastPage = max(1, (int) ceil(max(0, $total) / $perPage));
+                $page = min($page, $lastPage);
+                $offset = ($page - 1) * $perPage;
+
+                $rows = [];
+                $itemStart = $offset + 1;
+
+                if ($offset < $pendingTotal) {
+                    $take = min($perPage, $pendingTotal - $offset);
+                    $pendingRecords = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'pending')
+                        ->orderByRaw("CASE WHEN COALESCE(TRIM(doc_no), '') = '' THEN 1 ELSE 0 END")
+                        ->orderBy('doc_no')
+                        ->orderByDesc('revise_no')
+                        ->orderBy('id')
+                        ->offset($offset)
+                        ->limit($take)
+                        ->get();
+                    $rows = array_merge($rows, self::mapOfficeDocumentRows($pendingRecords, (int) $officeId, $itemStart));
+                }
+
+                $filled = count($rows);
+                if ($filled < $perPage && $appraisalTotal > 0) {
+                    $appraisalOffset = max(0, $offset - $pendingTotal);
+                    $appraisalTake = $perPage - $filled;
+                    $appraisalRecords = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'received_for_appraisal')
+                        ->orderByRaw("CASE WHEN COALESCE(TRIM(doc_no), '') = '' THEN 1 ELSE 0 END")
+                        ->orderBy('doc_no')
+                        ->orderByDesc('revise_no')
+                        ->orderBy('id')
+                        ->offset($appraisalOffset)
+                        ->limit($appraisalTake)
+                        ->get();
+                    $appraisalRows = self::mapOfficeDocumentRows(
+                        $appraisalRecords,
+                        (int) $officeId,
+                        $itemStart + $filled
+                    );
+                    $canAppraise = (bool) (auth()->user()?->permissions?->is_sadm
+                        || auth()->user()?->permissions?->can_access_rdp);
+                    $officeCode = RegisterQueryHelper::currentOfficeCode();
+                    $appraisalUrls = \App\Services\RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
+                        $officeCode,
+                        $appraisalRows
+                    );
+                    foreach ($appraisalRows as &$row) {
+                        $requestId = (int) ($row['request_id'] ?? 0);
+                        $docNo = trim((string) ($row['doc_no'] ?? ''));
+                        $url = ($docNo !== '' ? ($appraisalUrls[$docNo] ?? null) : null)
+                            ?? ($appraisalUrls['request:'.$requestId] ?? null)
+                            ?? ($appraisalUrls[\App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo)] ?? null);
+                        $row['appraisal_url'] = ($canAppraise && $url) ? $url : null;
+                        $row['awaiting_appraisal'] = true;
+                        $row['can_receive'] = false;
+                    }
+                    unset($row);
+                    $rows = array_merge($rows, $appraisalRows);
+                }
+
+                return [
+                    'total' => $total,
+                    'page' => $page,
+                    'pending_total' => $pendingTotal,
+                    'appraisal_total' => $appraisalTotal,
+                    'rows' => $rows,
+                ];
+            },
+            45
+        );
+
+        $page = max(1, (int) ($payload['page'] ?? $page));
+        $total = (int) ($payload['total'] ?? 0);
+        $pendingTotal = (int) ($payload['pending_total'] ?? 0);
+        $appraisalTotal = (int) ($payload['appraisal_total'] ?? 0);
+
+        return [
+            'rows' => new \Illuminate\Pagination\LengthAwarePaginator(
+                $payload['rows'] ?? [],
+                $total,
+                $perPage,
+                $page,
+                [
+                    'path' => request()->url(),
+                    'pageName' => 'page',
+                ]
+            ),
+            'total' => $groupKey === '' || $groupKey === 'all'
+                ? $total
+                : $pendingTotal,
+            'pending_total' => $pendingTotal,
+            'appraisal_total' => $appraisalTotal,
+            'active_count' => $total,
+        ];
+    }
+
+    /**
+     * Filtered masterlist query for one office + receipt/type tab (before distinct).
+     */
+    private static function officeDocumentsFilteredQuery(
         string $groupKey,
         int $officeId,
         string $receiptFilter
-    ): array {
-        if (! $officeId) {
-            return [];
-        }
-
+    ) {
         if ($groupKey === '' || $groupKey === 'all') {
             $query = self::officeMasterlistQuery($officeId, null);
         } else {
             if (! isset(self::documentGroupDefs()[$groupKey])) {
-                return [];
+                return DB::table('dcs_masterlist_registration as ml')->whereRaw('1 = 0');
             }
             $query = self::applyMasterlistGroupFilter(
                 self::officeMasterlistQuery($officeId, self::documentGroupScope($groupKey)),
@@ -8165,14 +8387,27 @@ class OfficeIntakeHelper
             );
         }
 
-        self::applyOfficeReceiptFilter($query, (int) $officeId, $receiptFilter);
+        self::applyOfficeReceiptFilter($query, $officeId, $receiptFilter);
+
+        return $query;
+    }
+
+    /**
+     * One current distributed copy per document number + title (SQL window).
+     */
+    private static function officeDocumentsDistinctQuery(
+        string $groupKey,
+        int $officeId,
+        string $receiptFilter
+    ) {
+        $query = self::officeDocumentsFilteredQuery($groupKey, $officeId, $receiptFilter);
 
         $select = [
-                'ml.id',
-                'ml.doc_no',
-                'ml.revise_no',
-                'ml.doc_title',
-                'ml.effectivity_date',
+            'ml.id',
+            'ml.doc_no',
+            'ml.revise_no',
+            'ml.doc_title',
+            'ml.effectivity_date',
         ];
         if (Schema::hasColumn('dcs_masterlist_registration', 'no_pages')) {
             $select[] = 'ml.no_pages';
@@ -8184,22 +8419,64 @@ class OfficeIntakeHelper
             $select[] = 'ml.revision_status';
         }
 
-        $records = $query
-            ->orderByRaw("CASE WHEN COALESCE(TRIM(ml.doc_no), '') = '' THEN 1 ELSE 0 END")
-            ->orderBy('ml.doc_no')
-            ->orderByDesc('ml.revise_no')
-            ->orderBy('ml.id')
-            ->get($select);
+        $driver = Schema::getConnection()->getDriverName();
+        $orderSql = $driver === 'pgsql'
+            ? 'ml.revise_no DESC NULLS LAST, ml.id DESC'
+            : 'ml.revise_no DESC, ml.id DESC';
 
-        $records = self::keepLatestDistributedDocuments($records);
+        $inner = (clone $query)->select(array_merge($select, [
+            DB::raw(
+                "ROW_NUMBER() OVER (
+                    PARTITION BY LOWER(TRIM(COALESCE(ml.doc_no, ''))), LOWER(TRIM(COALESCE(ml.doc_title, '')))
+                    ORDER BY {$orderSql}
+                ) as ofi_rn"
+            ),
+        ]));
 
+        return DB::query()->fromSub($inner, 'ofi_ml')->where('ofi_rn', 1);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function buildOfficeDocumentRows(
+        string $groupKey,
+        int $officeId,
+        string $receiptFilter,
+        ?int $limit = null,
+        int $itemStart = 1
+    ): array {
+        if (! $officeId) {
+            return [];
+        }
+
+        $distinct = self::officeDocumentsDistinctQuery($groupKey, $officeId, $receiptFilter)
+            ->orderByRaw("CASE WHEN COALESCE(TRIM(doc_no), '') = '' THEN 1 ELSE 0 END")
+            ->orderBy('doc_no')
+            ->orderByDesc('revise_no')
+            ->orderBy('id');
+
+        if ($limit !== null) {
+            $distinct->limit($limit);
+        }
+
+        return self::mapOfficeDocumentRows($distinct->get(), $officeId, $itemStart);
+    }
+
+    /**
+     * @param  iterable<int, object>  $records
+     * @return list<array<string, mixed>>
+     */
+    private static function mapOfficeDocumentRows(iterable $records, int $officeId, int $itemStart = 1): array
+    {
+        $records = collect($records);
         $receipts = self::officeDistributionReceipts(
             $officeId,
             $records->pluck('request_id')->filter()->map(fn ($id) => (int) $id)->unique()->all()
         );
 
         $rows = [];
-        $itemNo = 0;
+        $itemNo = max(1, $itemStart) - 1;
         foreach ($records as $ml) {
             $itemNo++;
             $pagesRaw = $ml->no_pages ?? null;

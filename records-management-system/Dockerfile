@@ -75,7 +75,8 @@ RUN groupadd -g 1000 appuser \
     && useradd -u 1000 -g appuser -M -s /usr/sbin/nologin appuser \
     && chown -R appuser:appuser /opt/paddleocr \
     && sed -i 's/^user = www-data/user = appuser/' /usr/local/etc/php-fpm.d/www.conf \
-    && sed -i 's/^group = www-data/group = appuser/' /usr/local/etc/php-fpm.d/www.conf
+    && sed -i 's/^group = www-data/group = appuser/' /usr/local/etc/php-fpm.d/www.conf \
+    && git config --system --add safe.directory "*"
 
 WORKDIR /var/www/html
 

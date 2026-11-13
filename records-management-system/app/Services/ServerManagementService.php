@@ -649,10 +649,12 @@ class ServerManagementService
     {
         $repoPath = $repoPath ?: $this->getGitRepoPath();
 
-        // 1. If docker socket is available, fix permissions on .git with root privileges
+        // 1. If docker socket is available, fix permissions on .git with root privileges and add safe.directory system-wide
         if (file_exists('/var/run/docker.sock') && function_exists('curl_init')) {
             $this->execViaDockerSocket('rms_app', ['sh', '-c', "chmod -R ugo+rwX " . escapeshellarg($repoPath . '/.git') . " 2>&1 || true"], null, '0:0');
+            $this->execViaDockerSocket('rms_app', ['git', 'config', '--system', '--add', 'safe.directory', '*'], null, '0:0');
             $this->execViaDockerSocket('rms_app', ['git', 'config', '--global', '--add', 'safe.directory', '*'], null, '0:0');
+            $this->execViaDockerSocket('rms_app', ['git', 'config', '--system', '--add', 'safe.directory', $repoPath], null, '0:0');
         }
 
         if (function_exists('shell_exec')) {
@@ -661,7 +663,10 @@ class ServerManagementService
                 // Try apk or apt-get silently
                 @shell_exec('apk add --no-cache git 2>&1 || (apt-get update -qq && apt-get install -y -qq git 2>&1)');
             }
-            @shell_exec('git config --global --add safe.directory "*" 2>&1');
+            @shell_exec('git config --system --add safe.directory "*" 2>&1 || true');
+            @shell_exec('git config --global --add safe.directory "*" 2>&1 || true');
+            @shell_exec('git config --system --add safe.directory ' . escapeshellarg($repoPath) . ' 2>&1 || true');
+            @shell_exec('git config --global --add safe.directory ' . escapeshellarg($repoPath) . ' 2>&1 || true');
             @shell_exec('chmod -R ugo+rwX ' . escapeshellarg($repoPath . '/.git') . ' 2>&1 || true');
         }
 
@@ -685,7 +690,7 @@ class ServerManagementService
             $this->ensureGitReady();
             $repoPath = $this->getGitRepoPath();
             $nullRedirect = (PHP_OS_FAMILY === 'Windows') ? '2>NUL' : '2>/dev/null';
-            $gitCmd = 'git -C ' . escapeshellarg($repoPath);
+            $gitCmd = 'git -c safe.directory=* -C ' . escapeshellarg($repoPath);
 
             $commit = trim(@shell_exec("{$gitCmd} rev-parse --short HEAD {$nullRedirect}") ?: 'dev');
             $branch = trim(@shell_exec("{$gitCmd} rev-parse --abbrev-ref HEAD {$nullRedirect}") ?: 'main');
@@ -719,7 +724,7 @@ class ServerManagementService
         $branch = ($gitInfo['branch'] !== 'unknown' && !empty($gitInfo['branch'])) ? $gitInfo['branch'] : 'Enitial-Fix-yow';
 
         $envPrefix = (PHP_OS_FAMILY === 'Windows') ? '' : 'GIT_TERMINAL_PROMPT=0 GIT_MERGE_AUTOEDIT=no ';
-        $gitCmd = "{$envPrefix}git -c gc.auto=0 -c maintenance.auto=0 -c fetch.autoMaintenance=0 -C " . escapeshellarg($repoPath);
+        $gitCmd = "{$envPrefix}git -c safe.directory=* -c gc.auto=0 -c maintenance.auto=0 -c fetch.autoMaintenance=0 -C " . escapeshellarg($repoPath);
         $pullCommand = "{$gitCmd} fetch origin {$branch} 2>&1 && {$gitCmd} pull --no-edit origin {$branch} 2>&1";
 
         $output = '';
@@ -728,7 +733,9 @@ class ServerManagementService
         // Method A: Docker Socket execution as root (bypasses www-data / appuser permission restrictions on .git/FETCH_HEAD)
         if (file_exists('/var/run/docker.sock') && function_exists('curl_init')) {
             $this->execViaDockerSocket('rms_app', ['sh', '-c', "chmod -R ugo+rwX " . escapeshellarg($repoPath . '/.git') . " 2>&1 || true"], null, '0:0');
+            $this->execViaDockerSocket('rms_app', ['git', 'config', '--system', '--add', 'safe.directory', '*'], null, '0:0');
             $this->execViaDockerSocket('rms_app', ['git', 'config', '--global', '--add', 'safe.directory', '*'], null, '0:0');
+            $this->execViaDockerSocket('rms_app', ['git', 'config', '--system', '--add', 'safe.directory', $repoPath], null, '0:0');
 
             $socketRes = $this->execViaDockerSocket('rms_app', ['sh', '-c', $pullCommand], $repoPath, '0:0');
             if (!empty($socketRes['output']) && !str_contains($socketRes['output'], 'Docker socket error')) {

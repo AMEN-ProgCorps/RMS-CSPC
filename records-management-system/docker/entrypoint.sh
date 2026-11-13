@@ -32,7 +32,9 @@ if ! command -v git >/dev/null 2>&1; then
     fi
 fi
 if command -v git >/dev/null 2>&1; then
+    git config --system --add safe.directory "*" >/dev/null 2>&1 || true
     git config --global --add safe.directory "*" >/dev/null 2>&1 || true
+    su -s /bin/bash appuser -c 'git config --global --add safe.directory "*"' >/dev/null 2>&1 || true
     for gitdir in "/var/www/repo/.git" "/var/www/html/.git"; do
         if [ -d "$gitdir" ]; then
             chmod -R ugo+rwX "$gitdir" 2>/dev/null || true

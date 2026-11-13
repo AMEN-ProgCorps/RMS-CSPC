@@ -111,7 +111,7 @@
                     @endif
                 </article>
             @empty
-                <div class="hst-empty">No edits recorded yet.</div>
+                <div class="hst-empty">No field edits recorded for this revision yet. Registration baselines and other revisions are not listed here.</div>
             @endforelse
         </div>
     </div>

@@ -526,33 +526,152 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 .reg-rev-status.is-obsolete,
 .reg-rev-status.is-archived { background: var(--dcs-status-obsolete-bg); color: var(--dcs-status-obsolete); }
 #supersedeHistoryBody tr.is-supersede-target { background: #f8fafc; }
-#supersedeReselect[hidden] {
+
+.reg-supersede-finder {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.reg-supersede-finder-anchor {
+    position: relative;
+    z-index: 70;
+}
+
+#supersedeDocResults.reg-reldocs-dropdown {
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 80;
+}
+
+.reg-supersede-selected[hidden],
+#supersedeReselect[hidden],
+#supersedeFinderHint[hidden] {
     display: none !important;
 }
-#supersedeReselect {
+
+.reg-supersede-selected {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px 16px;
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #eff6ff 0%, #f8fbff 100%);
+}
+
+.reg-supersede-selected-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    flex: 1 1 240px;
+}
+
+.reg-supersede-selected-badge {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.reg-supersede-selected-text {
+    margin: 0;
+    color: #334155;
+    font-size: 0.88rem;
+    font-weight: 600;
+    line-height: 1.45;
+}
+
+#supersedeReselect,
+.reg-supersede-change {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    margin-top: 10px;
-    padding: 8px 14px;
-    border: 0;
+    margin: 0;
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
     border-radius: 8px;
-    background: #0d2a7a;
-    color: #fff;
-    font-size: 0.82rem;
+    background: #fff;
+    color: #334155;
+    font-size: 0.8rem;
     font-weight: 700;
     line-height: 1.2;
     cursor: pointer;
-    align-self: flex-start;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-#supersedeReselect:hover { background: #163a9a; }
+
+#supersedeReselect:hover,
+.reg-supersede-change:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+
+/* Locked: selected document reads as a summary, not form fields */
+#section-supersede.is-finder-locked .reg-supersede-finder-fields {
+    margin: 0;
+    padding: 14px 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
+    gap: 14px 18px;
+}
+
+#section-supersede.is-finder-locked .reg-supersede-finder-fields .reg-field {
+    margin: 0;
+    min-width: 0;
+}
+
+#section-supersede.is-finder-locked .reg-supersede-finder-fields label {
+    margin-bottom: 4px;
+    color: #64748b;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
 #section-supersede.is-finder-locked #supersedeDocNo,
 #section-supersede.is-finder-locked #supersedeDocTitle,
 #section-supersede.is-finder-locked #supersedeDocOriginator {
-    background: #f1f5f9;
-    color: #475569;
-    cursor: default;
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    border: 0 !important;
+    border-radius: 0;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #0f172a !important;
+    font-size: 0.98rem;
+    font-weight: 700;
+    line-height: 1.35;
+    cursor: default !important;
+    pointer-events: none;
+    opacity: 1;
+    -webkit-text-fill-color: #0f172a;
 }
+
+#section-supersede.is-finder-locked #supersedeDocNo:focus,
+#section-supersede.is-finder-locked #supersedeDocTitle:focus,
+#section-supersede.is-finder-locked #supersedeDocOriginator:focus {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
 #supersedeHistoryField.is-loading { min-height: 148px; }
 
 /*

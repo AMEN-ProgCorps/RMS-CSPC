@@ -281,6 +281,7 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
                 documentNo: docNo,
                 currentTitle: title,
                 originator: originator,
+                purpose: 'dcn',
             });
             if (exceptDcnId) params.set('exceptId', exceptDcnId);
             const res = await fetch(searchUrl + '?' + params.toString(), {

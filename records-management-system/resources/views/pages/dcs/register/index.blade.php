@@ -95,25 +95,32 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <span>Document to be Superseded</span>
             </div>
             <div class="reg-card-body">
-                <p class="reg-number-hint">Enter the document number and title. The originator picks the exact latest copy when more than one document shares that number.</p>
-                <div class="reg-grid-3">
-                    <div class="reg-field">
-                        <label for="supersedeDocNo">Document No.</label>
-                        <input type="text" id="supersedeDocNo" placeholder="Document number" autocomplete="off">
+                <div class="reg-supersede-finder" id="supersedeFinderBlock">
+                    <p class="reg-number-hint" id="supersedeFinderHint">Enter the document number and title. The originator picks the exact latest copy when more than one document shares that number.</p>
+                    <div class="reg-supersede-finder-anchor">
+                        <div class="reg-grid-3 reg-supersede-finder-fields">
+                            <div class="reg-field">
+                                <label for="supersedeDocNo">Document No.</label>
+                                <input type="text" id="supersedeDocNo" placeholder="Document number" autocomplete="off">
+                            </div>
+                            <div class="reg-field">
+                                <label for="supersedeDocTitle">Document Title</label>
+                                <input type="text" id="supersedeDocTitle" placeholder="Title on the current document" autocomplete="off">
+                            </div>
+                            <div class="reg-field">
+                                <label for="supersedeDocOriginator">Originator</label>
+                                <input type="text" id="supersedeDocOriginator" placeholder="Originator of that copy" autocomplete="off">
+                            </div>
+                        </div>
+                        <div id="supersedeDocResults" class="reg-reldocs-dropdown" style="display:none;"></div>
                     </div>
-                    <div class="reg-field">
-                        <label for="supersedeDocTitle">Document Title</label>
-                        <input type="text" id="supersedeDocTitle" placeholder="Title on the current document" autocomplete="off">
+                    <div class="reg-supersede-selected" id="supersedeSelectedBar" hidden>
+                        <div class="reg-supersede-selected-copy">
+                            <span class="reg-supersede-selected-badge">Selected</span>
+                            <p id="supersedeDocPicked" class="reg-supersede-selected-text" hidden></p>
+                        </div>
+                        <button type="button" id="supersedeReselect" class="reg-supersede-change" hidden><i class="fa-solid fa-arrow-right-arrow-left"></i> Change document</button>
                     </div>
-                    <div class="reg-field">
-                        <label for="supersedeDocOriginator">Originator</label>
-                        <input type="text" id="supersedeDocOriginator" placeholder="Originator of that copy" autocomplete="off">
-                    </div>
-                </div>
-                <div class="reg-field">
-                    <div id="supersedeDocResults" class="reg-reldocs-dropdown" style="display:none;"></div>
-                    <p id="supersedeDocPicked" class="reg-number-hint" hidden></p>
-                    <button type="button" id="supersedeReselect" hidden><i class="fa-solid fa-arrow-right-arrow-left"></i> Change document</button>
                 </div>
                 <div class="reg-field reg-revision-table" id="supersedeHistoryField" hidden>
                     <div class="reg-revision-loading" id="supersedeHistoryLoading" aria-live="polite" aria-busy="false">
@@ -6848,6 +6855,17 @@ function setSupersedeLoading(on) {
     if (overlay) overlay.setAttribute('aria-busy', on ? 'true' : 'false');
 }
 
+function syncSupersedeSelectedBar() {
+    const bar = document.getElementById('supersedeSelectedBar');
+    const picked = document.getElementById('supersedeDocPicked');
+    const reselect = document.getElementById('supersedeReselect');
+    const show = !!(picked && !picked.hidden && (picked.textContent || '').trim());
+    if (bar) bar.hidden = !show;
+    if (reselect && show) {
+        reselect.hidden = !!window.__recurFromDatabase;
+    }
+}
+
 function lockSupersedeFinderInputs(locked) {
     const section = document.getElementById('section-supersede');
     if (section) section.classList.toggle('is-finder-locked', !!locked);
@@ -6855,7 +6873,30 @@ function lockSupersedeFinderInputs(locked) {
         const el = document.getElementById(id);
         if (!el) return;
         el.readOnly = !!locked;
+        el.disabled = !!locked;
+        if (locked) {
+            el.setAttribute('tabindex', '-1');
+            el.blur();
+        } else {
+            el.removeAttribute('tabindex');
+        }
     });
+    const hint = document.getElementById('supersedeFinderHint');
+    if (hint) {
+        hint.hidden = !!locked;
+        hint.textContent = locked
+            ? ''
+            : 'Enter the document number and title. The originator picks the exact latest copy when more than one document shares that number.';
+    }
+    const badge = document.querySelector('#supersedeSelectedBar .reg-supersede-selected-badge');
+    if (badge) {
+        badge.textContent = window.__recurFromDatabase ? 'Saved selection' : 'Selected';
+    }
+    syncSupersedeSelectedBar();
+    if (locked) {
+        const reselect = document.getElementById('supersedeReselect');
+        if (reselect) reselect.hidden = !!window.__recurFromDatabase;
+    }
 }
 
 async function loadSupersedeFamily(doc) {
@@ -6957,7 +6998,11 @@ async function showSupersedeDocumentHistory(doc, options) {
             + '</tr>';
     }).join('');
     field.hidden = revisions.length === 0;
-    if (reselect) reselect.hidden = !!(window.__recurFromDatabase || window.__recurSelectionLocked);
+    if (typeof syncSupersedeSelectedBar === 'function') {
+        syncSupersedeSelectedBar();
+    } else if (reselect) {
+        reselect.hidden = !!window.__recurFromDatabase;
+    }
     if (options.markSuperseded) {
         body.querySelectorAll('.reg-rev-status.is-latest').forEach(function (badge) {
             badge.textContent = 'Superseded';
@@ -6978,6 +7023,8 @@ function resetSupersedeFinder() {
         picked.hidden = true;
         picked.textContent = '';
     }
+    const bar = document.getElementById('supersedeSelectedBar');
+    if (bar) bar.hidden = true;
     const field = document.getElementById('supersedeHistoryField');
     const body = document.getElementById('supersedeHistoryBody');
     if (field) {
@@ -7006,6 +7053,8 @@ function clearSupersedeSelection() {
         picked.hidden = true;
         picked.textContent = '';
     }
+    const bar = document.getElementById('supersedeSelectedBar');
+    if (bar) bar.hidden = true;
     const field = document.getElementById('supersedeHistoryField');
     const body = document.getElementById('supersedeHistoryBody');
     if (field) field.hidden = true;
@@ -7102,6 +7151,7 @@ function fillSupersedeFinder(doc) {
             + ' · ' + originLabel
             + ' (Rev ' + (doc.revise_no ?? 0) + ') will be superseded.';
     }
+    syncSupersedeSelectedBar();
 }
 
 function bindSupersedeFinder() {

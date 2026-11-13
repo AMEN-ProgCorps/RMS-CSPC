@@ -26,6 +26,9 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
 
     const searchUrl = @json(url('/dcs/api/office/revisable-documents'));
     let duplicateMessage = '';
+    let duplicateUrl = '';
+    let duplicateId = 0;
+    let duplicateType = '';
 
     function setStatus(message, ok) {
         if (!statusEl) return;
@@ -83,7 +86,8 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
     let suggestTitle = '';
     let suggestOriginator = '';
 
-    function showOfficeNotice(message) {
+    function showOfficeNotice(message, options) {
+        options = options || {};
         let root = document.getElementById('ofiNotice');
         if (!root) {
             root = document.createElement('div');
@@ -93,9 +97,13 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
             root.innerHTML = ''
                 + '<div class="ofi-notice-card" role="alertdialog" aria-modal="true" aria-labelledby="ofiNoticeTitle">'
                 + '<p class="ofi-notice-kicker">Already submitted</p>'
-                + '<h2 id="ofiNoticeTitle">This document already has a request</h2>'
+                + '<h2 id="ofiNoticeTitle">Recurring DRF already open</h2>'
                 + '<p id="ofiNoticeMessage"></p>'
-                + '<button type="button" class="ofi-notice-ok" id="ofiNoticeOk">OK</button>'
+                + '<div class="ofi-notice-actions">'
+                + '<a class="ofi-notice-ok" id="ofiNoticeOpen" hidden href="#">Open Recurring DRF</a>'
+                + '<button type="button" class="ofi-notice-secondary" id="ofiNoticeReselect">Select a different document</button>'
+                + '<button type="button" class="ofi-notice-secondary" id="ofiNoticeOk">Close</button>'
+                + '</div>'
                 + '</div>';
             document.body.appendChild(root);
             root.addEventListener('click', function (event) {
@@ -104,20 +112,75 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
             root.querySelector('#ofiNoticeOk').addEventListener('click', function () {
                 root.hidden = true;
             });
+            root.querySelector('#ofiNoticeReselect').addEventListener('click', function () {
+                root.hidden = true;
+                if (reselectBtn) reselectBtn.click();
+                else if (typeof clearMatch === 'function') clearMatch();
+            });
         }
+        const title = root.querySelector('#ofiNoticeTitle');
+        if (title) title.textContent = options.title || 'Request already open';
         const text = root.querySelector('#ofiNoticeMessage');
         if (text) text.textContent = message;
+        const openLink = root.querySelector('#ofiNoticeOpen');
+        if (openLink) {
+            if (options.url) {
+                openLink.hidden = false;
+                openLink.href = options.url;
+                openLink.textContent = options.openLabel || 'Open request';
+            } else {
+                openLink.hidden = true;
+                openLink.removeAttribute('href');
+            }
+        }
         root.hidden = false;
-        root.querySelector('#ofiNoticeOk')?.focus();
+        (openLink && !openLink.hidden ? openLink : root.querySelector('#ofiNoticeOk'))?.focus();
     }
 
-    function showDuplicate(message) {
+    function openActionLabel(type) {
+        return type === 'dcn' ? 'Open DCN' : 'Open Recurring DRF';
+    }
+
+    function blockedNoticeTitle(type) {
+        return type === 'dcn' ? 'Document Change Notice already open' : 'Recurring DRF already open';
+    }
+
+    function blockedBannerTitle(type) {
+        return type === 'dcn'
+            ? 'Cannot start a Recurring DRF'
+            : 'Cannot start another Recurring DRF';
+    }
+
+    function showDuplicate(message, meta) {
+        meta = meta || {};
         duplicateMessage = message || '';
+        duplicateUrl = meta.url ? String(meta.url) : '';
+        duplicateId = meta.id ? Number(meta.id) : 0;
+        duplicateType = meta.type ? String(meta.type) : '';
         form.dataset.openRequestMessage = duplicateMessage;
+        form.dataset.openRequestUrl = duplicateUrl;
+        form.dataset.openRequestType = duplicateType;
+        form.classList.toggle('is-recur-blocked', duplicateMessage !== '');
+        if (selectedBox) selectedBox.classList.toggle('is-blocked', duplicateMessage !== '');
         const box = document.getElementById('drfSelectedDuplicate');
+        const text = document.getElementById('drfSelectedDuplicateText');
+        const link = document.getElementById('drfSelectedDuplicateLink');
+        const strong = box ? box.querySelector('.ofi-alert-body strong') : null;
         if (!box) return;
         box.hidden = duplicateMessage === '';
-        box.textContent = duplicateMessage;
+        if (strong) strong.textContent = blockedBannerTitle(duplicateType);
+        if (text) text.textContent = duplicateMessage;
+        else box.textContent = duplicateMessage;
+        if (link) {
+            if (duplicateUrl) {
+                link.hidden = false;
+                link.href = duplicateUrl;
+                link.textContent = openActionLabel(duplicateType);
+            } else {
+                link.hidden = true;
+                link.removeAttribute('href');
+            }
+        }
     }
 
     const sigFieldMap = {
@@ -439,6 +502,44 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
             clearDistributeOffices();
             unlockDocTypeKind();
             const canonicalNo = (data.document_no || finderNo.value || '').trim();
+            const blockedMessage = data.open_request_message ? String(data.open_request_message) : '';
+            const blockedUrl = data.open_request_url ? String(data.open_request_url) : '';
+            const blockedId = data.open_request_id || data.open_drf_id || data.open_dcn_id || 0;
+            const blockedType = data.open_request_type ? String(data.open_request_type) : '';
+            if (data.document_no) finderNo.value = data.document_no;
+            if (data.current_title) finderTitle.value = data.current_title;
+            if (data.originator) finderOriginator.value = data.originator;
+            clearSuggestions();
+            showDuplicate(blockedMessage, { url: blockedUrl, id: blockedId, type: blockedType });
+            if (blockedMessage) {
+                // Show the matched document for context, but do not confirm it for save.
+                confirmed.value = '';
+                storedNo.value = '';
+                if (reviseInput) reviseInput.value = data.revise_no != null && data.revise_no !== '' ? String(data.revise_no) : '';
+                if (typeInput) typeInput.value = data.doc_type || '';
+                if (masterlistIdInput) masterlistIdInput.value = '';
+                if (requestIdInput) requestIdInput.value = '';
+                setStatus(
+                    blockedType === 'dcn'
+                        ? 'A Document Change Notice is already open for this document. Open it or select a different document.'
+                        : 'A Recurring DRF is already open for this document. Open it or select a different document.',
+                    false
+                );
+                showSelected(data);
+                if (finderCard && typeof finderCard.focus === 'function') {
+                    finderCard.focus({ preventScroll: true });
+                }
+                restoreScroll();
+                requestAnimationFrame(function () {
+                    showOfficeNotice(blockedMessage, {
+                        title: blockedNoticeTitle(blockedType),
+                        url: blockedUrl,
+                        openLabel: openActionLabel(blockedType),
+                    });
+                    restoreScroll();
+                });
+                return;
+            }
             confirmed.value = '1';
             storedNo.value = canonicalNo;
             if (reviseInput) reviseInput.value = data.revise_no != null && data.revise_no !== '' ? String(data.revise_no) : '';
@@ -449,16 +550,7 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
             if (requestIdInput) {
                 requestIdInput.value = data.request_id ? String(data.request_id) : '';
             }
-            if (data.document_no) finderNo.value = data.document_no;
-            if (data.current_title) finderTitle.value = data.current_title;
-            if (data.originator) finderOriginator.value = data.originator;
-            clearSuggestions();
-            showDuplicate(data.open_request_message ? String(data.open_request_message) : '');
-            if (duplicateMessage) {
-                setStatus(duplicateMessage, false);
-            } else {
-                setStatus('Document selected. Choose a different document if this is not the one to recur.', true);
-            }
+            setStatus('Document selected. Choose a different document if this is not the one to recur.', true);
             showFieldSuggestions(data);
             if (data.doc_type_kind || data.doc_type_id || data.sub_type_id) {
                 lockDocTypeKind(data.doc_type_kind, data.doc_type_id, data.sub_type_id);
@@ -488,9 +580,6 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
                     if (finderCard) finderCard.focus({ preventScroll: true });
                 }
                 restoreScroll();
-                if (duplicateMessage) {
-                    showOfficeNotice(duplicateMessage);
-                }
             });
         } finally {
             applyingMatch = false;
@@ -557,6 +646,7 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
                 documentNo: docNo,
                 currentTitle: title,
                 originator: originator,
+                purpose: 'recur',
             });
             const res = await fetch(searchUrl + '?' + params.toString(), {
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -637,9 +727,18 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         if (duplicateMessage) {
             e.preventDefault();
             e.stopPropagation();
-            setStatus(duplicateMessage, false);
-            showDuplicate(duplicateMessage);
-            showOfficeNotice(duplicateMessage);
+            setStatus(
+                duplicateType === 'dcn'
+                    ? 'A Document Change Notice is already open for this document. Open it or select a different document.'
+                    : 'A Recurring DRF is already open for this document. Open it or select a different document.',
+                false
+            );
+            showDuplicate(duplicateMessage, { url: duplicateUrl, id: duplicateId, type: duplicateType });
+            showOfficeNotice(duplicateMessage, {
+                title: blockedNoticeTitle(duplicateType),
+                url: duplicateUrl,
+                openLabel: openActionLabel(duplicateType),
+            });
             return;
         }
         if (confirmed.value !== '1' || storedNo.value.trim() === '') {

@@ -30,7 +30,9 @@ use Illuminate\Validation\ValidationException;
  * distributionOfficeIdsForRequest, linkedDrfIdsForOfficeDcns, findLinkedDrfIdForOfficeDcn,
  * findSourceDcnIdForOfficeDrf, officeDcnHasLinkedDrf, officeDcnAllowsLaterDrf,
  * assertOfficeDcnCanCreateDrf, findOpenDuplicateDcn, duplicateDcnMessage,
- * assertNoOpenDuplicateDcn, assertNoOpenDuplicateDrf, currentUserOfficeForDcn,
+ * findOpenDuplicateRecurringDrf, duplicateRecurringDrfMessage,
+ * assertNoOpenDuplicateDcn, assertNoOpenDuplicateRecurringDrf,
+ * assertNoOpenDuplicateDrf, currentUserOfficeForDcn,
  * originatorMatchesUser, storeDrf, previewDrf, previewDcn, storeDcn, updateDrf, updateDcn,
  * reviewersPayloadFromRequest, loadDcnReviewers, syncDcnReviewers, loadDcnApprovals,
  * syncDcnApprovals, decodeDcnApprovals, approvalsPayloadFromRequest,
@@ -1425,12 +1427,13 @@ class OfficeIntakeHelper
 
         $exceptId = (int) $request->input('exceptId', 0);
         $exceptId = $exceptId > 0 ? $exceptId : null;
+        $purpose = self::revisableSearchPurpose($request);
         $matches = [];
         $matched = self::findRevisableRegistrationMatch($docNo, $title, $originator);
         if ($matched) {
-            $matches[] = self::revisableMatchPayload($matched, false, $exceptId);
+            $matches[] = self::revisableMatchPayload($matched, false, $exceptId, $purpose);
         }
-        foreach (self::nearRevisableMatches($docNo, $title, $originator, $exceptId) as $near) {
+        foreach (self::nearRevisableMatches($docNo, $title, $originator, $exceptId, $purpose) as $near) {
             $matches[] = $near;
         }
 
@@ -1439,6 +1442,20 @@ class OfficeIntakeHelper
             'matches' => $matches,
             'suggestions' => $matches,
         ];
+    }
+
+    /** @return 'dcn'|'recur' */
+    private static function revisableSearchPurpose(\Illuminate\Http\Request $request): string
+    {
+        $raw = strtolower(trim((string) $request->input(
+            'purpose',
+            (string) $request->input('for', 'dcn')
+        )));
+        if (in_array($raw, ['recur', 'recurring', 'drf', 'drf-recur', 'recurring-drf'], true)) {
+            return 'recur';
+        }
+
+        return 'dcn';
     }
 
     public static function findRevisableRegistrationMatch(string $docNo, string $title, string $originator): ?object
@@ -1499,7 +1516,13 @@ class OfficeIntakeHelper
      *
      * @return list<array<string, mixed>>
      */
-    private static function nearRevisableMatches(string $docNo, string $title, string $originator, ?int $exceptId = null): array
+    private static function nearRevisableMatches(
+        string $docNo,
+        string $title,
+        string $originator,
+        ?int $exceptId = null,
+        string $purpose = 'dcn'
+    ): array
     {
         $docNo = trim($docNo);
         if ($docNo === '') {
@@ -1563,7 +1586,7 @@ class OfficeIntakeHelper
 
         $suggestions = [];
         foreach ($latestByDocument as $picked) {
-            $suggestions[] = self::revisableMatchPayload($picked['row'], false, $exceptId);
+            $suggestions[] = self::revisableMatchPayload($picked['row'], false, $exceptId, $purpose);
             if (count($suggestions) >= 8) {
                 break;
             }
@@ -1625,8 +1648,12 @@ class OfficeIntakeHelper
     }
 
     /** @return array<string, mixed> */
-    private static function revisableMatchPayload(object $row, bool $found, ?int $exceptId = null): array
-    {
+    private static function revisableMatchPayload(
+        object $row,
+        bool $found,
+        ?int $exceptId = null,
+        string $purpose = 'dcn'
+    ): array {
         $typeLabel = trim((string) ($row->sub_type_name ?? '')) !== ''
             ? trim((string) $row->sub_type_name)
             : trim((string) ($row->doc_type_name ?? 'Document'));
@@ -1655,16 +1682,38 @@ class OfficeIntakeHelper
                     (int) ($row->sub_type_id ?? 0) ?: null
                 ),
         ];
-        $open = self::findOpenDuplicateDcn(
-            (string) ($row->doc_no ?? ''),
-            (string) ($row->doc_title ?? ''),
-            '',
-            [trim((string) ($row->originator_label ?? ''))],
-            $exceptId
-        );
-        if ($open) {
-            $payload['open_dcn_id'] = (int) $open->id;
-            $payload['open_request_message'] = self::duplicateDcnMessage($open);
+        $docNo = (string) ($row->doc_no ?? '');
+        $docTitle = (string) ($row->doc_title ?? '');
+        $originLabel = trim((string) ($row->originator_label ?? ''));
+        if ($purpose === 'recur') {
+            // Recurring DRF cannot start while another Recurring DRF OR an open DCN
+            // for the same registered document is still waiting to be registered.
+            $openDrf = self::findOpenDuplicateRecurringDrf($docNo, $docTitle, $exceptId);
+            if ($openDrf) {
+                $payload['open_request_type'] = 'recurring_drf';
+                $payload['open_request_id'] = (int) $openDrf->id;
+                $payload['open_drf_id'] = (int) $openDrf->id;
+                $payload['open_request_url'] = route('dcs.office.drf.show', ['id' => (int) $openDrf->id], false);
+                $payload['open_request_message'] = self::duplicateRecurringDrfMessage($openDrf);
+            } else {
+                $openDcn = self::findOpenDuplicateDcn($docNo, $docTitle, '', [$originLabel], null);
+                if ($openDcn) {
+                    $payload['open_request_type'] = 'dcn';
+                    $payload['open_request_id'] = (int) $openDcn->id;
+                    $payload['open_dcn_id'] = (int) $openDcn->id;
+                    $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $openDcn->id], false);
+                    $payload['open_request_message'] = self::duplicateDcnBlocksRecurringMessage($openDcn);
+                }
+            }
+        } else {
+            $open = self::findOpenDuplicateDcn($docNo, $docTitle, '', [$originLabel], $exceptId);
+            if ($open) {
+                $payload['open_request_type'] = 'dcn';
+                $payload['open_request_id'] = (int) $open->id;
+                $payload['open_dcn_id'] = (int) $open->id;
+                $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $open->id], false);
+                $payload['open_request_message'] = self::duplicateDcnMessage($open);
+            }
         }
         if ($found) {
             $payload = ['found' => true] + $payload;
@@ -2267,6 +2316,87 @@ class OfficeIntakeHelper
             .' is already submitted and still waiting to be registered. Open DCN #'.(int) $row->id.'.';
     }
 
+    public static function findOpenDuplicateRecurringDrf(
+        string $docNo,
+        string $title = '',
+        ?int $exceptId = null
+    ): ?object {
+        if (! Schema::hasTable('dcs_office_intake_drf')
+            || ! Schema::hasColumn('dcs_office_intake_drf', 'previous_document_no')) {
+            return null;
+        }
+
+        self::reconcileClaimedIntakesWithRegistrations();
+
+        $docNo = mb_strtolower(trim($docNo));
+        if ($docNo === '') {
+            return null;
+        }
+
+        $query = self::openIntakeScope('dcs_office_intake_drf')
+            ->whereRaw("LOWER(TRIM(COALESCE(previous_document_no, ''))) = ?", [$docNo]);
+
+        // Recurring DRFs only — exclude DRFs that were created from a DCN.
+        if (Schema::hasColumn('dcs_office_intake_drf', 'source_office_dcn_id')) {
+            $query->where(function ($inner) {
+                $inner->whereNull('source_office_dcn_id')->orWhere('source_office_dcn_id', 0);
+            });
+        }
+
+        if ($exceptId) {
+            $query->where('id', '<>', $exceptId);
+        }
+
+        $cols = ['id', 'doc_title', 'previous_document_no'];
+        if (Schema::hasColumn('dcs_office_intake_drf', 'previous_document_title')) {
+            $cols[] = 'previous_document_title';
+        }
+        $candidates = $query->orderBy('id')->get($cols);
+        if ($candidates->isEmpty()) {
+            return null;
+        }
+
+        $titleKey = mb_strtolower(trim($title));
+        if ($titleKey !== '') {
+            foreach ($candidates as $row) {
+                $rowTitle = mb_strtolower(trim((string) (
+                    $row->previous_document_title
+                    ?? $row->doc_title
+                    ?? ''
+                )));
+                if ($rowTitle !== '' && $rowTitle === $titleKey) {
+                    return $row;
+                }
+            }
+        }
+
+        return $candidates->first();
+    }
+
+    public static function duplicateRecurringDrfMessage(object $row): string
+    {
+        $no = trim((string) ($row->previous_document_no ?? ''));
+        $title = trim((string) (
+            $row->previous_document_title
+            ?? $row->doc_title
+            ?? ''
+        ));
+        $label = trim($no.($title !== '' ? ' — '.$title : ''));
+
+        return 'A Recurring DRF for '.($label !== '' ? $label : 'this document')
+            .' is already submitted and still waiting to be registered.';
+    }
+
+    public static function duplicateDcnBlocksRecurringMessage(object $row): string
+    {
+        $no = trim((string) ($row->document_no ?? ''));
+        $title = trim((string) ($row->document_title ?? ''));
+        $label = trim($no.($title !== '' ? ' — '.$title : ''));
+
+        return 'A Document Change Notice for '.($label !== '' ? $label : 'this document')
+            .' is already submitted and still waiting to be registered. Finish or cancel that DCN before starting a Recurring DRF.';
+    }
+
     public static function assertNoOpenDuplicateDcn(
         string $docNo,
         string $currentTitle,
@@ -2281,6 +2411,21 @@ class OfficeIntakeHelper
 
         throw ValidationException::withMessages([
             'finderDocumentNo' => self::duplicateDcnMessage($existing),
+        ]);
+    }
+
+    public static function assertNoOpenDuplicateRecurringDrf(
+        string $docNo,
+        string $title = '',
+        ?int $exceptId = null
+    ): void {
+        $existing = self::findOpenDuplicateRecurringDrf($docNo, $title, $exceptId);
+        if (! $existing) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'finderDocumentNo' => self::duplicateRecurringDrfMessage($existing),
         ]);
     }
 
@@ -2565,6 +2710,21 @@ class OfficeIntakeHelper
             // Keep the DRF title aligned with the selected document family unless the office typed another title.
             if ($previousTitle !== '' && trim((string) ($data['drfTitle'] ?? '')) === '') {
                 $data['drfTitle'] = $previousTitle;
+            }
+            self::assertNoOpenDuplicateRecurringDrf($previousDocNo, $previousTitle);
+            $openDcn = self::findOpenDuplicateDcn(
+                $previousDocNo,
+                $previousTitle,
+                '',
+                [
+                    $previousOriginator,
+                    trim((string) ($data['originatorName'] ?? '')),
+                ]
+            );
+            if ($openDcn) {
+                throw ValidationException::withMessages([
+                    'finderDocumentNo' => self::duplicateDcnBlocksRecurringMessage($openDcn),
+                ]);
             }
         }
 
@@ -3021,6 +3181,15 @@ class OfficeIntakeHelper
             (string) ($data['originatorName'] ?? ''),
             $id
         );
+        $existingDrf = self::findOfficeDrf($id);
+        $existingPreviousNo = trim((string) ($existingDrf->previous_document_no ?? ''));
+        if ($existingPreviousNo !== '' && self::findSourceDcnIdForOfficeDrf($id) === null) {
+            self::assertNoOpenDuplicateRecurringDrf(
+                $existingPreviousNo,
+                trim((string) ($existingDrf->previous_document_title ?? $existingDrf->doc_title ?? '')),
+                $id
+            );
+        }
 
         $now = now();
         DB::transaction(function () use ($data, $catalog, $id, $now, $syllabiCtx) {

@@ -5574,13 +5574,13 @@ class RegisterQueryHelper
             return self::editHistoryPage($docNo);
         }
 
-        $entries = RegisterEditHistoryHelper::listForRequest($requestId);
-        foreach ($entries as &$entry) {
-            $entry['revise_no'] = (int) ($ml->revise_no ?? 0);
-            $entry['doc_no'] = $docNo !== '' ? $docNo : 'N/A';
-            $entry['is_latest'] = true;
-        }
-        unset($entry);
+        $entries = self::filterEditHistoryEntries(
+            RegisterEditHistoryHelper::listForRequest($requestId),
+            $requestId,
+            (int) ($ml->revise_no ?? 0),
+            $docNo !== '' ? $docNo : 'N/A',
+            true
+        );
 
         return [
             'docNo' => $docNo !== '' ? $docNo : 'N/A',
@@ -5675,32 +5675,74 @@ class RegisterQueryHelper
             abort(404, 'Document not found.');
         }
 
+        // Edit History is for field changes on the current revision only —
+        // do not mix other revise_no rows into this page.
+        $latestReviseNo = (int) ($mls->first()->revise_no ?? 0);
+        $currentRevisionRows = $mls
+            ->filter(fn ($row) => (int) ($row->revise_no ?? 0) === $latestReviseNo)
+            ->values();
+
         $byRequest = [];
-        foreach ($mls as $ml) {
+        foreach ($currentRevisionRows as $ml) {
             $byRequest[(int) $ml->request_id] = [
                 'revise_no' => (int) ($ml->revise_no ?? 0),
                 'doc_no' => (string) ($ml->doc_no ?? ''),
             ];
         }
 
-        $latestRequestId = (int) $mls->first()->request_id;
-        $entries = RegisterEditHistoryHelper::listForRequests(array_keys($byRequest), 300);
-        foreach ($entries as &$entry) {
-            $meta = $byRequest[(int) ($entry['request_id'] ?? 0)] ?? null;
-            $entry['revise_no'] = $meta['revise_no'] ?? null;
-            $entry['doc_no'] = $meta['doc_no'] ?? null;
-            $entry['is_latest'] = (int) ($entry['request_id'] ?? 0) === $latestRequestId;
-        }
-        unset($entry);
+        $latestRequestId = (int) $currentRevisionRows->first()->request_id;
+        $entries = self::filterEditHistoryEntries(
+            RegisterEditHistoryHelper::listForRequests(array_keys($byRequest), 300),
+            $latestRequestId,
+            $latestReviseNo,
+            null,
+            true,
+            $byRequest
+        );
 
         return [
             'docNo' => $docNo,
-            'docTitle' => (string) ($mls->first()->doc_title ?: $docNo),
-            'lineageDocNos' => $mls->pluck('doc_no')->filter()->unique()->values()->all(),
+            'docTitle' => (string) ($currentRevisionRows->first()->doc_title ?: $docNo),
+            'lineageDocNos' => $currentRevisionRows->pluck('doc_no')->filter()->unique()->values()->all(),
             'latestRequestId' => $latestRequestId,
             'canEdit' => self::canEditDocument($latestRequestId),
             'entries' => $entries,
         ];
+    }
+
+    /**
+     * Keep only real document field edits (action=update). Registration/draft
+     * baselines and other revisions stay out of the Edit History page.
+     *
+     * @param  list<array<string, mixed>>  $entries
+     * @param  array<int, array{revise_no:int, doc_no:string}>|null  $byRequest
+     * @return list<array<string, mixed>>
+     */
+    private static function filterEditHistoryEntries(
+        array $entries,
+        int $latestRequestId,
+        int $reviseNo,
+        ?string $fallbackDocNo = null,
+        bool $markLatest = true,
+        ?array $byRequest = null
+    ): array {
+        $out = [];
+        foreach ($entries as $entry) {
+            $action = strtolower(trim((string) ($entry['action'] ?? '')));
+            // Only field-level edits — not the initial register/draft snapshot.
+            if ($action !== 'update') {
+                continue;
+            }
+
+            $requestId = (int) ($entry['request_id'] ?? 0);
+            $meta = $byRequest[$requestId] ?? null;
+            $entry['revise_no'] = $meta['revise_no'] ?? $reviseNo;
+            $entry['doc_no'] = $meta['doc_no'] ?? $fallbackDocNo;
+            $entry['is_latest'] = $markLatest && $requestId === $latestRequestId;
+            $out[] = $entry;
+        }
+
+        return $out;
     }
 
     private static function hstSyllabiTableFromRows(array $rows): array
@@ -7579,7 +7621,16 @@ class RegisterQueryHelper
             abort(404);
         }
 
-        $entries = RegisterEditHistoryHelper::listForRequest($requestId);
+        $reviseNo = (int) (DB::table('dcs_masterlist_registration')
+            ->where('request_id', $requestId)
+            ->value('revise_no') ?? 0);
+        $entries = self::filterEditHistoryEntries(
+            RegisterEditHistoryHelper::listForRequest($requestId),
+            $requestId,
+            $reviseNo,
+            null,
+            true
+        );
 
         return [
             'title' => 'Edit History',

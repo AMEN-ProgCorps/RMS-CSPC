@@ -116,7 +116,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             {{ $row->doc_title ?: 'Untitled DRF' }}
                                         </a>
                                     </td>
-                                    <td class="ofi-nowrap"><x-dcs.originator-lines :name="$row->originator_name" /></td>
+                                    <td class="ofi-nowrap"><x-dcs.originator-lines :name="data_get($row, 'originator_name', '')" /></td>
                                     @if($isReviewer ?? false)
                                         <td>{{ $row->submitting_office ?? '—' }}</td>
                                         <td>{{ $row->submitter_name ?? '—' }}</td>

@@ -1181,11 +1181,24 @@
     background: rgba(15, 23, 42, 0.92) !important;
 }
 
-[data-theme="dark"] .rpt-preview-loading h4 {
+[data-theme="dark"] .rpt-preview-loading .rpt-loading-card {
+    background: #131c2e !important;
+    border-color: #1e293b !important;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45) !important;
+}
+
+[data-theme="dark"] .rpt-preview-loading .rpt-loading-spinner {
+    border-color: #334155 !important;
+    border-top-color: #3b82f6 !important;
+}
+
+[data-theme="dark"] .rpt-preview-loading h4,
+[data-theme="dark"] .rpt-preview-loading .rpt-loading-card h4 {
     color: #f8fafc !important;
 }
 
-[data-theme="dark"] .rpt-preview-loading p {
+[data-theme="dark"] .rpt-preview-loading p,
+[data-theme="dark"] .rpt-preview-loading .rpt-loading-card p {
     color: #94a3b8 !important;
 }
 
@@ -2927,6 +2940,43 @@
     background: #243447 !important;
     color: #f8fafc !important;
     border-color: #475569 !important;
+}
+
+/* Apply Stamp / Remove Stamp confirm actions */
+[data-theme="dark"] .st-confirm-actions .st-btn-secondary {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+    border-color: #475569 !important;
+}
+
+[data-theme="dark"] .st-confirm-actions .st-btn-secondary:hover {
+    background: #243447 !important;
+    color: #f8fafc !important;
+    border-color: #64748b !important;
+}
+
+[data-theme="dark"] .st-confirm-actions .st-btn-primary {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+    color: #fff !important;
+    border: 0 !important;
+}
+
+[data-theme="dark"] .st-confirm-actions .st-btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] .st-confirm-actions .st-btn-primary:disabled,
+[data-theme="dark"] .st-confirm-actions .st-btn-primary.is-loading {
+    opacity: 0.92 !important;
+    cursor: wait !important;
+    transform: none !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] .st-confirm-actions .st-btn-secondary:disabled {
+    opacity: 0.55 !important;
+    cursor: not-allowed !important;
 }
 
 [data-theme="dark"] .st-preview-panel {

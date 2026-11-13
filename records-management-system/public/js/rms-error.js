@@ -216,7 +216,7 @@
             title: detail.title || (status >= 500 ? 'Server error' : (status === 408 ? 'Slow internet' : 'Client error popout')),
             message: detail.message || '',
             kind: detail.error_kind || (status >= 500 ? 'server' : (status === 408 ? 'network' : 'popout')),
-            http_status: status || 500,
+            http_status: status || (detail.error_kind === 'server' ? 500 : 0),
             url: detail.return_url || (location.pathname + location.search),
             file: detail.file || null,
             line: detail.line || null,
@@ -548,23 +548,34 @@
         }
     }
 
+    window.__rmsGuardsReady = false;
+
     function syncActiveGuards() {
         try {
-            fetch('/api/errors/active-guards')
+            fetch('/api/errors/active-guards', { credentials: 'same-origin', cache: 'no-store' })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (data && typeof data === 'object') {
                         window.__rmsActiveGuards = data;
                     }
+                    window.__rmsGuardsReady = true;
                 })
-                .catch(function () {});
-        } catch (e) {}
+                .catch(function () {
+                    // Keep blade snapshot usable if refresh fails.
+                    window.__rmsGuardsReady = true;
+                });
+        } catch (e) {
+            window.__rmsGuardsReady = true;
+        }
     }
 
-    if (!window.__rmsActiveGuards) {
-        syncActiveGuards();
-    }
+    // Always refresh — blade snapshot stays stale after tickets are resolved in another tab/session.
+    syncActiveGuards();
+    setInterval(syncActiveGuards, 15000);
     window.addEventListener('focus', syncActiveGuards);
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) syncActiveGuards();
+    });
 
     function getOrCreateSideStack() {
         var stack = document.getElementById('rms-side-alert-stack');
@@ -645,12 +656,19 @@
         var dismissBtn = document.getElementById('rms-side-error-dismiss');
         var reportBtn = document.getElementById('rms-side-error-report');
 
-        var closeCard = function () {
+        var closeCard = function (allowRetry) {
+            if (allowRetry && info && info.path) {
+                window.__rmsDismissedPageGuards = window.__rmsDismissedPageGuards || {};
+                window.__rmsDismissedPageGuards[info.path] = true;
+                if (window.__rmsActiveGuards && window.__rmsActiveGuards.pages) {
+                    delete window.__rmsActiveGuards.pages[info.path];
+                }
+            }
             card.style.display = 'none';
         };
 
-        if (closeBtn) closeBtn.onclick = closeCard;
-        if (dismissBtn) dismissBtn.onclick = closeCard;
+        if (closeBtn) closeBtn.onclick = function () { closeCard(true); };
+        if (dismissBtn) dismissBtn.onclick = function () { closeCard(true); };
         if (reportBtn) {
             reportBtn.onclick = function () {
                 window.dispatchEvent(new CustomEvent('rms-open-report-problem', {
@@ -660,7 +678,7 @@
                         description: 'Encountered automated circuit breaker block for ticket ' + (info.ticket || '') + ' on ' + (info.path || '')
                     }
                 }));
-                closeCard();
+                closeCard(true);
             };
         }
     }
@@ -675,9 +693,21 @@
         var currentPath = normalizePath(location.pathname);
         if (path === currentPath) return false;
 
+        window.__rmsDismissedPageGuards = window.__rmsDismissedPageGuards || {};
+        if (window.__rmsDismissedPageGuards[path]) return false;
+
+        // Do not hard-block from a possibly stale blade snapshot; wait for API refresh.
+        if (!window.__rmsGuardsReady) {
+            syncActiveGuards();
+            return false;
+        }
+
         var guards = (window.__rmsActiveGuards && window.__rmsActiveGuards.pages) || {};
         var error = guards[path];
         if (!error) return false;
+
+        // Keep client guards aligned with ticket status for the next click.
+        syncActiveGuards();
 
         window.__rmsAttemptedPages = window.__rmsAttemptedPages || {};
         var isRepeat = !!window.__rmsAttemptedPages[path];
@@ -696,6 +726,17 @@
 
         return true; // Navigation blocked
     };
+
+    // Successful page render clears any circuit-breaker lock for this path.
+    (function clearGuardForCurrentPage() {
+        var path = normalizePath(location.pathname);
+        if (!path || !window.__rmsActiveGuards || !window.__rmsActiveGuards.pages) return;
+        if (window.__rmsActiveGuards.pages[path]) {
+            delete window.__rmsActiveGuards.pages[path];
+        }
+        window.__rmsDismissedPageGuards = window.__rmsDismissedPageGuards || {};
+        window.__rmsDismissedPageGuards[path] = true;
+    })();
 
     window.rmsCheckModalGuard = function (modalKey) {
         var modals = (window.__rmsActiveGuards && window.__rmsActiveGuards.modals) || {};

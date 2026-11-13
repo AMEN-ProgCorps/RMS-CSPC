@@ -185,7 +185,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <div class="ofi-dcn-box-section">
                         <div class="reg-field">
                             <label>Originator</label>
-                            <div class="ofi-show-value"><x-dcs.originator-lines :name="$dcn->originator_name" /></div>
+                            <div class="ofi-show-value"><x-dcs.originator-lines :name="$dcn->originator_name ?? ''" /></div>
                         </div>
                         <div class="reg-grid-2-1">
                             <div class="reg-field">

@@ -1590,13 +1590,25 @@ body > section{
 [data-theme="dark"] span[style*="color:#64748b"],
 [data-theme="dark"] span[style*="color: #475569"],
 [data-theme="dark"] span[style*="color:#475569"],
+[data-theme="dark"] span[style*="color: #334155"],
+[data-theme="dark"] span[style*="color:#334155"],
 [data-theme="dark"] span[style*="color: #A2A2A2"],
 [data-theme="dark"] span[style*="color:#A2A2A2"],
 [data-theme="dark"] div[style*="color: #64748b"],
 [data-theme="dark"] div[style*="color:#64748b"],
+[data-theme="dark"] div[style*="color: #475569"],
+[data-theme="dark"] div[style*="color:#475569"],
+[data-theme="dark"] div[style*="color: #334155"],
+[data-theme="dark"] div[style*="color:#334155"],
+[data-theme="dark"] td[style*="color: #64748b"],
+[data-theme="dark"] td[style*="color:#64748b"],
+[data-theme="dark"] td[style*="color: #475569"],
+[data-theme="dark"] td[style*="color:#475569"],
+[data-theme="dark"] td[style*="color: #334155"],
+[data-theme="dark"] td[style*="color:#334155"],
 [data-theme="dark"] p[style*="color: #64748b"],
 [data-theme="dark"] p[style*="color:#64748b"] {
-    color: #94a3b8 !important;
+    color: #cbd5e1 !important;
 }
 
 [data-theme="dark"] span[style*="color: #0f172a"],
@@ -1606,7 +1618,11 @@ body > section{
 [data-theme="dark"] div[style*="color: #0f172a"],
 [data-theme="dark"] div[style*="color:#0f172a"],
 [data-theme="dark"] div[style*="color: #1e293b"],
-[data-theme="dark"] div[style*="color:#1e293b"] {
+[data-theme="dark"] div[style*="color:#1e293b"],
+[data-theme="dark"] td[style*="color: #0f172a"],
+[data-theme="dark"] td[style*="color:#0f172a"],
+[data-theme="dark"] td[style*="color: #1e293b"],
+[data-theme="dark"] td[style*="color:#1e293b"] {
     color: #f8fafc !important;
 }
 

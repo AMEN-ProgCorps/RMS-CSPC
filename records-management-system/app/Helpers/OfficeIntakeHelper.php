@@ -1253,6 +1253,20 @@ class OfficeIntakeHelper
         $type = $type === 'dcn' ? 'dcn' : 'drf';
         $junction = $type === 'dcn' ? 'dcs_office_dcn_originators' : 'dcs_office_drf_originators';
         $ownerColumn = $type === 'dcn' ? 'office_intake_dcn_id' : 'office_intake_drf_id';
+
+        // After 3NF, parent originator_name may be dropped. Always expose the property
+        // so list/show blades never hit Undefined property on stdClass.
+        foreach ($rows as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+            if (! property_exists($row, 'originator_name')) {
+                $row->originator_name = '';
+            } else {
+                $row->originator_name = trim((string) ($row->originator_name ?? ''));
+            }
+        }
+
         if (! Schema::hasTable($junction) || ! Schema::hasTable('dcs_originators')) {
             return;
         }

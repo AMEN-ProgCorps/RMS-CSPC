@@ -1451,6 +1451,24 @@ body {
     transform: translateY(-1px);
 }
 
+.st-confirm-actions .st-btn-primary:disabled,
+.st-confirm-actions .st-btn-primary.is-loading {
+    opacity: 0.92;
+    cursor: wait;
+    transform: none;
+    pointer-events: none;
+}
+
+.st-confirm-actions .st-btn-secondary:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.st-confirm-actions .st-btn-primary.is-loading .fa-spinner {
+    margin-right: 2px;
+}
+
 /* ═══════════════════════════════════════════
    TOAST
    ═══════════════════════════════════════════ */

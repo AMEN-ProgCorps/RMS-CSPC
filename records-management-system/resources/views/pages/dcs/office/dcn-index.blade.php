@@ -123,7 +123,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     </td>
                                     <td class="ofi-nowrap">{{ $row->dcn_date ? \App\Helpers\RegisterQueryHelper::formatRdpPeriodDate($row->dcn_date) : '—' }}</td>
                                     <td class="ofi-nowrap">{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A') : '—' }}</td>
-                                    <td><x-dcs.originator-lines :name="$row->originator_name" /></td>
+                                    <td><x-dcs.originator-lines :name="data_get($row, 'originator_name', '')" /></td>
                                     <td class="ofi-actions">
                                         <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}" class="ofi-icon-action" title="View">
                                             <i class="fa-solid fa-eye"></i><span>View</span>

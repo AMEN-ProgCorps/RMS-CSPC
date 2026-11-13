@@ -1512,7 +1512,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
 
         [data-theme="dark"] .rdp-compact-table th {
             background: #0f172a !important;
-            color: #94a3b8 !important;
+            color: #e2e8f0 !important;
             border-bottom-color: #1e293b !important;
         }
 
@@ -1524,10 +1524,59 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             border-bottom-color: #1e293b !important;
         }
 
+        /* Inline light-theme text colors in this dashboard stay dark-on-dark unless forced. */
+        [data-theme="dark"] .rdp-dashboard-page [style*="color: #0f172a"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="color:#0f172a"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="color: #1e293b"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="color:#1e293b"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="color: #334155"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="color:#334155"] {
+            color: #f1f5f9 !important;
+        }
+
+        [data-theme="dark"] .rdp-dashboard-page [style*="color: #475569"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="color:#475569"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="color: #64748b"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="color:#64748b"] {
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .rdp-dashboard-page [style*="color: #94a3b8"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="color:#94a3b8"] {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .rdp-dashboard-page [style*="background: #f1f5f9"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="background:#f1f5f9"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="background: #e0f2fe"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="background:#e0f2fe"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="background: #d1fae5"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="background:#d1fae5"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="background: #eff6ff"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="background:#eff6ff"] {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+        }
+
+        [data-theme="dark"] .rdp-dashboard-page [style*="color: #065f46"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="color:#065f46"] {
+            color: #6ee7b7 !important;
+        }
+
+        [data-theme="dark"] .rdp-dashboard-page [style*="color: #0284c7"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="color:#0284c7"] {
+            color: #7dd3fc !important;
+        }
+
+        [data-theme="dark"] .rdp-dashboard-page [style*="color: #1e40af"],
+        [data-theme="dark"] .rdp-dashboard-page [style*="color:#1e40af"] {
+            color: #93c5fd !important;
+        }
+
         [data-theme="dark"] .rdp-tab-btn {
             background: #0f172a !important;
             border-color: #1e293b !important;
-            color: #94a3b8 !important;
+            color: #cbd5e1 !important;
         }
 
         [data-theme="dark"] .rdp-tab-btn.active {
@@ -1542,10 +1591,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             color: #f8fafc !important;
         }
 
+        [data-theme="dark"] .rdp-search-input::placeholder {
+            color: #94a3b8 !important;
+            opacity: 1 !important;
+        }
+
         [data-theme="dark"] .chip-filter {
             background: #0f172a !important;
             border-color: #334155 !important;
-            color: #94a3b8 !important;
+            color: #cbd5e1 !important;
         }
 
         [data-theme="dark"] .chip-filter.active {
@@ -1553,8 +1607,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             color: #ffffff !important;
         }
 
+        [data-theme="dark"] .nap-action-link {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+            color: #93c5fd !important;
+        }
+
+        [data-theme="dark"] .nap-action-link:hover {
+            background: #2563eb !important;
+            border-color: #2563eb !important;
+            color: #ffffff !important;
+        }
+
+        [data-theme="dark"] .badge-dismissed {
+            background: #1e293b !important;
+            color: #cbd5e1 !important;
+            border-color: #334155 !important;
+        }
+
         [data-theme="dark"] .rdp-card-footer {
             border-top-color: #1e293b !important;
+            color: #cbd5e1 !important;
         }
 
         [data-theme="dark"] .rdp-page-btn {

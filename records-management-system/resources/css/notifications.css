@@ -386,13 +386,42 @@
 }
 
 /* ==========================================================================
-   Notification Overlay Popout (Bottom-Left)
+   Dual-Slot Notification & Error Stack (Side Positioned)
    ========================================================================== */
+
+.rms-side-alert-stack {
+    position: fixed;
+    bottom: 84px;
+    right: 24px;
+    z-index: 999999;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 420px;
+    width: calc(100vw - 48px);
+    pointer-events: none;
+    transition: all 0.25s ease;
+}
+
+.rms-side-alert-stack > * {
+    pointer-events: auto;
+}
+
+.rms-side-alert-stack .notif-overlay-container {
+    position: static;
+    bottom: auto;
+    left: auto;
+    right: auto;
+    width: 100%;
+    max-width: 100%;
+    order: 2;
+    transition: order 0.2s ease, transform 0.2s ease;
+}
 
 .notif-overlay-container {
     position: fixed;
-    bottom: 24px;
-    left: 24px;
+    bottom: 84px;
+    right: 24px;
     z-index: 999999;
     max-width: 440px;
     width: calc(100vw - 48px);

@@ -919,69 +919,74 @@ new class extends Component {
         </div>
     </div>
 
-    <!-- Bottom-Left Popout Notification Overlay -->
-    <div
-        class="notif-overlay-container"
-        x-show="overlayVisible"
-        x-transition:enter="notif-overlay-transition-enter"
-        x-transition:enter-start="notif-overlay-transition-enter-start"
-        x-transition:enter-end="notif-overlay-transition-enter-end"
-        x-transition:leave="notif-overlay-transition-leave"
-        x-transition:leave-start="notif-overlay-transition-leave-start"
-        x-transition:leave-end="notif-overlay-transition-leave-end"
-        @mouseenter="pauseOverlayTimer()"
-        @mouseleave="startOverlayTimer()"
-        x-cloak
-    >
+    <!-- Bottom Popout Notification Overlay & Dual-Slot Side Stack -->
+    <div id="rms-side-alert-stack" class="rms-side-alert-stack">
         <div
-            class="notif-overlay-card"
-            @click="handleOverlayClick()"
-            role="button"
-            tabindex="0"
+            id="rms-side-notif-container"
+            class="notif-overlay-container"
+            x-show="overlayVisible"
+            x-transition:enter="notif-overlay-transition-enter"
+            x-transition:enter-start="notif-overlay-transition-enter-start"
+            x-transition:enter-end="notif-overlay-transition-enter-end"
+            x-transition:leave="notif-overlay-transition-leave"
+            x-transition:leave-start="notif-overlay-transition-leave-start"
+            x-transition:leave-end="notif-overlay-transition-leave-end"
+            @mouseenter="pauseOverlayTimer(); if (window.rmsPromoteSideCard) window.rmsPromoteSideCard('notif');"
+            @mouseleave="startOverlayTimer()"
+            @click="if (window.rmsPromoteSideCard) window.rmsPromoteSideCard('notif');"
+            x-cloak
+            style="order: 2;"
         >
-            <div class="notif-overlay-header">
-                <div class="notif-overlay-badge-wrap">
-                    <span class="notif-overlay-dot"></span>
-                    <span class="notif-overlay-subsystem" x-text="overlayData ? overlayData.subsystem_name : 'RMS Notification'"></span>
-                    <template x-if="unseenQueueCount > 0">
-                        <span
-                            class="notif-overlay-more-badge"
-                            @click.stop="open = true; closeOverlay()"
-                            title="Multiple new notifications arrived! Click to view all in notification bell"
-                        >
-                            +<span x-text="unseenQueueCount"></span> more
-                        </span>
-                    </template>
-                </div>
-                <button
-                    type="button"
-                    class="notif-overlay-close-btn"
-                    @click.stop="closeOverlay()"
-                    aria-label="Close notification"
-                    title="Close"
-                >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                </button>
-            </div>
-
-            <div class="notif-overlay-body">
-                <p class="notif-overlay-message" x-text="overlayData ? overlayData.content : ''"></p>
-                <div class="notif-overlay-footer">
-                    <span class="notif-overlay-time" x-text="overlayData ? overlayData.time : 'Just now'"></span>
-                    <span class="notif-overlay-action-hint">
-                        <span>Click to view</span>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="5" y1="12" x2="19" y2="12"></line>
-                            <polyline points="12 5 19 12 12 19"></polyline>
+            <div
+                class="notif-overlay-card"
+                @click="handleOverlayClick()"
+                role="button"
+                tabindex="0"
+            >
+                <div class="notif-overlay-header">
+                    <div class="notif-overlay-badge-wrap">
+                        <span class="notif-overlay-dot"></span>
+                        <span class="notif-overlay-subsystem" x-text="overlayData ? overlayData.subsystem_name : 'RMS Notification'"></span>
+                        <template x-if="unseenQueueCount > 0">
+                            <span
+                                class="notif-overlay-more-badge"
+                                @click.stop="open = true; closeOverlay()"
+                                title="Multiple new notifications arrived! Click to view all in notification bell"
+                            >
+                                +<span x-text="unseenQueueCount"></span> more
+                            </span>
+                        </template>
+                    </div>
+                    <button
+                        type="button"
+                        class="notif-overlay-close-btn"
+                        @click.stop="closeOverlay()"
+                        aria-label="Close notification"
+                        title="Close"
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
                         </svg>
-                    </span>
+                    </button>
                 </div>
-            </div>
 
-            <div class="notif-overlay-progress-bar"></div>
+                <div class="notif-overlay-body">
+                    <p class="notif-overlay-message" x-text="overlayData ? overlayData.content : ''"></p>
+                    <div class="notif-overlay-footer">
+                        <span class="notif-overlay-time" x-text="overlayData ? overlayData.time : 'Just now'"></span>
+                        <span class="notif-overlay-action-hint">
+                            <span>Click to view</span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                                <polyline points="12 5 19 12 12 19"></polyline>
+                            </svg>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="notif-overlay-progress-bar"></div>
+            </div>
         </div>
     </div>
 </div>

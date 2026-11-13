@@ -7,8 +7,9 @@ echo "────────────────────────�
 
 # ── Ensure Nginx run dir & Laravel storage directories exist with permissions ─
 mkdir -p /run/nginx /var/log/nginx /var/log/supervisor
-mkdir -p storage/framework/views storage/framework/sessions storage/framework/cache/data storage/logs bootstrap/cache public/chatify/uploads public/chatify/storage public/messify/uploads public/messify/storage
-chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage public/messify/uploads public/messify/storage
+mkdir -p storage/framework/views storage/framework/sessions storage/framework/cache/data storage/logs storage/app/manuals resources/manuals bootstrap/cache public/chatify/uploads public/chatify/storage public/messify/uploads public/messify/storage
+chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage public/messify/uploads public/messify/storage resources/manuals 2>/dev/null || true
+chown -R appuser:appuser storage resources/manuals 2>/dev/null || true
 # Named volume at storage/framework/views (see docker-compose) — avoid /tmp and bind-mount utime failures.
 export VIEW_COMPILED_PATH="${VIEW_COMPILED_PATH:-/var/www/html/storage/framework/views}"
 mkdir -p "$VIEW_COMPILED_PATH"
@@ -31,7 +32,9 @@ if ! command -v git >/dev/null 2>&1; then
     fi
 fi
 if command -v git >/dev/null 2>&1; then
+    git config --system --add safe.directory "*" >/dev/null 2>&1 || true
     git config --global --add safe.directory "*" >/dev/null 2>&1 || true
+    su -s /bin/bash appuser -c 'git config --global --add safe.directory "*"' >/dev/null 2>&1 || true
     for gitdir in "/var/www/repo/.git" "/var/www/html/.git"; do
         if [ -d "$gitdir" ]; then
             chmod -R ugo+rwX "$gitdir" 2>/dev/null || true

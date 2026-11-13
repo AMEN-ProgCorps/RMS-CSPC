@@ -11,7 +11,7 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
 
-new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Component {
+new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     use WithPagination;
 
     public function mount(): void
@@ -116,7 +116,7 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                                             {{ $row->doc_title ?: 'Untitled DRF' }}
                                         </a>
                                     </td>
-                                    <td class="ofi-nowrap"><x-dcs.originator-lines :name="$row->originator_name" /></td>
+                                    <td class="ofi-nowrap"><x-dcs.originator-lines :name="data_get($row, 'originator_name', '')" /></td>
                                     @if($isReviewer ?? false)
                                         <td>{{ $row->submitting_office ?? '—' }}</td>
                                         <td>{{ $row->submitter_name ?? '—' }}</td>

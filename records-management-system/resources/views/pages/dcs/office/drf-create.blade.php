@@ -10,7 +10,7 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Component {
+new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public function mount(): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
@@ -186,12 +186,12 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
         @endif
 
         @if(($fromDcnId ?? 0) > 0)
-            <div class="ofi-alert ok" role="status">
-                <strong>Continuing from DCN #{{ $fromDcnId }}.</strong>
-                Title and originator are prefilled. Confirm document type and distribution offices, then save this DRF so RFIO receives one combined DCN + DRF notice.
-                <div style="margin-top:8px;">
-                    <a href="{{ route('dcs.office.dcn.show', $fromDcnId, absolute: false) }}" class="ofi-dash-link">Open saved DCN <i class="fa-solid fa-arrow-right"></i></a>
+            <div class="ofi-alert ok ofi-from-dcn-banner" role="status">
+                <div class="ofi-from-dcn-banner-body">
+                    <strong>Continuing from DCN #{{ $fromDcnId }}.</strong>
+                    Title and originator are prefilled. Confirm document type and distribution offices, then save this DRF so RFIO receives one combined DCN + DRF notice.
                 </div>
+                <a href="{{ route('dcs.office.dcn.show', $fromDcnId, absolute: false) }}" class="ofi-dash-link ofi-from-dcn-banner-link">Open saved DCN <i class="fa-solid fa-arrow-right"></i></a>
             </div>
         @endif
 
@@ -225,7 +225,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                         ])
                         <div class="reg-field">
                             <label>Date <span class="ofi-req">*</span></label>
-                            <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate') }}" required>
+                            <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate', $prefill['drfDate'] ?? now()->toDateString()) }}" required>
                         </div>
                     </div>
                     <div class="reg-field">
@@ -620,8 +620,9 @@ window.__ofiSourceConfigs = [
         }
         // Internal catalog: signatories only after a sub-type is selected.
         // Changing document type (e.g. Internal Forms) with no sub-type clears them.
+        // Read values even when selects are disabled (recurring DRF locks type/sub-type).
         const parentId = parentSelect ? String(parentSelect.value || '') : '';
-        const subId = subSelect && !subSelect.disabled ? String(subSelect.value || '') : '';
+        const subId = subSelect ? String(subSelect.value || '') : '';
         const kids = parentId && childrenByParent[parentId] ? childrenByParent[parentId] : [];
         if (kids.length > 0 && !subId) {
             return null;

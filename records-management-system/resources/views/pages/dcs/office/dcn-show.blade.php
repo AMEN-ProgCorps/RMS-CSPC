@@ -10,7 +10,7 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Component {
+new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public int $id;
 
     public function mount($id): void
@@ -185,7 +185,7 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                     <div class="ofi-dcn-box-section">
                         <div class="reg-field">
                             <label>Originator</label>
-                            <div class="ofi-show-value"><x-dcs.originator-lines :name="$dcn->originator_name" /></div>
+                            <div class="ofi-show-value"><x-dcs.originator-lines :name="$dcn->originator_name ?? ''" /></div>
                         </div>
                         <div class="reg-grid-2-1">
                             <div class="reg-field">

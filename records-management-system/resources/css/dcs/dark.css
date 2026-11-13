@@ -1181,11 +1181,24 @@
     background: rgba(15, 23, 42, 0.92) !important;
 }
 
-[data-theme="dark"] .rpt-preview-loading h4 {
+[data-theme="dark"] .rpt-preview-loading .rpt-loading-card {
+    background: #131c2e !important;
+    border-color: #1e293b !important;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45) !important;
+}
+
+[data-theme="dark"] .rpt-preview-loading .rpt-loading-spinner {
+    border-color: #334155 !important;
+    border-top-color: #3b82f6 !important;
+}
+
+[data-theme="dark"] .rpt-preview-loading h4,
+[data-theme="dark"] .rpt-preview-loading .rpt-loading-card h4 {
     color: #f8fafc !important;
 }
 
-[data-theme="dark"] .rpt-preview-loading p {
+[data-theme="dark"] .rpt-preview-loading p,
+[data-theme="dark"] .rpt-preview-loading .rpt-loading-card p {
     color: #94a3b8 !important;
 }
 
@@ -1461,6 +1474,60 @@
 [data-theme="dark"] .reg-modal-body {
     background: #1e293b !important;
     color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .reg-insert-lead {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .reg-insert-choice,
+[data-theme="dark"] .reg-stack-card {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .reg-insert-choice:hover,
+[data-theme="dark"] .reg-stack-card:hover {
+    background: #1e293b !important;
+    border-color: #3b82f6 !important;
+}
+
+[data-theme="dark"] .reg-insert-choice strong,
+[data-theme="dark"] .reg-stack-card strong {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .reg-insert-choice span {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .reg-stack-meta span {
+    background: rgba(59, 130, 246, 0.18) !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .reg-insert-back {
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .reg-insert-letters {
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .reg-insert-preview-table-wrap {
+    border-color: #334155 !important;
+    background: #0f172a !important;
+}
+
+[data-theme="dark"] .reg-insert-preview-table-wrap table th,
+[data-theme="dark"] .reg-insert-preview-table-wrap table td {
+    color: #e2e8f0 !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .reg-insert-preview p {
+    color: #cbd5e1 !important;
 }
 
 [data-theme="dark"] .review-section-title {
@@ -2075,6 +2142,57 @@
     background: #0f172a !important;
     color: #94a3b8 !important;
     border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .reg-supersede-selected {
+    background: linear-gradient(180deg, rgba(30, 64, 175, 0.22) 0%, rgba(15, 23, 42, 0.55) 100%);
+    border-color: #1e3a8a;
+}
+
+[data-theme="dark"] .reg-supersede-selected-badge {
+    background: rgba(59, 130, 246, 0.22);
+    color: #93c5fd;
+}
+
+[data-theme="dark"] .reg-supersede-selected-text {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] #supersedeReselect,
+[data-theme="dark"] .reg-supersede-change {
+    background: #0f172a;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] #supersedeReselect:hover,
+[data-theme="dark"] .reg-supersede-change:hover {
+    background: #1e293b;
+    border-color: #64748b;
+    color: #f8fafc;
+}
+
+[data-theme="dark"] #section-supersede.is-finder-locked .reg-supersede-finder-fields {
+    background: #0b1220 !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] #section-supersede.is-finder-locked .reg-supersede-finder-fields label {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] #section-supersede.is-finder-locked #supersedeDocNo,
+[data-theme="dark"] #section-supersede.is-finder-locked #supersedeDocTitle,
+[data-theme="dark"] #section-supersede.is-finder-locked #supersedeDocOriginator,
+[data-theme="dark"] #section-supersede.is-finder-locked .reg-field input[readonly],
+[data-theme="dark"] #section-supersede.is-finder-locked .reg-field input:disabled {
+    background: transparent !important;
+    color: #f8fafc !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    cursor: default !important;
+    opacity: 1;
+    -webkit-text-fill-color: #f8fafc;
 }
 
 /* ── Register: Syllabi wizard table (kill light locked-cell backgrounds) ── */
@@ -2822,6 +2940,43 @@
     background: #243447 !important;
     color: #f8fafc !important;
     border-color: #475569 !important;
+}
+
+/* Apply Stamp / Remove Stamp confirm actions */
+[data-theme="dark"] .st-confirm-actions .st-btn-secondary {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+    border-color: #475569 !important;
+}
+
+[data-theme="dark"] .st-confirm-actions .st-btn-secondary:hover {
+    background: #243447 !important;
+    color: #f8fafc !important;
+    border-color: #64748b !important;
+}
+
+[data-theme="dark"] .st-confirm-actions .st-btn-primary {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+    color: #fff !important;
+    border: 0 !important;
+}
+
+[data-theme="dark"] .st-confirm-actions .st-btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] .st-confirm-actions .st-btn-primary:disabled,
+[data-theme="dark"] .st-confirm-actions .st-btn-primary.is-loading {
+    opacity: 0.92 !important;
+    cursor: wait !important;
+    transform: none !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] .st-confirm-actions .st-btn-secondary:disabled {
+    opacity: 0.55 !important;
+    cursor: not-allowed !important;
 }
 
 [data-theme="dark"] .st-preview-panel {

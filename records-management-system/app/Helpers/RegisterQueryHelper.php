@@ -36,7 +36,8 @@ use Illuminate\Support\Facades\Storage;
  * latestVisibleUnreadNotification, scopeBellSubsystemsForRequest, assertFullDcsUser,
  * isDocumentControlHead, canPermanentlyDeleteDcsDocuments, isDraftDocument,
  * canEditDocument, assertCanEditDocument, canBrowseAllOfficeIntake,
- * normalizedOriginatorName, visibleOriginatorRequestIds, attachOriginatorNames,
+ * normalizedOriginatorName, visibleOriginatorRequestIds, masterlistOriginatorNameSql,
+ * attachOriginatorNames, attachMasterlistKeywords, applyMasterlistOriginatorFilter,
  * resolveOriginatorAccountIdForName, originatorMatchesCurrentUser,
  * assertCanAccessScanPath, currentUserDisplayName, currentOfficeName, currentOfficeId,
  * applyOfficeScope, isOfficeIntakeRequestId, applyExcludeOfficeIntakeRequests,
@@ -1699,24 +1700,22 @@ class RegisterQueryHelper
         $selfName = self::normalizedOriginatorName();
 
         $query = DB::table('dcs_masterlist_registration as ml')
-            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id');
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id');
         self::applyNotDeleted($query, 'dr');
 
         $query->where(function ($q) use ($userId, $selfName) {
-            if ($userId > 0 && Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
+            $hasAccount = Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id');
+            if ($userId > 0 && $hasAccount) {
                 $q->where('ml.originator_account_id', $userId);
             }
 
             if ($selfName !== '' && $selfName !== '—') {
-                $method = ($userId > 0 && Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id'))
-                    ? 'orWhere'
-                    : 'where';
-                $q->{$method}(function ($legacy) use ($selfName) {
-                    if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
+                $method = ($userId > 0 && $hasAccount) ? 'orWhere' : 'where';
+                $q->{$method}(function ($legacy) use ($selfName, $hasAccount) {
+                    if ($hasAccount) {
                         $legacy->whereNull('ml.originator_account_id');
                     }
-                    $legacy->whereRaw('LOWER(TRIM(COALESCE(og.originator_name, \'\'))) = ?', [$selfName]);
+                    self::applyMasterlistOriginatorFilter($legacy, 'ml', $selfName, true, false, true);
                 });
             } elseif ($userId < 1) {
                 $q->whereRaw('1 = 0');
@@ -1726,33 +1725,245 @@ class RegisterQueryHelper
         return self::intIds($query->pluck('ml.request_id'));
     }
 
-    /** Copy the catalog name onto masterlist rows that only store originator_id. */
+    /** Postgres string_agg of atomic originator names for a masterlist alias. */
+    public static function masterlistOriginatorNameSql(string $mlAlias = 'ml'): string
+    {
+        $alias = preg_replace('/[^A-Za-z0-9_]/', '', $mlAlias) ?: 'ml';
+        if (Schema::hasTable('dcs_masterlist_originators') && Schema::hasTable('dcs_originators')) {
+            return '(SELECT string_agg(og_n.originator_name, \', \' ORDER BY mo_n.sort_order, mo_n.id)'
+                .' FROM dcs_masterlist_originators mo_n'
+                .' INNER JOIN dcs_originators og_n ON og_n.id = mo_n.originator_id'
+                .' WHERE mo_n.masterlist_id = '.$alias.'.id)';
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id') && Schema::hasTable('dcs_originators')) {
+            $lookup = '(SELECT og_fb.originator_name FROM dcs_originators og_fb WHERE og_fb.id = '.$alias.'.originator_id)';
+            if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+                return 'COALESCE(NULLIF('.$alias.'.originator_name, \'\'), '.$lookup.')';
+            }
+
+            return $lookup;
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+            return $alias.'.originator_name';
+        }
+
+        return 'NULL';
+    }
+
+    /** Postgres string_agg of keyword rows, or the legacy column. */
+    public static function masterlistKeywordsSql(string $mlAlias = 'ml'): string
+    {
+        $alias = preg_replace('/[^A-Za-z0-9_]/', '', $mlAlias) ?: 'ml';
+        if (Schema::hasTable('dcs_masterlist_keywords')) {
+            return '(SELECT string_agg(kw_n.keyword, \', \' ORDER BY kw_n.sort_order, kw_n.id)'
+                .' FROM dcs_masterlist_keywords kw_n'
+                .' WHERE kw_n.masterlist_id = '.$alias.'.id)';
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
+            return $alias.'.keywords';
+        }
+
+        return 'NULL';
+    }
+
+    public static function applyMasterlistOriginatorFilter(
+        $query,
+        string $mlAlias,
+        string $value,
+        bool $exact = true,
+        bool $or = false,
+        bool $caseInsensitive = false
+    ): void {
+        $alias = preg_replace('/[^A-Za-z0-9_]/', '', $mlAlias) ?: 'ml';
+        $method = $or ? 'orWhereExists' : 'whereExists';
+        if (Schema::hasTable('dcs_masterlist_originators') && Schema::hasTable('dcs_originators')) {
+            $query->{$method}(function ($sub) use ($alias, $value, $exact, $caseInsensitive) {
+                $sub->select(DB::raw(1))
+                    ->from('dcs_masterlist_originators as mo')
+                    ->join('dcs_originators as og', 'og.id', '=', 'mo.originator_id')
+                    ->whereColumn('mo.masterlist_id', $alias.'.id');
+                self::constrainOriginatorValue($sub, $value, $exact, $caseInsensitive);
+            });
+
+            return;
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id') && Schema::hasTable('dcs_originators')) {
+            $query->{$method}(function ($sub) use ($alias, $value, $exact, $caseInsensitive) {
+                $sub->select(DB::raw(1))
+                    ->from('dcs_originators as og')
+                    ->whereColumn('og.id', $alias.'.originator_id');
+                self::constrainOriginatorValue($sub, $value, $exact, $caseInsensitive);
+            });
+
+            return;
+        }
+        if (! Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+            return;
+        }
+        $column = $alias.'.originator_name';
+        $cmp = $or ? 'orWhere' : 'where';
+        if ($exact && $caseInsensitive) {
+            $raw = $or ? 'orWhereRaw' : 'whereRaw';
+            $query->{$raw}('LOWER(TRIM(COALESCE('.$column.', \'\'))) = ?', [mb_strtolower(trim($value))]);
+
+            return;
+        }
+        if ($exact) {
+            $query->{$cmp}($column, $value);
+
+            return;
+        }
+        $query->{$cmp}($column, 'ilike', $value);
+    }
+
+    /** Copy joined originator names from the junction (fallback: legacy columns). */
     public static function attachOriginatorNames(iterable $rows): void
     {
         $list = $rows instanceof Collection ? $rows : collect($rows);
-        if ($list->isEmpty() || ! Schema::hasTable('dcs_originators')) {
+        if ($list->isEmpty()) {
             return;
         }
 
-        $ids = $list
-            ->map(fn ($row) => is_object($row) ? (int) ($row->originator_id ?? 0) : 0)
-            ->filter(fn (int $id) => $id > 0)
-            ->unique()
-            ->values();
-        $names = $ids->isEmpty()
-            ? collect()
-            : DB::table('dcs_originators')->whereIn('id', $ids)->pluck('originator_name', 'id');
+        $byMasterlist = [];
+        if (Schema::hasTable('dcs_masterlist_originators') && Schema::hasTable('dcs_originators')) {
+            $ids = $list
+                ->map(fn ($row) => is_object($row) ? self::masterlistIdOf($row) : 0)
+                ->filter(fn (int $id) => $id > 0)
+                ->unique()
+                ->values();
+            if ($ids->isNotEmpty()) {
+                $links = DB::table('dcs_masterlist_originators as mo')
+                    ->join('dcs_originators as og', 'og.id', '=', 'mo.originator_id')
+                    ->whereIn('mo.masterlist_id', $ids->all())
+                    ->orderBy('mo.sort_order')
+                    ->orderBy('mo.id')
+                    ->get(['mo.masterlist_id', 'og.originator_name']);
+                foreach ($links as $link) {
+                    $byMasterlist[(int) $link->masterlist_id][] = (string) $link->originator_name;
+                }
+            }
+        }
+
+        $legacyIds = [];
         foreach ($list as $row) {
             if (! is_object($row)) {
                 continue;
             }
-            $id = (int) ($row->originator_id ?? 0);
+            $masterlistId = self::masterlistIdOf($row);
+            if ($masterlistId > 0 && isset($byMasterlist[$masterlistId])) {
+                continue;
+            }
+            $originatorId = (int) ($row->originator_id ?? 0);
+            if ($originatorId > 0 && trim((string) ($row->originator_name ?? '')) === '') {
+                $legacyIds[] = $originatorId;
+            }
+        }
+        $legacyNames = ($legacyIds !== [] && Schema::hasTable('dcs_originators'))
+            ? DB::table('dcs_originators')->whereIn('id', array_values(array_unique($legacyIds)))->pluck('originator_name', 'id')
+            : collect();
+
+        foreach ($list as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+            $masterlistId = self::masterlistIdOf($row);
+            if ($masterlistId > 0 && isset($byMasterlist[$masterlistId])) {
+                $row->originator_name = implode(', ', $byMasterlist[$masterlistId]);
+
+                continue;
+            }
             $stored = trim((string) ($row->originator_name ?? ''));
             if ($stored !== '') {
                 continue;
             }
-            $row->originator_name = $id > 0 ? ($names[$id] ?? null) : null;
+            $originatorId = (int) ($row->originator_id ?? 0);
+            $row->originator_name = $originatorId > 0 ? ($legacyNames[$originatorId] ?? null) : null;
         }
+    }
+
+    /** Copy joined keywords from the child table onto masterlist rows. */
+    public static function attachMasterlistKeywords(iterable $rows): void
+    {
+        $list = $rows instanceof Collection ? $rows : collect($rows);
+        if ($list->isEmpty() || ! Schema::hasTable('dcs_masterlist_keywords')) {
+            return;
+        }
+
+        $ids = $list
+            ->map(fn ($row) => is_object($row) ? self::masterlistIdOf($row) : 0)
+            ->filter(fn (int $id) => $id > 0)
+            ->unique()
+            ->values();
+        if ($ids->isEmpty()) {
+            return;
+        }
+
+        $byMasterlist = [];
+        $links = DB::table('dcs_masterlist_keywords')
+            ->whereIn('masterlist_id', $ids->all())
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get(['masterlist_id', 'keyword']);
+        foreach ($links as $link) {
+            $byMasterlist[(int) $link->masterlist_id][] = (string) $link->keyword;
+        }
+        foreach ($list as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+            $masterlistId = self::masterlistIdOf($row);
+            if ($masterlistId > 0 && isset($byMasterlist[$masterlistId])) {
+                $row->keywords = implode(', ', $byMasterlist[$masterlistId]);
+            }
+        }
+    }
+
+    private static function masterlistIdOf(object $row): int
+    {
+        if (property_exists($row, 'masterlist_id') && (int) $row->masterlist_id > 0) {
+            return (int) $row->masterlist_id;
+        }
+
+        return (int) ($row->id ?? 0);
+    }
+
+    private static function constrainOriginatorValue($query, string $value, bool $exact, bool $caseInsensitive): void
+    {
+        if ($exact && $caseInsensitive) {
+            $query->whereRaw('LOWER(TRIM(COALESCE(og.originator_name, \'\'))) = ?', [mb_strtolower(trim($value))]);
+
+            return;
+        }
+        if ($exact) {
+            $query->where('og.originator_name', $value);
+
+            return;
+        }
+        $query->where('og.originator_name', 'ilike', $value);
+    }
+
+    private static function applyMasterlistKeywordSearch($query, string $search): void
+    {
+        if (Schema::hasColumn('dcs_masterlist_registration', 'keywords') || ! Schema::hasTable('dcs_masterlist_keywords')) {
+            return;
+        }
+        $sql = self::masterlistKeywordsSql('ml');
+        $search = trim($search);
+        if ($search === '' || $sql === 'NULL') {
+            return;
+        }
+        $tokens = self::searchTokens($search);
+        $phrase = '%'.$search.'%';
+        $query->orWhere(function ($outer) use ($sql, $phrase, $tokens) {
+            $outer->whereRaw($sql.' ilike ?', [$phrase]);
+            if (count($tokens) > 1) {
+                $outer->orWhere(function ($all) use ($sql, $tokens) {
+                    foreach ($tokens as $token) {
+                        $all->whereRaw($sql.' ilike ?', ['%'.$token.'%']);
+                    }
+                });
+            }
+        });
     }
 
     public static function resolveOriginatorAccountIdForName(?string $originatorName): ?int
@@ -5363,13 +5574,13 @@ class RegisterQueryHelper
             return self::editHistoryPage($docNo);
         }
 
-        $entries = RegisterEditHistoryHelper::listForRequest($requestId);
-        foreach ($entries as &$entry) {
-            $entry['revise_no'] = (int) ($ml->revise_no ?? 0);
-            $entry['doc_no'] = $docNo !== '' ? $docNo : 'N/A';
-            $entry['is_latest'] = true;
-        }
-        unset($entry);
+        $entries = self::filterEditHistoryEntries(
+            RegisterEditHistoryHelper::listForRequest($requestId),
+            $requestId,
+            (int) ($ml->revise_no ?? 0),
+            $docNo !== '' ? $docNo : 'N/A',
+            true
+        );
 
         return [
             'docNo' => $docNo !== '' ? $docNo : 'N/A',
@@ -5464,32 +5675,74 @@ class RegisterQueryHelper
             abort(404, 'Document not found.');
         }
 
+        // Edit History is for field changes on the current revision only —
+        // do not mix other revise_no rows into this page.
+        $latestReviseNo = (int) ($mls->first()->revise_no ?? 0);
+        $currentRevisionRows = $mls
+            ->filter(fn ($row) => (int) ($row->revise_no ?? 0) === $latestReviseNo)
+            ->values();
+
         $byRequest = [];
-        foreach ($mls as $ml) {
+        foreach ($currentRevisionRows as $ml) {
             $byRequest[(int) $ml->request_id] = [
                 'revise_no' => (int) ($ml->revise_no ?? 0),
                 'doc_no' => (string) ($ml->doc_no ?? ''),
             ];
         }
 
-        $latestRequestId = (int) $mls->first()->request_id;
-        $entries = RegisterEditHistoryHelper::listForRequests(array_keys($byRequest), 300);
-        foreach ($entries as &$entry) {
-            $meta = $byRequest[(int) ($entry['request_id'] ?? 0)] ?? null;
-            $entry['revise_no'] = $meta['revise_no'] ?? null;
-            $entry['doc_no'] = $meta['doc_no'] ?? null;
-            $entry['is_latest'] = (int) ($entry['request_id'] ?? 0) === $latestRequestId;
-        }
-        unset($entry);
+        $latestRequestId = (int) $currentRevisionRows->first()->request_id;
+        $entries = self::filterEditHistoryEntries(
+            RegisterEditHistoryHelper::listForRequests(array_keys($byRequest), 300),
+            $latestRequestId,
+            $latestReviseNo,
+            null,
+            true,
+            $byRequest
+        );
 
         return [
             'docNo' => $docNo,
-            'docTitle' => (string) ($mls->first()->doc_title ?: $docNo),
-            'lineageDocNos' => $mls->pluck('doc_no')->filter()->unique()->values()->all(),
+            'docTitle' => (string) ($currentRevisionRows->first()->doc_title ?: $docNo),
+            'lineageDocNos' => $currentRevisionRows->pluck('doc_no')->filter()->unique()->values()->all(),
             'latestRequestId' => $latestRequestId,
             'canEdit' => self::canEditDocument($latestRequestId),
             'entries' => $entries,
         ];
+    }
+
+    /**
+     * Keep only real document field edits (action=update). Registration/draft
+     * baselines and other revisions stay out of the Edit History page.
+     *
+     * @param  list<array<string, mixed>>  $entries
+     * @param  array<int, array{revise_no:int, doc_no:string}>|null  $byRequest
+     * @return list<array<string, mixed>>
+     */
+    private static function filterEditHistoryEntries(
+        array $entries,
+        int $latestRequestId,
+        int $reviseNo,
+        ?string $fallbackDocNo = null,
+        bool $markLatest = true,
+        ?array $byRequest = null
+    ): array {
+        $out = [];
+        foreach ($entries as $entry) {
+            $action = strtolower(trim((string) ($entry['action'] ?? '')));
+            // Only field-level edits — not the initial register/draft snapshot.
+            if ($action !== 'update') {
+                continue;
+            }
+
+            $requestId = (int) ($entry['request_id'] ?? 0);
+            $meta = $byRequest[$requestId] ?? null;
+            $entry['revise_no'] = $meta['revise_no'] ?? $reviseNo;
+            $entry['doc_no'] = $meta['doc_no'] ?? $fallbackDocNo;
+            $entry['is_latest'] = $markLatest && $requestId === $latestRequestId;
+            $out[] = $entry;
+        }
+
+        return $out;
     }
 
     private static function hstSyllabiTableFromRows(array $rows): array
@@ -5565,14 +5818,14 @@ class RegisterQueryHelper
         $docTypeId = $request->input('doc_type_id');
         $subTypeId = $request->input('sub_type_id');
         $allRevisions = $request->boolean('all_revisions');
-        $hasKeywords = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
+        $hasKeywordColumn = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
+        $hasKeywords = $hasKeywordColumn || Schema::hasTable('dcs_masterlist_keywords');
         $dashboardSearch = $request->boolean('dashboard')
             || (! $allRevisions && ($field === null || $field === ''));
         $latestOnly = $request->boolean('latest_only') || $dashboardSearch;
 
         $query = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id');
 
@@ -5599,18 +5852,17 @@ class RegisterQueryHelper
                 return [];
             }
             $query->where(function ($q) use ($userId, $selfName) {
-                if ($userId > 0 && Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
+                $hasAccount = Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id');
+                if ($userId > 0 && $hasAccount) {
                     $q->where('ml.originator_account_id', $userId);
                 }
                 if ($selfName !== '' && $selfName !== '—') {
-                    $method = ($userId > 0 && Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id'))
-                        ? 'orWhere'
-                        : 'where';
-                    $q->{$method}(function ($legacy) use ($selfName) {
-                        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
+                    $method = ($userId > 0 && $hasAccount) ? 'orWhere' : 'where';
+                    $q->{$method}(function ($legacy) use ($selfName, $hasAccount) {
+                        if ($hasAccount) {
                             $legacy->whereNull('ml.originator_account_id');
                         }
-                        $legacy->whereRaw('LOWER(TRIM(COALESCE(og.originator_name, \'\'))) = ?', [$selfName]);
+                        self::applyMasterlistOriginatorFilter($legacy, 'ml', $selfName, true, false, true);
                     });
                 }
             });
@@ -5634,19 +5886,23 @@ class RegisterQueryHelper
             }
         }
 
-        $query->where(function ($qr) use ($q, $field, $hasKeywords) {
+        $query->where(function ($qr) use ($q, $field, $hasKeywordColumn) {
             if ($field === 'no') {
                 self::applyLooseColumnSearch($qr, $q, ['ml.doc_no']);
             } elseif ($field === 'title') {
                 self::applyLooseColumnSearch($qr, $q, ['ml.doc_title']);
             } elseif ($field === 'supersede') {
-                self::applyLooseColumnSearch($qr, $q, ['ml.doc_no', 'ml.doc_title', 'og.originator_name']);
+                self::applyLooseColumnSearch($qr, $q, ['ml.doc_no', 'ml.doc_title']);
+                self::applyMasterlistOriginatorFilter($qr, 'ml', '%'.$q.'%', false, true, false);
             } else {
                 $columns = ['ml.doc_title', 'ml.doc_no'];
-                if ($hasKeywords) {
+                if ($hasKeywordColumn) {
                     $columns[] = 'ml.keywords';
                 }
                 self::applyLooseColumnSearch($qr, $q, $columns);
+                if (! $hasKeywordColumn) {
+                    self::applyMasterlistKeywordSearch($qr, $q);
+                }
             }
         });
 
@@ -5662,7 +5918,7 @@ class RegisterQueryHelper
             'ml.revise_no',
             'ml.effectivity_date',
             'ml.scanned_masterlist',
-            'og.originator_name as originator_name',
+            DB::raw(self::masterlistOriginatorNameSql('ml').' as originator_name'),
             'dr.doc_type_id',
             'dr.sub_type_id',
             'dt.doc_type_name as type_name',
@@ -5672,7 +5928,9 @@ class RegisterQueryHelper
             $select[] = 'ml.revision_status';
         }
         if ($hasKeywords) {
-            $select[] = 'ml.keywords';
+            $select[] = Schema::hasColumn('dcs_masterlist_registration', 'keywords')
+                ? 'ml.keywords'
+                : DB::raw(self::masterlistKeywordsSql('ml').' as keywords');
         }
         if (self::supportsRevisedFromDocNo()) {
             $select[] = 'ml.revised_from_doc_no';
@@ -5694,7 +5952,7 @@ class RegisterQueryHelper
                 'ml.revise_no',
                 'ml.effectivity_date',
                 'ml.scanned_masterlist',
-                'og.originator_name as originator_name',
+                DB::raw(self::masterlistOriginatorNameSql('ml').' as originator_name'),
                 'dr.doc_type_id',
                 'dr.sub_type_id',
                 'dt.doc_type_name as type_name',
@@ -5704,7 +5962,9 @@ class RegisterQueryHelper
                 $select[] = 'ml.revision_status';
             }
             if ($hasKeywords) {
-                $select[] = 'ml.keywords';
+                $select[] = $hasKeywordColumn
+                    ? 'ml.keywords'
+                    : DB::raw(self::masterlistKeywordsSql('ml').' as keywords');
             }
         }
 
@@ -5882,7 +6142,6 @@ class RegisterQueryHelper
     ): Collection {
         $query = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->where(function ($q) use ($docTypeId) {
@@ -6238,7 +6497,7 @@ class RegisterQueryHelper
             'ml.revise_no',
             'ml.effectivity_date',
             'ml.scanned_masterlist',
-            'og.originator_name as originator_name',
+            DB::raw(self::masterlistOriginatorNameSql('ml').' as originator_name'),
             'dr.doc_type_id',
             'dr.sub_type_id',
             'dt.doc_type_name as type_name',
@@ -6248,12 +6507,13 @@ class RegisterQueryHelper
             $select[] = 'ml.revision_status';
         }
         if ($hasKeywords) {
-            $select[] = 'ml.keywords';
+            $select[] = Schema::hasColumn('dcs_masterlist_registration', 'keywords')
+                ? 'ml.keywords'
+                : DB::raw(self::masterlistKeywordsSql('ml').' as keywords');
         }
 
         return DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->where('ml.id', $masterlistId)
@@ -6361,6 +6621,7 @@ class RegisterQueryHelper
                 $cols[] = 'ml.stack_group';
             }
             $rows = $query->orderByDesc('ml.revise_no')->orderByDesc('ml.id')->get($cols);
+            self::attachOriginatorNames($rows);
             foreach ($rows as $row) {
                 $merged[] = self::mapDocumentRevisionRow($row);
             }
@@ -7250,6 +7511,7 @@ class RegisterQueryHelper
             ->orderByDesc('ml.revise_no')
             ->orderByDesc('ml.id')
             ->get($cols);
+        self::attachOriginatorNames($rows);
 
         $purposeByRequest = [];
         if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
@@ -7359,7 +7621,16 @@ class RegisterQueryHelper
             abort(404);
         }
 
-        $entries = RegisterEditHistoryHelper::listForRequest($requestId);
+        $reviseNo = (int) (DB::table('dcs_masterlist_registration')
+            ->where('request_id', $requestId)
+            ->value('revise_no') ?? 0);
+        $entries = self::filterEditHistoryEntries(
+            RegisterEditHistoryHelper::listForRequest($requestId),
+            $requestId,
+            $reviseNo,
+            null,
+            true
+        );
 
         return [
             'title' => 'Edit History',
@@ -7595,6 +7866,7 @@ class RegisterQueryHelper
             abort(404);
         }
         self::attachOriginatorNames([$ml]);
+        self::attachMasterlistKeywords([$ml]);
 
         $path = trim((string) ($ml->scanned_masterlist ?? ''));
         $previewUrl = $path !== '' ? self::scanUrl($path, false) : null;
@@ -7651,9 +7923,7 @@ class RegisterQueryHelper
             }
         }
 
-        $keywords = Schema::hasColumn('dcs_masterlist_registration', 'keywords')
-            ? ($ml->keywords ?? null)
-            : null;
+        $keywords = $ml->keywords ?? null;
         $modified = null;
         if (! empty($ml->updated_at)) {
             $modified = self::formatDisplayDate($ml->updated_at);
@@ -8417,6 +8687,7 @@ class RegisterQueryHelper
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
         if ($ml) {
             self::attachOriginatorNames([$ml]);
+            self::attachMasterlistKeywords([$ml]);
         }
         // Obsolete revisions are editable; Update list groups them under the latest tip.
 
@@ -8686,7 +8957,8 @@ class RegisterQueryHelper
                 'id' => $o->office_id,
                 'label' => $o->office_name ?? 'Unknown',
             ])->filter(fn ($o) => $o['id'])->values(),
-            'masterlistOriginatorSeed' => RegisterPersistHelper::originatorSeedFromStored(
+            'masterlistOriginatorSeed' => RegisterPersistHelper::originatorSeedFromMasterlist(
+                $ml ? (int) $ml->id : 0,
                 $ml?->originator_name ?? null,
                 $ml?->originator_id ?? null
             ),
@@ -8808,7 +9080,6 @@ class RegisterQueryHelper
                 'ml.revision_status',
                 'ml.effectivity_date',
                 'ml.scanned_masterlist',
-                'ml.originator_id',
             ]);
         self::attachOriginatorNames($rows);
         if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
@@ -9029,6 +9300,7 @@ class RegisterQueryHelper
             : collect();
         if ($mls->isNotEmpty()) {
             self::attachOriginatorNames($mls);
+            self::attachMasterlistKeywords($mls);
         }
         $mls = $mls->keyBy('request_id');
         $mlIds = $mls->pluck('id')->all();
@@ -9224,6 +9496,7 @@ class RegisterQueryHelper
             : collect();
 
         self::attachOriginatorNames($records);
+        self::attachMasterlistKeywords($records);
 
         foreach ($records as $ml) {
             $ml->request = $requests->get((int) $ml->request_id);

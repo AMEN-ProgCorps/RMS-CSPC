@@ -45,6 +45,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     $recurPreviousDocuments = collect($recurPreviousDocuments ?? []);
     $recurSource = $recurPreviousDocuments->first(fn ($row) => ($row['status'] ?? '') === 'Superseded')
         ?? $recurPreviousDocuments->first();
+    $supersedeFinderLocked = $recurPreviousDocuments->isNotEmpty()
+        || ! empty($recurSource)
+        || trim((string) (optional($masterlist)->revised_from_doc_no ?? '')) !== '';
     $listRoute = $isDraftDoc ? 'dcs.register.drafts' : 'dcs.register.update';
     $listLabel = $isDraftDoc
         ? 'Back to Drafts'
@@ -61,6 +64,8 @@ window.APP_CONFIG = {
     IS_DRAFT: {{ !empty($docRequest->is_draft) ? 'true' : 'false' }},
 };
 window.__supersedeHistoryRestored = {{ $recurPreviousDocuments->isNotEmpty() ? 'true' : 'false' }};
+window.__recurFromDatabase = {{ $supersedeFinderLocked ? 'true' : 'false' }};
+window.__recurSelectionLocked = {{ $supersedeFinderLocked ? 'true' : 'false' }};
 window.__excludeSyllabiRequestId = {{ (int) $docRequest->id }};
 window.__existingRelatedDocs = @json($relatedDocsData);
 window.__existingDrfOffices = @json($drfOfficesSeed);
@@ -300,30 +305,37 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                 </div>
             </section>
 
-            <section class="reg-card{{ $recurPreviousDocuments->isNotEmpty() ? ' is-finder-locked' : '' }}" id="section-supersede" style="display: none;">
+            <section class="reg-card{{ $supersedeFinderLocked ? ' is-finder-locked' : '' }}" id="section-supersede" style="display: none;">
                 <div class="reg-card-header">
                     <span>Document to be Superseded</span>
                 </div>
                 <div class="reg-card-body">
-                    <p class="reg-number-hint">Enter the document number and title. The originator picks the exact latest copy when more than one document shares that number.</p>
-                    <div class="reg-grid-3">
-                        <div class="reg-field">
-                            <label for="supersedeDocNo">Document No.</label>
-                            <input type="text" id="supersedeDocNo" placeholder="Document number" autocomplete="off" value="{{ $recurSource['doc_no'] ?? '' }}" @if($recurSource) readonly @endif>
+                    <div class="reg-supersede-finder" id="supersedeFinderBlock">
+                        <p class="reg-number-hint" id="supersedeFinderHint" @if($supersedeFinderLocked) hidden @endif>Enter the document number and title. The originator picks the exact latest copy when more than one document shares that number.</p>
+                        <div class="reg-supersede-finder-anchor">
+                            <div class="reg-grid-3 reg-supersede-finder-fields">
+                                <div class="reg-field">
+                                    <label for="supersedeDocNo">Document No.</label>
+                                    <input type="text" id="supersedeDocNo" placeholder="Document number" autocomplete="off" value="{{ $recurSource['doc_no'] ?? '' }}" @if($supersedeFinderLocked) readonly disabled tabindex="-1" @endif>
+                                </div>
+                                <div class="reg-field">
+                                    <label for="supersedeDocTitle">Document Title</label>
+                                    <input type="text" id="supersedeDocTitle" placeholder="Title on the current document" autocomplete="off" value="{{ $recurSource['doc_title'] ?? '' }}" @if($supersedeFinderLocked) readonly disabled tabindex="-1" @endif>
+                                </div>
+                                <div class="reg-field">
+                                    <label for="supersedeDocOriginator">Originator</label>
+                                    <input type="text" id="supersedeDocOriginator" placeholder="Originator of that copy" autocomplete="off" value="{{ $recurSource['originator_name'] ?? '' }}" @if($supersedeFinderLocked) readonly disabled tabindex="-1" @endif>
+                                </div>
+                            </div>
+                            <div id="supersedeDocResults" class="reg-reldocs-dropdown" style="display:none;"></div>
                         </div>
-                        <div class="reg-field">
-                            <label for="supersedeDocTitle">Document Title</label>
-                            <input type="text" id="supersedeDocTitle" placeholder="Title on the current document" autocomplete="off" value="{{ $recurSource['doc_title'] ?? '' }}" @if($recurSource) readonly @endif>
+                        <div class="reg-supersede-selected" id="supersedeSelectedBar" @if(!$recurSource) hidden @endif>
+                            <div class="reg-supersede-selected-copy">
+                                <span class="reg-supersede-selected-badge">{{ $supersedeFinderLocked ? 'Saved selection' : 'Selected' }}</span>
+                                <p id="supersedeDocPicked" class="reg-supersede-selected-text" @if(!$recurSource) hidden @endif>@if($recurSource){{ $recurSource['doc_no'] }} — {{ $recurSource['doc_title'] }} (Rev {{ $recurSource['revise_no'] }}, {{ $recurSource['status'] }}) {{ strtolower((string) ($recurSource['status'] ?? '')) === 'latest' ? 'stays the current copy until this recurring document is saved.' : 'was superseded.' }}@endif</p>
+                            </div>
+                            <button type="button" id="supersedeReselect" class="reg-supersede-change" hidden><i class="fa-solid fa-arrow-right-arrow-left"></i> Change document</button>
                         </div>
-                        <div class="reg-field">
-                            <label for="supersedeDocOriginator">Originator</label>
-                            <input type="text" id="supersedeDocOriginator" placeholder="Originator of that copy" autocomplete="off" value="{{ $recurSource['originator_name'] ?? '' }}" @if($recurSource) readonly @endif>
-                        </div>
-                    </div>
-                    <div class="reg-field">
-                        <div id="supersedeDocResults" class="reg-reldocs-dropdown" style="display:none;"></div>
-                        <p id="supersedeDocPicked" class="reg-number-hint" @if(!$recurSource) hidden @endif>@if($recurSource){{ $recurSource['doc_no'] }} — {{ $recurSource['doc_title'] }} (Rev {{ $recurSource['revise_no'] }}, {{ $recurSource['status'] }}) {{ strtolower((string) ($recurSource['status'] ?? '')) === 'latest' ? 'stays the current copy until this recurring document is saved.' : 'was superseded.' }}@endif</p>
-                        <button type="button" id="supersedeReselect" hidden><i class="fa-solid fa-arrow-right-arrow-left"></i> Change document</button>
                     </div>
                     <div class="reg-field reg-revision-table" id="supersedeHistoryField" @if($recurPreviousDocuments->isEmpty()) hidden @endif>
                         <label>Previous documents</label>
@@ -3240,7 +3252,6 @@ function recurFinderReady() {
 }
 
 function syncRecurFinder() {
-    window.__recurSelectionLocked = true;
     const on = recurFinderReady();
     const panel = document.getElementById('section-supersede');
     if (panel) panel.style.display = on ? 'block' : 'none';
@@ -3257,6 +3268,15 @@ function syncRecurFinder() {
         picked.hidden = false;
         picked.textContent = fromNo + ' will be superseded.';
         if (search && !search.value) search.value = fromNo;
+        if (typeof syncSupersedeSelectedBar === 'function') syncSupersedeSelectedBar();
+    }
+    const hasSavedSelection = !!(window.__recurFromDatabase
+        || window.__recurSelectionLocked
+        || document.querySelector('#supersedeHistoryBody tr')
+        || fromNo);
+    if (hasSavedSelection) {
+        window.__recurSelectionLocked = true;
+        lockSupersedeFinderInputs(true);
     }
     if (!window.__supersedeHistoryRestored) {
         window.__supersedeHistoryRestored = true;
@@ -3389,7 +3409,11 @@ async function showSupersedeDocumentHistory(doc, options) {
             + '</tr>';
     }).join('');
     field.hidden = revisions.length === 0;
-    if (reselect) reselect.hidden = !!(window.__recurFromDatabase || window.__recurSelectionLocked);
+    if (typeof syncSupersedeSelectedBar === 'function') {
+        syncSupersedeSelectedBar();
+    } else if (reselect) {
+        reselect.hidden = !!window.__recurFromDatabase;
+    }
     if (options.markSuperseded) {
         body.querySelectorAll('.reg-rev-status.is-latest').forEach(function (badge) {
             badge.textContent = 'Superseded';
@@ -3402,6 +3426,17 @@ async function showSupersedeDocumentHistory(doc, options) {
     }
 }
 
+function syncSupersedeSelectedBar() {
+    const bar = document.getElementById('supersedeSelectedBar');
+    const picked = document.getElementById('supersedeDocPicked');
+    const reselect = document.getElementById('supersedeReselect');
+    const show = !!(picked && !picked.hidden && (picked.textContent || '').trim());
+    if (bar) bar.hidden = !show;
+    if (reselect && show) {
+        reselect.hidden = !!window.__recurFromDatabase;
+    }
+}
+
 function lockSupersedeFinderInputs(locked) {
     const section = document.getElementById('section-supersede');
     if (section) section.classList.toggle('is-finder-locked', !!locked);
@@ -3409,10 +3444,40 @@ function lockSupersedeFinderInputs(locked) {
         const el = document.getElementById(id);
         if (!el) return;
         el.readOnly = !!locked;
+        el.disabled = !!locked;
+        if (locked) {
+            el.setAttribute('tabindex', '-1');
+            el.blur();
+        } else {
+            el.removeAttribute('tabindex');
+        }
     });
+    const hint = document.getElementById('supersedeFinderHint');
+    if (hint) {
+        hint.hidden = !!locked;
+        hint.textContent = locked
+            ? ''
+            : 'Enter the document number and title. The originator picks the exact latest copy when more than one document shares that number.';
+    }
+    const badge = document.querySelector('#supersedeSelectedBar .reg-supersede-selected-badge');
+    if (badge) {
+        badge.textContent = window.__recurFromDatabase ? 'Saved selection' : 'Selected';
+    }
+    syncSupersedeSelectedBar();
+    if (locked) {
+        const reselect = document.getElementById('supersedeReselect');
+        if (reselect) {
+            // Saved registrations cannot change the superseded document; in-session picks can.
+            reselect.hidden = !!window.__recurFromDatabase;
+        }
+    }
 }
 
 function clearSupersedeSelection() {
+    if (window.__recurFromDatabase) {
+        lockSupersedeFinderInputs(true);
+        return;
+    }
     ['supersedeDocNo', 'supersedeDocTitle', 'supersedeDocOriginator', 'supersedeMasterlistId', 'revisedFromDocNo'].forEach(function (id) {
         const el = document.getElementById(id);
         if (el) el.value = '';
@@ -3422,12 +3487,16 @@ function clearSupersedeSelection() {
         picked.hidden = true;
         picked.textContent = '';
     }
+    const bar = document.getElementById('supersedeSelectedBar');
+    if (bar) bar.hidden = true;
     const field = document.getElementById('supersedeHistoryField');
     const body = document.getElementById('supersedeHistoryBody');
     if (field) field.hidden = true;
     if (body) body.innerHTML = '';
     const reselect = document.getElementById('supersedeReselect');
     if (reselect) reselect.hidden = true;
+    window.__recurSelectionLocked = false;
+    lockSupersedeFinderInputs(false);
     document.getElementById('supersedeDocNo')?.focus();
 }
 
@@ -3472,6 +3541,7 @@ async function restoreSupersedeHistory() {
                 + (sourceStatus === 'Latest'
                     ? 'stays the current copy until this recurring document is saved.'
                     : 'was superseded.');
+            if (typeof syncSupersedeSelectedBar === 'function') syncSupersedeSelectedBar();
         }
     }
     await showSupersedeDocumentHistory(selfRow || {
@@ -3597,11 +3667,14 @@ function bindSupersedeFinder() {
             picked.textContent = (doc.doc_no || '') + ' — ' + (doc.doc_title || 'Untitled')
                 + ' · ' + originLabel
                 + ' (Rev ' + (doc.revise_no ?? 0) + ') will be superseded.';
+            if (typeof syncSupersedeSelectedBar === 'function') syncSupersedeSelectedBar();
         }
         if (typeof applyRecurPickToMasterlist === 'function') {
             await applyRecurPickToMasterlist(doc);
         }
         await showSupersedeDocumentHistory(doc);
+        window.__recurSelectionLocked = true;
+        lockSupersedeFinderInputs(true);
         dd.style.display = 'none';
     });
     const historyBody = document.getElementById('supersedeHistoryBody');
@@ -3618,6 +3691,12 @@ function bindSupersedeFinder() {
     if (reselect && reselect.dataset.bound !== '1') {
         reselect.dataset.bound = '1';
         reselect.addEventListener('click', clearSupersedeSelection);
+    }
+    if (window.__recurFromDatabase || window.__recurSelectionLocked
+        || document.querySelector('#supersedeHistoryBody tr')
+        || (document.getElementById('revisedFromDocNo')?.value || '').trim()) {
+        window.__recurSelectionLocked = true;
+        lockSupersedeFinderInputs(true);
     }
 }
 

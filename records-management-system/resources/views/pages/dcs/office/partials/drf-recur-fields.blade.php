@@ -57,7 +57,14 @@ document number + current title + originator. Only the latest revision can be re
                 <span>Selected document</span>
                 <button type="button" class="ofi-dcn-reselect" id="drfDocNoReselect">Select a different document</button>
             </div>
-            <p id="drfSelectedDuplicate" class="ofi-alert err" hidden></p>
+            <div id="drfSelectedDuplicate" class="ofi-alert err ofi-recur-blocked" hidden>
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div class="ofi-alert-body">
+                    <strong>Cannot start another Recurring DRF</strong>
+                    <span id="drfSelectedDuplicateText"></span>
+                    <a id="drfSelectedDuplicateLink" class="ofi-recur-blocked-link" hidden href="#">Open Recurring DRF</a>
+                </div>
+            </div>
             <dl class="ofi-dcn-selected-meta">
                 <div>
                     <dt>Document no.</dt>

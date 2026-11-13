@@ -30,7 +30,9 @@ use Illuminate\Validation\ValidationException;
  * distributionOfficeIdsForRequest, linkedDrfIdsForOfficeDcns, findLinkedDrfIdForOfficeDcn,
  * findSourceDcnIdForOfficeDrf, officeDcnHasLinkedDrf, officeDcnAllowsLaterDrf,
  * assertOfficeDcnCanCreateDrf, findOpenDuplicateDcn, duplicateDcnMessage,
- * assertNoOpenDuplicateDcn, assertNoOpenDuplicateDrf, currentUserOfficeForDcn,
+ * findOpenDuplicateRecurringDrf, duplicateRecurringDrfMessage,
+ * assertNoOpenDuplicateDcn, assertNoOpenDuplicateRecurringDrf,
+ * assertNoOpenDuplicateDrf, currentUserOfficeForDcn,
  * originatorMatchesUser, storeDrf, previewDrf, previewDcn, storeDcn, updateDrf, updateDcn,
  * reviewersPayloadFromRequest, loadDcnReviewers, syncDcnReviewers, loadDcnApprovals,
  * syncDcnApprovals, decodeDcnApprovals, approvalsPayloadFromRequest,
@@ -45,7 +47,8 @@ use Illuminate\Validation\ValidationException;
  * mergeDistributeOfficeBackup, intakeReceivedState, markReceived, clearReceived, registerPrefillForDrf,
  * registerPrefillForDcn, documentGroupDefs, documentGroupScope, documentGroupKeysForScope,
  * documentGroupLabel, docTypeIdsForGroup, dcnDocumentGroupKeys, officeDocumentTotal,
- * officeDocumentGroups, listOfficeDocuments, markOfficeDocumentReceived,
+ * officeDocumentGroups, listOfficeDocuments, paginateOfficeDocuments,
+ * paginateOfficeIncomingDocuments, markOfficeDocumentReceived,
  * listDocumentsForCheck, officeDocumentGroupsForCheck, listDistributedDocumentsForCheck.
 */
 class OfficeIntakeHelper
@@ -531,6 +534,8 @@ class OfficeIntakeHelper
         if ($rows->isEmpty()) {
             return collect();
         }
+
+        self::hydrateIntakeOriginators($type, $rows);
 
         $ids = $rows->pluck('id')->map(fn ($id) => (int) $id)->all();
         $requestIds = $rows
@@ -1197,9 +1202,15 @@ class OfficeIntakeHelper
             return null;
         }
 
-        return DB::table('dcs_office_intake_drf')
+        $row = DB::table('dcs_office_intake_drf')
             ->where('id', $id)
             ->first();
+        if ($row) {
+            self::hydrateIntakeOriginators('drf', [$row]);
+            self::hydrateDrfPreviousCopies($row);
+        }
+
+        return $row;
     }
 
     public static function findOfficeDcn(int $id): ?object
@@ -1208,9 +1219,118 @@ class OfficeIntakeHelper
             return null;
         }
 
-        return DB::table('dcs_office_intake_dcn')
+        $row = DB::table('dcs_office_intake_dcn')
             ->where('id', $id)
             ->first();
+        if ($row) {
+            self::hydrateIntakeOriginators('dcn', [$row]);
+        }
+
+        return $row;
+    }
+
+    private static function syncIntakeOriginators(string $junction, string $ownerColumn, int $ownerId, mixed $raw): void
+    {
+        if ($ownerId < 1 || ! Schema::hasTable($junction)) {
+            return;
+        }
+        $resolved = RegisterPersistHelper::resolveOriginatorIds($raw);
+        DB::table($junction)->where($ownerColumn, $ownerId)->delete();
+        foreach ($resolved['ids'] as $index => $originatorId) {
+            DB::table($junction)->insert([
+                $ownerColumn => $ownerId,
+                'originator_id' => $originatorId,
+                'sort_order' => $index,
+            ]);
+        }
+    }
+
+    /**
+     * @param  iterable<mixed>  $rows
+     */
+    private static function hydrateIntakeOriginators(string $type, iterable $rows): void
+    {
+        $type = $type === 'dcn' ? 'dcn' : 'drf';
+        $junction = $type === 'dcn' ? 'dcs_office_dcn_originators' : 'dcs_office_drf_originators';
+        $ownerColumn = $type === 'dcn' ? 'office_intake_dcn_id' : 'office_intake_drf_id';
+
+        // After 3NF, parent originator_name may be dropped. Always expose the property
+        // so list/show blades never hit Undefined property on stdClass.
+        foreach ($rows as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+            if (! property_exists($row, 'originator_name')) {
+                $row->originator_name = '';
+            } else {
+                $row->originator_name = trim((string) ($row->originator_name ?? ''));
+            }
+        }
+
+        if (! Schema::hasTable($junction) || ! Schema::hasTable('dcs_originators')) {
+            return;
+        }
+
+        $need = [];
+        foreach ($rows as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+            if (trim((string) ($row->originator_name ?? '')) !== '') {
+                continue;
+            }
+            $id = (int) ($row->id ?? 0);
+            if ($id > 0) {
+                $need[] = $id;
+            }
+        }
+        if ($need === []) {
+            return;
+        }
+
+        $grouped = [];
+        $links = DB::table($junction.' as j')
+            ->join('dcs_originators as og', 'og.id', '=', 'j.originator_id')
+            ->whereIn('j.'.$ownerColumn, $need)
+            ->orderBy('j.sort_order')
+            ->orderBy('j.id')
+            ->get(['j.'.$ownerColumn.' as owner_id', 'og.originator_name']);
+        foreach ($links as $link) {
+            $grouped[(int) $link->owner_id][] = (string) $link->originator_name;
+        }
+        foreach ($rows as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+            $id = (int) ($row->id ?? 0);
+            if ($id > 0 && isset($grouped[$id]) && trim((string) ($row->originator_name ?? '')) === '') {
+                $row->originator_name = implode(', ', $grouped[$id]);
+            }
+        }
+    }
+
+    private static function hydrateDrfPreviousCopies(object $drf): void
+    {
+        $masterlistId = (int) ($drf->previous_masterlist_id ?? 0);
+        if ($masterlistId < 1 || ! Schema::hasTable('dcs_masterlist_registration')) {
+            return;
+        }
+        $needsTitle = trim((string) ($drf->previous_document_title ?? '')) === '';
+        $needsOriginator = trim((string) ($drf->previous_originator ?? '')) === '';
+        if (! $needsTitle && ! $needsOriginator) {
+            return;
+        }
+        $ml = DB::table('dcs_masterlist_registration')->where('id', $masterlistId)->first(['id', 'doc_title']);
+        if (! $ml) {
+            return;
+        }
+        if ($needsTitle) {
+            $drf->previous_document_title = $ml->doc_title;
+        }
+        if ($needsOriginator) {
+            RegisterQueryHelper::attachOriginatorNames([$ml]);
+            $drf->previous_originator = $ml->originator_name ?? null;
+        }
     }
 
     /** @return \Illuminate\Support\Collection<int, object> */
@@ -1321,12 +1441,13 @@ class OfficeIntakeHelper
 
         $exceptId = (int) $request->input('exceptId', 0);
         $exceptId = $exceptId > 0 ? $exceptId : null;
+        $purpose = self::revisableSearchPurpose($request);
         $matches = [];
         $matched = self::findRevisableRegistrationMatch($docNo, $title, $originator);
         if ($matched) {
-            $matches[] = self::revisableMatchPayload($matched, false, $exceptId);
+            $matches[] = self::revisableMatchPayload($matched, false, $exceptId, $purpose);
         }
-        foreach (self::nearRevisableMatches($docNo, $title, $originator, $exceptId) as $near) {
+        foreach (self::nearRevisableMatches($docNo, $title, $originator, $exceptId, $purpose) as $near) {
             $matches[] = $near;
         }
 
@@ -1335,6 +1456,20 @@ class OfficeIntakeHelper
             'matches' => $matches,
             'suggestions' => $matches,
         ];
+    }
+
+    /** @return 'dcn'|'recur' */
+    private static function revisableSearchPurpose(\Illuminate\Http\Request $request): string
+    {
+        $raw = strtolower(trim((string) $request->input(
+            'purpose',
+            (string) $request->input('for', 'dcn')
+        )));
+        if (in_array($raw, ['recur', 'recurring', 'drf', 'drf-recur', 'recurring-drf'], true)) {
+            return 'recur';
+        }
+
+        return 'dcn';
     }
 
     public static function findRevisableRegistrationMatch(string $docNo, string $title, string $originator): ?object
@@ -1352,23 +1487,8 @@ class OfficeIntakeHelper
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)])
             ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)]);
-        if (Schema::hasTable('dcs_originators')) {
-            $query->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id');
-        }
-        $originSql = Schema::hasTable('dcs_originators')
-            ? "LOWER(TRIM(COALESCE(og.originator_name, '')))"
-            : "''";
-        $originDisplay = Schema::hasTable('dcs_originators')
-            ? "TRIM(COALESCE(og.originator_name, ''))"
-            : "''";
-        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
-            $originSql = Schema::hasTable('dcs_originators')
-                ? "LOWER(TRIM(COALESCE(NULLIF(og.originator_name, ''), ml.originator_name, '')))"
-                : "LOWER(TRIM(COALESCE(ml.originator_name, '')))";
-            $originDisplay = Schema::hasTable('dcs_originators')
-                ? "TRIM(COALESCE(NULLIF(og.originator_name, ''), ml.originator_name, ''))"
-                : "TRIM(COALESCE(ml.originator_name, ''))";
-        }
+        $originDisplay = RegisterQueryHelper::masterlistOriginatorNameSql('ml');
+        $originSql = 'LOWER(TRIM(COALESCE('.$originDisplay.", '')))";
         $query->whereRaw($originSql . ' = ?', [mb_strtolower($originator)]);
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
@@ -1410,7 +1530,13 @@ class OfficeIntakeHelper
      *
      * @return list<array<string, mixed>>
      */
-    private static function nearRevisableMatches(string $docNo, string $title, string $originator, ?int $exceptId = null): array
+    private static function nearRevisableMatches(
+        string $docNo,
+        string $title,
+        string $originator,
+        ?int $exceptId = null,
+        string $purpose = 'dcn'
+    ): array
     {
         $docNo = trim($docNo);
         if ($docNo === '') {
@@ -1422,17 +1548,7 @@ class OfficeIntakeHelper
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)]);
-        if (Schema::hasTable('dcs_originators')) {
-            $query->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id');
-        }
-        $originDisplay = Schema::hasTable('dcs_originators')
-            ? "TRIM(COALESCE(og.originator_name, ''))"
-            : "''";
-        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
-            $originDisplay = Schema::hasTable('dcs_originators')
-                ? "TRIM(COALESCE(NULLIF(og.originator_name, ''), ml.originator_name, ''))"
-                : "TRIM(COALESCE(ml.originator_name, ''))";
-        }
+        $originDisplay = RegisterQueryHelper::masterlistOriginatorNameSql('ml');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
         RegisterQueryHelper::applyExcludeOfficeIntakeRequests($query, 'dr');
@@ -1484,7 +1600,7 @@ class OfficeIntakeHelper
 
         $suggestions = [];
         foreach ($latestByDocument as $picked) {
-            $suggestions[] = self::revisableMatchPayload($picked['row'], false, $exceptId);
+            $suggestions[] = self::revisableMatchPayload($picked['row'], false, $exceptId, $purpose);
             if (count($suggestions) >= 8) {
                 break;
             }
@@ -1546,8 +1662,12 @@ class OfficeIntakeHelper
     }
 
     /** @return array<string, mixed> */
-    private static function revisableMatchPayload(object $row, bool $found, ?int $exceptId = null): array
-    {
+    private static function revisableMatchPayload(
+        object $row,
+        bool $found,
+        ?int $exceptId = null,
+        string $purpose = 'dcn'
+    ): array {
         $typeLabel = trim((string) ($row->sub_type_name ?? '')) !== ''
             ? trim((string) $row->sub_type_name)
             : trim((string) ($row->doc_type_name ?? 'Document'));
@@ -1568,23 +1688,109 @@ class OfficeIntakeHelper
             'sub_type_id' => (int) ($row->sub_type_id ?? 0),
             'distribute_office_ids' => self::distributionOfficeIdsForRequest($requestId),
             'approvals' => self::approvalsForRegisteredRequest($requestId),
+            // Prefer signatories saved on the registered DRF; else Settings assignment for this type.
+            'signatories' => self::signatoriesForRegisteredRequest($requestId)
+                ?? self::drfSignatoryPrefill(
+                    $kind,
+                    (int) ($row->doc_type_id ?? 0) ?: null,
+                    (int) ($row->sub_type_id ?? 0) ?: null
+                ),
         ];
-        $open = self::findOpenDuplicateDcn(
-            (string) ($row->doc_no ?? ''),
-            (string) ($row->doc_title ?? ''),
-            '',
-            [trim((string) ($row->originator_label ?? ''))],
-            $exceptId
-        );
-        if ($open) {
-            $payload['open_dcn_id'] = (int) $open->id;
-            $payload['open_request_message'] = self::duplicateDcnMessage($open);
+        $docNo = (string) ($row->doc_no ?? '');
+        $docTitle = (string) ($row->doc_title ?? '');
+        $originLabel = trim((string) ($row->originator_label ?? ''));
+        if ($purpose === 'recur') {
+            // Recurring DRF cannot start while another Recurring DRF OR an open DCN
+            // for the same registered document is still waiting to be registered.
+            $openDrf = self::findOpenDuplicateRecurringDrf($docNo, $docTitle, $exceptId);
+            if ($openDrf) {
+                $payload['open_request_type'] = 'recurring_drf';
+                $payload['open_request_id'] = (int) $openDrf->id;
+                $payload['open_drf_id'] = (int) $openDrf->id;
+                $payload['open_request_url'] = route('dcs.office.drf.show', ['id' => (int) $openDrf->id], false);
+                $payload['open_request_message'] = self::duplicateRecurringDrfMessage($openDrf);
+            } else {
+                $openDcn = self::findOpenDuplicateDcn($docNo, $docTitle, '', [$originLabel], null);
+                if ($openDcn) {
+                    $payload['open_request_type'] = 'dcn';
+                    $payload['open_request_id'] = (int) $openDcn->id;
+                    $payload['open_dcn_id'] = (int) $openDcn->id;
+                    $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $openDcn->id], false);
+                    $payload['open_request_message'] = self::duplicateDcnBlocksRecurringMessage($openDcn);
+                }
+            }
+        } else {
+            $open = self::findOpenDuplicateDcn($docNo, $docTitle, '', [$originLabel], $exceptId);
+            if ($open) {
+                $payload['open_request_type'] = 'dcn';
+                $payload['open_request_id'] = (int) $open->id;
+                $payload['open_dcn_id'] = (int) $open->id;
+                $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $open->id], false);
+                $payload['open_request_message'] = self::duplicateDcnMessage($open);
+            }
         }
         if ($found) {
             $payload = ['found' => true] + $payload;
         }
 
         return $payload;
+    }
+
+    /**
+     * Signatories saved on the registered DRF for this document request (recurring DRF prefill).
+     *
+     * @return array{
+     *     prepared_by_name: string,
+     *     prepared_by_designation: string,
+     *     reviewed_by_name: string,
+     *     reviewed_by_designation: string,
+     *     approved_by_name: string,
+     *     approved_by_designation: string
+     * }|null
+     */
+    private static function signatoriesForRegisteredRequest(int $requestId): ?array
+    {
+        if ($requestId < 1 || ! Schema::hasTable('dcs_document_request_form')) {
+            return null;
+        }
+
+        $columns = [
+            'prepared_by_name',
+            'prepared_by_designation',
+            'reviewed_by_name',
+            'reviewed_by_designation',
+            'approved_by_name',
+            'approved_by_designation',
+        ];
+        $select = [];
+        foreach ($columns as $column) {
+            if (Schema::hasColumn('dcs_document_request_form', $column)) {
+                $select[] = $column;
+            }
+        }
+        if ($select === []) {
+            return null;
+        }
+
+        $row = DB::table('dcs_document_request_form')
+            ->where('request_id', $requestId)
+            ->orderByDesc('id')
+            ->first($select);
+        if (! $row) {
+            return null;
+        }
+
+        $payload = [];
+        $hasAny = false;
+        foreach ($columns as $column) {
+            $value = in_array($column, $select, true) ? trim((string) ($row->{$column} ?? '')) : '';
+            $payload[$column] = $value;
+            if ($value !== '') {
+                $hasAny = true;
+            }
+        }
+
+        return $hasAny ? $payload : null;
     }
 
     /** @return list<array{position: string, name: string}> */
@@ -1748,17 +1954,7 @@ class OfficeIntakeHelper
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->where('ml.id', $masterlistId);
-        if (Schema::hasTable('dcs_originators')) {
-            $query->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id');
-        }
-        $originDisplay = Schema::hasTable('dcs_originators')
-            ? "TRIM(COALESCE(og.originator_name, ''))"
-            : "''";
-        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
-            $originDisplay = Schema::hasTable('dcs_originators')
-                ? "TRIM(COALESCE(NULLIF(og.originator_name, ''), ml.originator_name, ''))"
-                : "TRIM(COALESCE(ml.originator_name, ''))";
-        }
+        $originDisplay = RegisterQueryHelper::masterlistOriginatorNameSql('ml');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
         RegisterQueryHelper::applyExcludeOfficeIntakeRequests($query, 'dr');
@@ -2105,7 +2301,13 @@ class OfficeIntakeHelper
                 ->orWhereRaw("LOWER(TRIM(COALESCE(document_no, ''))) = ?", [$docNo]);
         });
 
-        foreach ($query->orderBy('id')->get(['id', 'document_no', 'document_title', 'originator_name']) as $row) {
+        $cols = ['id', 'document_no', 'document_title'];
+        if (Schema::hasColumn('dcs_office_intake_dcn', 'originator_name')) {
+            $cols[] = 'originator_name';
+        }
+        $candidates = $query->orderBy('id')->get($cols);
+        self::hydrateIntakeOriginators('dcn', $candidates);
+        foreach ($candidates as $row) {
             $title = mb_strtolower(trim((string) ($row->document_title ?? '')));
             $origin = mb_strtolower(trim((string) ($row->originator_name ?? '')));
             $sameTitle = $title !== '' && in_array($title, $titles, true);
@@ -2128,6 +2330,87 @@ class OfficeIntakeHelper
             .' is already submitted and still waiting to be registered. Open DCN #'.(int) $row->id.'.';
     }
 
+    public static function findOpenDuplicateRecurringDrf(
+        string $docNo,
+        string $title = '',
+        ?int $exceptId = null
+    ): ?object {
+        if (! Schema::hasTable('dcs_office_intake_drf')
+            || ! Schema::hasColumn('dcs_office_intake_drf', 'previous_document_no')) {
+            return null;
+        }
+
+        self::reconcileClaimedIntakesWithRegistrations();
+
+        $docNo = mb_strtolower(trim($docNo));
+        if ($docNo === '') {
+            return null;
+        }
+
+        $query = self::openIntakeScope('dcs_office_intake_drf')
+            ->whereRaw("LOWER(TRIM(COALESCE(previous_document_no, ''))) = ?", [$docNo]);
+
+        // Recurring DRFs only — exclude DRFs that were created from a DCN.
+        if (Schema::hasColumn('dcs_office_intake_drf', 'source_office_dcn_id')) {
+            $query->where(function ($inner) {
+                $inner->whereNull('source_office_dcn_id')->orWhere('source_office_dcn_id', 0);
+            });
+        }
+
+        if ($exceptId) {
+            $query->where('id', '<>', $exceptId);
+        }
+
+        $cols = ['id', 'doc_title', 'previous_document_no'];
+        if (Schema::hasColumn('dcs_office_intake_drf', 'previous_document_title')) {
+            $cols[] = 'previous_document_title';
+        }
+        $candidates = $query->orderBy('id')->get($cols);
+        if ($candidates->isEmpty()) {
+            return null;
+        }
+
+        $titleKey = mb_strtolower(trim($title));
+        if ($titleKey !== '') {
+            foreach ($candidates as $row) {
+                $rowTitle = mb_strtolower(trim((string) (
+                    $row->previous_document_title
+                    ?? $row->doc_title
+                    ?? ''
+                )));
+                if ($rowTitle !== '' && $rowTitle === $titleKey) {
+                    return $row;
+                }
+            }
+        }
+
+        return $candidates->first();
+    }
+
+    public static function duplicateRecurringDrfMessage(object $row): string
+    {
+        $no = trim((string) ($row->previous_document_no ?? ''));
+        $title = trim((string) (
+            $row->previous_document_title
+            ?? $row->doc_title
+            ?? ''
+        ));
+        $label = trim($no.($title !== '' ? ' — '.$title : ''));
+
+        return 'A Recurring DRF for '.($label !== '' ? $label : 'this document')
+            .' is already submitted and still waiting to be registered.';
+    }
+
+    public static function duplicateDcnBlocksRecurringMessage(object $row): string
+    {
+        $no = trim((string) ($row->document_no ?? ''));
+        $title = trim((string) ($row->document_title ?? ''));
+        $label = trim($no.($title !== '' ? ' — '.$title : ''));
+
+        return 'A Document Change Notice for '.($label !== '' ? $label : 'this document')
+            .' is already submitted and still waiting to be registered. Finish or cancel that DCN before starting a Recurring DRF.';
+    }
+
     public static function assertNoOpenDuplicateDcn(
         string $docNo,
         string $currentTitle,
@@ -2142,6 +2425,21 @@ class OfficeIntakeHelper
 
         throw ValidationException::withMessages([
             'finderDocumentNo' => self::duplicateDcnMessage($existing),
+        ]);
+    }
+
+    public static function assertNoOpenDuplicateRecurringDrf(
+        string $docNo,
+        string $title = '',
+        ?int $exceptId = null
+    ): void {
+        $existing = self::findOpenDuplicateRecurringDrf($docNo, $title, $exceptId);
+        if (! $existing) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'finderDocumentNo' => self::duplicateRecurringDrfMessage($existing),
         ]);
     }
 
@@ -2160,8 +2458,15 @@ class OfficeIntakeHelper
         }
 
         $query = self::openIntakeScope('dcs_office_intake_drf')
-            ->whereRaw('LOWER(TRIM(COALESCE(doc_title, \'\'))) = ?', [$title])
-            ->whereRaw('LOWER(TRIM(COALESCE(originator_name, \'\'))) = ?', [$originator]);
+            ->whereRaw('LOWER(TRIM(COALESCE(doc_title, \'\'))) = ?', [$title]);
+        if (Schema::hasColumn('dcs_office_intake_drf', 'originator_name')) {
+            $query->whereRaw('LOWER(TRIM(COALESCE(originator_name, \'\'))) = ?', [$originator]);
+        } elseif (Schema::hasTable('dcs_office_drf_originators')) {
+            $query->whereRaw(
+                "LOWER(TRIM(COALESCE((SELECT string_agg(og.originator_name, ', ' ORDER BY j.sort_order, j.id) FROM dcs_office_drf_originators j INNER JOIN dcs_originators og ON og.id = j.originator_id WHERE j.office_intake_drf_id = dcs_office_intake_drf.id), ''))) = ?",
+                [$originator]
+            );
+        }
         if ($exceptId) {
             $query->where('id', '<>', $exceptId);
         }
@@ -2258,7 +2563,11 @@ class OfficeIntakeHelper
         }
     }
 
-    private static function rememberOfficeInventory(string $suffix, callable $loader, int $ttl = 20): mixed
+    /**
+     * Workday-friendly default TTL: repeated Incoming/Masterlist polls reuse
+     * totals/groups/pages instead of re-scanning distribution rows every click.
+     */
+    private static function rememberOfficeInventory(string $suffix, callable $loader, int $ttl = 90): mixed
     {
         $officeId = (int) (RegisterQueryHelper::currentOfficeId() ?? 0);
         $rdp = auth()->user()?->permissions?->can_access_rdp ? '1' : '0';
@@ -2416,6 +2725,21 @@ class OfficeIntakeHelper
             if ($previousTitle !== '' && trim((string) ($data['drfTitle'] ?? '')) === '') {
                 $data['drfTitle'] = $previousTitle;
             }
+            self::assertNoOpenDuplicateRecurringDrf($previousDocNo, $previousTitle);
+            $openDcn = self::findOpenDuplicateDcn(
+                $previousDocNo,
+                $previousTitle,
+                '',
+                [
+                    $previousOriginator,
+                    trim((string) ($data['originatorName'] ?? '')),
+                ]
+            );
+            if ($openDcn) {
+                throw ValidationException::withMessages([
+                    'finderDocumentNo' => self::duplicateDcnBlocksRecurringMessage($openDcn),
+                ]);
+            }
         }
 
         self::assertNoOpenDuplicateDrf(
@@ -2450,7 +2774,6 @@ class OfficeIntakeHelper
                     'created_at' => $now,
                     'updated_at' => $now,
                     'prepared_by_name' => trim((string) ($data['preparedByName'] ?? '')) ?: null,
-                    'originator_name' => trim((string) ($data['originatorName'] ?? '')) ?: null,
                     'doc_type_kind' => $data['docTypeKind'] ?? null,
                     'description_reason' => trim((string) ($data['descriptionReason'] ?? '')) ?: null,
                 ];
@@ -2461,6 +2784,9 @@ class OfficeIntakeHelper
                     $row['sub_type_id'] = ! empty($data['resolvedSubTypeId']) ? (int) $data['resolvedSubTypeId'] : null;
                 }
                 self::applyOfficeDrfSyllabiColumns($row, $syllabiCtx);
+                if (Schema::hasColumn('dcs_office_intake_drf', 'originator_name')) {
+                    $row['originator_name'] = RegisterPersistHelper::joinedOriginatorNames($data['originatorName'] ?? null) ?: null;
+                }
 
                 if ($sourceDcnId > 0) {
                     $row['source_office_dcn_id'] = $sourceDcnId;
@@ -2491,6 +2817,7 @@ class OfficeIntakeHelper
                 }
 
                 $drfId = DB::table('dcs_office_intake_drf')->insertGetId($row);
+                self::syncIntakeOriginators('dcs_office_drf_originators', 'office_intake_drf_id', $drfId, $data['originatorName'] ?? null);
                 self::syncDistributeOffices($drfId, $data['distributeToOffice'] ?? []);
 
                 foreach ($officeIds as $officeId) {
@@ -2729,7 +3056,6 @@ class OfficeIntakeHelper
                     'document_title' => $docTitle !== '' ? $docTitle : null,
                     'change_from' => trim((string) ($data['changeFrom'] ?? '')) ?: null,
                     'change_to' => trim((string) ($data['changeTo'] ?? '')) ?: null,
-                    'originator_name' => trim((string) ($data['originatorName'] ?? '')) ?: null,
                     'department_on' => $data['departmentDate'] ?? null,
                 ];
                 if (Schema::hasColumn('dcs_office_intake_dcn', 'previous_document_no')) {
@@ -2738,8 +3064,12 @@ class OfficeIntakeHelper
                 if (Schema::hasColumn('dcs_office_intake_dcn', 'expects_drf')) {
                     $row['expects_drf'] = $expectsDrf;
                 }
+                if (Schema::hasColumn('dcs_office_intake_dcn', 'originator_name')) {
+                    $row['originator_name'] = RegisterPersistHelper::joinedOriginatorNames($data['originatorName'] ?? null) ?: null;
+                }
 
                 $dcnId = DB::table('dcs_office_intake_dcn')->insertGetId($row);
+                self::syncIntakeOriginators('dcs_office_dcn_originators', 'office_intake_dcn_id', $dcnId, $data['originatorName'] ?? null);
 
                 self::syncDcnReviewers($dcnId, $reviewers);
                 self::syncDcnApprovals($dcnId, $approvals);
@@ -2865,6 +3195,15 @@ class OfficeIntakeHelper
             (string) ($data['originatorName'] ?? ''),
             $id
         );
+        $existingDrf = self::findOfficeDrf($id);
+        $existingPreviousNo = trim((string) ($existingDrf->previous_document_no ?? ''));
+        if ($existingPreviousNo !== '' && self::findSourceDcnIdForOfficeDrf($id) === null) {
+            self::assertNoOpenDuplicateRecurringDrf(
+                $existingPreviousNo,
+                trim((string) ($existingDrf->previous_document_title ?? $existingDrf->doc_title ?? '')),
+                $id
+            );
+        }
 
         $now = now();
         DB::transaction(function () use ($data, $catalog, $id, $now, $syllabiCtx) {
@@ -2874,7 +3213,7 @@ class OfficeIntakeHelper
                 'updated_at' => $now,
             ];
             if (Schema::hasColumn('dcs_office_intake_drf', 'originator_name')) {
-                $row['originator_name'] = trim((string) ($data['originatorName'] ?? '')) ?: null;
+                $row['originator_name'] = RegisterPersistHelper::joinedOriginatorNames($data['originatorName'] ?? null) ?: null;
             }
             if (Schema::hasColumn('dcs_office_intake_drf', 'doc_type_kind')) {
                 $row['doc_type_kind'] = $data['docTypeKind'] ?? null;
@@ -2929,6 +3268,7 @@ class OfficeIntakeHelper
                 ->where('id', $id)
                 ->update($row);
             abort_if($affected < 1, 404, 'Document Request Form not found.');
+            self::syncIntakeOriginators('dcs_office_drf_originators', 'office_intake_drf_id', $id, $data['originatorName'] ?? null);
         });
 
         DcsNotificationService::dismissOfficeIntakeNotifications('drf', $id);
@@ -3029,7 +3369,9 @@ class OfficeIntakeHelper
                 $row['document_title'] = $docTitle !== '' ? $docTitle : null;
                 $row['change_from'] = trim((string) ($data['changeFrom'] ?? '')) ?: null;
                 $row['change_to'] = trim((string) ($data['changeTo'] ?? '')) ?: null;
-                $row['originator_name'] = trim((string) ($data['originatorName'] ?? '')) ?: null;
+                if (Schema::hasColumn('dcs_office_intake_dcn', 'originator_name')) {
+                    $row['originator_name'] = RegisterPersistHelper::joinedOriginatorNames($data['originatorName'] ?? null) ?: null;
+                }
                 $row['department_on'] = $data['departmentDate'] ?? null;
             }
             if (Schema::hasColumn('dcs_office_intake_dcn', 'previous_document_no')) {
@@ -3060,6 +3402,7 @@ class OfficeIntakeHelper
                 ->where('id', $id)
                 ->update($row);
             abort_if($affected < 1, 404, 'Document Change Notice not found.');
+            self::syncIntakeOriginators('dcs_office_dcn_originators', 'office_intake_dcn_id', $id, $data['originatorName'] ?? null);
 
             self::syncDcnReviewers($id, $reviewers);
             self::syncDcnApprovals($id, $approvals);
@@ -3138,6 +3481,187 @@ class OfficeIntakeHelper
             if (count($rows) >= 9) {
                 break;
             }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private static function syncSignatoryTemplateFields(int $templateId, array $payload): void
+    {
+        if ($templateId < 1 || ! Schema::hasTable('dcs_signatory_template_fields')) {
+            return;
+        }
+        DB::table('dcs_signatory_template_fields')->where('template_id', $templateId)->delete();
+        foreach (self::signatoryFieldRows($payload) as $field) {
+            DB::table('dcs_signatory_template_fields')->insert([
+                'template_id' => $templateId,
+                'role_key' => $field['role_key'],
+                'name' => $field['name'],
+                'designation' => $field['designation'],
+            ]);
+        }
+    }
+
+    /**
+     * @param  iterable<int, object>  $rows
+     */
+    private static function attachSignatoryPayloads(iterable $rows): void
+    {
+        $list = collect($rows);
+        if ($list->isEmpty()) {
+            return;
+        }
+        if (! Schema::hasTable('dcs_signatory_template_fields')) {
+            foreach ($list as $row) {
+                if (! is_object($row)) {
+                    continue;
+                }
+                $row->payload = self::decodeSignatoryPayload($row->payload ?? null);
+            }
+
+            return;
+        }
+        $ids = $list->map(fn ($row) => is_object($row) ? (int) ($row->id ?? 0) : 0)->filter()->values()->all();
+        $grouped = [];
+        if ($ids !== []) {
+            foreach (DB::table('dcs_signatory_template_fields')->whereIn('template_id', $ids)->orderBy('id')->get() as $field) {
+                $grouped[(int) $field->template_id][] = $field;
+            }
+        }
+        foreach ($list as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+            $fields = $grouped[(int) ($row->id ?? 0)] ?? [];
+            if ($fields !== []) {
+                $row->payload = self::payloadFromFieldRows($fields);
+
+                continue;
+            }
+            $decoded = self::decodeSignatoryPayload($row->payload ?? null);
+            $row->payload = is_array($decoded) ? $decoded : [];
+        }
+    }
+
+    private static function signatoryPayloadForRow(object $row): ?array
+    {
+        $templateId = (int) ($row->id ?? 0);
+        if ($templateId > 0 && Schema::hasTable('dcs_signatory_template_fields')) {
+            $fields = DB::table('dcs_signatory_template_fields')->where('template_id', $templateId)->orderBy('id')->get();
+            if ($fields->isNotEmpty()) {
+                return self::payloadFromFieldRows($fields->all());
+            }
+        }
+
+        return self::decodeSignatoryPayload($row->payload ?? null);
+    }
+
+    private static function decodeSignatoryPayload(mixed $payload): ?array
+    {
+        if (is_array($payload)) {
+            return $payload;
+        }
+        if (! is_string($payload) || trim($payload) === '') {
+            return null;
+        }
+        $decoded = json_decode($payload, true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * @param  list<object>  $fields
+     * @return array<string, mixed>
+     */
+    private static function payloadFromFieldRows(array $fields): array
+    {
+        $byRole = [];
+        foreach ($fields as $field) {
+            $byRole[(string) ($field->role_key ?? '')] = $field;
+        }
+        $payload = [];
+        foreach (['prepared_by', 'reviewed_by', 'approved_by'] as $role) {
+            $field = $byRole[$role] ?? null;
+            $payload[$role.'_name'] = trim((string) ($field->name ?? ''));
+            $payload[$role.'_designation'] = trim((string) ($field->designation ?? ''));
+        }
+        $reviewers = [];
+        $approvals = [];
+        foreach ($byRole as $key => $field) {
+            if (preg_match('/^reviewer_(\d+)$/', $key, $match)) {
+                $reviewers[(int) $match[1]] = ['name' => trim((string) ($field->name ?? ''))];
+            }
+            if (preg_match('/^approval_(\d+)$/', $key, $match)) {
+                $approvals[(int) $match[1]] = [
+                    'position' => trim((string) ($field->designation ?? '')),
+                    'name' => trim((string) ($field->name ?? '')),
+                ];
+            }
+        }
+        if ($reviewers !== []) {
+            ksort($reviewers);
+            $payload['reviewers'] = array_values($reviewers);
+        }
+        if ($approvals !== []) {
+            ksort($approvals);
+            $payload['approvals'] = array_values($approvals);
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return list<array{role_key: string, name: ?string, designation: ?string}>
+     */
+    private static function signatoryFieldRows(array $payload): array
+    {
+        $rows = [];
+        $roles = [
+            'prepared_by' => ['prepared_by_name', 'prepared_by_designation'],
+            'reviewed_by' => ['reviewed_by_name', 'reviewed_by_designation'],
+            'approved_by' => ['approved_by_name', 'approved_by_designation'],
+        ];
+        foreach ($roles as $role => [$nameKey, $designationKey]) {
+            if (! array_key_exists($nameKey, $payload) && ! array_key_exists($designationKey, $payload)) {
+                continue;
+            }
+            $name = trim((string) ($payload[$nameKey] ?? ''));
+            $designation = trim((string) ($payload[$designationKey] ?? ''));
+            $rows[] = [
+                'role_key' => $role,
+                'name' => $name !== '' ? $name : null,
+                'designation' => $designation !== '' ? $designation : null,
+            ];
+        }
+        $index = 1;
+        foreach ((array) ($payload['reviewers'] ?? []) as $reviewer) {
+            $name = trim((string) (is_array($reviewer) ? ($reviewer['name'] ?? '') : $reviewer));
+            if ($name === '') {
+                continue;
+            }
+            $rows[] = ['role_key' => 'reviewer_'.$index, 'name' => $name, 'designation' => null];
+            $index++;
+        }
+        $index = 1;
+        foreach ((array) ($payload['approvals'] ?? []) as $approval) {
+            if (! is_array($approval)) {
+                continue;
+            }
+            $name = trim((string) ($approval['name'] ?? ''));
+            $position = trim((string) ($approval['position'] ?? ''));
+            if ($name === '' && $position === '') {
+                continue;
+            }
+            $rows[] = [
+                'role_key' => 'approval_'.$index,
+                'name' => $name !== '' ? $name : null,
+                'designation' => $position !== '' ? $position : null,
+            ];
+            $index++;
         }
 
         return $rows;
@@ -3255,11 +3779,7 @@ class OfficeIntakeHelper
             return null;
         }
 
-        $payload = $row->payload ?? null;
-        if (is_string($payload)) {
-            $decoded = json_decode($payload, true);
-            $payload = is_array($decoded) ? $decoded : null;
-        }
+        $payload = self::signatoryPayloadForRow($row);
         if (! is_array($payload)) {
             return null;
         }
@@ -3327,10 +3847,12 @@ class OfficeIntakeHelper
             'form_kind' => $formKind,
             'doc_type_kind' => $docTypeKind,
             'doc_type_id' => $docTypeId,
-            'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE),
             'updated_by' => $updatedBy,
             'updated_at' => $now,
         ];
+        if (Schema::hasColumn('dcs_signatory_templates', 'payload')) {
+            $data['payload'] = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        }
         if (Schema::hasColumn('dcs_signatory_templates', 'college_id')) {
             $data['college_id'] = $collegeId;
         }
@@ -3363,7 +3885,8 @@ class OfficeIntakeHelper
         }
 
         $data['created_at'] = $now;
-        DB::table('dcs_signatory_templates')->insert($data);
+        $templateId = (int) DB::table('dcs_signatory_templates')->insertGetId($data);
+        self::syncSignatoryTemplateFields($templateId, $payload);
     }
 
     /**
@@ -3396,7 +3919,10 @@ class OfficeIntakeHelper
             $query->select('t.*');
         }
 
-        return $query->limit(200)->get();
+        $rows = $query->limit(200)->get();
+        self::attachSignatoryPayloads($rows);
+
+        return $rows;
     }
 
     /**
@@ -4507,11 +5033,7 @@ class OfficeIntakeHelper
         }
         $hasCollegeCol = Schema::hasColumn('dcs_signatory_templates', 'college_id');
         foreach ($query->get() as $row) {
-            $payload = $row->payload ?? null;
-            if (is_string($payload)) {
-                $decoded = json_decode($payload, true);
-                $payload = is_array($decoded) ? $decoded : null;
-            }
+            $payload = self::signatoryPayloadForRow($row);
             $normalized = is_array($payload) ? self::normalizeDrfSignatoryPayload($payload) : null;
             if ($normalized === null) {
                 continue;
@@ -6141,7 +6663,48 @@ class OfficeIntakeHelper
 
         $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
         $peer = self::linkedIntakePeer($type, $id);
-        $peerNotified = $peer !== null && ! empty($peer['record']->rfio_print_notified_at ?? null);
+        $peerAlsoNotified = false;
+
+        // Linked DCN+DRF: one RFIO confirm marks both forms ready and sends a single pair notice.
+        // Hold only when the peer is still unlocked for correction.
+        if ($peer !== null && empty($peer['record']->rfio_print_notified_at ?? null)) {
+            if (! empty($peer['record']->edit_unlocked_at)) {
+                return array_merge([
+                    'ok' => true,
+                    'type' => $type,
+                    'id' => $id,
+                    'notifiedOffices' => $officeCodes,
+                    'noticeHeld' => true,
+                    'pairComplete' => false,
+                    'peerAlsoNotified' => false,
+                    'pairLabel' => strtoupper((string) $peer['type']),
+                ], self::intakePrintNotifiedState($record));
+            }
+
+            $peerTable = $peer['type'] === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+            self::ensureOfficePrintedColumns($peerTable);
+            if (Schema::hasColumn($peerTable, 'rfio_print_notified_at')) {
+                $peerUpdate = [
+                    'rfio_print_notified_at' => $now,
+                    'rfio_print_notified_by' => $userId > 0 ? $userId : null,
+                    'updated_at' => $now,
+                ];
+                if (Schema::hasColumn($peerTable, 'office_printed_at')) {
+                    $peerUpdate['office_printed_at'] = null;
+                }
+                if (Schema::hasColumn($peerTable, 'office_printed_by')) {
+                    $peerUpdate['office_printed_by'] = null;
+                }
+                DB::table($peerTable)->where('id', (int) $peer['id'])->update($peerUpdate);
+                self::bumpOfficeInventoryCache();
+                $peerAlsoNotified = true;
+                $peer['record'] = $peer['type'] === 'dcn'
+                    ? self::findOfficeDcn((int) $peer['id'])
+                    : self::findOfficeDrf((int) $peer['id']);
+            }
+        }
+
+        $peerNotified = $peer === null || ! empty($peer['record']->rfio_print_notified_at ?? null);
         $noticeHeld = $peer !== null && ! $peerNotified;
         $sent = 0;
 
@@ -6168,7 +6731,8 @@ class OfficeIntakeHelper
             'id' => $id,
             'notifiedOffices' => $officeCodes,
             'noticeHeld' => $noticeHeld,
-            'pairComplete' => $peer !== null && $peerNotified,
+            'pairComplete' => $peer === null || $peerNotified,
+            'peerAlsoNotified' => $peerAlsoNotified || ($peer !== null && $peerNotified),
             'pairLabel' => $peer ? strtoupper((string) $peer['type']) : '',
         ], self::intakePrintNotifiedState($record));
     }
@@ -6739,6 +7303,8 @@ class OfficeIntakeHelper
     /** @return array<string, mixed> */
     public static function registerPrefillForDrf(object $drf, int $id): array
     {
+        self::hydrateIntakeOriginators('drf', [$drf]);
+        self::hydrateDrfPreviousCopies($drf);
         $sourceOffices = self::drfSourceOffices($id)->map(fn ($row) => [
             'office_id' => (int) ($row->office_id ?? 0),
             'office_name' => trim((string) ($row->office_name ?? '')),
@@ -6908,6 +7474,7 @@ class OfficeIntakeHelper
     /** @return array<string, mixed> */
     public static function registerPrefillForDcn(object $dcn, int $id, string $docNo, string $docTitle): array
     {
+        self::hydrateIntakeOriginators('dcn', [$dcn]);
         $sourceOffices = self::dcnSourceOffices($id)->map(fn ($row) => [
             'office_id' => (int) ($row->office_id ?? 0),
             'office_name' => trim((string) ($row->office_name ?? '')),
@@ -7245,12 +7812,13 @@ class OfficeIntakeHelper
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
 
         return (int) self::rememberOfficeInventory(
-            'total.' . $receiptFilter . '.' . (int) ($officeId ?? 0),
+            'total.v2.' . $receiptFilter . '.' . (int) ($officeId ?? 0),
             function () use ($officeId, $receiptFilter) {
-                $query = self::officeMasterlistQuery($officeId, null);
-                self::applyOfficeReceiptFilter($query, (int) ($officeId ?? 0), $receiptFilter);
+                if (! $officeId) {
+                    return 0;
+                }
 
-                return (int) $query->count();
+                return (int) self::officeDocumentsDistinctQuery('all', (int) $officeId, $receiptFilter)->count();
             }
         );
     }
@@ -7269,30 +7837,14 @@ class OfficeIntakeHelper
         }
 
         return self::rememberOfficeInventory(
-            'incoming.attention.'.(int) ($officeId ?? 0),
+            'incoming.attention.v2.'.(int) ($officeId ?? 0),
             function () use ($officeId) {
-        $pending = self::officeDocumentTotal($officeId, 'pending');
+                $pending = self::officeDocumentTotal($officeId, 'pending');
                 $appraisable = 0;
-        $perms = auth()->user()?->permissions;
-                if ($perms && ($perms->is_sadm || $perms->can_access_rdp)) {
-                    // Match Incoming page: only count held docs that have an RDP appraisal link.
-                    $heldRows = self::listOfficeDocuments('all', $officeId, 'received_for_appraisal');
-                    if ($heldRows !== []) {
-                        $urls = \App\Services\RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
-                            RegisterQueryHelper::currentOfficeCode(),
-                            $heldRows
-                        );
-                        foreach ($heldRows as $row) {
-                            $requestId = (int) ($row['request_id'] ?? 0);
-                            $docNo = trim((string) ($row['doc_no'] ?? ''));
-                            $url = ($docNo !== '' ? ($urls[$docNo] ?? null) : null)
-                                ?? ($urls['request:'.$requestId] ?? null)
-                                ?? ($urls[\App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo)] ?? null);
-                            if ($url) {
-                                $appraisable++;
-                            }
-                        }
-                    }
+                $perms = auth()->user()?->permissions;
+                if ($perms && ($perms->is_sadm || $perms->can_access_rdp) && $officeId) {
+                    // SQL distinct count only — no row hydration for the nav badge.
+                    $appraisable = self::officeDocumentTotal($officeId, 'received_for_appraisal');
                 }
 
                 return [
@@ -7301,7 +7853,7 @@ class OfficeIntakeHelper
                     'total' => $pending + $appraisable,
                 ];
             },
-            15
+            45
         );
     }
 
@@ -7495,7 +8047,7 @@ class OfficeIntakeHelper
         $onlyFlag = $onlyWithDocuments ? '1' : '0';
 
         return self::rememberOfficeInventory(
-            'groups.' . $receiptFilter . '.' . $onlyFlag . '.' . (int) ($officeId ?? 0),
+            'groups.v2.' . $receiptFilter . '.' . $onlyFlag . '.' . (int) ($officeId ?? 0),
             function () use ($officeId, $onlyWithDocuments, $receiptFilter) {
                 return self::buildOfficeDocumentGroups($officeId, $onlyWithDocuments, $receiptFilter);
             }
@@ -7512,13 +8064,10 @@ class OfficeIntakeHelper
     ): array {
         $groups = [];
         foreach (self::documentGroupDefs() as $key => $label) {
-            $scope = self::documentGroupScope($key);
-            $query = self::applyMasterlistGroupFilter(
-                self::officeMasterlistQuery($officeId, $scope),
-                $key
-            );
-            self::applyOfficeReceiptFilter($query, (int) ($officeId ?? 0), $receiptFilter);
-            $count = (int) $query->count();
+            $count = 0;
+            if ($officeId) {
+                $count = (int) self::officeDocumentsDistinctQuery($key, (int) $officeId, $receiptFilter)->count();
+            }
             if ($onlyWithDocuments && $count < 1) {
                 continue;
             }
@@ -7572,7 +8121,9 @@ class OfficeIntakeHelper
         // A copy with a pending DCS appraisal stays on Incoming until that office creates the record.
         if ($receiptFilter === 'received') {
             RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
-            if (! $keepAwaitingAppraisal) {
+            if ($keepAwaitingAppraisal) {
+                self::onlyPendingAppraisal($query, $officeId);
+            } else {
                 self::excludePendingAppraisal($query, $officeId);
             }
         }
@@ -7652,30 +8203,62 @@ class OfficeIntakeHelper
      */
     protected static function excludePendingAppraisal($query, int $officeId): void
     {
-        if ($officeId < 1 || ! Schema::hasTable('rdp_received_documents')) {
+        $officeCode = self::officeCodeForAppraisalFilter($officeId);
+        if ($officeCode === null) {
             return;
+        }
+
+        $query->whereNotExists(function ($q) use ($officeCode) {
+            self::applyPendingAppraisalExists($q, $officeCode);
+        });
+    }
+
+    /**
+     * Incoming "awaiting appraisal" — only received copies still held by a pending RDP intake.
+     */
+    protected static function onlyPendingAppraisal($query, int $officeId): void
+    {
+        $officeCode = self::officeCodeForAppraisalFilter($officeId);
+        if ($officeCode === null) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $query->whereExists(function ($q) use ($officeCode) {
+            self::applyPendingAppraisalExists($q, $officeCode);
+        });
+    }
+
+    protected static function officeCodeForAppraisalFilter(int $officeId): ?string
+    {
+        if ($officeId < 1 || ! Schema::hasTable('rdp_received_documents')) {
+            return null;
         }
 
         $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $officeCode = DB::table($officeTbl)->where('id', $officeId)->value('office_code');
         if (! is_string($officeCode) || trim($officeCode) === '') {
-            return;
+            return null;
         }
 
-        $query->whereNotExists(function ($q) use ($officeCode) {
-            $q->select(DB::raw(1))
-                ->from('rdp_received_documents as rdp_hold')
-                ->where('rdp_hold.source_subsystem', 'DCS')
-                ->where('rdp_hold.status', 'pending')
-                ->whereRaw('LOWER(rdp_hold.target_office) = ?', [strtolower(trim($officeCode))])
-                ->where(function ($match) {
-                    $match->whereColumn('rdp_hold.document_code', 'ml.doc_no')
-                        ->orWhereRaw("COALESCE(rdp_hold.metadata->>'dcs_request_id', '') = ml.request_id::text")
-                        ->orWhereRaw(
-                            "rdp_hold.document_code = CONCAT('DCS-REQ-', ml.request_id::text)"
-                        );
-                });
-        });
+        return trim($officeCode);
+    }
+
+    protected static function applyPendingAppraisalExists($q, string $officeCode): void
+    {
+        $q->select(DB::raw(1))
+            ->from('rdp_received_documents as rdp_hold')
+            ->where('rdp_hold.source_subsystem', 'DCS')
+            ->where('rdp_hold.status', 'pending')
+            ->whereRaw('LOWER(rdp_hold.target_office) = ?', [strtolower($officeCode)])
+            ->where(function ($match) {
+                $match->whereColumn('rdp_hold.document_code', 'ml.doc_no')
+                    ->orWhereRaw("COALESCE(rdp_hold.metadata->>'dcs_request_id', '') = ml.request_id::text")
+                    ->orWhereRaw(
+                        "rdp_hold.document_code = CONCAT('DCS-REQ-', ml.request_id::text)"
+                    );
+            });
     }
 
     /**
@@ -7730,7 +8313,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * @param  'all'|'received'|'pending'  $receiptFilter
+     * @param  'all'|'received'|'pending'|'received_for_appraisal'  $receiptFilter
      * @return list<array{
      *     item_no: int,
      *     request_id: int,
@@ -7747,38 +8330,239 @@ class OfficeIntakeHelper
     public static function listOfficeDocuments(
         string $groupKey,
         ?int $officeId = null,
-        string $receiptFilter = 'all'
+        string $receiptFilter = 'all',
+        ?int $limit = null
     ): array {
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
         if (! $officeId) {
             return [];
         }
 
+        // Hard cap so accidental full scans cannot blow memory on large offices.
+        $limit = $limit === null ? null : max(1, min(500, $limit));
+        $cacheKey = 'rows.v2.' . $receiptFilter . '.' . ($groupKey === '' ? 'all' : $groupKey)
+            . '.' . (int) $officeId . '.' . ($limit ?? 'all');
+
         return self::rememberOfficeInventory(
-            'rows.' . $receiptFilter . '.' . ($groupKey === '' ? 'all' : $groupKey) . '.' . (int) $officeId,
-            function () use ($groupKey, $officeId, $receiptFilter) {
-                return self::buildOfficeDocumentRows($groupKey, (int) $officeId, $receiptFilter);
+            $cacheKey,
+            function () use ($groupKey, $officeId, $receiptFilter, $limit) {
+                return self::buildOfficeDocumentRows($groupKey, (int) $officeId, $receiptFilter, $limit, 1);
             }
         );
     }
 
     /**
-     * @return list<array<string, mixed>>
+     * DB-paged office document list (distinct current copy per doc no + title).
+     *
+     * @param  'all'|'received'|'pending'|'received_for_appraisal'  $receiptFilter
      */
-    private static function buildOfficeDocumentRows(
+    public static function paginateOfficeDocuments(
+        string $groupKey,
+        ?int $officeId = null,
+        string $receiptFilter = 'all',
+        int $perPage = 25,
+        ?int $page = null
+    ): \Illuminate\Pagination\LengthAwarePaginator {
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+        $perPage = max(10, min(100, $perPage));
+        $page = max(1, (int) ($page ?? request()->input('page', 1)));
+
+        if (! $officeId) {
+            return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage, $page);
+        }
+
+        $cacheKey = 'page.v2.' . $receiptFilter . '.' . ($groupKey === '' ? 'all' : $groupKey)
+            . '.' . (int) $officeId . '.' . $perPage . '.' . $page;
+
+        /** @var array{total:int,page:int,rows:list<array<string,mixed>>} $payload */
+        $payload = self::rememberOfficeInventory(
+            $cacheKey,
+            function () use ($groupKey, $officeId, $receiptFilter, $perPage, $page) {
+                $distinct = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, $receiptFilter);
+                $total = (int) (clone $distinct)->count();
+                $lastPage = max(1, (int) ceil(max(0, $total) / $perPage));
+                $page = min($page, $lastPage);
+                $records = (clone $distinct)
+                    ->orderByRaw("CASE WHEN COALESCE(TRIM(doc_no), '') = '' THEN 1 ELSE 0 END")
+                    ->orderBy('doc_no')
+                    ->orderByDesc('revise_no')
+                    ->orderBy('id')
+                    ->forPage($page, $perPage)
+                    ->get();
+
+                return [
+                    'total' => $total,
+                    'page' => $page,
+                    'rows' => self::mapOfficeDocumentRows($records, (int) $officeId, (($page - 1) * $perPage) + 1),
+                ];
+            },
+            60
+        );
+
+        $page = max(1, (int) ($payload['page'] ?? $page));
+
+        return new \Illuminate\Pagination\LengthAwarePaginator(
+            $payload['rows'] ?? [],
+            (int) ($payload['total'] ?? 0),
+            $perPage,
+            $page,
+            [
+                'path' => request()->url(),
+                'pageName' => 'page',
+            ]
+        );
+    }
+
+    /**
+     * Incoming queue: pending receipts first, then received-awaiting-appraisal — DB-paged.
+     *
+     * @return array{
+     *     rows: \Illuminate\Pagination\LengthAwarePaginator,
+     *     total: int,
+     *     pending_total: int,
+     *     appraisal_total: int,
+     *     active_count: int
+     * }
+     */
+    public static function paginateOfficeIncomingDocuments(
+        string $groupKey,
+        ?int $officeId = null,
+        int $perPage = 25,
+        ?int $page = null
+    ): array {
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+        $perPage = max(10, min(100, $perPage));
+        $page = max(1, (int) ($page ?? request()->input('page', 1)));
+
+        if (! $officeId) {
+            $empty = new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage, 1);
+
+            return [
+                'rows' => $empty,
+                'total' => 0,
+                'pending_total' => 0,
+                'appraisal_total' => 0,
+                'active_count' => 0,
+            ];
+        }
+
+        $cacheKey = 'incoming.page.v2.' . ($groupKey === '' ? 'all' : $groupKey)
+            . '.' . (int) $officeId . '.' . $perPage . '.' . $page;
+
+        /** @var array{total:int,page:int,pending_total:int,appraisal_total:int,rows:list<array<string,mixed>>} $payload */
+        $payload = self::rememberOfficeInventory(
+            $cacheKey,
+            function () use ($groupKey, $officeId, $perPage, $page) {
+                $pendingTotal = (int) self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'pending')->count();
+                $appraisalTotal = (int) self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'received_for_appraisal')->count();
+                $total = $pendingTotal + $appraisalTotal;
+                $lastPage = max(1, (int) ceil(max(0, $total) / $perPage));
+                $page = min($page, $lastPage);
+                $offset = ($page - 1) * $perPage;
+
+                $rows = [];
+                $itemStart = $offset + 1;
+
+                if ($offset < $pendingTotal) {
+                    $take = min($perPage, $pendingTotal - $offset);
+                    $pendingRecords = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'pending')
+                        ->orderByRaw("CASE WHEN COALESCE(TRIM(doc_no), '') = '' THEN 1 ELSE 0 END")
+                        ->orderBy('doc_no')
+                        ->orderByDesc('revise_no')
+                        ->orderBy('id')
+                        ->offset($offset)
+                        ->limit($take)
+                        ->get();
+                    $rows = array_merge($rows, self::mapOfficeDocumentRows($pendingRecords, (int) $officeId, $itemStart));
+                }
+
+                $filled = count($rows);
+                if ($filled < $perPage && $appraisalTotal > 0) {
+                    $appraisalOffset = max(0, $offset - $pendingTotal);
+                    $appraisalTake = $perPage - $filled;
+                    $appraisalRecords = self::officeDocumentsDistinctQuery($groupKey, (int) $officeId, 'received_for_appraisal')
+                        ->orderByRaw("CASE WHEN COALESCE(TRIM(doc_no), '') = '' THEN 1 ELSE 0 END")
+                        ->orderBy('doc_no')
+                        ->orderByDesc('revise_no')
+                        ->orderBy('id')
+                        ->offset($appraisalOffset)
+                        ->limit($appraisalTake)
+                        ->get();
+                    $appraisalRows = self::mapOfficeDocumentRows(
+                        $appraisalRecords,
+                        (int) $officeId,
+                        $itemStart + $filled
+                    );
+                    $canAppraise = (bool) (auth()->user()?->permissions?->is_sadm
+                        || auth()->user()?->permissions?->can_access_rdp);
+                    $officeCode = RegisterQueryHelper::currentOfficeCode();
+                    $appraisalUrls = \App\Services\RdpIntakeService::appraisalUrlsForReceivedOfficeDocs(
+                        $officeCode,
+                        $appraisalRows
+                    );
+                    foreach ($appraisalRows as &$row) {
+                        $requestId = (int) ($row['request_id'] ?? 0);
+                        $docNo = trim((string) ($row['doc_no'] ?? ''));
+                        $url = ($docNo !== '' ? ($appraisalUrls[$docNo] ?? null) : null)
+                            ?? ($appraisalUrls['request:'.$requestId] ?? null)
+                            ?? ($appraisalUrls[\App\Services\RdpIntakeService::documentCodeForRequest($requestId, $docNo)] ?? null);
+                        $row['appraisal_url'] = ($canAppraise && $url) ? $url : null;
+                        $row['awaiting_appraisal'] = true;
+                        $row['can_receive'] = false;
+                    }
+                    unset($row);
+                    $rows = array_merge($rows, $appraisalRows);
+                }
+
+                return [
+                    'total' => $total,
+                    'page' => $page,
+                    'pending_total' => $pendingTotal,
+                    'appraisal_total' => $appraisalTotal,
+                    'rows' => $rows,
+                ];
+            },
+            45
+        );
+
+        $page = max(1, (int) ($payload['page'] ?? $page));
+        $total = (int) ($payload['total'] ?? 0);
+        $pendingTotal = (int) ($payload['pending_total'] ?? 0);
+        $appraisalTotal = (int) ($payload['appraisal_total'] ?? 0);
+
+        return [
+            'rows' => new \Illuminate\Pagination\LengthAwarePaginator(
+                $payload['rows'] ?? [],
+                $total,
+                $perPage,
+                $page,
+                [
+                    'path' => request()->url(),
+                    'pageName' => 'page',
+                ]
+            ),
+            'total' => $groupKey === '' || $groupKey === 'all'
+                ? $total
+                : $pendingTotal,
+            'pending_total' => $pendingTotal,
+            'appraisal_total' => $appraisalTotal,
+            'active_count' => $total,
+        ];
+    }
+
+    /**
+     * Filtered masterlist query for one office + receipt/type tab (before distinct).
+     */
+    private static function officeDocumentsFilteredQuery(
         string $groupKey,
         int $officeId,
         string $receiptFilter
-    ): array {
-        if (! $officeId) {
-            return [];
-        }
-
+    ) {
         if ($groupKey === '' || $groupKey === 'all') {
             $query = self::officeMasterlistQuery($officeId, null);
         } else {
             if (! isset(self::documentGroupDefs()[$groupKey])) {
-                return [];
+                return DB::table('dcs_masterlist_registration as ml')->whereRaw('1 = 0');
             }
             $query = self::applyMasterlistGroupFilter(
                 self::officeMasterlistQuery($officeId, self::documentGroupScope($groupKey)),
@@ -7786,14 +8570,27 @@ class OfficeIntakeHelper
             );
         }
 
-        self::applyOfficeReceiptFilter($query, (int) $officeId, $receiptFilter);
+        self::applyOfficeReceiptFilter($query, $officeId, $receiptFilter);
+
+        return $query;
+    }
+
+    /**
+     * One current distributed copy per document number + title (SQL window).
+     */
+    private static function officeDocumentsDistinctQuery(
+        string $groupKey,
+        int $officeId,
+        string $receiptFilter
+    ) {
+        $query = self::officeDocumentsFilteredQuery($groupKey, $officeId, $receiptFilter);
 
         $select = [
-                'ml.id',
-                'ml.doc_no',
-                'ml.revise_no',
-                'ml.doc_title',
-                'ml.effectivity_date',
+            'ml.id',
+            'ml.doc_no',
+            'ml.revise_no',
+            'ml.doc_title',
+            'ml.effectivity_date',
         ];
         if (Schema::hasColumn('dcs_masterlist_registration', 'no_pages')) {
             $select[] = 'ml.no_pages';
@@ -7805,22 +8602,64 @@ class OfficeIntakeHelper
             $select[] = 'ml.revision_status';
         }
 
-        $records = $query
-            ->orderByRaw("CASE WHEN COALESCE(TRIM(ml.doc_no), '') = '' THEN 1 ELSE 0 END")
-            ->orderBy('ml.doc_no')
-            ->orderByDesc('ml.revise_no')
-            ->orderBy('ml.id')
-            ->get($select);
+        $driver = Schema::getConnection()->getDriverName();
+        $orderSql = $driver === 'pgsql'
+            ? 'ml.revise_no DESC NULLS LAST, ml.id DESC'
+            : 'ml.revise_no DESC, ml.id DESC';
 
-        $records = self::keepLatestDistributedDocuments($records);
+        $inner = (clone $query)->select(array_merge($select, [
+            DB::raw(
+                "ROW_NUMBER() OVER (
+                    PARTITION BY LOWER(TRIM(COALESCE(ml.doc_no, ''))), LOWER(TRIM(COALESCE(ml.doc_title, '')))
+                    ORDER BY {$orderSql}
+                ) as ofi_rn"
+            ),
+        ]));
 
+        return DB::query()->fromSub($inner, 'ofi_ml')->where('ofi_rn', 1);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function buildOfficeDocumentRows(
+        string $groupKey,
+        int $officeId,
+        string $receiptFilter,
+        ?int $limit = null,
+        int $itemStart = 1
+    ): array {
+        if (! $officeId) {
+            return [];
+        }
+
+        $distinct = self::officeDocumentsDistinctQuery($groupKey, $officeId, $receiptFilter)
+            ->orderByRaw("CASE WHEN COALESCE(TRIM(doc_no), '') = '' THEN 1 ELSE 0 END")
+            ->orderBy('doc_no')
+            ->orderByDesc('revise_no')
+            ->orderBy('id');
+
+        if ($limit !== null) {
+            $distinct->limit($limit);
+        }
+
+        return self::mapOfficeDocumentRows($distinct->get(), $officeId, $itemStart);
+    }
+
+    /**
+     * @param  iterable<int, object>  $records
+     * @return list<array<string, mixed>>
+     */
+    private static function mapOfficeDocumentRows(iterable $records, int $officeId, int $itemStart = 1): array
+    {
+        $records = collect($records);
         $receipts = self::officeDistributionReceipts(
             $officeId,
             $records->pluck('request_id')->filter()->map(fn ($id) => (int) $id)->unique()->all()
         );
 
         $rows = [];
-        $itemNo = 0;
+        $itemNo = max(1, $itemStart) - 1;
         foreach ($records as $ml) {
             $itemNo++;
             $pagesRaw = $ml->no_pages ?? null;

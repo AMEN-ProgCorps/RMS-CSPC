@@ -10,10 +10,15 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
+use Livewire\WithPagination;
 
-new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends Component {
+new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
+    use WithPagination;
+
     #[Url]
     public string $type = 'all';
+
+    public int $perPage = 25;
 
     public function mount(): void
     {
@@ -41,6 +46,7 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
         $keys = array_keys(OfficeIntakeHelper::documentGroupDefs());
         if ($type === 'all' || in_array($type, $keys, true)) {
             $this->type = $type;
+            $this->resetPage();
         }
     }
 
@@ -60,10 +66,12 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
             ? 'All'
             : OfficeIntakeHelper::documentGroupLabel($active);
 
-        $rows = OfficeIntakeHelper::listOfficeDocuments($active, null, 'received');
+        $perPage = max(10, min(100, (int) $this->perPage));
+        $page = max(1, (int) $this->getPage());
+        $rows = OfficeIntakeHelper::paginateOfficeDocuments($active, null, 'received', $perPage, $page);
         $activeCount = $active === 'all'
             ? $total
-            : (int) (collect($groups)->firstWhere('key', $active)['count'] ?? count($rows));
+            : (int) (collect($groups)->firstWhere('key', $active)['count'] ?? $rows->total());
 
         return [
             'groups' => $groups,
@@ -138,7 +146,7 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
         @endunless
 
         <div class="ofi-card ofi-list-card" style="position:relative;" wire:loading.class="is-loading">
-            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType">
+            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,previousPage,nextPage,gotoPage">
                 <div class="dcs-loading-spinner" aria-hidden="true"></div>
                 <h4>Loading masterlist…</h4>
                 <p>Fetching received documents.</p>
@@ -173,7 +181,7 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
                         </thead>
                         <tbody>
                             @foreach($rows as $row)
-                                <tr>
+                                <tr wire:key="masterlist-{{ (int) ($row['request_id'] ?? 0) }}-{{ $row['doc_no'] }}-{{ $row['rev_no'] }}">
                                     <td class="ofi-nowrap">{{ $row['doc_no'] !== '' ? $row['doc_no'] : '—' }}</td>
                                     <td>{{ $row['rev_no'] }}</td>
                                     <td class="ofi-title-cell">{{ $row['doc_title'] !== '' ? $row['doc_title'] : '—' }}</td>
@@ -184,6 +192,18 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
                         </tbody>
                     </table>
                 </div>
+                @if($rows->hasPages())
+                    <div class="ofi-pagination" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 4px 4px;flex-wrap:wrap;">
+                        <span style="font-size:12.5px;color:#64748b;">
+                            Showing {{ $rows->firstItem() }}–{{ $rows->lastItem() }} of {{ $rows->total() }}
+                        </span>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <button type="button" class="ofi-btn" wire:click="previousPage" @disabled($rows->onFirstPage())>Previous</button>
+                            <span style="font-size:12.5px;color:#475569;">Page {{ $rows->currentPage() }} / {{ $rows->lastPage() }}</span>
+                            <button type="button" class="ofi-btn" wire:click="nextPage" @disabled(! $rows->hasMorePages())>Next</button>
+                        </div>
+                    </div>
+                @endif
             @endif
         </div>
     </div>

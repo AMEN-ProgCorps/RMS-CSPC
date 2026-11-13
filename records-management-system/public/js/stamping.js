@@ -597,19 +597,26 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     confirmCancel.addEventListener('click', function () {
+        if (confirmApply && confirmApply.classList.contains('is-loading')) return;
         confirmModal.style.display = 'none';
     });
 
     confirmModal.addEventListener('click', function (e) {
-        if (e.target === confirmModal) confirmModal.style.display = 'none';
+        if (e.target === confirmModal) {
+            if (confirmApply && confirmApply.classList.contains('is-loading')) return;
+            confirmModal.style.display = 'none';
+        }
     });
 
     confirmApply.addEventListener('click', function () {
         if (!state.selectedFile || !state.stampType) return;
+        if (confirmApply.disabled || confirmApply.classList.contains('is-loading')) return;
 
         var originalHTML = confirmApply.innerHTML;
         confirmApply.disabled  = true;
-        confirmApply.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Applying...';
+        confirmApply.classList.add('is-loading');
+        confirmApply.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Applying...';
+        if (confirmCancel) confirmCancel.disabled = true;
 
         fetch('/dcs/stamp/apply', {
             method: 'POST',
@@ -664,7 +671,9 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .finally(function () {
             confirmApply.innerHTML = originalHTML;
+            confirmApply.classList.remove('is-loading');
             confirmApply.disabled  = false;
+            if (confirmCancel) confirmCancel.disabled = false;
         });
     });
 

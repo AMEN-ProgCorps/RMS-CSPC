@@ -322,6 +322,7 @@ class ErrorTicketRecorder
     {
         try {
             \Illuminate\Support\Facades\Cache::forget('rms_active_error_guards');
+            \Illuminate\Support\Facades\Cache::forget('rms_active_error_guards_v2');
         } catch (\Throwable) {}
     }
 
@@ -409,18 +410,18 @@ class ErrorTicketRecorder
                 return ['pages' => [], 'modals' => []];
             }
 
-            return \Illuminate\Support\Facades\Cache::remember('rms_active_error_guards', 10, function () {
+            return \Illuminate\Support\Facades\Cache::remember('rms_active_error_guards_v2', 10, function () {
                 $tickets = ErrorTicket::query()
                     ->whereIn('source', [ErrorTicket::SOURCE_AUTO, ErrorTicket::SOURCE_USER_AUTO])
                     ->whereIn('status', [ErrorTicket::STATUS_OPEN, ErrorTicket::STATUS_IN_PROGRESS])
-                    ->select('id', 'ticket_number', 'url', 'title', 'subsystem', 'kind', 'reference', 'context', 'last_seen_at')
+                    ->select('id', 'ticket_number', 'url', 'title', 'subsystem', 'kind', 'http_status', 'reference', 'context', 'last_seen_at')
                     ->get();
 
                 $pages = [];
                 $modals = [];
 
                 foreach ($tickets as $t) {
-                    if ($t->url) {
+                    if ($t->url && self::shouldGuardPage($t)) {
                         $path = parse_url($t->url, PHP_URL_PATH);
                         if ($path && $path !== '/' && !str_contains($path, '/api/')) {
                             $pages[strtolower(rtrim($path, '/'))] = [
@@ -484,5 +485,39 @@ class ErrorTicketRecorder
         }
 
         return 'low';
+    }
+
+    /**
+     * Only hard-block navigation for recent serious server failures.
+     * Client popouts / network notices must not lock whole office pages.
+     */
+    private static function shouldGuardPage(ErrorTicket $ticket): bool
+    {
+        $kind = strtolower(trim((string) ($ticket->kind ?? '')));
+        if (in_array($kind, ['client', 'popout', 'network', 'notice'], true)) {
+            return false;
+        }
+        if (str_starts_with($kind, 'modal:') || str_starts_with($kind, 'modal_')) {
+            return false;
+        }
+
+        $status = (int) ($ticket->http_status ?? 0);
+        // Keep 5xx (and unknown/0 with server kind) as page guards only.
+        if ($status > 0 && $status < 500) {
+            return false;
+        }
+
+        // Stale client POP tickets / one-off auto captures should not lock forever.
+        $ticketNo = strtoupper((string) ($ticket->ticket_number ?? ''));
+        if (str_starts_with($ticketNo, 'POP-')) {
+            return false;
+        }
+
+        $lastSeen = $ticket->last_seen_at;
+        if ($lastSeen && $lastSeen->lt(now()->subHours(2))) {
+            return false;
+        }
+
+        return true;
     }
 }

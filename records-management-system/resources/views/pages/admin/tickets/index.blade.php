@@ -814,18 +814,62 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         }
         .m-inspector-pre {
             background: #f8fafc;
-            border: 1px solid #e2e8f0;
+            border: 1px solid #cbd5e1;
             border-radius: 6px;
-            padding: 10px;
+            padding: 10px 12px;
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
             font-size: 11.5px;
-            line-height: 1.45;
-            color: #334155;
-            max-height: 160px;
+            line-height: 1.5;
+            color: #1e293b;
+            min-height: 80px;
+            max-height: 240px;
             overflow-y: auto;
             white-space: pre-wrap;
             word-break: break-word;
             margin: 6px 0 12px 0;
+            flex-shrink: 0;
+            box-sizing: border-box;
+        }
+        .m-inspector-pre::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .m-inspector-pre::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.04);
+            border-radius: 4px;
+        }
+        .m-inspector-pre::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        .m-inspector-pre::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        .m-copy-diag-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 9px;
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            border-radius: 5px;
+            color: #475569;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+            line-height: 1.4;
+        }
+        .m-copy-diag-btn:hover {
+            background: #e2e8f0;
+            color: #0f172a;
+            border-color: #94a3b8;
+        }
+        .m-copy-diag-btn.is-copied {
+            background: #ecfdf5 !important;
+            border-color: #6ee7b7 !important;
+            color: #059669 !important;
         }
 
         /* Triage Form in Inspector */
@@ -1027,6 +1071,30 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
             background: #0f172a;
             border-color: #334155;
             color: #e2e8f0;
+        }
+        [data-theme="dark"] .m-inspector-pre::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.04);
+        }
+        [data-theme="dark"] .m-inspector-pre::-webkit-scrollbar-thumb {
+            background: #334155;
+        }
+        [data-theme="dark"] .m-inspector-pre::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        [data-theme="dark"] .m-copy-diag-btn {
+            background: #1e293b;
+            border-color: #334155;
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .m-copy-diag-btn:hover {
+            background: #334155;
+            color: #f1f5f9;
+            border-color: #475569;
+        }
+        [data-theme="dark"] .m-copy-diag-btn.is-copied {
+            background: rgba(16, 185, 129, 0.2) !important;
+            border-color: #10b981 !important;
+            color: #34d399 !important;
         }
         [data-theme="dark"] .triage-box {
             background: #0f172a;
@@ -1495,8 +1563,48 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
 
                     {{-- Diagnostics / Description Box --}}
                     @if($selected->description)
-                        <div class="m-inspector-section-title" style="margin-top: 12px;">Diagnostics & User Notes</div>
-                        <div class="m-inspector-pre">{{ $selected->description }}</div>
+                        <div x-data="{ copied: false }" style="margin-top: 14px; margin-bottom: 12px; flex-shrink: 0;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                                <div class="m-inspector-section-title" style="margin: 0;">Diagnostics & User Notes</div>
+                                <button
+                                    type="button"
+                                    class="m-copy-diag-btn"
+                                    :class="copied ? 'is-copied' : ''"
+                                    @click="
+                                        const text = $refs.diagText ? ($refs.diagText.innerText || $refs.diagText.textContent || '') : '';
+                                        const onCopied = () => { copied = true; setTimeout(() => copied = false, 2000); };
+                                        if (navigator.clipboard && window.isSecureContext) {
+                                            navigator.clipboard.writeText(text).then(onCopied).catch(() => {
+                                                const ta = document.createElement('textarea');
+                                                ta.value = text;
+                                                ta.style.position = 'fixed';
+                                                ta.style.left = '-9999px';
+                                                document.body.appendChild(ta);
+                                                ta.select();
+                                                document.execCommand('copy');
+                                                document.body.removeChild(ta);
+                                                onCopied();
+                                            });
+                                        } else {
+                                            const ta = document.createElement('textarea');
+                                            ta.value = text;
+                                            ta.style.position = 'fixed';
+                                            ta.style.left = '-9999px';
+                                            document.body.appendChild(ta);
+                                            ta.select();
+                                            document.execCommand('copy');
+                                            document.body.removeChild(ta);
+                                            onCopied();
+                                        }
+                                    "
+                                    title="Copy diagnostics to clipboard"
+                                >
+                                    <i :class="copied ? 'fa-solid fa-check' : 'fa-regular fa-copy'"></i>
+                                    <span x-text="copied ? 'Copied!' : 'Copy'">Copy</span>
+                                </button>
+                            </div>
+                            <div class="m-inspector-pre" x-ref="diagText">{{ $selected->description }}</div>
+                        </div>
                     @endif
 
                     {{-- Notice Explanatory Banner --}}

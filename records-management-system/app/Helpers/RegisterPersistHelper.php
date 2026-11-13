@@ -838,8 +838,10 @@ class RegisterPersistHelper
         return array_values(array_filter($matched, fn ($n) => $n !== ''));
     }
 
-    /** Join originator chips or a comma-typed string into one stored value. */
-    public static function joinedOriginatorNames(mixed $rawName): string
+    /**
+     * @return list<string>
+     */
+    public static function parseOriginatorNameList(mixed $rawName): array
     {
         $parts = is_array($rawName) ? $rawName : [$rawName];
         $names = [];
@@ -852,7 +854,133 @@ class RegisterPersistHelper
             }
         }
 
-        return implode(', ', $names);
+        return $names;
+    }
+
+    /** Join originator chips or a comma-typed string into one stored value. */
+    public static function joinedOriginatorNames(mixed $rawName): string
+    {
+        return implode(', ', self::parseOriginatorNameList($rawName));
+    }
+
+    /**
+     * Find-or-create each atomic originator name.
+     *
+     * @return array{ids: list<int>, names: list<string>, joined: string}
+     */
+    public static function resolveOriginatorIds(mixed $rawName): array
+    {
+        $names = self::parseOriginatorNameList($rawName);
+        if ($names === [] || ! Schema::hasTable('dcs_originators')) {
+            return ['ids' => [], 'names' => $names, 'joined' => implode(', ', $names)];
+        }
+
+        $ids = [];
+        $canonical = [];
+        foreach ($names as $name) {
+            $row = self::findOrCreateOriginatorRow($name);
+            if ($row === null) {
+                continue;
+            }
+            if (in_array($row['id'], $ids, true)) {
+                continue;
+            }
+            $ids[] = $row['id'];
+            $canonical[] = $row['name'];
+        }
+
+        return ['ids' => $ids, 'names' => $canonical, 'joined' => implode(', ', $canonical)];
+    }
+
+    /** Replace junction rows and return the joined display string. */
+    public static function syncMasterlistOriginators(int $masterlistId, mixed $rawName): string
+    {
+        $resolved = self::resolveOriginatorIds($rawName);
+        if ($masterlistId < 1 || ! Schema::hasTable('dcs_masterlist_originators')) {
+            return $resolved['joined'];
+        }
+
+        DB::table('dcs_masterlist_originators')->where('masterlist_id', $masterlistId)->delete();
+        foreach ($resolved['ids'] as $index => $originatorId) {
+            DB::table('dcs_masterlist_originators')->insert([
+                'masterlist_id' => $masterlistId,
+                'originator_id' => $originatorId,
+                'sort_order' => $index,
+            ]);
+        }
+
+        return $resolved['joined'];
+    }
+
+    /** Replace keyword rows and return the joined display string. */
+    public static function syncMasterlistKeywords(int $masterlistId, mixed $raw): string
+    {
+        $parts = is_array($raw) ? $raw : [$raw];
+        $keywords = [];
+        foreach ($parts as $part) {
+            foreach (preg_split('/\s*,\s*/u', trim((string) $part)) ?: [] as $keyword) {
+                $keyword = trim($keyword);
+                if ($keyword === '') {
+                    continue;
+                }
+                $keyword = mb_substr($keyword, 0, 255);
+                if (! in_array($keyword, $keywords, true)) {
+                    $keywords[] = $keyword;
+                }
+            }
+        }
+        $joined = implode(', ', $keywords);
+        if ($masterlistId < 1 || ! Schema::hasTable('dcs_masterlist_keywords')) {
+            return $joined;
+        }
+
+        DB::table('dcs_masterlist_keywords')->where('masterlist_id', $masterlistId)->delete();
+        foreach ($keywords as $index => $keyword) {
+            DB::table('dcs_masterlist_keywords')->insert([
+                'masterlist_id' => $masterlistId,
+                'keyword' => $keyword,
+                'sort_order' => $index,
+            ]);
+        }
+
+        return $joined;
+    }
+
+    /**
+     * @return array{id: int, name: string}|null
+     */
+    private static function findOrCreateOriginatorRow(string $name): ?array
+    {
+        $name = trim($name);
+        if ($name === '' || ! Schema::hasTable('dcs_originators')) {
+            return null;
+        }
+
+        $existing = DB::table('dcs_originators')
+            ->whereRaw('LOWER(originator_name) = ?', [mb_strtolower($name)])
+            ->first();
+        if ($existing) {
+            return ['id' => (int) $existing->id, 'name' => (string) $existing->originator_name];
+        }
+
+        $now = now();
+        try {
+            $id = (int) DB::table('dcs_originators')->insertGetId([
+                'originator_name' => $name,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        } catch (\Throwable $e) {
+            $existing = DB::table('dcs_originators')
+                ->whereRaw('LOWER(originator_name) = ?', [mb_strtolower($name)])
+                ->first();
+            if ($existing) {
+                return ['id' => (int) $existing->id, 'name' => (string) $existing->originator_name];
+            }
+            throw $e;
+        }
+
+        return ['id' => $id, 'name' => $name];
     }
 
     /**
@@ -879,53 +1007,46 @@ class RegisterPersistHelper
     }
 
     /**
+     * Prefer junction rows (atomic originator ids) when seeding the register chips.
+     *
+     * @return list<array{type: string, id: mixed, label: string}>
+     */
+    public static function originatorSeedFromMasterlist(int $masterlistId, mixed $rawName = null, mixed $originatorId = null): array
+    {
+        if ($masterlistId > 0 && Schema::hasTable('dcs_masterlist_originators') && Schema::hasTable('dcs_originators')) {
+            $rows = DB::table('dcs_masterlist_originators as mo')
+                ->join('dcs_originators as og', 'og.id', '=', 'mo.originator_id')
+                ->where('mo.masterlist_id', $masterlistId)
+                ->orderBy('mo.sort_order')
+                ->orderBy('mo.id')
+                ->get(['og.id', 'og.originator_name']);
+            if ($rows->isNotEmpty()) {
+                return $rows->map(fn ($row) => [
+                    'type' => 'name',
+                    'id' => (int) $row->id,
+                    'label' => trim((string) $row->originator_name),
+                ])->filter(fn ($row) => $row['label'] !== '')->values()->all();
+            }
+        }
+
+        return self::originatorSeedFromStored($rawName, $originatorId);
+    }
+
+    /**
      * Resolve masterlist originator for analytics: find-or-create in dcs_originators.
      * Returns ['originator_id' => int|null, 'originator_name' => string|null].
      */
     public static function resolveOriginator(mixed $rawName): array
     {
-        $name = self::joinedOriginatorNames($rawName);
-        if ($name === '') {
+        $resolved = self::resolveOriginatorIds($rawName);
+        if ($resolved['joined'] === '') {
             return ['originator_id' => null, 'originator_name' => null];
         }
 
-        if (!Schema::hasTable('dcs_originators')) {
-            return ['originator_id' => null, 'originator_name' => $name];
-        }
-
-        $existing = DB::table('dcs_originators')
-            ->whereRaw('LOWER(originator_name) = ?', [mb_strtolower($name)])
-            ->first();
-
-        if ($existing) {
-            return [
-                'originator_id' => (int) $existing->id,
-                'originator_name' => $existing->originator_name,
-            ];
-        }
-
-        $now = now();
-        try {
-            $id = DB::table('dcs_originators')->insertGetId([
-                'originator_name' => $name,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
-        } catch (\Throwable $e) {
-            // Race: another request inserted the same name — re-read.
-            $existing = DB::table('dcs_originators')
-                ->whereRaw('LOWER(originator_name) = ?', [mb_strtolower($name)])
-                ->first();
-            if ($existing) {
-                return [
-                    'originator_id' => (int) $existing->id,
-                    'originator_name' => $existing->originator_name,
-                ];
-            }
-            throw $e;
-        }
-
-        return ['originator_id' => (int) $id, 'originator_name' => $name];
+        return [
+            'originator_id' => $resolved['ids'][0] ?? null,
+            'originator_name' => $resolved['joined'],
+        ];
     }
 
     public static function validateCheckedSections(Request $request): ?RedirectResponse
@@ -1899,6 +2020,8 @@ class RegisterPersistHelper
                 self::saveOriginsFromOfficeIds($masterlistId, $request->input('masterlistOfficeIds', []));
                 $relatedIds = array_filter(array_map('intval', $request->input('relatedDocumentIds', [])));
                 self::saveRelatedDocumentIds($masterlistId, $relatedIds);
+                self::syncMasterlistOriginators((int) $masterlistId, $request->masterlistOriginator);
+                self::syncMasterlistKeywords((int) $masterlistId, $keywordVal);
             }
 
             if (in_array(3, $checkedChecklists, true) && $isSyllabi) {
@@ -2002,6 +2125,8 @@ class RegisterPersistHelper
 
                 $relatedIds = array_filter(array_map('intval', $request->input('relatedDocumentIds', [])));
                 self::saveRelatedDocumentIds($masterlistId, $relatedIds);
+                self::syncMasterlistOriginators((int) $masterlistId, $request->masterlistOriginator);
+                self::syncMasterlistKeywords((int) $masterlistId, $keywordVal);
 
                 self::saveSyllabiRowsFromRequest($requestId, $request, $uploadedFiles);
             }

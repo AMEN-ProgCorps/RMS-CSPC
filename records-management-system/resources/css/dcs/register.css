@@ -2983,7 +2983,8 @@ select.reg-field-locked:disabled {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 24px 0;
+    /* Leave room above fixed Guide + Report + Messify FABs (bottom ~24px + 56px). */
+    padding: 24px 0 96px;
     margin-top: 8px;
     border-top: 1px solid var(--reg-border);
 }
@@ -4163,6 +4164,7 @@ select.reg-field-locked:disabled {
     .reg-actions {
         flex-direction: column;
         gap: 12px;
+        padding-bottom: 96px;
     }
 
     .reg-actions-left,

@@ -532,6 +532,8 @@ class OfficeIntakeHelper
             return collect();
         }
 
+        self::hydrateIntakeOriginators($type, $rows);
+
         $ids = $rows->pluck('id')->map(fn ($id) => (int) $id)->all();
         $requestIds = $rows
             ->pluck('registered_request_id')
@@ -1197,9 +1199,15 @@ class OfficeIntakeHelper
             return null;
         }
 
-        return DB::table('dcs_office_intake_drf')
+        $row = DB::table('dcs_office_intake_drf')
             ->where('id', $id)
             ->first();
+        if ($row) {
+            self::hydrateIntakeOriginators('drf', [$row]);
+            self::hydrateDrfPreviousCopies($row);
+        }
+
+        return $row;
     }
 
     public static function findOfficeDcn(int $id): ?object
@@ -1208,9 +1216,104 @@ class OfficeIntakeHelper
             return null;
         }
 
-        return DB::table('dcs_office_intake_dcn')
+        $row = DB::table('dcs_office_intake_dcn')
             ->where('id', $id)
             ->first();
+        if ($row) {
+            self::hydrateIntakeOriginators('dcn', [$row]);
+        }
+
+        return $row;
+    }
+
+    private static function syncIntakeOriginators(string $junction, string $ownerColumn, int $ownerId, mixed $raw): void
+    {
+        if ($ownerId < 1 || ! Schema::hasTable($junction)) {
+            return;
+        }
+        $resolved = RegisterPersistHelper::resolveOriginatorIds($raw);
+        DB::table($junction)->where($ownerColumn, $ownerId)->delete();
+        foreach ($resolved['ids'] as $index => $originatorId) {
+            DB::table($junction)->insert([
+                $ownerColumn => $ownerId,
+                'originator_id' => $originatorId,
+                'sort_order' => $index,
+            ]);
+        }
+    }
+
+    /**
+     * @param  iterable<mixed>  $rows
+     */
+    private static function hydrateIntakeOriginators(string $type, iterable $rows): void
+    {
+        $type = $type === 'dcn' ? 'dcn' : 'drf';
+        $junction = $type === 'dcn' ? 'dcs_office_dcn_originators' : 'dcs_office_drf_originators';
+        $ownerColumn = $type === 'dcn' ? 'office_intake_dcn_id' : 'office_intake_drf_id';
+        if (! Schema::hasTable($junction) || ! Schema::hasTable('dcs_originators')) {
+            return;
+        }
+
+        $need = [];
+        foreach ($rows as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+            if (trim((string) ($row->originator_name ?? '')) !== '') {
+                continue;
+            }
+            $id = (int) ($row->id ?? 0);
+            if ($id > 0) {
+                $need[] = $id;
+            }
+        }
+        if ($need === []) {
+            return;
+        }
+
+        $grouped = [];
+        $links = DB::table($junction.' as j')
+            ->join('dcs_originators as og', 'og.id', '=', 'j.originator_id')
+            ->whereIn('j.'.$ownerColumn, $need)
+            ->orderBy('j.sort_order')
+            ->orderBy('j.id')
+            ->get(['j.'.$ownerColumn.' as owner_id', 'og.originator_name']);
+        foreach ($links as $link) {
+            $grouped[(int) $link->owner_id][] = (string) $link->originator_name;
+        }
+        foreach ($rows as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+            $id = (int) ($row->id ?? 0);
+            if ($id > 0 && isset($grouped[$id]) && trim((string) ($row->originator_name ?? '')) === '') {
+                $row->originator_name = implode(', ', $grouped[$id]);
+            }
+        }
+    }
+
+    private static function hydrateDrfPreviousCopies(object $drf): void
+    {
+        $masterlistId = (int) ($drf->previous_masterlist_id ?? 0);
+        if ($masterlistId < 1 || ! Schema::hasTable('dcs_masterlist_registration')) {
+            return;
+        }
+        $needsTitle = trim((string) ($drf->previous_document_title ?? '')) === '';
+        $needsOriginator = trim((string) ($drf->previous_originator ?? '')) === '';
+        if (! $needsTitle && ! $needsOriginator) {
+            return;
+        }
+        $ml = DB::table('dcs_masterlist_registration')->where('id', $masterlistId)->first(['id', 'doc_title']);
+        if (! $ml) {
+            return;
+        }
+        if ($needsTitle) {
+            $drf->previous_document_title = $ml->doc_title;
+        }
+        if ($needsOriginator) {
+            RegisterQueryHelper::attachOriginatorNames([$ml]);
+            $drf->previous_originator = $ml->originator_name ?? null;
+        }
     }
 
     /** @return \Illuminate\Support\Collection<int, object> */
@@ -1352,23 +1455,8 @@ class OfficeIntakeHelper
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)])
             ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)]);
-        if (Schema::hasTable('dcs_originators')) {
-            $query->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id');
-        }
-        $originSql = Schema::hasTable('dcs_originators')
-            ? "LOWER(TRIM(COALESCE(og.originator_name, '')))"
-            : "''";
-        $originDisplay = Schema::hasTable('dcs_originators')
-            ? "TRIM(COALESCE(og.originator_name, ''))"
-            : "''";
-        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
-            $originSql = Schema::hasTable('dcs_originators')
-                ? "LOWER(TRIM(COALESCE(NULLIF(og.originator_name, ''), ml.originator_name, '')))"
-                : "LOWER(TRIM(COALESCE(ml.originator_name, '')))";
-            $originDisplay = Schema::hasTable('dcs_originators')
-                ? "TRIM(COALESCE(NULLIF(og.originator_name, ''), ml.originator_name, ''))"
-                : "TRIM(COALESCE(ml.originator_name, ''))";
-        }
+        $originDisplay = RegisterQueryHelper::masterlistOriginatorNameSql('ml');
+        $originSql = 'LOWER(TRIM(COALESCE('.$originDisplay.", '')))";
         $query->whereRaw($originSql . ' = ?', [mb_strtolower($originator)]);
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
@@ -1422,17 +1510,7 @@ class OfficeIntakeHelper
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)]);
-        if (Schema::hasTable('dcs_originators')) {
-            $query->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id');
-        }
-        $originDisplay = Schema::hasTable('dcs_originators')
-            ? "TRIM(COALESCE(og.originator_name, ''))"
-            : "''";
-        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
-            $originDisplay = Schema::hasTable('dcs_originators')
-                ? "TRIM(COALESCE(NULLIF(og.originator_name, ''), ml.originator_name, ''))"
-                : "TRIM(COALESCE(ml.originator_name, ''))";
-        }
+        $originDisplay = RegisterQueryHelper::masterlistOriginatorNameSql('ml');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
         RegisterQueryHelper::applyExcludeOfficeIntakeRequests($query, 'dr');
@@ -1748,17 +1826,7 @@ class OfficeIntakeHelper
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->where('ml.id', $masterlistId);
-        if (Schema::hasTable('dcs_originators')) {
-            $query->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id');
-        }
-        $originDisplay = Schema::hasTable('dcs_originators')
-            ? "TRIM(COALESCE(og.originator_name, ''))"
-            : "''";
-        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
-            $originDisplay = Schema::hasTable('dcs_originators')
-                ? "TRIM(COALESCE(NULLIF(og.originator_name, ''), ml.originator_name, ''))"
-                : "TRIM(COALESCE(ml.originator_name, ''))";
-        }
+        $originDisplay = RegisterQueryHelper::masterlistOriginatorNameSql('ml');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
         RegisterQueryHelper::applyExcludeOfficeIntakeRequests($query, 'dr');
@@ -2105,7 +2173,13 @@ class OfficeIntakeHelper
                 ->orWhereRaw("LOWER(TRIM(COALESCE(document_no, ''))) = ?", [$docNo]);
         });
 
-        foreach ($query->orderBy('id')->get(['id', 'document_no', 'document_title', 'originator_name']) as $row) {
+        $cols = ['id', 'document_no', 'document_title'];
+        if (Schema::hasColumn('dcs_office_intake_dcn', 'originator_name')) {
+            $cols[] = 'originator_name';
+        }
+        $candidates = $query->orderBy('id')->get($cols);
+        self::hydrateIntakeOriginators('dcn', $candidates);
+        foreach ($candidates as $row) {
             $title = mb_strtolower(trim((string) ($row->document_title ?? '')));
             $origin = mb_strtolower(trim((string) ($row->originator_name ?? '')));
             $sameTitle = $title !== '' && in_array($title, $titles, true);
@@ -2160,8 +2234,15 @@ class OfficeIntakeHelper
         }
 
         $query = self::openIntakeScope('dcs_office_intake_drf')
-            ->whereRaw('LOWER(TRIM(COALESCE(doc_title, \'\'))) = ?', [$title])
-            ->whereRaw('LOWER(TRIM(COALESCE(originator_name, \'\'))) = ?', [$originator]);
+            ->whereRaw('LOWER(TRIM(COALESCE(doc_title, \'\'))) = ?', [$title]);
+        if (Schema::hasColumn('dcs_office_intake_drf', 'originator_name')) {
+            $query->whereRaw('LOWER(TRIM(COALESCE(originator_name, \'\'))) = ?', [$originator]);
+        } elseif (Schema::hasTable('dcs_office_drf_originators')) {
+            $query->whereRaw(
+                "LOWER(TRIM(COALESCE((SELECT string_agg(og.originator_name, ', ' ORDER BY j.sort_order, j.id) FROM dcs_office_drf_originators j INNER JOIN dcs_originators og ON og.id = j.originator_id WHERE j.office_intake_drf_id = dcs_office_intake_drf.id), ''))) = ?",
+                [$originator]
+            );
+        }
         if ($exceptId) {
             $query->where('id', '<>', $exceptId);
         }
@@ -2450,7 +2531,6 @@ class OfficeIntakeHelper
                     'created_at' => $now,
                     'updated_at' => $now,
                     'prepared_by_name' => trim((string) ($data['preparedByName'] ?? '')) ?: null,
-                    'originator_name' => trim((string) ($data['originatorName'] ?? '')) ?: null,
                     'doc_type_kind' => $data['docTypeKind'] ?? null,
                     'description_reason' => trim((string) ($data['descriptionReason'] ?? '')) ?: null,
                 ];
@@ -2461,6 +2541,9 @@ class OfficeIntakeHelper
                     $row['sub_type_id'] = ! empty($data['resolvedSubTypeId']) ? (int) $data['resolvedSubTypeId'] : null;
                 }
                 self::applyOfficeDrfSyllabiColumns($row, $syllabiCtx);
+                if (Schema::hasColumn('dcs_office_intake_drf', 'originator_name')) {
+                    $row['originator_name'] = RegisterPersistHelper::joinedOriginatorNames($data['originatorName'] ?? null) ?: null;
+                }
 
                 if ($sourceDcnId > 0) {
                     $row['source_office_dcn_id'] = $sourceDcnId;
@@ -2491,6 +2574,7 @@ class OfficeIntakeHelper
                 }
 
                 $drfId = DB::table('dcs_office_intake_drf')->insertGetId($row);
+                self::syncIntakeOriginators('dcs_office_drf_originators', 'office_intake_drf_id', $drfId, $data['originatorName'] ?? null);
                 self::syncDistributeOffices($drfId, $data['distributeToOffice'] ?? []);
 
                 foreach ($officeIds as $officeId) {
@@ -2729,7 +2813,6 @@ class OfficeIntakeHelper
                     'document_title' => $docTitle !== '' ? $docTitle : null,
                     'change_from' => trim((string) ($data['changeFrom'] ?? '')) ?: null,
                     'change_to' => trim((string) ($data['changeTo'] ?? '')) ?: null,
-                    'originator_name' => trim((string) ($data['originatorName'] ?? '')) ?: null,
                     'department_on' => $data['departmentDate'] ?? null,
                 ];
                 if (Schema::hasColumn('dcs_office_intake_dcn', 'previous_document_no')) {
@@ -2738,8 +2821,12 @@ class OfficeIntakeHelper
                 if (Schema::hasColumn('dcs_office_intake_dcn', 'expects_drf')) {
                     $row['expects_drf'] = $expectsDrf;
                 }
+                if (Schema::hasColumn('dcs_office_intake_dcn', 'originator_name')) {
+                    $row['originator_name'] = RegisterPersistHelper::joinedOriginatorNames($data['originatorName'] ?? null) ?: null;
+                }
 
                 $dcnId = DB::table('dcs_office_intake_dcn')->insertGetId($row);
+                self::syncIntakeOriginators('dcs_office_dcn_originators', 'office_intake_dcn_id', $dcnId, $data['originatorName'] ?? null);
 
                 self::syncDcnReviewers($dcnId, $reviewers);
                 self::syncDcnApprovals($dcnId, $approvals);
@@ -2874,7 +2961,7 @@ class OfficeIntakeHelper
                 'updated_at' => $now,
             ];
             if (Schema::hasColumn('dcs_office_intake_drf', 'originator_name')) {
-                $row['originator_name'] = trim((string) ($data['originatorName'] ?? '')) ?: null;
+                $row['originator_name'] = RegisterPersistHelper::joinedOriginatorNames($data['originatorName'] ?? null) ?: null;
             }
             if (Schema::hasColumn('dcs_office_intake_drf', 'doc_type_kind')) {
                 $row['doc_type_kind'] = $data['docTypeKind'] ?? null;
@@ -2929,6 +3016,7 @@ class OfficeIntakeHelper
                 ->where('id', $id)
                 ->update($row);
             abort_if($affected < 1, 404, 'Document Request Form not found.');
+            self::syncIntakeOriginators('dcs_office_drf_originators', 'office_intake_drf_id', $id, $data['originatorName'] ?? null);
         });
 
         DcsNotificationService::dismissOfficeIntakeNotifications('drf', $id);
@@ -3029,7 +3117,9 @@ class OfficeIntakeHelper
                 $row['document_title'] = $docTitle !== '' ? $docTitle : null;
                 $row['change_from'] = trim((string) ($data['changeFrom'] ?? '')) ?: null;
                 $row['change_to'] = trim((string) ($data['changeTo'] ?? '')) ?: null;
-                $row['originator_name'] = trim((string) ($data['originatorName'] ?? '')) ?: null;
+                if (Schema::hasColumn('dcs_office_intake_dcn', 'originator_name')) {
+                    $row['originator_name'] = RegisterPersistHelper::joinedOriginatorNames($data['originatorName'] ?? null) ?: null;
+                }
                 $row['department_on'] = $data['departmentDate'] ?? null;
             }
             if (Schema::hasColumn('dcs_office_intake_dcn', 'previous_document_no')) {
@@ -3060,6 +3150,7 @@ class OfficeIntakeHelper
                 ->where('id', $id)
                 ->update($row);
             abort_if($affected < 1, 404, 'Document Change Notice not found.');
+            self::syncIntakeOriginators('dcs_office_dcn_originators', 'office_intake_dcn_id', $id, $data['originatorName'] ?? null);
 
             self::syncDcnReviewers($id, $reviewers);
             self::syncDcnApprovals($id, $approvals);
@@ -3138,6 +3229,187 @@ class OfficeIntakeHelper
             if (count($rows) >= 9) {
                 break;
             }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private static function syncSignatoryTemplateFields(int $templateId, array $payload): void
+    {
+        if ($templateId < 1 || ! Schema::hasTable('dcs_signatory_template_fields')) {
+            return;
+        }
+        DB::table('dcs_signatory_template_fields')->where('template_id', $templateId)->delete();
+        foreach (self::signatoryFieldRows($payload) as $field) {
+            DB::table('dcs_signatory_template_fields')->insert([
+                'template_id' => $templateId,
+                'role_key' => $field['role_key'],
+                'name' => $field['name'],
+                'designation' => $field['designation'],
+            ]);
+        }
+    }
+
+    /**
+     * @param  iterable<int, object>  $rows
+     */
+    private static function attachSignatoryPayloads(iterable $rows): void
+    {
+        $list = collect($rows);
+        if ($list->isEmpty()) {
+            return;
+        }
+        if (! Schema::hasTable('dcs_signatory_template_fields')) {
+            foreach ($list as $row) {
+                if (! is_object($row)) {
+                    continue;
+                }
+                $row->payload = self::decodeSignatoryPayload($row->payload ?? null);
+            }
+
+            return;
+        }
+        $ids = $list->map(fn ($row) => is_object($row) ? (int) ($row->id ?? 0) : 0)->filter()->values()->all();
+        $grouped = [];
+        if ($ids !== []) {
+            foreach (DB::table('dcs_signatory_template_fields')->whereIn('template_id', $ids)->orderBy('id')->get() as $field) {
+                $grouped[(int) $field->template_id][] = $field;
+            }
+        }
+        foreach ($list as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+            $fields = $grouped[(int) ($row->id ?? 0)] ?? [];
+            if ($fields !== []) {
+                $row->payload = self::payloadFromFieldRows($fields);
+
+                continue;
+            }
+            $decoded = self::decodeSignatoryPayload($row->payload ?? null);
+            $row->payload = is_array($decoded) ? $decoded : [];
+        }
+    }
+
+    private static function signatoryPayloadForRow(object $row): ?array
+    {
+        $templateId = (int) ($row->id ?? 0);
+        if ($templateId > 0 && Schema::hasTable('dcs_signatory_template_fields')) {
+            $fields = DB::table('dcs_signatory_template_fields')->where('template_id', $templateId)->orderBy('id')->get();
+            if ($fields->isNotEmpty()) {
+                return self::payloadFromFieldRows($fields->all());
+            }
+        }
+
+        return self::decodeSignatoryPayload($row->payload ?? null);
+    }
+
+    private static function decodeSignatoryPayload(mixed $payload): ?array
+    {
+        if (is_array($payload)) {
+            return $payload;
+        }
+        if (! is_string($payload) || trim($payload) === '') {
+            return null;
+        }
+        $decoded = json_decode($payload, true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * @param  list<object>  $fields
+     * @return array<string, mixed>
+     */
+    private static function payloadFromFieldRows(array $fields): array
+    {
+        $byRole = [];
+        foreach ($fields as $field) {
+            $byRole[(string) ($field->role_key ?? '')] = $field;
+        }
+        $payload = [];
+        foreach (['prepared_by', 'reviewed_by', 'approved_by'] as $role) {
+            $field = $byRole[$role] ?? null;
+            $payload[$role.'_name'] = trim((string) ($field->name ?? ''));
+            $payload[$role.'_designation'] = trim((string) ($field->designation ?? ''));
+        }
+        $reviewers = [];
+        $approvals = [];
+        foreach ($byRole as $key => $field) {
+            if (preg_match('/^reviewer_(\d+)$/', $key, $match)) {
+                $reviewers[(int) $match[1]] = ['name' => trim((string) ($field->name ?? ''))];
+            }
+            if (preg_match('/^approval_(\d+)$/', $key, $match)) {
+                $approvals[(int) $match[1]] = [
+                    'position' => trim((string) ($field->designation ?? '')),
+                    'name' => trim((string) ($field->name ?? '')),
+                ];
+            }
+        }
+        if ($reviewers !== []) {
+            ksort($reviewers);
+            $payload['reviewers'] = array_values($reviewers);
+        }
+        if ($approvals !== []) {
+            ksort($approvals);
+            $payload['approvals'] = array_values($approvals);
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return list<array{role_key: string, name: ?string, designation: ?string}>
+     */
+    private static function signatoryFieldRows(array $payload): array
+    {
+        $rows = [];
+        $roles = [
+            'prepared_by' => ['prepared_by_name', 'prepared_by_designation'],
+            'reviewed_by' => ['reviewed_by_name', 'reviewed_by_designation'],
+            'approved_by' => ['approved_by_name', 'approved_by_designation'],
+        ];
+        foreach ($roles as $role => [$nameKey, $designationKey]) {
+            if (! array_key_exists($nameKey, $payload) && ! array_key_exists($designationKey, $payload)) {
+                continue;
+            }
+            $name = trim((string) ($payload[$nameKey] ?? ''));
+            $designation = trim((string) ($payload[$designationKey] ?? ''));
+            $rows[] = [
+                'role_key' => $role,
+                'name' => $name !== '' ? $name : null,
+                'designation' => $designation !== '' ? $designation : null,
+            ];
+        }
+        $index = 1;
+        foreach ((array) ($payload['reviewers'] ?? []) as $reviewer) {
+            $name = trim((string) (is_array($reviewer) ? ($reviewer['name'] ?? '') : $reviewer));
+            if ($name === '') {
+                continue;
+            }
+            $rows[] = ['role_key' => 'reviewer_'.$index, 'name' => $name, 'designation' => null];
+            $index++;
+        }
+        $index = 1;
+        foreach ((array) ($payload['approvals'] ?? []) as $approval) {
+            if (! is_array($approval)) {
+                continue;
+            }
+            $name = trim((string) ($approval['name'] ?? ''));
+            $position = trim((string) ($approval['position'] ?? ''));
+            if ($name === '' && $position === '') {
+                continue;
+            }
+            $rows[] = [
+                'role_key' => 'approval_'.$index,
+                'name' => $name !== '' ? $name : null,
+                'designation' => $position !== '' ? $position : null,
+            ];
+            $index++;
         }
 
         return $rows;
@@ -3255,11 +3527,7 @@ class OfficeIntakeHelper
             return null;
         }
 
-        $payload = $row->payload ?? null;
-        if (is_string($payload)) {
-            $decoded = json_decode($payload, true);
-            $payload = is_array($decoded) ? $decoded : null;
-        }
+        $payload = self::signatoryPayloadForRow($row);
         if (! is_array($payload)) {
             return null;
         }
@@ -3327,10 +3595,12 @@ class OfficeIntakeHelper
             'form_kind' => $formKind,
             'doc_type_kind' => $docTypeKind,
             'doc_type_id' => $docTypeId,
-            'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE),
             'updated_by' => $updatedBy,
             'updated_at' => $now,
         ];
+        if (Schema::hasColumn('dcs_signatory_templates', 'payload')) {
+            $data['payload'] = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        }
         if (Schema::hasColumn('dcs_signatory_templates', 'college_id')) {
             $data['college_id'] = $collegeId;
         }
@@ -3363,7 +3633,8 @@ class OfficeIntakeHelper
         }
 
         $data['created_at'] = $now;
-        DB::table('dcs_signatory_templates')->insert($data);
+        $templateId = (int) DB::table('dcs_signatory_templates')->insertGetId($data);
+        self::syncSignatoryTemplateFields($templateId, $payload);
     }
 
     /**
@@ -3396,7 +3667,10 @@ class OfficeIntakeHelper
             $query->select('t.*');
         }
 
-        return $query->limit(200)->get();
+        $rows = $query->limit(200)->get();
+        self::attachSignatoryPayloads($rows);
+
+        return $rows;
     }
 
     /**
@@ -4507,11 +4781,7 @@ class OfficeIntakeHelper
         }
         $hasCollegeCol = Schema::hasColumn('dcs_signatory_templates', 'college_id');
         foreach ($query->get() as $row) {
-            $payload = $row->payload ?? null;
-            if (is_string($payload)) {
-                $decoded = json_decode($payload, true);
-                $payload = is_array($decoded) ? $decoded : null;
-            }
+            $payload = self::signatoryPayloadForRow($row);
             $normalized = is_array($payload) ? self::normalizeDrfSignatoryPayload($payload) : null;
             if ($normalized === null) {
                 continue;
@@ -6739,6 +7009,8 @@ class OfficeIntakeHelper
     /** @return array<string, mixed> */
     public static function registerPrefillForDrf(object $drf, int $id): array
     {
+        self::hydrateIntakeOriginators('drf', [$drf]);
+        self::hydrateDrfPreviousCopies($drf);
         $sourceOffices = self::drfSourceOffices($id)->map(fn ($row) => [
             'office_id' => (int) ($row->office_id ?? 0),
             'office_name' => trim((string) ($row->office_name ?? '')),
@@ -6908,6 +7180,7 @@ class OfficeIntakeHelper
     /** @return array<string, mixed> */
     public static function registerPrefillForDcn(object $dcn, int $id, string $docNo, string $docTitle): array
     {
+        self::hydrateIntakeOriginators('dcn', [$dcn]);
         $sourceOffices = self::dcnSourceOffices($id)->map(fn ($row) => [
             'office_id' => (int) ($row->office_id ?? 0),
             'office_name' => trim((string) ($row->office_name ?? '')),

@@ -297,11 +297,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 ->where(function ($q3) use ($like) {
                                     $q3->where('ml.doc_no', 'ilike', $like)
                                         ->orWhere('ml.doc_title', 'ilike', $like)
-                                        ->orWhereExists(function ($name) use ($like) {
-                                            $name->select(DB::raw(1))
-                                                ->from('dcs_originators as og')
-                                                ->whereColumn('og.id', 'ml.originator_id')
-                                                ->where('og.originator_name', 'ilike', $like);
+                                        ->orWhere(function ($name) use ($like) {
+                                            RegisterQueryHelper::applyMasterlistOriginatorFilter($name, 'ml', $like, false, false);
                                         });
                                 });
                         })
@@ -320,11 +317,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             ->where(function ($q3) use ($tokenLike) {
                                                 $q3->where('ml.doc_no', 'ilike', $tokenLike)
                                                     ->orWhere('ml.doc_title', 'ilike', $tokenLike)
-                                                    ->orWhereExists(function ($name) use ($tokenLike) {
-                                                        $name->select(DB::raw(1))
-                                                            ->from('dcs_originators as og')
-                                                            ->whereColumn('og.id', 'ml.originator_id')
-                                                            ->where('og.originator_name', 'ilike', $tokenLike);
+                                                    ->orWhere(function ($name) use ($tokenLike) {
+                                                        RegisterQueryHelper::applyMasterlistOriginatorFilter($name, 'ml', $tokenLike, false, false);
                                                     });
                                             });
                                     })->orWhereExists(function ($q2) use ($tokenLike) {
@@ -348,9 +342,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 $query->whereExists(function ($q) use ($originator) {
                     $q->select(DB::raw(1))
                         ->from('dcs_masterlist_registration as ml')
-                        ->join('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
-                        ->whereColumn('ml.request_id', 'dr.id')
-                        ->where('og.originator_name', $originator);
+                        ->whereColumn('ml.request_id', 'dr.id');
+                    RegisterQueryHelper::applyMasterlistOriginatorFilter($q, 'ml', $originator, true);
                 });
             }
 

@@ -237,7 +237,8 @@ class OfficeDcnDocNoDrfTest extends TestCase
             $ml['allows_revision'] = true;
         }
         $originatorName = 'Registered Originator';
-        if (Schema::hasTable('dcs_originators') && Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
+        $originatorId = 0;
+        if (Schema::hasTable('dcs_originators')) {
             $originRow = ['originator_name' => $originatorName];
             if (Schema::hasColumn('dcs_originators', 'created_at')) {
                 $originRow['created_at'] = $now;
@@ -245,12 +246,21 @@ class OfficeDcnDocNoDrfTest extends TestCase
             }
             $originatorId = (int) (DB::table('dcs_originators')->where('originator_name', $originatorName)->value('id')
                 ?: DB::table('dcs_originators')->insertGetId($originRow));
-            $ml['originator_id'] = $originatorId;
+            if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
+                $ml['originator_id'] = $originatorId;
+            }
         }
         if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
             $ml['originator_name'] = $originatorName;
         }
-        DB::table('dcs_masterlist_registration')->insert($ml);
+        $masterlistId = (int) DB::table('dcs_masterlist_registration')->insertGetId($ml);
+        if ($originatorId > 0 && Schema::hasTable('dcs_masterlist_originators')) {
+            DB::table('dcs_masterlist_originators')->insert([
+                'masterlist_id' => $masterlistId,
+                'originator_id' => $originatorId,
+                'sort_order' => 0,
+            ]);
+        }
 
         return [
             'doc_no' => $docNo,

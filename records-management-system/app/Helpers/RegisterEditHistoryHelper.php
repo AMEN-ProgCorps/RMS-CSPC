@@ -53,18 +53,8 @@ class RegisterEditHistoryHelper
             return [];
         }
 
-        $originator = '';
-        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
-            $originator = trim((string) ($ml->originator_name ?? ''));
-        }
-        if ($originator === '' && ! empty($ml->originator_id) && Schema::hasTable('dcs_originators')) {
-            $originator = trim((string) (DB::table('dcs_originators')->where('id', $ml->originator_id)->value('originator_name') ?? ''));
-        }
-
-        $keywords = '';
-        if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
-            $keywords = trim((string) ($ml->keywords ?? ''));
-        }
+        $originator = self::originatorLabel((int) $ml->id, $ml);
+        $keywords = self::keywordsLabel((int) $ml->id, $ml);
 
         return [
             'doc_no' => self::norm((string) ($ml->doc_no ?? '')),
@@ -126,17 +116,8 @@ class RegisterEditHistoryHelper
             return;
         }
 
-        try {
-            DB::table('dcs_document_edit_history')->insert([
-                'request_id' => $requestId,
-                'user_id' => Auth::id(),
-                'action' => in_array($action, ['update', 'register', 'draft'], true) ? $action : 'update',
-                'changes' => json_encode($changes),
-                'created_at' => now(),
-            ]);
-        } catch (\Throwable) {
-            // Non-fatal — registration must not fail because history logging failed.
-        }
+        $storedAction = in_array($action, ['update', 'register', 'draft'], true) ? $action : 'update';
+        self::persist($requestId, $storedAction, $changes);
     }
 
     /**
@@ -168,16 +149,7 @@ class RegisterEditHistoryHelper
             return;
         }
 
-        try {
-            DB::table('dcs_document_edit_history')->insert([
-                'request_id' => $requestId,
-                'user_id' => Auth::id(),
-                'action' => $action === 'draft' ? 'draft' : 'register',
-                'changes' => json_encode($changes),
-                'created_at' => now(),
-            ]);
-        } catch (\Throwable) {
-        }
+        self::persist($requestId, $action === 'draft' ? 'draft' : 'register', $changes);
     }
 
     /**
@@ -217,10 +189,36 @@ class RegisterEditHistoryHelper
         $userIds = $rows->pluck('user_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
         $names = self::userDisplayNames($userIds);
 
+        $childByHistory = [];
+        if (Schema::hasTable('dcs_document_edit_history_changes')) {
+            $historyIds = $rows->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $childRows = DB::table('dcs_document_edit_history_changes')
+                ->whereIn('history_id', $historyIds)
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->get();
+            foreach ($childRows as $child) {
+                $childByHistory[(int) $child->history_id][] = [
+                    'field' => (string) ($child->field ?? ''),
+                    'label' => (string) ($child->label ?? ''),
+                    'old' => (string) ($child->old_value ?? '—'),
+                    'new' => (string) ($child->new_value ?? '—'),
+                ];
+            }
+        }
+        $hasJson = Schema::hasColumn('dcs_document_edit_history', 'changes');
+
         $out = [];
         foreach ($rows as $row) {
-            $changes = json_decode((string) ($row->changes ?? '[]'), true);
-            if (! is_array($changes)) {
+            $historyId = (int) $row->id;
+            if (isset($childByHistory[$historyId])) {
+                $changes = $childByHistory[$historyId];
+            } elseif ($hasJson) {
+                $changes = json_decode((string) ($row->changes ?? '[]'), true);
+                if (! is_array($changes)) {
+                    $changes = [];
+                }
+            } else {
                 $changes = [];
             }
             $uid = (int) ($row->user_id ?? 0);
@@ -353,6 +351,97 @@ class RegisterEditHistoryHelper
             static fn ($part) => trim((string) $part),
             preg_split('/\s*,\s*/u', $csv) ?: []
         )));
+    }
+
+    /**
+     * @param  list<array{field: string, label: string, old: string, new: string}>  $changes
+     */
+    private static function persist(int $requestId, string $action, array $changes): void
+    {
+        try {
+            $row = [
+                'request_id' => $requestId,
+                'user_id' => Auth::id(),
+                'action' => $action,
+                'created_at' => now(),
+            ];
+            if (Schema::hasColumn('dcs_document_edit_history', 'changes')) {
+                $row['changes'] = json_encode($changes);
+            }
+            $historyId = (int) DB::table('dcs_document_edit_history')->insertGetId($row);
+            if ($historyId < 1 || ! Schema::hasTable('dcs_document_edit_history_changes')) {
+                return;
+            }
+            foreach (array_values($changes) as $index => $change) {
+                $field = mb_substr(trim((string) ($change['field'] ?? '')), 0, 64);
+                if ($field === '') {
+                    continue;
+                }
+                DB::table('dcs_document_edit_history_changes')->insert([
+                    'history_id' => $historyId,
+                    'sort_order' => $index,
+                    'field' => $field,
+                    'label' => mb_substr(trim((string) ($change['label'] ?? $field)), 0, 255),
+                    'old_value' => (string) ($change['old'] ?? '—'),
+                    'new_value' => (string) ($change['new'] ?? '—'),
+                ]);
+            }
+        } catch (\Throwable) {
+            // Non-fatal — registration must not fail because history logging failed.
+        }
+    }
+
+    private static function originatorLabel(int $masterlistId, object $ml): string
+    {
+        if ($masterlistId > 0 && Schema::hasTable('dcs_masterlist_originators') && Schema::hasTable('dcs_originators')) {
+            $names = DB::table('dcs_masterlist_originators as mo')
+                ->join('dcs_originators as og', 'og.id', '=', 'mo.originator_id')
+                ->where('mo.masterlist_id', $masterlistId)
+                ->orderBy('mo.sort_order')
+                ->orderBy('mo.id')
+                ->pluck('og.originator_name')
+                ->map(fn ($name) => trim((string) $name))
+                ->filter()
+                ->values()
+                ->all();
+            if ($names !== []) {
+                return implode(', ', $names);
+            }
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+            $stored = trim((string) ($ml->originator_name ?? ''));
+            if ($stored !== '') {
+                return $stored;
+            }
+        }
+        if (! empty($ml->originator_id) && Schema::hasTable('dcs_originators')) {
+            return trim((string) (DB::table('dcs_originators')->where('id', $ml->originator_id)->value('originator_name') ?? ''));
+        }
+
+        return '';
+    }
+
+    private static function keywordsLabel(int $masterlistId, object $ml): string
+    {
+        if ($masterlistId > 0 && Schema::hasTable('dcs_masterlist_keywords')) {
+            $keywords = DB::table('dcs_masterlist_keywords')
+                ->where('masterlist_id', $masterlistId)
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->pluck('keyword')
+                ->map(fn ($keyword) => trim((string) $keyword))
+                ->filter()
+                ->values()
+                ->all();
+            if ($keywords !== []) {
+                return implode(', ', $keywords);
+            }
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
+            return trim((string) ($ml->keywords ?? ''));
+        }
+
+        return '';
     }
 
     private static function sourceOfficesLabel(int $masterlistId): string

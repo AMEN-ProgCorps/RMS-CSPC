@@ -682,12 +682,7 @@ class ReportHelper
     {
         if (!empty($filters['originator'])) {
             $originator = $filters['originator'];
-            $query->whereExists(function ($q) use ($originator) {
-                $q->select(DB::raw(1))
-                    ->from('dcs_originators as og')
-                    ->whereColumn('og.id', 'ml.originator_id')
-                    ->where('og.originator_name', $originator);
-            });
+            RegisterQueryHelper::applyMasterlistOriginatorFilter($query, 'ml', $originator, true);
         }
 
         if (!empty($filters['source_unit'])) {
@@ -783,9 +778,8 @@ class ReportHelper
             $query->whereExists(function ($q) use ($originator) {
                 $q->select(DB::raw(1))
                     ->from('dcs_masterlist_registration as ml')
-                    ->join('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
-                    ->whereColumn('ml.request_id', 'dr.id')
-                    ->where('og.originator_name', $originator);
+                    ->whereColumn('ml.request_id', 'dr.id');
+                RegisterQueryHelper::applyMasterlistOriginatorFilter($q, 'ml', $originator, true);
             });
         }
 

@@ -540,6 +540,8 @@ class RegisterUpdateHelper
                 RegisterPersistHelper::saveOriginsFromOfficeIds($masterlistId, $request->input('masterlistOfficeIds', []));
                 $relatedIds = array_filter(array_map('intval', $request->input('relatedDocumentIds', [])));
                 RegisterPersistHelper::saveRelatedDocumentIds($masterlistId, $relatedIds);
+                RegisterPersistHelper::syncMasterlistOriginators((int) $masterlistId, $request->masterlistOriginator);
+                RegisterPersistHelper::syncMasterlistKeywords((int) $masterlistId, $keywordVal);
             }
 
             if (!$isSyllabi) {
@@ -631,6 +633,8 @@ class RegisterUpdateHelper
                 RegisterPersistHelper::saveOriginsFromOfficeIds($masterlistId, $request->input('masterlistOfficeIds', []));
                 $relatedIds = array_filter(array_map('intval', $request->input('relatedDocumentIds', [])));
                 RegisterPersistHelper::saveRelatedDocumentIds($masterlistId, $relatedIds);
+                RegisterPersistHelper::syncMasterlistOriginators((int) $masterlistId, $request->masterlistOriginator);
+                RegisterPersistHelper::syncMasterlistKeywords((int) $masterlistId, $syllabiKeywordVal);
 
                 $incomingCourseNames = collect((array) $request->input('syllabiCourseName', []))
                     ->map(fn ($name) => trim((string) $name))

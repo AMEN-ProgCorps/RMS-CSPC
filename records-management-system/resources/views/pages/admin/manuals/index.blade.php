@@ -1049,6 +1049,34 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
             box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
         }
 
+        .pmo-banner {
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            border: 1px solid transparent;
+        }
+        .pmo-banner-success {
+            background: #ecfdf5;
+            border-color: #a7f3d0;
+            color: #065f46;
+        }
+        .pmo-banner-error {
+            background: #fef2f2;
+            border-color: #fecaca;
+            color: #991b1b;
+        }
+        .pmo-banner-close {
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 1rem;
+            color: inherit;
+        }
+
         /* Responsive */
         @media (max-width: 1100px) {
             .pmo-studio {
@@ -1056,6 +1084,236 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
                 height: auto;
             }
             .pmo-catalogue-pane { height: 420px; }
+        }
+
+        /* Dark Mode */
+        [data-theme="dark"] .pmo-container {
+            color: #e2e8f0;
+        }
+        [data-theme="dark"] .pmo-top-title h1 {
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .pmo-top-title p {
+            color: #94a3b8;
+        }
+
+        [data-theme="dark"] .pmo-stat-card,
+        [data-theme="dark"] .pmo-filter-bar,
+        [data-theme="dark"] .pmo-catalogue-pane,
+        [data-theme="dark"] .pmo-inspector-pane,
+        [data-theme="dark"] .pmo-section-card,
+        [data-theme="dark"] .pmo-modal-card {
+            background: #131c2e;
+            border-color: #1e293b;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+            color: #e2e8f0;
+        }
+        [data-theme="dark"] .pmo-stat-val {
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .pmo-stat-lbl {
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .pmo-stat-icon {
+            background: #0f172a !important;
+            border: 1px solid #334155;
+        }
+
+        [data-theme="dark"] .pmo-search-input {
+            background: #0f172a;
+            border-color: #334155;
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .pmo-search-input:focus {
+            background: #0f172a;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+        [data-theme="dark"] .pmo-search-input::placeholder {
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .pmo-search-box i {
+            color: #64748b;
+        }
+
+        [data-theme="dark"] .pmo-pill {
+            background: #0f172a;
+            border-color: #334155;
+            color: #cbd5e1;
+        }
+        [data-theme="dark"] .pmo-pill:hover {
+            background: #1e293b;
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .pmo-pill.active {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: #ffffff;
+        }
+
+        [data-theme="dark"] .pmo-catalogue-header,
+        [data-theme="dark"] .pmo-control-strip,
+        [data-theme="dark"] .pmo-section-header,
+        [data-theme="dark"] .pmo-editor-toolbar,
+        [data-theme="dark"] .pmo-modal-footer {
+            background: #0f172a;
+            border-color: #1e293b;
+            color: #cbd5e1;
+        }
+        [data-theme="dark"] .pmo-target-card {
+            background: #0f172a;
+            border-color: #334155;
+        }
+        [data-theme="dark"] .pmo-target-card:hover {
+            background: #1e293b;
+            border-color: #475569;
+        }
+        [data-theme="dark"] .pmo-target-card.is-selected {
+            background: rgba(37, 99, 235, 0.18);
+            border-color: #3b82f6;
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+        }
+        [data-theme="dark"] .pmo-target-title {
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .pmo-target-desc {
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .pmo-target-foot {
+            border-top-color: #334155;
+        }
+        [data-theme="dark"] .pmo-target-foot code {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .pmo-status-tag.assigned {
+            color: #34d399;
+        }
+        [data-theme="dark"] .pmo-status-tag.missing {
+            color: #fbbf24;
+        }
+        [data-theme="dark"] .pmo-badge.page { background: #0c4a6e; color: #7dd3fc; }
+        [data-theme="dark"] .pmo-badge.modal { background: #4c1d95; color: #d8b4fe; }
+        [data-theme="dark"] .pmo-badge.sub-dts { background: #78350f; color: #fcd34d; }
+        [data-theme="dark"] .pmo-badge.sub-rdp { background: #14532d; color: #86efac; }
+        [data-theme="dark"] .pmo-badge.sub-dcs { background: #7f1d1d; color: #fca5a5; }
+        [data-theme="dark"] .pmo-badge.sub-admin { background: #334155; color: #e2e8f0; }
+
+        [data-theme="dark"] .pmo-inspector-body {
+            background: #131c2e;
+        }
+        [data-theme="dark"] .pmo-tab-btn.active {
+            background: #1e293b;
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .pmo-select-input {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .pmo-assign-select > span {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .pmo-purpose-callout {
+            background: rgba(37, 99, 235, 0.15);
+            border-left-color: #3b82f6;
+            color: #bfdbfe;
+        }
+        [data-theme="dark"] .pmo-section-badge {
+            background: #0c4a6e;
+            color: #7dd3fc;
+        }
+        [data-theme="dark"] .pmo-item-row {
+            color: #cbd5e1;
+        }
+        [data-theme="dark"] .pmo-item-label {
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .pmo-callout.note {
+            background: #1e293b;
+            border-left-color: #64748b;
+            color: #cbd5e1;
+        }
+        [data-theme="dark"] .pmo-callout.tip {
+            background: rgba(34, 197, 94, 0.12);
+            border-left-color: #22c55e;
+            color: #86efac;
+        }
+        [data-theme="dark"] .pmo-callout.warning {
+            background: rgba(245, 158, 11, 0.12);
+            border-left-color: #f59e0b;
+            color: #fcd34d;
+        }
+
+        [data-theme="dark"] .pmo-tool-btn {
+            background: #1e293b;
+            border-color: #334155;
+            color: #e2e8f0;
+        }
+        [data-theme="dark"] .pmo-tool-btn:hover {
+            background: #334155;
+            border-color: #475569;
+            color: #ffffff;
+        }
+        [data-theme="dark"] .pmo-textarea {
+            background: #0b1220 !important;
+            color: #e2e8f0 !important;
+            border-color: #334155 !important;
+            caret-color: #93c5fd;
+        }
+        [data-theme="dark"] .pmo-textarea::placeholder {
+            color: #94a3b8 !important;
+            opacity: 1;
+        }
+        [data-theme="dark"] .pmo-textarea:focus {
+            border-color: #3b82f6 !important;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+
+        [data-theme="dark"] .pmo-btn.secondary {
+            background: #1e293b;
+            border-color: #334155;
+            color: #e2e8f0;
+        }
+        [data-theme="dark"] .pmo-btn.secondary:hover {
+            background: #334155;
+            border-color: #475569;
+            color: #ffffff;
+        }
+        [data-theme="dark"] .pmo-btn.danger {
+            background: rgba(127, 29, 29, 0.35);
+            border-color: #7f1d1d;
+            color: #fca5a5;
+        }
+        [data-theme="dark"] .pmo-btn.danger:hover {
+            background: rgba(127, 29, 29, 0.55);
+            border-color: #ef4444;
+            color: #fecaca;
+        }
+
+        [data-theme="dark"] .pmo-field label {
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .pmo-field input,
+        [data-theme="dark"] .pmo-field select,
+        [data-theme="dark"] .pmo-field textarea {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .pmo-modal-body {
+            background: #131c2e;
+            color: #e2e8f0;
+        }
+        [data-theme="dark"] .pmo-banner-success {
+            background: rgba(6, 95, 70, 0.25);
+            border-color: #065f46;
+            color: #6ee7b7;
+        }
+        [data-theme="dark"] .pmo-banner-error {
+            background: rgba(127, 29, 29, 0.3);
+            border-color: #7f1d1d;
+            color: #fca5a5;
         }
     </style>
 @endpush
@@ -1082,15 +1340,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
 
     <!-- Feedback Banners -->
     @if($successMessage)
-        <div style="background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+        <div class="pmo-banner pmo-banner-success">
             <span><i class="fa-solid fa-circle-check" style="margin-right: 8px;"></i> {{ $successMessage }}</span>
-            <button type="button" wire:click="clearMessages" style="border: none; background: transparent; cursor: pointer; color: #065f46; font-size: 1rem;">&times;</button>
+            <button type="button" class="pmo-banner-close" wire:click="clearMessages">&times;</button>
         </div>
     @endif
     @if($errorMessage)
-        <div style="background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+        <div class="pmo-banner pmo-banner-error">
             <span><i class="fa-solid fa-circle-exclamation" style="margin-right: 8px;"></i> {{ $errorMessage }}</span>
-            <button type="button" wire:click="clearMessages" style="border: none; background: transparent; cursor: pointer; color: #991b1b; font-size: 1rem;">&times;</button>
+            <button type="button" class="pmo-banner-close" wire:click="clearMessages">&times;</button>
         </div>
     @endif
 

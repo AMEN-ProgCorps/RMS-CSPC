@@ -1,5 +1,6 @@
 <?php
 
+use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -167,6 +168,9 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
             return;
         }
 
+        RegisterQueryHelper::attachOriginatorNames([$dcsDoc]);
+        RegisterQueryHelper::attachMasterlistKeywords([$dcsDoc]);
+
         $user = Auth::user();
 
         DB::table('rdp_received_documents')->insert([
@@ -306,7 +310,6 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
         $availableDcs = collect();
         if ($this->showImportModal) {
             $latestIds = DB::table('dcs_masterlist_registration as ml')
-                ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
                 ->whereNotNull('ml.doc_no')
                 ->whereRaw("TRIM(COALESCE(ml.doc_no, '')) <> ''");
 
@@ -314,8 +317,8 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
                 $is = '%' . trim($this->importSearch) . '%';
                 $latestIds->where(function ($q) use ($is) {
                     $q->where('ml.doc_no', 'ilike', $is)
-                      ->orWhere('ml.doc_title', 'ilike', $is)
-                      ->orWhere('og.originator_name', 'ilike', $is);
+                      ->orWhere('ml.doc_title', 'ilike', $is);
+                    RegisterQueryHelper::applyMasterlistOriginatorFilter($q, 'ml', $is, false, true);
                 });
             }
 
@@ -325,14 +328,13 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
                 ->groupBy('ml.doc_no');
 
             $availableDcs = DB::table('dcs_masterlist_registration as ml')
-                ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
                 ->joinSub($latestIds, 'uniq', function ($join) {
                     $join->on('ml.id', '=', 'uniq.id');
                 })
                 ->select(
                     'ml.doc_no',
                     'ml.doc_title',
-                    'og.originator_name',
+                    DB::raw(RegisterQueryHelper::masterlistOriginatorNameSql('ml').' as originator_name'),
                     'ml.revise_no',
                     'ml.doc_registered_date'
                 )

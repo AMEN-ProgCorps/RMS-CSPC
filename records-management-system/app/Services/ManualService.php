@@ -553,17 +553,18 @@ class ManualService
         $saved = self::saveManualMapping($mappings);
         $dbUpdated = false;
 
-        // Also sync to database table if available
+        // Also sync to database table if available (permanent persistence)
         try {
             if (\Illuminate\Support\Facades\Schema::hasTable('sys_page_manuals')) {
-                \Illuminate\Support\Facades\DB::table('sys_page_manuals')
-                    ->where('target_key', $targetKey)
-                    ->update([
+                \Illuminate\Support\Facades\DB::table('sys_page_manuals')->updateOrInsert(
+                    ['target_key' => $targetKey],
+                    [
                         'relative_path' => $isDisable ? null : $mappings[$targetKey],
                         'is_custom_mapped' => true,
                         'parsed_content' => null, // clear cached parse
                         'updated_at' => now(),
-                    ]);
+                    ]
+                );
                 $dbUpdated = true;
             }
         } catch (\Throwable) {}

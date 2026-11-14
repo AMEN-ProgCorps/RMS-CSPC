@@ -41,7 +41,11 @@ body {
     flex-direction: column;
     /* Match other DCS pages; load FOUC is handled by html.dcs-sidebar-booting. */
     transition: left var(--dcs-ease);
-    /* Livewire type/search morphs remount content — skip tokens fadeInUp jump. */
+}
+
+/* After the shared tokens.css fadeInUp plays once, lock it so Livewire
+   type/search morphs do not re-trigger the page-enter jump. */
+.db-page.db-page-settled {
     animation: none !important;
 }
 
@@ -248,6 +252,14 @@ body {
 }
 
 tr.db-row-collapsed {
+    display: none !important;
+}
+
+/*
+ * ALL-tab FOUC guard: hide category document rows until Alpine marks them open.
+ * Without this, SSR paints every parent row visible for ~100ms before collapse.
+ */
+[data-dcs-db-root][data-show-category-rows="1"]:not([data-force-categories-open="1"]) tr[data-cat]:not(.db-cat-open) {
     display: none !important;
 }
 

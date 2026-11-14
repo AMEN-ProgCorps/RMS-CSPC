@@ -1519,6 +1519,15 @@ class RegisterQueryHelper
             );
 
         $list = self::filterBellNotifications($query->get());
+        $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap($userId);
+        if (! empty($mutedMap)) {
+            $list = $list->reject(fn ($item) => \App\Helpers\NotificationFilterHelper::isMuted(
+                (string) ($item->content ?? ''),
+                (string) ($item->subsystem_name ?? ''),
+                $mutedMap,
+                $item->created_at ?? null
+            ));
+        }
         $counts = [];
         foreach ($list as $item) {
             $name = trim((string) ($item->subsystem_name ?? ''));

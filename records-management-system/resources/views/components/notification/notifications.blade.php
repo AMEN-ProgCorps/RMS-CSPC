@@ -175,20 +175,25 @@ new class extends Component {
 
         $this->notifications = \App\Helpers\RegisterQueryHelper::filterBellNotifications($this->notifications);
 
+        // Honor Notification Manager mute preferences in the header bell inbox.
+        $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap((int) $userId);
+        if (! empty($mutedMap)) {
+            $this->notifications = collect($this->notifications)
+                ->reject(fn ($n) => \App\Helpers\NotificationFilterHelper::isMuted(
+                    (string) ($n->content ?? ''),
+                    (string) ($n->subsystem_name ?? ''),
+                    $mutedMap,
+                    $n->created_at ?? null
+                ))
+                ->values();
+        }
+
         $previousCount = $this->unreadCount;
         $this->unreadCount = $this->notifications->where('status', 'unread')->count();
 
         // If unread count increases while viewing the page, trigger the popout overlay if enabled
         if ($this->hasMounted && $this->unreadCount > $previousCount && $this->popoutNotificationsEnabled) {
-            $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap((int) $userId);
-            $latest = $this->notifications->first(function ($n) use ($mutedMap) {
-                return $n->status === 'unread' && !\App\Helpers\NotificationFilterHelper::isMuted(
-                    (string) ($n->content ?? ''),
-                    (string) ($n->subsystem_name ?? ''),
-                    $mutedMap,
-                    $n->created_at ?? null
-                );
-            });
+            $latest = $this->notifications->first(fn ($n) => $n->status === 'unread');
             if ($latest) {
                 $this->dispatchBrowserOverlay([
                     'id' => (int) $latest->id,
@@ -200,6 +205,15 @@ new class extends Component {
             }
         }
         $this->hasMounted = true;
+    }
+
+    /**
+     * Reload when Notification Manager mute preferences change.
+     */
+    #[On('rms-notification-updated')]
+    public function onNotificationPreferencesUpdated(): void
+    {
+        $this->loadNotifications();
     }
 
     /**

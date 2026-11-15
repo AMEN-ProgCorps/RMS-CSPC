@@ -2563,9 +2563,7 @@ class RegisterPersistHelper
 
     public static function applyAllowsRevisionToMasterlistRow(array &$row, bool $allowsRevision): void
     {
-        if (RegisterQueryHelper::supportsAllowsRevisionColumn()) {
-            $row['allows_revision'] = $allowsRevision;
-        }
+        // Legacy masterlist.allows_revision column was removed; no denormalized flag to store.
     }
 
     public static function findMatchingRegistrationRows(string $docNo, int $docTypeId, ?int $subTypeId, bool $anySubType = false): array
@@ -3492,16 +3490,9 @@ class RegisterPersistHelper
             return;
         }
 
-        // Also bail if any live family row is marked non-revisable (denormalized flag).
-        if (RegisterQueryHelper::supportsAllowsRevisionColumn()) {
-            $hasNonRevisable = DB::table('dcs_masterlist_registration')
-                ->whereIn('request_id', $requestIds)
-                ->where('doc_no', $docNo)
-                ->where('allows_revision', false)
-                ->exists();
-            if ($hasNonRevisable) {
-                return;
-            }
+        // Syllabi / TOS / rubric stacks stay multiple "latest" Rev 0 rows — do not promote.
+        if (! RegisterQueryHelper::effectiveTypeAllowsRevision($docTypeId, $subTypeId)) {
+            return;
         }
 
         $familySeed = RegisterQueryHelper::revisionFamilyDocNos(
@@ -3793,9 +3784,6 @@ class RegisterPersistHelper
             'revision_status' => 'superseded',
             'updated_at' => now(),
         ];
-        if (RegisterQueryHelper::supportsAllowsRevisionColumn()) {
-            $update['allows_revision'] = true;
-        }
         if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
             $group = trim((string) DB::table('dcs_masterlist_registration')->where('id', (int) $picked->id)->value('stack_group'));
             if ($group === '') {

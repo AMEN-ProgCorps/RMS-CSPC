@@ -20,7 +20,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public ?int $parentId = null;
 
     public string $docTypeName = '';
-    public bool $docTypeAllowsRevision = true;
     public string $originatorName = '';
     public string $facultyName = '';
     /** @var list<string> Multi-college membership for faculty modal */
@@ -362,13 +361,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->parentId = null;
         $this->modalKind = '';
         $this->reset([
-            'docTypeName', 'docTypeAllowsRevision', 'originatorName',
+            'docTypeName', 'originatorName',
             'facultyName', 'facultyCollegeIds', 'collegeId', 'collegeName', 'officeId', 'programName', 'programCode',
             'semesterName', 'schoolYear', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseYearLevel', 'courseType',
             'bulkCollegeId', 'bulkProgramId', 'bulkFillSemester', 'bulkFillYear', 'bulkFillType',
             'deleteTitle', 'deleteMessage',
         ]);
-        $this->docTypeAllowsRevision = true;
         $this->facultyCollegeIds = [];
         $this->courseRows = [['code' => '', 'name' => '']];
         $this->bulkRows = [];
@@ -381,17 +379,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     {
         $this->resetFormFor('docType', $id);
         $this->parentId = $parentId;
-        $this->docTypeAllowsRevision = true;
         if ($id) {
             $row = DB::table('dcs_doc_types')->where('id', $id)->first();
             abort_unless($row, 404);
             $this->docTypeName = $row->doc_type_name;
             $this->parentId = $row->parent_id ? (int) $row->parent_id : null;
-            if (Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
-                $this->docTypeAllowsRevision = (bool) ($row->allows_revision ?? true);
-            } else {
-                $this->docTypeAllowsRevision = ! \App\Helpers\RegisterQueryHelper::isSyllabiLikeName($row->doc_type_name ?? null);
-            }
         }
     }
 
@@ -696,48 +688,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'parent_id' => $parentId,
         ]));
         $this->done($parentId ? 'Sub-type added.' : 'Document type added.');
-    }
-
-    /**
-     * When turning on allows_revision, stacked non-revisable "latest" rows that share
-     * (doc_no, revise_no, doc_type_id) would violate dcs_ml_doc_no_revise_type_active_unique.
-     * Keep the newest row as latest; mark older siblings obsolete.
-     *
-     * @param  list<int|string>  $requestIds
-     */
-    private function collapseStackedLatestMasterlists(array $requestIds): void
-    {
-        $rows = DB::table('dcs_masterlist_registration')
-            ->whereIn('request_id', $requestIds)
-            ->where('revision_status', 'latest')
-            ->whereNotNull('doc_no')
-            ->where('doc_no', '!=', '')
-            ->orderByDesc('id')
-            ->get(['id', 'doc_no', 'revise_no', 'doc_type_id']);
-
-        $seen = [];
-        $obsoleteIds = [];
-        foreach ($rows as $row) {
-            $key = trim((string) $row->doc_no)
-                . '|' . (int) $row->revise_no
-                . '|' . (int) $row->doc_type_id;
-            if (isset($seen[$key])) {
-                $obsoleteIds[] = (int) $row->id;
-                continue;
-            }
-            $seen[$key] = true;
-        }
-
-        if ($obsoleteIds === []) {
-            return;
-        }
-
-        DB::table('dcs_masterlist_registration')
-            ->whereIn('id', $obsoleteIds)
-            ->update([
-                'revision_status' => 'obsolete',
-                'updated_at' => now(),
-            ]);
     }
 
     private function saveOriginator(): void
@@ -1788,9 +1738,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $docTypeParentsQ = DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($docTypeParentsQ, 'dcs_doc_types');
         $docTypeParentCols = ['id', 'doc_type_name', 'parent_id'];
-        if (Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
-            $docTypeParentCols[] = 'allows_revision';
-        }
         $docTypeParents = $docTypeParentsQ->get($docTypeParentCols);
 
         $docTypeSubsQ = DB::table('dcs_doc_types')->whereNotNull('parent_id')->orderBy('doc_type_name');

@@ -32,10 +32,8 @@ class DcsNonRevisableStackingTest extends TestCase
     {
         if (! Schema::hasTable('dcs_doc_types')
             || ! Schema::hasTable('dcs_masterlist_registration')
-            || ! Schema::hasTable('dcs_document_requests')
-            || ! Schema::hasColumn('dcs_doc_types', 'allows_revision')
-            || ! Schema::hasColumn('dcs_masterlist_registration', 'allows_revision')) {
-            $this->markTestSkipped('allows_revision columns are not migrated.');
+            || ! Schema::hasTable('dcs_document_requests')) {
+            $this->markTestSkipped('DCS registration tables are not migrated.');
         }
     }
 
@@ -50,12 +48,11 @@ class DcsNonRevisableStackingTest extends TestCase
         return $id;
     }
 
-    private function insertType(string $name, bool $allowsRevision, ?int $parentId = null): int
+    private function insertType(string $name, ?int $parentId = null): int
     {
         return (int) DB::table('dcs_doc_types')->insertGetId([
             'doc_type_name' => $name,
             'parent_id' => $parentId,
-            'allows_revision' => $allowsRevision,
         ]);
     }
 
@@ -68,7 +65,6 @@ class DcsNonRevisableStackingTest extends TestCase
         ?int $subTypeId,
         string $docNo,
         int $reviseNo,
-        bool $allowsRevision,
         string $revisionStatus = 'latest'
     ): array {
         $now = now();
@@ -90,7 +86,6 @@ class DcsNonRevisableStackingTest extends TestCase
             'doc_title' => 'Stack Test '.$docNo,
             'revise_no' => $reviseNo,
             'revision_status' => $revisionStatus,
-            'allows_revision' => $allowsRevision,
             'created_by' => $userId,
             'created_at' => $now,
             'updated_at' => $now,
@@ -100,32 +95,17 @@ class DcsNonRevisableStackingTest extends TestCase
         return ['request_id' => $requestId, 'ml_id' => $mlId];
     }
 
-    public function test_non_revisable_type_allows_duplicate_rev0_latest_without_obsolescence(): void
+    public function test_syllabi_like_type_skips_promote_latest(): void
     {
         $this->skipUnlessSchemaReady();
         $userId = $this->seedUserId();
 
-        $parentId = $this->insertType('NR Parent '.uniqid(), true, null);
-        $subTypeId = $this->insertType('NR Syllabi '.uniqid(), false, $parentId);
+        $parentId = $this->insertType('NR Parent '.uniqid(), null);
+        $subTypeId = $this->insertType('NR Syllabi '.uniqid(), $parentId);
         $docNo = 'NR-STACK-'.strtoupper(substr(uniqid(), -6));
 
-        $first = $this->insertRegistration($userId, $parentId, $subTypeId, $docNo, 0, false);
-        $second = $this->insertRegistration($userId, $parentId, $subTypeId, $docNo, 0, false);
-
-        $this->assertDatabaseHas('dcs_masterlist_registration', [
-            'id' => $first['ml_id'],
-            'doc_no' => $docNo,
-            'revise_no' => 0,
-            'revision_status' => 'latest',
-            'allows_revision' => false,
-        ]);
-        $this->assertDatabaseHas('dcs_masterlist_registration', [
-            'id' => $second['ml_id'],
-            'doc_no' => $docNo,
-            'revise_no' => 0,
-            'revision_status' => 'latest',
-            'allows_revision' => false,
-        ]);
+        $first = $this->insertRegistration($userId, $parentId, $subTypeId, $docNo, 0);
+        $second = $this->insertRegistration($userId, $parentId, $subTypeId, $docNo, 0);
 
         RegisterPersistHelper::promoteLatestForDoc($docNo, $parentId, $subTypeId);
 
@@ -134,24 +114,21 @@ class DcsNonRevisableStackingTest extends TestCase
             ->pluck('revision_status')
             ->all();
         $this->assertSame(['latest', 'latest'], $statuses);
-
         $this->assertFalse(RegisterQueryHelper::effectiveTypeAllowsRevision($parentId, $subTypeId));
     }
 
-    public function test_update_list_stacks_non_revisable_without_obsolete_badges(): void
+    public function test_update_list_stacks_syllabi_like_without_obsolete_badges(): void
     {
         $this->skipUnlessSchemaReady();
         $userId = $this->seedUserId();
 
-        $parentId = $this->insertType('NR List Parent '.uniqid(), true, null);
-        $subTypeId = $this->insertType('NR List Sub '.uniqid(), false, $parentId);
+        $parentId = $this->insertType('NR List Parent '.uniqid(), null);
+        $subTypeId = $this->insertType('NR List Syllabi '.uniqid(), $parentId);
         $docNo = 'NR-LIST-'.strtoupper(substr(uniqid(), -6));
 
-        $this->insertRegistration($userId, $parentId, $subTypeId, $docNo, 0, false);
-        $this->insertRegistration($userId, $parentId, $subTypeId, $docNo, 0, false);
+        $this->insertRegistration($userId, $parentId, $subTypeId, $docNo, 0);
+        $this->insertRegistration($userId, $parentId, $subTypeId, $docNo, 0);
 
-        // Acting as a full DCS user is not required for updateList if visibleRequestIds
-        // returns empty — seed enough visibility by calling with auth if available.
         $list = RegisterQueryHelper::updateList($docNo, (string) $parentId, 1, 50);
         if (($list['total'] ?? 0) === 0) {
             $this->markTestSkipped('updateList returned no rows (visibility scope empty in test env).');
@@ -173,27 +150,26 @@ class DcsNonRevisableStackingTest extends TestCase
         $this->skipUnlessSchemaReady();
         $userId = $this->seedUserId();
 
-        $parentId = $this->insertType('Rev Parent '.uniqid(), true, null);
-        $subTypeId = $this->insertType('Rev Sub '.uniqid(), true, $parentId);
+        $parentId = $this->insertType('Rev Parent '.uniqid(), null);
+        $subTypeId = $this->insertType('Rev Sub '.uniqid(), $parentId);
         $docNo = 'REV-BLOCK-'.strtoupper(substr(uniqid(), -6));
 
-        $this->insertRegistration($userId, $parentId, $subTypeId, $docNo, 0, true);
+        $this->insertRegistration($userId, $parentId, $subTypeId, $docNo, 0);
 
         $result = RegisterPersistHelper::findMatchingRegistrationRows($docNo, $parentId, $subTypeId);
         $this->assertTrue($result['found']);
         $this->assertTrue(RegisterQueryHelper::effectiveTypeAllowsRevision($parentId, $subTypeId));
     }
 
-    public function test_non_revisable_rejects_revised_mode_in_persist_precheck(): void
+    public function test_syllabi_like_rejects_revised_mode_in_persist_precheck(): void
     {
         $this->skipUnlessSchemaReady();
 
-        $parentId = $this->insertType('NR Rev Parent '.uniqid(), true, null);
-        $subTypeId = $this->insertType('NR Rev Sub '.uniqid(), false, $parentId);
+        $parentId = $this->insertType('NR Rev Parent '.uniqid(), null);
+        $subTypeId = $this->insertType('NR Rev Syllabi '.uniqid(), $parentId);
 
         $this->assertFalse(RegisterPersistHelper::effectiveAllowsRevision($parentId, $subTypeId));
 
-        // Simulate the early guard used by RegisterPersistHelper::persist.
         $mode = 'revised';
         $allows = RegisterPersistHelper::effectiveAllowsRevision($parentId, $subTypeId);
         $blocked = (! $allows) && $mode === 'revised';

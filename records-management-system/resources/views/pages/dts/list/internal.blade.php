@@ -523,6 +523,64 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         if (!$this->selectedTransactionId || !$this->selectedTransaction) {
             return collect();
         }
+
+        if ($this->editingAll) {
+            $originOfficeCode = $this->selectedTransaction->originated_from;
+            $originOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originOfficeCode)->first();
+            $originOfficeName = $originOffice ? $originOffice->office_name : 'Originated Office';
+            
+            $clusterHeadCode = $originOfficeCode;
+            $clusterHeadName = $originOfficeName;
+            if ($originOffice && $originOffice->cluster) {
+                $cluster = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster')->where('cluster_code', $originOffice->cluster)->first();
+                if ($cluster && $cluster->cluster_head) {
+                    $clusterHeadCode = $cluster->cluster_head;
+                    $headOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $cluster->cluster_head)->first();
+                    if ($headOffice) {
+                        $clusterHeadName = $headOffice->office_name;
+                    }
+                }
+            }
+
+            return collect($this->flowOffices)->map(function ($stepData, $index) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName) {
+                $officeCode = is_array($stepData) ? ($stepData['office_code'] ?? '') : ($stepData->office_code ?? '');
+                $resolvedCode = $officeCode;
+                $resolvedName = $officeCode;
+                if ($officeCode === 'ORIGIN') {
+                    $resolvedCode = $originOfficeCode;
+                    $resolvedName = $originOfficeName;
+                } elseif ($officeCode === '[H]') {
+                    $resolvedCode = $clusterHeadCode;
+                    $resolvedName = $clusterHeadName;
+                } else {
+                    $office = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $officeCode)->first();
+                    if ($office) {
+                        $resolvedName = $office->office_name;
+                    }
+                }
+
+                $step = new \stdClass();
+                $step->sequence_ranking = $index + 1;
+                $step->office_code = $resolvedCode;
+                $step->office_name = $resolvedName;
+                $step->date_in = ($index === 0) ? now() : null;
+                $step->date_out = null;
+                $step->action_needed = ($index === 0) ? 'Created' : null;
+                $step->note = ($index === 0) ? 'Created transaction' : null;
+                $step->total_time_completed = null;
+                $step->is_active_step = false;
+                $step->description = $step->note;
+                $step->type = $step->action_needed;
+                $step->notes = $step->note;
+                $step->is_locked = is_array($stepData) ? ($stepData['is_locked'] ?? false) : ($stepData->is_locked ?? false);
+                $step->receiver_name = '—';
+                $step->forwarder_name = '—';
+                $step->log_type = null;
+                $step->is_historical = false;
+                return $step;
+            });
+        }
+
         $flowCode = $this->selectedTransaction->transaction_flow;
         $flow = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
         if (!$flow) {
@@ -651,6 +709,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 $step->description = $step->note ?: 'Pending office flow step.';
                 $step->type = $step->action_needed ?: 'pending';
                 $step->notes = $step->note ?: '';
+                $step->is_locked = ($step->sequence_ranking <= ($this->selectedTransaction->sequence ?? 1)) || !is_null($step->date_in);
                 return $step;
             });
     }
@@ -2452,12 +2511,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                                 </td>
                                                 @if ($editingAll)
                                                     <td style="text-align: center; white-space: nowrap;">
-                                                        @if (!$step->is_locked)
+                                                        @if (!($step->is_locked ?? false))
                                                             <div style="display: inline-flex; gap: 4px;">
-                                                                <button type="button" wire:click="moveFlowOfficeUp({{ $index }})" {{ $index === 0 || $flowOffices[$index - 1]['is_locked'] ? 'disabled' : '' }} style="border: none; background: #f1f5f9; color: {{ $index === 0 || $flowOffices[$index - 1]['is_locked'] ? '#cbd5e1' : '#475569' }}; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: {{ $index === 0 || $flowOffices[$index - 1]['is_locked'] ? 'not-allowed' : 'pointer' }}; font-weight: bold;">
+                                                                <button type="button" wire:click="moveFlowOfficeUp({{ $index }})" {{ $index === 0 || ($flowOffices[$index - 1]['is_locked'] ?? false) ? 'disabled' : '' }} style="border: none; background: #f1f5f9; color: {{ $index === 0 || ($flowOffices[$index - 1]['is_locked'] ?? false) ? '#cbd5e1' : '#475569' }}; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: {{ $index === 0 || ($flowOffices[$index - 1]['is_locked'] ?? false) ? 'not-allowed' : 'pointer' }}; font-weight: bold;">
                                                                     <i class="fa-solid fa-arrow-up"></i>
                                                                 </button>
-                                                                <button type="button" wire:click="moveFlowOfficeDown({{ $index }})" {{ $index === count($flowOffices) - 1 ? 'disabled' : '' }} style="border: none; background: #f1f5f9; color: {{ $index === count($flowOffices) - 1 ? '#cbd5e1' : '#475569' }}; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: {{ $index === count($flowOffices) - 1 ? 'not-allowed' : 'pointer' }}; font-weight: bold;">
+                                                                <button type="button" wire:click="moveFlowOfficeDown({{ $index }})" {{ $index === count($flowOffices) - 1 || ($flowOffices[$index + 1]['is_locked'] ?? false) ? 'disabled' : '' }} style="border: none; background: #f1f5f9; color: {{ $index === count($flowOffices) - 1 || ($flowOffices[$index + 1]['is_locked'] ?? false) ? '#cbd5e1' : '#475569' }}; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: {{ $index === count($flowOffices) - 1 || ($flowOffices[$index + 1]['is_locked'] ?? false) ? 'not-allowed' : 'pointer' }}; font-weight: bold;">
                                                                     <i class="fa-solid fa-arrow-down"></i>
                                                                 </button>
                                                                 <button type="button" wire:click="removeFlowOffice({{ $index }})" style="border: none; background: #fee2e2; color: #dc2626; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold;">

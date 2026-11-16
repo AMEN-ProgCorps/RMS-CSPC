@@ -683,41 +683,56 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     ->where('seq.control_id', $flowControlId)
                     ->select('seq.*', 'office.office_name')
                     ->orderBy('seq.sequence_ranking', 'asc')
-                    ->get()
-                    ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName, $t) {
-                        if ($step->office_code === 'ORIGIN') {
-                            $step->office_code = $originOfficeCode;
-                            $step->office_name = $originOfficeName;
-                        } elseif ($step->office_code === '[H]') {
-                            $step->office_code = $clusterHeadCode;
-                            $step->office_name = $clusterHeadName;
-                        } elseif (empty($step->office_name)) {
-                            $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $step->office_code)->first();
-                            $step->office_name = $off ? $off->office_name : $step->office_code;
+                    ->get();
+
+                $processedTimeline = collect();
+                $prevStepList = null;
+                foreach ($steps as $idx => $step) {
+                    if ($step->office_code === 'ORIGIN') {
+                        $step->office_code = $originOfficeCode;
+                        $step->office_name = $originOfficeName;
+                    } elseif ($step->office_code === '[H]') {
+                        $step->office_code = $clusterHeadCode;
+                        $step->office_name = $clusterHeadName;
+                    } elseif (empty($step->office_name)) {
+                        $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $step->office_code)->first();
+                        $step->office_name = $off ? $off->office_name : $step->office_code;
+                    }
+
+                    $step->is_active_step = (
+                        $step->office_code === $t->current_office
+                        && $step->sequence_ranking == $t->sequence
+                        && in_array($t->status, ['ongoing', 'revision'])
+                        && !is_null($step->date_in)
+                        && is_null($step->date_out)
+                    );
+
+                    // Receiving Total Time (Forward -> Received)
+                    if ($idx === 0) {
+                        $step->total_time_received = '-';
+                    } else {
+                        if (!empty($step->total_time_received)) {
+                            // persisted
+                        } elseif (!empty($step->date_in) && !empty($prevStepList?->date_out)) {
+                            $step->total_time_received = \App\Services\DtsWorkingHoursService::calculateDurationString($prevStepList->date_out, $step->date_in);
+                        } elseif (empty($step->date_in) && !empty($prevStepList?->date_out)) {
+                            $step->total_time_received = \App\Services\DtsWorkingHoursService::calculateDurationString($prevStepList->date_out, now()) . ' (in transit)';
+                        } else {
+                            $step->total_time_received = '-';
                         }
+                    }
 
-                        $step->is_active_step = (
-                            $step->office_code === $t->current_office
-                            && $step->sequence_ranking == $t->sequence
-                            && in_array($t->status, ['ongoing', 'revision'])
-                            && !is_null($step->date_in)
-                            && is_null($step->date_out)
-                        );
+                    // Processing Total Time (Received -> Forward)
+                    if (!empty($step->date_in) && empty($step->total_time_completed) && ($step->date_out || $t->status === 'completed')) {
+                        $step->total_time_completed = \App\Services\DtsWorkingHoursService::calculateDurationString($step->date_in, $step->date_out ?: now());
+                    } elseif (!empty($step->date_in) && empty($step->date_out)) {
+                        $step->total_time_completed = \App\Services\DtsWorkingHoursService::calculateDurationString($step->date_in, now()) . ' (ongoing)';
+                    }
 
-                        if (!empty($step->date_in) && empty($step->total_time_completed) && ($step->date_out || $t->status === 'completed')) {
-                            $dateIn = \Carbon\Carbon::parse($step->date_in);
-                            $dateOut = $step->date_out ? \Carbon\Carbon::parse($step->date_out) : now();
-                            $diff = $dateIn->diff($dateOut);
-                            $parts = [];
-                            if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
-                            if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
-                            if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
-                            if (empty($parts)) $parts[] = 'less than a minute';
-                            $step->total_time_completed = implode(' ', $parts);
-                        }
-
-                        return $step;
-                    });
+                    $prevStepList = $step;
+                    $processedTimeline->push($step);
+                }
+                $steps = $processedTimeline;
             }
 
             // Fallback to transaction logs if sequence_list has no steps
@@ -1027,7 +1042,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $t = $this->selectedTransaction;
         $isChildBranch = !empty($t->control_number) && str_contains($t->control_number, '-') && preg_match('/-\d+$/', $t->control_number);
 
-        return DB::table('dts_sequence_list as seq')
+        $rawSteps = DB::table('dts_sequence_list as seq')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'seq.office_code')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as r_ad', 'r_ad.account_id', '=', 'seq.account_received')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as r_acc', 'r_acc.id', '=', 'seq.account_received')
@@ -1043,121 +1058,145 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 'f_acc.username as forwarder_username'
             )
             ->orderBy('seq.sequence_ranking', 'asc')
-            ->get()
-            ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName, $userOfficeCode, $t, $isChildBranch) {
-                if ($step->office_code === 'ORIGIN') {
-                    $step->office_code = $originOfficeCode;
-                    $step->office_name = $originOfficeName;
-                } elseif ($step->office_code === '[H]') {
-                    $step->office_code = $clusterHeadCode;
-                    $step->office_name = $clusterHeadName;
-                } elseif ($step->office_code === '[HUB]') {
-                    if ($isChildBranch && !empty($t->current_office) && $t->current_office !== '[HUB]') {
-                        $step->office_code = $t->current_office;
-                        $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $t->current_office)->first();
-                        $step->office_name = $off ? $off->office_name : $t->current_office;
-                        $childLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
-                            ->where('transaction_id', $t->transaction_id)
-                            ->where('office_code', $t->current_office)
-                            ->orderBy('id', 'desc')
-                            ->first();
-                        if ($childLog) {
-                            $step->date_in = $childLog->date_in;
-                            $step->date_out = $childLog->date_out;
-                            $step->note = $childLog->notes;
-                        }
-                    } else {
-                        $step->office_code = '[HUB]';
-                        $step->office_name = 'Office Hub [Multi-Receiving]';
-                        $step->is_hub = true;
+            ->get();
 
-                        // Calculate hub counts for modal view
-                        $cBranches = DB::table('dts_transactions as dt')
-                            ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
-                            ->where('dtd.control_number', 'like', $t->control_number . '-%')
-                            ->where('dtd.is_active', 1)
-                            ->whereNotIn('dt.status', ['cancelled'])
-                            ->select('dt.transaction_id', 'dt.status', 'dt.sequence', 'dt.current_office')
-                            ->get();
+        $processed = collect();
+        $prevStep = null;
 
-                        $hubTotal = $cBranches->count();
-                        if ($hubTotal === 0) {
-                            $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $t->control_number)->first();
-                            $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
-                            $hubTotal = count($hubOffices);
-                        }
+        foreach ($rawSteps as $index => $step) {
+            if ($step->office_code === 'ORIGIN') {
+                $step->office_code = $originOfficeCode;
+                $step->office_name = $originOfficeName;
+            } elseif ($step->office_code === '[H]') {
+                $step->office_code = $clusterHeadCode;
+                $step->office_name = $clusterHeadName;
+            } elseif ($step->office_code === '[HUB]') {
+                if ($isChildBranch && !empty($t->current_office) && $t->current_office !== '[HUB]') {
+                    $step->office_code = $t->current_office;
+                    $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $t->current_office)->first();
+                    $step->office_name = $off ? $off->office_name : $t->current_office;
+                    $childLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
+                        ->where('transaction_id', $t->transaction_id)
+                        ->where('office_code', $t->current_office)
+                        ->orderBy('id', 'desc')
+                        ->first();
+                    if ($childLog) {
+                        $step->date_in = $childLog->date_in;
+                        $step->date_out = $childLog->date_out;
+                        $step->note = $childLog->notes;
+                    }
+                } else {
+                    $step->office_code = '[HUB]';
+                    $step->office_name = 'Office Hub [Multi-Receiving]';
+                    $step->is_hub = true;
 
-                        $hubDone = 0;
-                        if ($cBranches->isNotEmpty()) {
-                            $cIds = $cBranches->pluck('transaction_id')->toArray();
-                            $fwdLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
-                                ->whereIn('transaction_id', $cIds)
-                                ->whereNotNull('date_out')
-                                ->pluck('transaction_id')
-                                ->toArray();
+                    // Calculate hub counts for modal view
+                    $cBranches = DB::table('dts_transactions as dt')
+                        ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                        ->where('dtd.control_number', 'like', $t->control_number . '-%')
+                        ->where('dtd.is_active', 1)
+                        ->whereNotIn('dt.status', ['cancelled'])
+                        ->select('dt.transaction_id', 'dt.status', 'dt.sequence', 'dt.current_office')
+                        ->get();
 
-                            foreach ($cBranches as $cb) {
-                                if (strtolower($cb->status) === 'completed' || in_array($cb->transaction_id, $fwdLogs) || ($cb->sequence ?? 0) > $step->sequence_ranking) {
-                                    $hubDone++;
-                                }
+                    $hubTotal = $cBranches->count();
+                    if ($hubTotal === 0) {
+                        $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $t->control_number)->first();
+                        $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
+                        $hubTotal = count($hubOffices);
+                    }
+
+                    $hubDone = 0;
+                    if ($cBranches->isNotEmpty()) {
+                        $cIds = $cBranches->pluck('transaction_id')->toArray();
+                        $fwdLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
+                            ->whereIn('transaction_id', $cIds)
+                            ->whereNotNull('date_out')
+                            ->pluck('transaction_id')
+                            ->toArray();
+
+                        foreach ($cBranches as $cb) {
+                            if (strtolower($cb->status) === 'completed' || in_array($cb->transaction_id, $fwdLogs) || ($cb->sequence ?? 0) > $step->sequence_ranking) {
+                                $hubDone++;
                             }
                         }
-
-                        $step->hub_forwarded_count = $hubDone;
-                        $step->hub_total = $hubTotal;
-                        if ($hubTotal > 0 && $hubDone >= $hubTotal) {
-                            $step->date_out = now();
-                        }
                     }
-                } elseif (empty($step->office_name)) {
-                    $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $step->office_code)->first();
-                    $step->office_name = $off ? $off->office_name : $step->office_code;
+
+                    $step->hub_forwarded_count = $hubDone;
+                    $step->hub_total = $hubTotal;
+                    if ($hubTotal > 0 && $hubDone >= $hubTotal) {
+                        $step->date_out = now();
+                    }
                 }
+            } elseif (empty($step->office_name)) {
+                $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $step->office_code)->first();
+                $step->office_name = $off ? $off->office_name : $step->office_code;
+            }
 
-                $step->receiver_name = !empty(trim($step->receiver_name ?? '')) ? $step->receiver_name : ($step->receiver_username ?: '—');
-                $step->forwarder_name = !empty(trim($step->forwarder_name ?? '')) ? $step->forwarder_name : ($step->forwarder_username ?: '—');
+            $step->receiver_name = !empty(trim($step->receiver_name ?? '')) ? $step->receiver_name : ($step->receiver_username ?: '—');
+            $step->forwarder_name = !empty(trim($step->forwarder_name ?? '')) ? $step->forwarder_name : ($step->forwarder_username ?: '—');
 
-                $step->is_active_step = (
-                    $step->office_code === $userOfficeCode
-                    && $step->office_code === $t->current_office
-                    && $step->sequence_ranking == $t->sequence
-                    && in_array($t->status, ['ongoing', 'revision'])
-                    && (!is_null($step->date_in) || $step->office_code === '[HUB]')
-                    && is_null($step->date_out)
-                );
+            $step->is_active_step = (
+                $step->office_code === $userOfficeCode
+                && $step->office_code === $t->current_office
+                && $step->sequence_ranking == $t->sequence
+                && in_array($t->status, ['ongoing', 'revision'])
+                && (!is_null($step->date_in) || $step->office_code === '[HUB]')
+                && is_null($step->date_out)
+            );
 
-                if (!empty($step->date_in) && empty($step->total_time_completed) && ($step->date_out || $t->status === 'completed')) {
-                    $dateIn = \Carbon\Carbon::parse($step->date_in);
-                    $dateOut = $step->date_out ? \Carbon\Carbon::parse($step->date_out) : now();
-                    $diff = $dateIn->diff($dateOut);
-                    $parts = [];
-                    if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
-                    if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
-                    if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
-                    if (empty($parts)) $parts[] = 'less than a minute';
-                    $step->total_time_completed = implode(' ', $parts);
-                } elseif (!empty($step->date_in) && empty($step->date_out)) {
-                    $dateIn = \Carbon\Carbon::parse($step->date_in);
-                    $diff = $dateIn->diff(now());
-                    $parts = [];
-                    if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
-                    if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
-                    if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
-                    if (empty($parts)) $parts[] = 'less than a minute';
-                    $step->total_time_completed = implode(' ', $parts) . ' (ongoing)';
+            // Receiving Total Time (Forward -> Received):
+            if ($index === 0) {
+                $step->total_time_received = '-';
+            } else {
+                if (!empty($step->total_time_received)) {
+                    // Already persisted in database
+                } elseif (!empty($step->date_in) && !empty($prevStep?->date_out)) {
+                    $durationRec = \App\Services\DtsWorkingHoursService::calculateDurationString($prevStep->date_out, $step->date_in);
+                    $step->total_time_received = $durationRec;
+                    // Persist to database so dynamic policy changes in future don't mutate history
+                    try {
+                        DB::table('dts_sequence_list')
+                            ->where('control_id', $step->control_id)
+                            ->where('sequence_ranking', $step->sequence_ranking)
+                            ->update(['total_time_received' => $durationRec]);
+                    } catch (\Throwable) {}
+                } elseif (empty($step->date_in) && !empty($prevStep?->date_out)) {
+                    $step->total_time_received = \App\Services\DtsWorkingHoursService::calculateDurationString($prevStep->date_out, now()) . ' (in transit)';
+                } else {
+                    $step->total_time_received = '-';
                 }
+            }
 
-                if ($t->status === 'completed' && $step->sequence_ranking == $t->sequence) {
-                    $step->action_needed = $step->action_needed ?: 'Finished';
-                }
+            // Processing Total Time (Received -> Forward):
+            if (!empty($step->date_in) && empty($step->total_time_completed) && ($step->date_out || $t->status === 'completed')) {
+                $dateOut = $step->date_out ?: now();
+                $durationComp = \App\Services\DtsWorkingHoursService::calculateDurationString($step->date_in, $dateOut);
+                $step->total_time_completed = $durationComp;
+                try {
+                    DB::table('dts_sequence_list')
+                        ->where('control_id', $step->control_id)
+                        ->where('sequence_ranking', $step->sequence_ranking)
+                        ->update(['total_time_completed' => $durationComp]);
+                } catch (\Throwable) {}
+            } elseif (!empty($step->date_in) && empty($step->date_out)) {
+                $step->total_time_completed = \App\Services\DtsWorkingHoursService::calculateDurationString($step->date_in, now()) . ' (ongoing)';
+            }
 
-                $step->description = $step->note ?: 'Pending office flow step.';
-                $step->type = $step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending');
-                $step->notes = $step->note ?: '';
-                $step->is_locked = ($step->sequence_ranking <= ($t->sequence ?? 1)) || !is_null($step->date_in);
+            if ($t->status === 'completed' && $step->sequence_ranking == $t->sequence) {
+                $step->action_needed = $step->action_needed ?: 'Finished';
+            }
 
-                return $step;
-            });
+            $step->description = $step->note ?: 'Pending office flow step.';
+            $step->type = $step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending');
+            $step->notes = $step->note ?: '';
+            $step->is_locked = ($step->sequence_ranking <= ($t->sequence ?? 1)) || !is_null($step->date_in);
+
+            $prevStep = $step;
+            $processed->push($step);
+        }
+
+        return $processed;
     }
 
     /**
@@ -1838,6 +1877,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
             $flow = DB::table('dts_transaction_flow')->where('flow_code', $trans->transaction_flow)->first();
             if ($flow) {
+                $prevSeq = DB::table('dts_sequence_list')
+                    ->where('control_id', $flow->id)
+                    ->where('sequence_ranking', $trans->sequence - 1)
+                    ->first();
+                $totalTimeReceived = null;
+                if ($prevSeq && $prevSeq->date_out) {
+                    $totalTimeReceived = \App\Services\DtsWorkingHoursService::calculateDurationString($prevSeq->date_out, now());
+                } elseif ($trans->sequence == 1) {
+                    $totalTimeReceived = '-';
+                }
+
                 DB::table('dts_sequence_list')
                     ->where('control_id', $flow->id)
                     ->where('sequence_ranking', $trans->sequence)
@@ -1845,6 +1895,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         'date_in' => now(),
                         'account_received' => auth()->id(),
                         'scanned_id' => true,
+                        'total_time_received' => $totalTimeReceived,
                     ]);
             }
 
@@ -2925,8 +2976,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                 <div style="font-size: 10px; color: #94a3b8; display: flex; flex-direction: column; gap: 2px;">
                                                                     <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>
                                                                     <div><strong style="color: #cbd5e1;">Date Out:</strong> {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</div>
+                                                                    @if (!empty($step->total_time_received) && $step->total_time_received !== '-')
+                                                                        <div><strong style="color: #cbd5e1;">Receiving Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_received }}</span></div>
+                                                                    @endif
                                                                     @if (!empty($step->total_time_completed) && $step->total_time_completed !== '-')
-                                                                        <div><strong style="color: #cbd5e1;">Total Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
+                                                                        <div><strong style="color: #cbd5e1;">Processing Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
                                                                     @endif
                                                                     <div><strong style="color: #cbd5e1;">Action:</strong> {{ ($t->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}</div>
                                                                 </div>
@@ -3343,8 +3397,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         <div style="font-size: 10px; color: #94a3b8; display: flex; flex-direction: column; gap: 2px;">
                                                             <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>
                                                             <div><strong style="color: #cbd5e1;">Date Out:</strong> {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</div>
+                                                            @if (!empty($step->total_time_received) && $step->total_time_received !== '-')
+                                                                <div><strong style="color: #cbd5e1;">Receiving Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_received }}</span></div>
+                                                            @endif
                                                             @if (!empty($step->total_time_completed) && $step->total_time_completed !== '-')
-                                                                <div><strong style="color: #cbd5e1;">Total Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
+                                                                <div><strong style="color: #cbd5e1;">Processing Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
                                                             @endif
                                                             <div><strong style="color: #cbd5e1;">Action:</strong> {{ ($t->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}</div>
                                                         </div>
@@ -4563,8 +4620,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     @if (!empty($step->forwarder_name) && $step->forwarder_name !== '—')
                                                         <div><strong style="color: #cbd5e1;">Forwarded By:</strong> <span style="color: #38bdf8; font-weight: 600;">{{ $step->forwarder_name }}</span></div>
                                                     @endif
+                                                    @if (!empty($step->total_time_received) && $step->total_time_received !== '-')
+                                                        <div><strong style="color: #cbd5e1;">Receiving Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_received }}</span></div>
+                                                    @endif
                                                     @if (!empty($step->total_time_completed) && $step->total_time_completed !== '-')
-                                                        <div><strong style="color: #cbd5e1;">Total Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
+                                                        <div><strong style="color: #cbd5e1;">Processing Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
                                                     @endif
                                                     <div><strong style="color: #cbd5e1;">Action:</strong> {{ ($selectedTransaction->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}</div>
                                                     @if (!empty($step->note) && $step->note !== '-')
@@ -4595,7 +4655,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <th>Office</th>
                                             <th>Received</th>
                                             <th>Forwarded</th>
-                                            <th>Total Time</th>
+                                            <th>
+                                                <div>Receiving Time</div>
+                                                <div style="font-size: 10px; font-weight: normal; color: #64748b; text-transform: none;">Forward &rarr; Received</div>
+                                            </th>
+                                            <th>
+                                                <div>Processing Time</div>
+                                                <div style="font-size: 10px; font-weight: normal; color: #64748b; text-transform: none;">Received &rarr; Forward</div>
+                                            </th>
                                             <th style="white-space: nowrap; min-width: 140px;">Action Need</th>
                                             <th>Notes</th>
                                             @if ($editingAll)
@@ -4651,7 +4718,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                          </div>
                                                      @endif
                                                  </td>
-                                                 <td>{{ ($step->total_time_completed ?? null) ?: '-' }}</td>
+                                                 <td style="white-space: nowrap;">
+                                                     <div style="font-weight: 500; color: #1e293b;">
+                                                         {{ ($step->total_time_received ?? null) ?: '-' }}
+                                                     </div>
+                                                 </td>
+                                                 <td style="white-space: nowrap;">
+                                                     <div style="font-weight: 500; color: #1e293b;">
+                                                         {{ ($step->total_time_completed ?? null) ?: '-' }}
+                                                     </div>
+                                                 </td>
                                                  <td class="action-cell" style="white-space: nowrap; text-align: center;">
                                                      @if ($step->is_active_step && $canProcess && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
                                                          <select wire:model.live="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">

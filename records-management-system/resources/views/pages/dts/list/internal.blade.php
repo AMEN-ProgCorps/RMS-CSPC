@@ -834,6 +834,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as f_acc', 'f_acc.id', '=', 'seq.account_forwarded')
             ->where('seq.control_id', $flow->id)
             ->select(
+                'seq.control_id',
                 'seq.sequence_ranking', 
                 'office.office_name', 
                 'seq.office_code', 
@@ -841,6 +842,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 'seq.date_out', 
                 'seq.action_needed', 
                 'seq.note', 
+                'seq.total_time_received',
                 'seq.total_time_completed',
                 DB::raw("TRIM(CONCAT(COALESCE(r_ad.first_name, ''), ' ', COALESCE(r_ad.last_name, ''))) as receiver_name"),
                 'r_acc.username as receiver_username',
@@ -848,8 +850,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 'f_acc.username as forwarder_username'
             )
             ->orderBy('seq.sequence_ranking', 'asc')
-            ->get()
-            ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName) {
+            ->get();
+
+        $processedPath = collect();
+        $prevFlowStep = null;
+        foreach ($steps as $index => $step) {
                 if ($step->office_code === 'ORIGIN') {
                     $step->office_code = $originOfficeCode;
                     $step->office_name = $originOfficeName;
@@ -912,16 +917,40 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                     && is_null($step->date_out)
                 );
 
+                // Receiving Total Time (Forward -> Received)
+                if ($index === 0) {
+                    $step->total_time_received = '-';
+                } else {
+                    if (!empty($step->total_time_received)) {
+                        // Persisted
+                    } elseif (!empty($step->date_in) && !empty($prevFlowStep?->date_out)) {
+                        $recDuration = \App\Services\DtsWorkingHoursService::calculateDurationString($prevFlowStep->date_out, $step->date_in);
+                        $step->total_time_received = $recDuration;
+                        try {
+                            DB::table('dts_sequence_list')
+                                ->where('control_id', $step->control_id)
+                                ->where('sequence_ranking', $step->sequence_ranking)
+                                ->update(['total_time_received' => $recDuration]);
+                        } catch (\Throwable) {}
+                    } elseif (empty($step->date_in) && !empty($prevFlowStep?->date_out)) {
+                        $step->total_time_received = \App\Services\DtsWorkingHoursService::calculateDurationString($prevFlowStep->date_out, now()) . ' (in transit)';
+                    } else {
+                        $step->total_time_received = '-';
+                    }
+                }
+
+                // Processing Total Time (Received -> Forward)
                 if (!empty($step->date_in) && empty($step->total_time_completed) && ($step->date_out || $this->selectedTransaction->status === 'completed')) {
-                    $dateIn = \Carbon\Carbon::parse($step->date_in);
-                    $dateOut = $step->date_out ? \Carbon\Carbon::parse($step->date_out) : now();
-                    $diff = $dateIn->diff($dateOut);
-                    $parts = [];
-                    if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
-                    if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
-                    if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
-                    if (empty($parts)) $parts[] = 'less than a minute';
-                    $step->total_time_completed = implode(' ', $parts);
+                    $compDuration = \App\Services\DtsWorkingHoursService::calculateDurationString($step->date_in, $step->date_out ?: now());
+                    $step->total_time_completed = $compDuration;
+                    try {
+                        DB::table('dts_sequence_list')
+                            ->where('control_id', $step->control_id)
+                            ->where('sequence_ranking', $step->sequence_ranking)
+                            ->update(['total_time_completed' => $compDuration]);
+                    } catch (\Throwable) {}
+                } elseif (!empty($step->date_in) && empty($step->date_out)) {
+                    $step->total_time_completed = \App\Services\DtsWorkingHoursService::calculateDurationString($step->date_in, now()) . ' (ongoing)';
                 }
 
                 if ($this->selectedTransaction->status === 'completed' && $step->sequence_ranking == $this->selectedTransaction->sequence) {
@@ -932,8 +961,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 $step->type = $step->action_needed ?: 'pending';
                 $step->notes = $step->note ?: '';
                 $step->is_locked = ($step->sequence_ranking <= ($this->selectedTransaction->sequence ?? 1)) || !is_null($step->date_in);
-                return $step;
-            });
+                
+                $prevFlowStep = $step;
+                $processedPath->push($step);
+        }
+
+        return $processedPath;
     }
 
     /**
@@ -3373,7 +3406,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                             <th style="width: 200px;">Station / Office</th>
                                             <th style="width: 140px;">Date In / Receiver</th>
                                             <th style="width: 140px;">Date Out / Forwarder</th>
-                                            <th style="width: 90px;">Duration</th>
+                                            <th style="width: 110px;">
+                                                <div>Receiving Time</div>
+                                                <div style="font-size: 10px; font-weight: normal; color: #64748b; text-transform: none;">Forward &rarr; Received</div>
+                                            </th>
+                                            <th style="width: 110px;">
+                                                <div>Processing Time</div>
+                                                <div style="font-size: 10px; font-weight: normal; color: #64748b; text-transform: none;">Received &rarr; Forward</div>
+                                            </th>
                                             <th style="width: 150px;">Action Taken</th>
                                             <th>Notes / Remarks</th>
                                             @if ($editingAll)
@@ -3424,6 +3464,16 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                                             <i class="fa-solid fa-paper-plane" style="color: #3b82f6; font-size: 11px;"></i>
                                                             <span>{{ $step->forwarder_name }}</span>
                                                         </div>
+                                                    @endif
+                                                </td>
+                                                <td>
+                                                    @if (!empty($step->total_time_received) && $step->total_time_received !== '-')
+                                                        <span class="dts-im-duration-pill">
+                                                            <i class="fa-regular fa-clock" style="color: #0284c7;"></i>
+                                                            {{ $step->total_time_received }}
+                                                        </span>
+                                                    @else
+                                                        <span style="color: #94a3b8;">-</span>
                                                     @endif
                                                 </td>
                                                 <td>

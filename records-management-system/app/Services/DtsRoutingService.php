@@ -217,6 +217,7 @@ class DtsRoutingService
                         'date_out' => $s->date_out,
                         'action_needed' => $s->action_needed,
                         'note' => $s->note,
+                        'total_time_received' => $s->total_time_received ?? null,
                         'total_time_completed' => $s->total_time_completed,
                         'scanned_id' => $s->scanned_id ?? false,
                         'account_received' => $s->account_received ?? null,
@@ -279,6 +280,7 @@ class DtsRoutingService
                 'date_out' => null,
                 'action_needed' => null,
                 'note' => null,
+                'total_time_received' => null,
                 'total_time_completed' => null,
                 'scanned_id' => false,
             ]);

@@ -686,13 +686,26 @@ new class extends Component {
                     if (!empty($this->activeTransaction['transaction_flow'])) {
                         $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->activeTransaction['transaction_flow'])->first();
                         if ($flow) {
+                            $seqRanking = $this->activeTransaction['sequence'];
+                            $prevSeq = DB::table('dts_sequence_list')
+                                ->where('control_id', $flow->id)
+                                ->where('sequence_ranking', $seqRanking - 1)
+                                ->first();
+                            $totalTimeReceived = null;
+                            if ($prevSeq && $prevSeq->date_out) {
+                                $totalTimeReceived = \App\Services\DtsWorkingHoursService::calculateDurationString($prevSeq->date_out, now());
+                            } elseif ($seqRanking == 1) {
+                                $totalTimeReceived = '-';
+                            }
+
                             DB::table('dts_sequence_list')
                                 ->where('control_id', $flow->id)
-                                ->where('sequence_ranking', $this->activeTransaction['sequence'])
+                                ->where('sequence_ranking', $seqRanking)
                                 ->update([
                                     'date_in' => now(),
                                     'account_received' => auth()->id(),
                                     'scanned_id' => true,
+                                    'total_time_received' => $totalTimeReceived,
                                 ]);
                         }
                     }

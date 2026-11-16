@@ -262,4 +262,83 @@ class DtsWorkingHoursTest extends TestCase
 
         Carbon::setTestNow(); // Reset time
     }
+
+    public function test_receiving_total_time_forward_to_received_calculation_and_persistence(): void
+    {
+        DB::table($this->sysTable)->updateOrInsert(['key' => 'dts_working_hours_enabled'], ['value' => 'true']);
+        DB::table($this->sysTable)->updateOrInsert(['key' => 'dts_working_hours_start'], ['value' => '06:00']);
+        DB::table($this->sysTable)->updateOrInsert(['key' => 'dts_working_hours_end'], ['value' => '17:00']);
+        DB::table($this->sysTable)->updateOrInsert(['key' => 'dts_working_hours_days'], ['value' => 'mon-fri']);
+        DtsWorkingHoursService::clearCache();
+
+        $flowCode = 'FLOW-REC-' . \Illuminate\Support\Str::random(6);
+        $flowId = (DB::table('dts_transaction_flow')->max('id') ?? 0) + 1;
+        DB::table('dts_transaction_flow')->insert([
+            'id' => $flowId,
+            'flow_code' => $flowCode,
+            'flow_name' => 'Receiving Test Flow',
+            'is_active' => 1,
+            'added_by' => 1,
+            'date_added' => now(),
+            'flow_use' => 'internal',
+            'flow_for' => 'system',
+        ]);
+
+        $office1 = DB::table('sys_office')->first()?->office_code ?? 'OFFICE1';
+        $office2 = DB::table('sys_office')->where('office_code', '!=', $office1)->first()?->office_code ?? 'OFFICE2';
+
+        $friOut = Carbon::parse('2026-11-20 16:30:00'); // Friday 4:30 PM (30 min before end)
+        $monIn = Carbon::parse('2026-11-23 07:30:00');  // Monday 7:30 AM (1 hr 30 min after start)
+
+        DB::table('dts_sequence_list')->insert([
+            [
+                'control_id' => $flowId,
+                'sequence_ranking' => 1,
+                'office_code' => $office1,
+                'date_in' => Carbon::parse('2026-11-20 16:00:00'),
+                'date_out' => $friOut,
+                'total_time_received' => '-',
+                'total_time_completed' => '30 minutes',
+            ],
+            [
+                'control_id' => $flowId,
+                'sequence_ranking' => 2,
+                'office_code' => $office2,
+                'date_in' => $monIn,
+                'date_out' => null,
+                'total_time_received' => null,
+                'total_time_completed' => null,
+            ],
+        ]);
+
+        // Calculate expected duration: 30m on Friday + 90m on Monday = 120m = 2 hours
+        $expectedDuration = DtsWorkingHoursService::calculateDurationString($friOut, $monIn);
+        $this->assertEquals('2 hours', $expectedDuration);
+
+        // Manually update receiving duration as receive action would
+        DB::table('dts_sequence_list')
+            ->where('control_id', $flowId)
+            ->where('sequence_ranking', 2)
+            ->update([
+                'total_time_received' => $expectedDuration,
+            ]);
+
+        // Verify persistence in DB
+        $step2 = DB::table('dts_sequence_list')
+            ->where('control_id', $flowId)
+            ->where('sequence_ranking', 2)
+            ->first();
+        $this->assertEquals('2 hours', $step2->total_time_received);
+
+        // Changing settings dynamically should NOT mutate the persisted historical value in DB
+        DB::table($this->sysTable)->updateOrInsert(['key' => 'dts_working_hours_start'], ['value' => '08:00']);
+        DB::table($this->sysTable)->updateOrInsert(['key' => 'dts_working_hours_end'], ['value' => '16:00']);
+        DtsWorkingHoursService::clearCache();
+
+        $step2AfterChange = DB::table('dts_sequence_list')
+            ->where('control_id', $flowId)
+            ->where('sequence_ranking', 2)
+            ->first();
+        $this->assertEquals('2 hours', $step2AfterChange->total_time_received);
+    }
 }

@@ -1356,6 +1356,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     'account_forwarded' => ($rank === 0 && $shouldAutoForward) ? auth()->id() : null,
                     'action_needed' => ($rank === 0) ? 'Created' : null,
                     'note' => ($rank === 0) ? ($isOutsideWorkingHours ? 'Created outside working hours. Scheduled for dispatch at ' . \App\Services\DtsWorkingHoursService::getNextWorkingHoursStart()->format('M d, Y g:i A') : ($shouldAutoForward ? 'Created & auto-forwarded transaction' : 'Created issuance transaction')) : null,
+                    'total_time_received' => ($rank === 0) ? '-' : null,
                     'total_time_completed' => null,
                 ]);
             }

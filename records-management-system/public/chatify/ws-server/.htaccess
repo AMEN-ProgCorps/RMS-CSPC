@@ -1,1 +1,20 @@
-Require all denied
+# -------------------------------------------------------------
+# Deny all HTTP access to ws-server directory and its contents
+# -------------------------------------------------------------
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^ - [F,L]
+</IfModule>
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+</IfModule>
+
+ErrorDocument 403 "Access forbidden: ws-server is an internal service."
+ErrorDocument 404 "Not Found"

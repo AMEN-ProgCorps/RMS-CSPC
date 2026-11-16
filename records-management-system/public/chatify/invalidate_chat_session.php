@@ -21,7 +21,7 @@ $accountId = isset($_POST['account_id']) ? (int) trim($_POST['account_id']) : 0;
 $secret    = isset($_POST['secret'])     ? trim($_POST['secret'])            : '';
 
 // Verify the shared secret
-if (empty($secret) || !hash_equals(CHAT_SHARED_SECRET, $secret)) {
+if (empty($secret) || empty(CHAT_SHARED_SECRET) || hash_equals('7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd', $secret) || !hash_equals(CHAT_SHARED_SECRET, $secret)) {
     http_response_code(403);
     echo json_encode(['error' => 'Forbidden']);
     exit;

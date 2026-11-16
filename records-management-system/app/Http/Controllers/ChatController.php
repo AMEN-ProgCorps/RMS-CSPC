@@ -35,7 +35,7 @@ class ChatController extends Controller
         $payload = $user->account_id . '|' . $expires;
 
         // Generate HMAC SHA256 token
-        $secret = env('CHAT_SHARED_SECRET', '7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd');
+        $secret = (string) env('CHAT_SHARED_SECRET', '');
         $token = hash_hmac('sha256', $payload, $secret);
 
         // Redirect user to standalone chat system using dynamic host

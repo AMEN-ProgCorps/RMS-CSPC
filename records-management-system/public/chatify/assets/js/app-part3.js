@@ -1122,23 +1122,90 @@
 
     // Active user scroll tracking — prevents background polls / image loads
     // from triggering scrollToBottom jumps while the user is actively scrolling.
+    // ── Active user touch & scroll tracking ──────────────────────────────────
+    // Prevents background polls, image loads, and real-time updates from
+    // dropping / snapping the scroll position while the user is holding their
+    // finger on the screen or actively scrolling / backreading.
+    let isTouchDown = false;
+    window.isTouchDown = false;
     let isUserScrollingOrTouching = false;
+    window.isUserScrollingOrTouching = false;
     let userScrollTouchTimeout = null;
 
-    function markUserScrollingActive() {
+    function handleChatTouchStart() {
+      isTouchDown = true;
+      window.isTouchDown = true;
       isUserScrollingOrTouching = true;
+      window.isUserScrollingOrTouching = true;
+      if (userScrollTouchTimeout) {
+        clearTimeout(userScrollTouchTimeout);
+        userScrollTouchTimeout = null;
+      }
+      cancelActiveScrollAnimation();
+    }
+
+    function handleChatTouchMove() {
+      isTouchDown = true;
+      window.isTouchDown = true;
+      isUserScrollingOrTouching = true;
+      window.isUserScrollingOrTouching = true;
+      if (userScrollTouchTimeout) {
+        clearTimeout(userScrollTouchTimeout);
+        userScrollTouchTimeout = null;
+      }
+    }
+
+    function handleChatTouchEnd(e) {
+      if (!e || !e.touches || e.touches.length === 0) {
+        isTouchDown = false;
+        window.isTouchDown = false;
+        if (userScrollTouchTimeout) clearTimeout(userScrollTouchTimeout);
+        userScrollTouchTimeout = setTimeout(function() {
+          isUserScrollingOrTouching = false;
+          window.isUserScrollingOrTouching = false;
+        }, 1200);
+      }
+    }
+
+    function handleChatTouchCancel() {
+      isTouchDown = false;
+      window.isTouchDown = false;
       if (userScrollTouchTimeout) clearTimeout(userScrollTouchTimeout);
       userScrollTouchTimeout = setTimeout(function() {
         isUserScrollingOrTouching = false;
-      }, 500);
+        window.isUserScrollingOrTouching = false;
+      }, 400);
+    }
+
+    function markUserScrollingActive() {
+      isUserScrollingOrTouching = true;
+      window.isUserScrollingOrTouching = true;
+      if (userScrollTouchTimeout) clearTimeout(userScrollTouchTimeout);
+      userScrollTouchTimeout = setTimeout(function() {
+        if (!isTouchDown) {
+          isUserScrollingOrTouching = false;
+          window.isUserScrollingOrTouching = false;
+        }
+      }, 800);
     }
 
     if (chatBox) {
-      chatBox.addEventListener('touchstart', markUserScrollingActive, { passive: true });
-      chatBox.addEventListener('touchmove', markUserScrollingActive, { passive: true });
-      chatBox.addEventListener('touchend', markUserScrollingActive, { passive: true });
-      chatBox.addEventListener('touchcancel', markUserScrollingActive, { passive: true });
+      chatBox.addEventListener('touchstart', handleChatTouchStart, { passive: true });
+      chatBox.addEventListener('touchmove', handleChatTouchMove, { passive: true });
+      chatBox.addEventListener('touchend', handleChatTouchEnd, { passive: true });
+      chatBox.addEventListener('touchcancel', handleChatTouchCancel, { passive: true });
       chatBox.addEventListener('wheel', markUserScrollingActive, { passive: true });
+      if (window.PointerEvent) {
+        chatBox.addEventListener('pointerdown', function(e) {
+          if (e.pointerType === 'touch') handleChatTouchStart();
+        }, { passive: true });
+        chatBox.addEventListener('pointerup', function(e) {
+          if (e.pointerType === 'touch') handleChatTouchEnd(e);
+        }, { passive: true });
+        chatBox.addEventListener('pointercancel', function(e) {
+          if (e.pointerType === 'touch') handleChatTouchCancel();
+        }, { passive: true });
+      }
     }
 
     // Enhanced scroll management
@@ -1163,16 +1230,19 @@
     }
     window.isAtBottom = isAtBottom;
 
-    function scrollToBottom(force = false, instant = false) {
-      // Never snap or jump scroll position while the user is actively touch-dragging or scrolling
-      if (isUserScrollingOrTouching && !force) return;
+    function scrollToBottom(force = false, instant = false, userExplicit = false) {
+      // NEVER snap or jump scroll position while user is actively holding their finger on the chat UI
+      if ((isTouchDown || window.isTouchDown) && !userExplicit) return;
 
-      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
-      if (viewingOlder && !force) return;
+      // Never snap or jump scroll position while user is actively scrolling / during momentum
+      if ((isUserScrollingOrTouching || window.isUserScrollingOrTouching) && !userExplicit) return;
+
+      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive || userScrolledUp;
+      if (viewingOlder && !userExplicit) return;
 
       cancelActiveScrollAnimation();
 
-      if (force || shouldAutoScroll) {
+      if (force || shouldAutoScroll || userExplicit) {
         // Instant scroll — no animation (used on page load / switch / refresh)
         if (instant) {
           chatBox.scrollTop = chatBox.scrollHeight;
@@ -1224,19 +1294,28 @@
       // Reset scroll tracking flags
       userScrolledUp = false;
       shouldAutoScroll = true;
-      isUserScrollingOrTouching = false;
       clearFirstLoadScrollTimers();
 
+      // If user is already touching or holding the screen, do not force jump to bottom
+      if (isTouchDown || window.isTouchDown) {
+        chatFullyLoaded = true;
+        return;
+      }
+
       // Immediately jump to the latest chat at the bottom
-      scrollToBottom(true, true);
+      scrollToBottom(true, true, true);
       
       // Double-rAF ensures browser paint and subpixel reflows are completely settled without delayed timeouts
       requestAnimationFrame(function() {
-        chatBox.scrollTop = chatBox.scrollHeight;
-        hideScrollIndicator();
-        requestAnimationFrame(function() {
+        if (!isTouchDown && !window.isTouchDown) {
           chatBox.scrollTop = chatBox.scrollHeight;
           hideScrollIndicator();
+        }
+        requestAnimationFrame(function() {
+          if (!isTouchDown && !window.isTouchDown) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+            hideScrollIndicator();
+          }
         });
       });
 
@@ -2077,7 +2156,7 @@
     // shortcut for the same emoji (re-tap removes it, same "one reaction
     // per user per message" rule as the picker). Keep this list in sync
     // with Reactions::ALLOWED in core/Reactions.php.
-    const REACTION_EMOJIS = ['😆', '❤️', '😍'];
+    const REACTION_EMOJIS = ['😆', '❤️', '👍'];
     const LONG_PRESS_MS = 280;
     const LONG_PRESS_MOVE_TOLERANCE = 10;
 
@@ -2430,8 +2509,11 @@
       if (isGlobalChat) {
         const targetConvId = (typeof getActiveChannelConvId === 'function')
           ? getActiveChannelConvId()
-          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
-        params.set('chat_type', targetConvId.startsWith('office_') ? 'office_gc' : 'global');
+          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+        const isOffice = Boolean(targetConvId && targetConvId.startsWith('office_'));
+        const isCustom = Boolean(targetConvId && targetConvId.startsWith('gc_'));
+        const effectiveChatType = isCustom ? 'custom_gc' : (isOffice ? 'office_gc' : 'global');
+        params.set('chat_type', effectiveChatType);
         params.set('conv_id', targetConvId);
       } else if (activeDM) {
         params.set('chat_type', 'private');
@@ -2459,10 +2541,13 @@
               const recipId = activeDMAccountId || Number(data.target_id) || null;
               const targetConvId = (typeof getActiveChannelConvId === 'function')
                 ? getActiveChannelConvId()
-                : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+                : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+              const isOffice = Boolean(targetConvId && targetConvId.startsWith('office_'));
+              const isCustom = Boolean(targetConvId && targetConvId.startsWith('gc_'));
+              const effectiveChatType = isGlobalChat ? (isCustom ? 'custom_gc' : (isOffice ? 'office_gc' : 'global')) : 'private';
               ws.send(JSON.stringify({
                 type: 'reaction',
-                chat_type: isGlobalChat ? (targetConvId.startsWith('office_') ? 'office_gc' : 'global') : 'private',
+                chat_type: effectiveChatType,
                 conv_id: isGlobalChat ? targetConvId : null,
                 recipient_id: recipId,
                 msg_uuid: data.msg_uuid,
@@ -2720,12 +2805,12 @@
 
     // Ensure scroll position is maintained at latest chat when images finish loading
     chatBox.addEventListener('load', function(event) {
-      if (isUserScrollingOrTouching) return;
+      if (isTouchDown || isUserScrollingOrTouching || window.isTouchDown || window.isUserScrollingOrTouching) return;
       if (event.target.tagName === 'IMG') {
         const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
-        if (viewingOlder) return; // Never auto-scroll to bottom when user is viewing older messages
-        if (shouldAutoScroll || !userScrolledUp || isAtBottom()) {
-          scrollToBottom(true, true);
+        if (viewingOlder || userScrolledUp) return; // Never auto-scroll to bottom when user is viewing older messages or scrolled up
+        if (shouldAutoScroll && isAtBottom()) {
+          scrollToBottom(false, true, false);
         }
       }
     }, true);
@@ -2907,8 +2992,12 @@
         gcViewingOlder = false;
         gcCursor = '';
         removePaginationBtn();
-        forceBottomScrollState('__global__');
-        if (typeof globalChatCache !== 'undefined') globalChatCache = null;
+        const curCid = (typeof getActiveChannelConvId === 'function') ? getActiveChannelConvId() : 'global';
+        forceBottomScrollState(curCid || '__global__');
+        if (typeof globalChatCache !== 'undefined' && (!curCid || curCid === 'global')) globalChatCache = null;
+        if (typeof channelMessageCache !== 'undefined' && channelMessageCache.delete && curCid) {
+          channelMessageCache.delete(curCid);
+        }
         chatBox.innerHTML = '';
         isFirstLoad = true;
         chatFullyLoaded = false;
@@ -2945,7 +3034,7 @@
         return true;
       }
 
-      scrollToBottom(true, true);
+      scrollToBottom(true, true, true);
       hideScrollIndicator(true);
       if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
         markRead(activeDM);
@@ -3124,12 +3213,18 @@
       gcHasMore        = data.hasMore || false;
 
       if (!loadOlderMode && !newHtml.trim()) {
-        const title = (window.activeChannel === 'office' && window.currentOfficeInfo)
+        const isOffice = window.activeChannel === 'office';
+        const isCustom = window.activeChannel === 'gc';
+        const title = (isOffice && window.currentOfficeInfo)
           ? (window.currentOfficeInfo.office_code || window.currentOfficeInfo.display_title || 'Office Group Chat')
-          : 'Global Chat';
-        const sub = (window.activeChannel === 'office')
+          : (isCustom && window.activeCustomGc
+            ? (window.activeCustomGc.name || window.activeCustomGc.full_name || 'Group Chat')
+            : 'Global Chat');
+        const sub = isOffice
           ? 'No messages yet. Say hello to your office team!'
-          : 'No messages yet. Send a message to get the conversation started!';
+          : (isCustom
+            ? 'No messages yet. Say hello to your group!'
+            : 'No messages yet. Send a message to get the conversation started!');
         chatBox.innerHTML = `<div class="empty-chat">
           <div class="chat-icon">
             <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
@@ -3220,8 +3315,6 @@
         if (isFirstLoad) {
           isFirstLoad = false;
           handleFirstLoadScroll();
-        } else if (wasAtBottom && shouldAutoScroll) {
-          scrollToBottom(true, true);
         }
         if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
         applyEmojiOnly();
@@ -3256,9 +3349,9 @@
           if (isFirstLoad) {
             isFirstLoad = false;
             handleFirstLoadScroll();
-          } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
-            scrollToBottom(true, true);
-          } else if (userScrolledUp || window.replyJumpActive) {
+          } else if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching && !window.replyJumpActive) {
+            scrollToBottom(false, true, false);
+          } else if (userScrolledUp || isTouchDown || isUserScrollingOrTouching || window.replyJumpActive) {
             if (actuallyAddedCount > 0) {
               showScrollIndicator(actuallyAddedCount);
             } else if (window.replyJumpActive) {
@@ -3302,11 +3395,11 @@
         isFirstLoad = false;
         handleFirstLoadScroll();
       } else if (!gcViewingOlder) {
-        if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
-          scrollToBottom(true, true);
+        if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching && !window.replyJumpActive) {
+          scrollToBottom(false, true, false);
         } else {
           chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
-          if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCount > 0) {
+          if ((userScrolledUp || isTouchDown || isUserScrollingOrTouching || window.replyJumpActive) && genuinelyNewCount > 0) {
             showScrollIndicator(genuinelyNewCount);
           } else if (window.replyJumpActive) {
             showScrollIndicator(0);
@@ -3316,28 +3409,45 @@
       applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
       gcCursor = data.nextCursor || '';
-      gcViewingOlder = false;
+      if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching) {
+        gcViewingOlder = false;
+      }
       if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
     }
 
+    let gcXhr = null;
     let globalChatPrefetchedData = null;
     let gcPrefetchPromise = null;
 
+    function abortAnyInFlightChatXhrs() {
+      if (chatXhr) {
+        try { chatXhr.abort(); } catch(e) {}
+        chatXhr = null;
+        isLoadingChat = false;
+      }
+      if (gcXhr) {
+        try { gcXhr.abort(); } catch(e) {}
+        gcXhr = null;
+        isLoadingGC = false;
+      }
+    }
+    window.abortAnyInFlightChatXhrs = abortAnyInFlightChatXhrs;
+
     function prefetchGlobalChatSnapshot() {
-      if (globalChatPrefetchedData) return Promise.resolve(globalChatPrefetchedData);
+      if (globalChatPrefetchedData && globalChatPrefetchedData.conv_id === 'global') return Promise.resolve(globalChatPrefetchedData);
       if (gcPrefetchPromise) return gcPrefetchPromise;
 
       gcPrefetchPromise = new Promise(function(resolve) {
         const xhr = new XMLHttpRequest();
-        const isOffice = (window.activeChannel === 'office');
-        const convParam = (isOffice && window.currentOfficeInfo && window.currentOfficeInfo.conv_id)
-          ? '&conv_id=' + encodeURIComponent(window.currentOfficeInfo.conv_id)
-          : '';
+        const targetConvId = 'global';
+        const convParam = '&conv_id=' + encodeURIComponent(targetConvId);
         xhr.open('GET', 'load.php?before_uuid=&limit=' + INITIAL_LOAD + convParam, true);
         xhr.onload = function() {
           if (this.status === 200) {
             try {
-              globalChatPrefetchedData = JSON.parse(this.responseText);
+              const parsed = JSON.parse(this.responseText);
+              if (parsed && !parsed.conv_id) parsed.conv_id = targetConvId;
+              globalChatPrefetchedData = parsed;
               if (typeof cacheGlobalChatSnapshot === 'function') {
                 cacheGlobalChatSnapshot(globalChatPrefetchedData);
               }
@@ -3354,6 +3464,10 @@
     }
 
     function speculateGlobalChatCard(cardElement) {
+      if (typeof speculateChannelCard === 'function') {
+        speculateChannelCard('global', cardElement || document.getElementById('globalChatItem'));
+        return;
+      }
       const el = cardElement || document.getElementById('globalChatItem');
       if (el && el.dataset.preloaded === 'true') return;
       if (globalChatPrefetchedData || gcPrefetchPromise) {
@@ -3366,7 +3480,7 @@
 
       // Register Speculation Rules API rule dynamically for load.php
       if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
-        const url = 'load.php?before_uuid=';
+        const url = 'load.php?conv_id=global&before_uuid=&limit=' + INITIAL_LOAD;
         const ruleId = 'speculation-rule-global-chat';
         if (!document.getElementById(ruleId)) {
           try {
@@ -3391,11 +3505,16 @@
 
     function loadGlobalChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (!isGlobalChat) return;
-      if (isLoadingGC && !force) return;
-      if (isAutoPoll && !loadOlderMode && (gcViewingOlder || window.replyJumpActive)) return;
+
+      const targetConvId = (typeof getActiveChannelConvId === 'function')
+        ? getActiveChannelConvId()
+        : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+
+      if (!targetConvId) return;
 
       if (!loadOlderMode && !isAutoPoll) {
-        if (globalChatPrefetchedData) {
+        // STRICT CHANNEL CHECK: only use prefetched data if its conv_id strictly matches targetConvId
+        if (globalChatPrefetchedData && globalChatPrefetchedData.conv_id === targetConvId) {
           const data = globalChatPrefetchedData;
           if (typeof cacheGlobalChatSnapshot === 'function') cacheGlobalChatSnapshot(data);
           globalChatPrefetchedData = null;
@@ -3406,7 +3525,8 @@
           const p = gcPrefetchPromise;
           gcPrefetchPromise = null;
           p.then(function(data) {
-            if (data && isGlobalChat) {
+            const curActive = (typeof getActiveChannelConvId === 'function') ? getActiveChannelConvId() : 'global';
+            if (data && isGlobalChat && data.conv_id === curActive && curActive === targetConvId) {
               if (typeof cacheGlobalChatSnapshot === 'function') cacheGlobalChatSnapshot(data);
               if (chatBox && chatBox.children.length === 0) {
                 processGlobalChatData(data, false);
@@ -3414,7 +3534,38 @@
             }
           });
         }
+
+        // Check if channelMessageCache has a snapshot for instant paint
+        const cachedSnap = (typeof channelMessageCache !== 'undefined' && channelMessageCache.get)
+          ? channelMessageCache.get(targetConvId)
+          : null;
+        if (cachedSnap && cachedSnap.html && chatBox && chatBox.children.length === 0) {
+          processGlobalChatData(cachedSnap._raw || cachedSnap, false);
+        }
+
+        // Check if channelPrefetchPromises has an in-flight fetch for targetConvId
+        if (typeof channelPrefetchPromises !== 'undefined' && channelPrefetchPromises.has(targetConvId)) {
+          const cp = channelPrefetchPromises.get(targetConvId);
+          cp.then(function(data) {
+            const curActive = (typeof getActiveChannelConvId === 'function') ? getActiveChannelConvId() : 'global';
+            if (data && isGlobalChat && curActive === targetConvId) {
+              if (chatBox && chatBox.children.length === 0) {
+                processGlobalChatData(data._raw || data, false);
+              }
+            }
+          });
+        }
       }
+
+      if (isLoadingGC) {
+        if (!force) return;
+        if (gcXhr) {
+          try { gcXhr.abort(); } catch(e) {}
+          gcXhr = null;
+        }
+        isLoadingGC = false;
+      }
+      if (isAutoPoll && !loadOlderMode && (gcViewingOlder || window.replyJumpActive)) return;
 
       isLoadingGC = true;
 
@@ -3424,17 +3575,16 @@
         cursor = (oldestMsgEl ? oldestMsgEl.getAttribute('data-msg-id') : '') || gcCursor || '';
       }
       const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
-      const targetConvId = (typeof getActiveChannelConvId === 'function')
-        ? getActiveChannelConvId()
-        : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
       const convParam  = '&conv_id=' + encodeURIComponent(targetConvId);
 
       const xhr = new XMLHttpRequest();
+      gcXhr = xhr;
       xhr.open('GET', 'load.php?before_uuid=' + encodeURIComponent(cursor)
                     + '&limit=' + limitParam
                     + convParam, true);
       xhr.onload = function() {
         isLoadingGC = false;
+        if (gcXhr === xhr) gcXhr = null;
         if (loadOlderMode) hideBackreadTopLoader();
         if (this.status !== 200) return;
         if (!isGlobalChat) return;
@@ -3451,13 +3601,20 @@
           console.error('[Chatify] GlobalChat parse error:', e, this.responseText);
           return;
         }
-        if (data.conv_id && data.conv_id !== targetConvId) return;
+        const currentActiveConvId = (typeof getActiveChannelConvId === 'function')
+          ? getActiveChannelConvId()
+          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+        if (!data.conv_id || data.conv_id !== currentActiveConvId || currentActiveConvId !== targetConvId) return;
         if (!loadOlderMode && typeof cacheGlobalChatSnapshot === 'function') {
           cacheGlobalChatSnapshot(data);
         }
         processGlobalChatData(data, loadOlderMode);
       };
-      xhr.onerror = function() { isLoadingGC = false; if (loadOlderMode) hideBackreadTopLoader(); };
+      xhr.onerror = function() {
+        isLoadingGC = false;
+        if (gcXhr === xhr) gcXhr = null;
+        if (loadOlderMode) hideBackreadTopLoader();
+      };
       xhr.send();
     }
 
@@ -3465,7 +3622,9 @@
     let chatXhr = null;
 
     function processChatData(data, requestedUser, loadOlderMode = false) {
+      if (isGlobalChat || !activeDM) return;
       if (requestedUser !== activeDM && (!activeDMAccountId || String(activeDMAccountId) !== String(requestedUser))) return;
+      if (data && data.target_id && activeDMAccountId && Number(data.target_id) !== Number(activeDMAccountId)) return;
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       const newHtml = data.html || '';
       dmHasMore = data.hasMore || false;
@@ -3646,9 +3805,9 @@
           if (isFirstLoad) {
             isFirstLoad = false;
             handleFirstLoadScroll();
-          } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
-            scrollToBottom(true, true);
-          } else if (userScrolledUp || window.replyJumpActive) {
+          } else if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching && !window.replyJumpActive) {
+            scrollToBottom(false, true, false);
+          } else if (userScrolledUp || isTouchDown || isUserScrollingOrTouching || window.replyJumpActive) {
             if (actuallyAddedCount > 0) {
               showScrollIndicator(actuallyAddedCount);
             } else if (window.replyJumpActive) {
@@ -3656,6 +3815,9 @@
             }
           }
         }
+        applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
+        if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) markRead(activeDM);
+        updateSeenIndicator();
         if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
         return;
       }
@@ -3694,11 +3856,11 @@
         isFirstLoad = false;
         handleFirstLoadScroll();
       } else if (!dmViewingOlder) {
-        if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
-          scrollToBottom(true, true);
+        if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching && !window.replyJumpActive) {
+          scrollToBottom(false, true, false);
         } else {
           chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-          if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCountF > 0) {
+          if ((userScrolledUp || isTouchDown || isUserScrollingOrTouching || window.replyJumpActive) && genuinelyNewCountF > 0) {
             showScrollIndicator(genuinelyNewCountF);
           } else if (window.replyJumpActive) {
             showScrollIndicator(0);
@@ -3706,6 +3868,9 @@
         }
       }
       dmCursor = data.nextCursor || '';
+      if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching) {
+        dmViewingOlder = false;
+      }
       if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
     }
 
@@ -3987,7 +4152,7 @@
             if (clearedGlobal) {
               const targetConvId = (typeof getActiveChannelConvId === 'function')
                 ? getActiveChannelConvId()
-                : (window.activeChannel === 'office' ? (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) : 'global');
+                : (window.activeChannel === 'office' ? (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
               const isCustomGcClear = targetConvId && targetConvId.startsWith('gc_');
               const isOfficeClear   = targetConvId && targetConvId.startsWith('office_');
               ws.send(JSON.stringify({
@@ -4055,7 +4220,7 @@
       if (isGlobalChat) {
         const targetConvId = (typeof getActiveChannelConvId === 'function')
           ? getActiveChannelConvId()
-          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
         // Custom GC — do NOT send global=1, just send the gc_ conv_id directly
         if (targetConvId && targetConvId.startsWith('gc_')) {
           params += "&conv_id=" + encodeURIComponent(targetConvId);
@@ -4596,7 +4761,7 @@
           : '';
         const targetConvId = (typeof getActiveChannelConvId === 'function')
           ? getActiveChannelConvId()
-          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
         const channelConvParam = isGlobalChat
           ? '&conv_id=' + encodeURIComponent(targetConvId)
           : '';
@@ -6509,8 +6674,8 @@
           scrollAnchorObserver.observe(img);
         }
         img.addEventListener('load', () => {
-          if (!viewingOlder && isAtBottom() && shouldAutoScroll) {
-            scrollToBottom(true, true);
+          if (!viewingOlder && !userScrolledUp && !(isTouchDown || window.isTouchDown || isUserScrollingOrTouching || window.isUserScrollingOrTouching) && isAtBottom() && shouldAutoScroll) {
+            scrollToBottom(false, true, false);
           }
         });
       });
@@ -6698,7 +6863,7 @@
         if (isGlobalChat) {
           const targetConvId = (typeof getActiveChannelConvId === 'function')
             ? getActiveChannelConvId()
-            : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+            : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
           params += '&conv_id=' + encodeURIComponent(targetConvId);
         }
         if (!isGlobalChat && (activeDM || activeDMAccountId)) {

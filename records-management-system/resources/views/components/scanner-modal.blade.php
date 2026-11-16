@@ -29,11 +29,21 @@ new class extends Component {
     public string $availableSearch = '';
     public string $availableFilter = 'all';
 
+    /**
+     * Toggles modal maximize state between standard docked dialog and full-viewport view.
+     *
+     * @return void
+     */
     public function toggleMaximize(): void
     {
         $this->isMaximized = !$this->isMaximized;
     }
 
+    /**
+     * Resets the scanner console inputs, active transaction, Hub selections, and refocuses input.
+     *
+     * @return void
+     */
     public function resetConsole(): void
     {
         $this->clearMessages();
@@ -53,11 +63,21 @@ new class extends Component {
     public array $forwardHubOffices = [];
     public array $forwardHubTempSelected = [];
 
+    /**
+     * Triggers manual search for code entered in input box ($isScan = false), requiring manual receipt verification.
+     *
+     * @return void
+     */
     public function loadTransactionManual(): void
     {
         $this->loadTransaction(null, false);
     }
 
+    /**
+     * Toggles visibility of the Available Codes directory modal.
+     *
+     * @return void
+     */
     public function toggleAvailableCodesModal(): void
     {
         if (!$this->availableCodesEnabled) {
@@ -71,6 +91,11 @@ new class extends Component {
         }
     }
 
+    /**
+     * Opens the Available Codes directory modal and resets search and filter states.
+     *
+     * @return void
+     */
     public function openAvailableCodesModal(): void
     {
         if (!$this->availableCodesEnabled) {
@@ -82,18 +107,34 @@ new class extends Component {
         $this->showAvailableModal = true;
     }
 
+    /**
+     * Closes the Available Codes directory modal and clears the search query.
+     *
+     * @return void
+     */
     public function closeAvailableCodesModal(): void
     {
         $this->showAvailableModal = false;
         $this->availableSearch = '';
     }
 
+    /**
+     * Loads a specific transaction selected from the Available Codes directory.
+     *
+     * @param string $qrCode Scanned QR code or control number to load.
+     * @return void
+     */
     public function loadAvailableTransaction(string $qrCode): void
     {
         $this->closeAvailableCodesModal();
         $this->loadTransaction($qrCode);
     }
 
+    /**
+     * Opens the Office Hub collective broadcast modal and initializes staging selection.
+     *
+     * @return void
+     */
     public function openForwardHubModal(): void
     {
         $this->forwardHubTempSelected = $this->forwardHubOffices;
@@ -101,12 +142,23 @@ new class extends Component {
         $this->showForwardHubModal = true;
     }
 
+    /**
+     * Closes the Office Hub broadcast modal without applying uncommitted changes.
+     *
+     * @return void
+     */
     public function closeForwardHubModal(): void
     {
         $this->showForwardHubModal = false;
         $this->forwardHubSearch = '';
     }
 
+    /**
+     * Toggles an office code in the staged Hub broadcast selection list.
+     *
+     * @param string $officeCode Office code to add or remove.
+     * @return void
+     */
     public function toggleForwardHubOffice(string $officeCode): void
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -132,16 +184,31 @@ new class extends Component {
         }
     }
 
+    /**
+     * Selects all active system offices for full broadcast mode in the Office Hub modal.
+     *
+     * @return void
+     */
     public function selectAllForwardHubOffices(): void
     {
         $this->forwardHubTempSelected = ['ALL'];
     }
 
+    /**
+     * Clears all selected offices in the staged Office Hub selection.
+     *
+     * @return void
+     */
     public function clearForwardHubOffices(): void
     {
         $this->forwardHubTempSelected = [];
     }
 
+    /**
+     * Commits staged Office Hub selections into the active forwarding payload and closes modal.
+     *
+     * @return void
+     */
     public function applyForwardHubModal(): void
     {
         $this->forwardHubOffices = $this->forwardHubTempSelected;
@@ -149,6 +216,12 @@ new class extends Component {
         $this->forwardHubSearch = '';
     }
 
+    /**
+     * Removes an office by index from the committed forward Hub offices list.
+     *
+     * @param int $index Zero-based array index to remove.
+     * @return void
+     */
     public function removeForwardHubOffice(int $index): void
     {
         if (isset($this->forwardHubOffices[$index])) {
@@ -156,6 +229,11 @@ new class extends Component {
         }
     }
 
+    /**
+     * Initializes component action options, recent scans from session, and system settings.
+     *
+     * @return void
+     */
     public function mount(): void
     {
         try {
@@ -182,6 +260,11 @@ new class extends Component {
         $this->availableCodesEnabled = ($setting !== 'false');
     }
 
+    /**
+     * Computed property retrieving available destination offices for dynamic forwarding.
+     *
+     * @return \Illuminate\Support\Collection<int, object>
+     */
     public function getAvailableTargetOfficesProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -189,6 +272,12 @@ new class extends Component {
         return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
     }
 
+    /**
+     * Computed property returning transactions available for station action at user's office.
+     * Applies search keywords and incoming/received filters.
+     *
+     * @return \Illuminate\Support\Collection<int, object>
+     */
     public function getAvailableTransactionsProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -270,6 +359,11 @@ new class extends Component {
         });
     }
 
+    /**
+     * Computed property summarizing count badges (total, incoming, received) for the Available Codes directory.
+     *
+     * @return array{all: int, incoming: int, received: int}
+     */
     public function getAvailableCountsProperty(): array
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -321,6 +415,12 @@ new class extends Component {
         ];
     }
 
+    /**
+     * Toggles open/closed state of the scanner modal.
+     *
+     * @param string $code Optional barcode/QR code to prime modal with.
+     * @return void
+     */
     #[On('toggle-scanner-modal')]
     public function toggleModal(string $code = ''): void
     {
@@ -331,6 +431,13 @@ new class extends Component {
         }
     }
 
+    /**
+     * Opens the scanner modal, notifies other widgets to close, and initializes camera scanner.
+     *
+     * @param string $code Optional code to immediately look up.
+     * @param bool $isScan Whether this trigger originated from live optical scanning (true) or typing (false).
+     * @return void
+     */
     #[On('open-scanner-modal')]
     public function openModal(string $code = '', bool $isScan = false): void
     {
@@ -357,6 +464,13 @@ new class extends Component {
         $this->dispatch('init-camera-scanner');
     }
 
+    /**
+     * Listener enforcing single-widget mutual exclusivity. Closes scanner modal when another widget opens.
+     *
+     * @param mixed $widget Widget name identifier string.
+     * @param mixed $detail Optional payload array containing widget info.
+     * @return void
+     */
     #[On('rms-widget-opened')]
     public function handleOtherWidgetOpened($widget = null, $detail = null): void
     {
@@ -366,6 +480,11 @@ new class extends Component {
         }
     }
 
+    /**
+     * Closes the scanner modal, halts camera feed, and resets console states.
+     *
+     * @return void
+     */
     #[On('close-scanner-modal')]
     public function closeModal(): void
     {
@@ -382,12 +501,33 @@ new class extends Component {
         $this->dispatch('stop-camera-scanner');
     }
 
+    /**
+     * Clears all active status alerts (successMessage and errorMessage).
+     *
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
+    /**
+     * Look up and load a transaction by barcode, QR code, or Control Number.
+     *
+     * Business rules:
+     * - Auto-Receive ($isScan = true): Triggered when code comes from camera feed or barcode gun.
+     *   If incoming to user's office, auto-receives custody, records receive log, updates sequence,
+     *   dispatches notification, and activates a 5-second scanner cooldown.
+     * - Manual Verification ($isScan = false): Triggered when code is typed into input box.
+     *   Leaves the transaction in its current incoming state and requires manual receipt verification.
+     * - Enforces office scoping: Rejects documents belonging to other stations.
+     * - Checks working hours: Auto-receive is blocked outside working hours with policy banner.
+     *
+     * @param string|null $codeToLoad Raw barcode/QR code string.
+     * @param bool $isScan Whether lookup originated from live optical scanning (true) or manual entry (false).
+     * @return void
+     */
     public function loadTransaction(?string $codeToLoad = null, bool $isScan = false): void
     {
         $this->clearMessages();
@@ -730,6 +870,17 @@ new class extends Component {
         $this->dispatch('scanner-code-success');
     }
 
+    /**
+     * Executes station processing actions on the currently active loaded transaction.
+     *
+     * Handles:
+     * - Case 1: Manual Receive of incoming document (with pessimistic lock & idempotency check).
+     * - Case 2: Dynamic forwarding to another office or Office Hub broadcast.
+     * - Case 3: Returning document to Origin for revision.
+     * - Case 4: Normal forward along pre-defined sequence flow or marking document completed.
+     *
+     * @return void
+     */
     public function processScanAction(): void
     {
         $this->clearMessages();
@@ -2164,6 +2315,11 @@ new class extends Component {
             if (input) input.focus();
         });
 
+        /**
+         * Stops and releases all active hardware media streams and tracks attached to modal video elements.
+         *
+         * @returns {void}
+         */
         function releaseAllModalMediaTracks() {
             try {
                 const modal = document.querySelector('.dts-scanner-widget-card, .global-scanner-modal');
@@ -2181,6 +2337,11 @@ new class extends Component {
             }
         }
 
+        /**
+         * Gracefully halts the Html5Qrcode camera instance, stops watchdog, releases hardware tracks, and clears DOM.
+         *
+         * @returns {Promise<void>}
+         */
         async function stopModalScanner() {
             stopModalWatchdog();
             if (modalHtml5QrCode) {
@@ -2218,6 +2379,11 @@ new class extends Component {
         // preview stays alive but QR detection silently stops. Watch the track
         // and auto-restart when it dies.
         // ------------------------------------------------------------------
+        /**
+         * Halts the background camera watchdog interval timer.
+         *
+         * @returns {void}
+         */
         function stopModalWatchdog() {
             if (modalWatchdogTimer) {
                 clearInterval(modalWatchdogTimer);
@@ -2225,6 +2391,11 @@ new class extends Component {
             }
         }
 
+        /**
+         * Starts periodic watchdog checking video track health, auto-restarting feed if stream unexpectedly ends.
+         *
+         * @returns {void}
+         */
         function startModalWatchdog() {
             stopModalWatchdog();
             modalWatchdogTimer = setInterval(async () => {
@@ -2260,6 +2431,13 @@ new class extends Component {
             }, 2500);
         }
 
+        /**
+         * Calculates responsive QR scanning viewfinder box bounding box.
+         *
+         * @param {number} viewfinderWidth Width of container element in pixels.
+         * @param {number} viewfinderHeight Height of container element in pixels.
+         * @returns {Object} Scanning box dimensions containing width and height numbers.
+         */
         const calculateModalQrboxSize = function(viewfinderWidth, viewfinderHeight) {
             // Generous rectangular scanning zone (72% of minimum dimension)
             // Ensures QR box is always within viewfinder bounds and never exceeds height or width.
@@ -2282,6 +2460,12 @@ new class extends Component {
             qrbox: calculateModalQrboxSize
         };
 
+        /**
+         * Tests whether a scanned raw string is Base64 encoded and decodes it if valid printable ASCII.
+         *
+         * @param {string} raw Scanned barcode or QR text.
+         * @returns {string} Normalized or decoded code string.
+         */
         const decodeIfBase64 = (raw) => {
             if (!raw) return raw;
             const str = raw.trim();
@@ -2307,6 +2491,12 @@ new class extends Component {
         let isModalCoolingDown = false;
         let modalCooldownInterval = null;
 
+        /**
+         * Activates a visual countdown cooldown timer after successful scan to give server breathing gap.
+         *
+         * @param {number} seconds Cooldown duration in seconds (default 5).
+         * @returns {void}
+         */
         const startModalCooldown = (seconds = 5) => {
             isModalCoolingDown = true;
             let remaining = seconds;
@@ -2336,6 +2526,11 @@ new class extends Component {
         // Resolve the scanner component at call time (DOM wire:id first, compiled
         // "@this" as fallback) so scans never silently no-op when the compile-time
         // component reference is stale.
+        /**
+         * Resolves the Livewire component instance dynamically from DOM or Blade context.
+         *
+         * @returns {object|null} The resolved Livewire component proxy, or null if unresolvable.
+         */
         const resolveModalComponent = () => {
             try {
                 const modalEl = document.querySelector('.dts-scanner-widget-card')
@@ -2352,6 +2547,14 @@ new class extends Component {
             return null;
         };
 
+        /**
+         * Dispatches loadTransaction call to the backend Livewire component.
+         *
+         * @param {string} code Scanned or entered barcode/QR string.
+         * @param {boolean} isScan True if optical scan (triggers auto-receive), false if manual.
+         * @returns {Promise<any>|any} Component call promise.
+         * @throws {Error} When Livewire component is not reachable in DOM.
+         */
         const callModalLoadTransaction = (code, isScan = true) => {
             const comp = resolveModalComponent();
             if (!comp) {
@@ -2382,6 +2585,13 @@ new class extends Component {
             return result;
         };
 
+        /**
+         * Callback fired by Html5Qrcode engine when a valid QR code is detected in camera feed.
+         * Debounces rapid duplicates, respects the 5s cooldown gap, and invokes loadTransaction.
+         *
+         * @param {string} decodedText Raw decoded barcode or QR text from camera.
+         * @returns {void}
+         */
         const onModalScanSuccess = (decodedText) => {
             if (!decodedText) return;
             if (isModalCoolingDown) {
@@ -2414,6 +2624,11 @@ new class extends Component {
             }
         };
 
+        /**
+         * Enumerates available video input devices and updates the camera selection dropdown and flip button UI.
+         *
+         * @returns {Promise<void>}
+         */
         async function updateModalCameraUI() {
             try {
                 const cameras = await Html5Qrcode.getCameras();
@@ -2471,6 +2686,15 @@ new class extends Component {
             }
         }
 
+        /**
+         * Initializes and starts camera optical scanning stream using Html5Qrcode.
+         * Tries candidate targets in priority: explicit target deviceId, last active camera,
+         * enumerated cameras, and facing modes (environment/user).
+         *
+         * @param {string} cameraTarget Device ID string or facingMode ('environment'|'user').
+         * @returns {Promise<void>}
+         * @throws {Error} If no compatible camera could be opened or permission was denied.
+         */
         async function startModalCamera(cameraTarget) {
             const placeholder = document.getElementById('camera-loading-placeholder');
             if (placeholder) {
@@ -2615,6 +2839,13 @@ new class extends Component {
             startModalWatchdog();
         }
 
+        /**
+         * Switches the active camera device to a specific target device or facing mode.
+         * Renders informative troubleshooting guidance if camera permission or access fails.
+         *
+         * @param {string} [cameraTarget] Device ID or facing mode string.
+         * @returns {Promise<void>}
+         */
         window.switchModalCamera = async function(cameraTarget) {
             if (isModalSwitching) return;
             isModalSwitching = true;
@@ -2653,6 +2884,11 @@ new class extends Component {
             }
         };
 
+        /**
+         * Cycles to the next available system camera or toggles between user (front) and environment (rear) lenses.
+         *
+         * @returns {Promise<void>}
+         */
         window.flipModalCamera = async function() {
             if (isModalSwitching) return;
 
@@ -2676,6 +2912,12 @@ new class extends Component {
             }
         };
 
+        /**
+         * Global helper to open scanner modal from anywhere in the application.
+         *
+         * @param {string} [code=''] Optional barcode/QR code to pre-populate.
+         * @returns {void}
+         */
         window.openScannerModal = function(code = '') {
             if (window.Livewire) {
                 Livewire.dispatch('open-scanner-modal', { code: code });
@@ -2685,6 +2927,12 @@ new class extends Component {
         let isModalStarting = false;
         let lastInitTime = 0;
 
+        /**
+         * Event handler for 'init-camera-scanner'. Waits for DOM container rendering,
+         * focuses the input field, and starts the optical camera feed.
+         *
+         * @returns {Promise<void>}
+         */
         const handleInitCameraScanner = async () => {
             const now = Date.now();
             if (now - lastInitTime < 500) return; // Prevent concurrent double-fires
@@ -2756,10 +3004,20 @@ new class extends Component {
             }
         };
 
+        /**
+         * Event handler for 'stop-camera-scanner'. Halts camera tracks when modal is dismissed.
+         *
+         * @returns {Promise<void>}
+         */
         const handleStopCameraScanner = async () => {
             await stopModalScanner();
         };
 
+        /**
+         * Visual feedback handler when an invalid QR code or barcode is scanned. Flashes input red.
+         *
+         * @returns {void}
+         */
         const handleScannerCodeInvalid = () => {
             const input = document.getElementById('global-scanner-code-input');
             if (input) {
@@ -2772,6 +3030,14 @@ new class extends Component {
 
         // Web Audio API Synthesizer Feedback for Scanner
         let audioCtx = null;
+        /**
+         * Generates synthesized audio beep feedback via Web Audio API for scanner feedback.
+         *
+         * @param {number} freq Audio frequency in Hz (e.g., 880 for success, 250 for error).
+         * @param {string} type Oscillator waveform type ('sine', 'triangle', 'sawtooth').
+         * @param {number} duration Tone duration in seconds.
+         * @returns {void}
+         */
         function playBeep(freq, type, duration) {
             try {
                 if (!audioCtx) {

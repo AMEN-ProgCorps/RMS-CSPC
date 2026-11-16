@@ -10,6 +10,13 @@
 <div
     x-data="{
         isOpen: false,
+        /**
+         * Toggle the floating scanner modal open or closed.
+         * Enforces single-widget mutual exclusivity: dispatches 'rms-widget-opened'
+         * and calls closeMessifyWidget() before opening the scanner modal.
+         *
+         * @returns {void}
+         */
         openScanner() {
             if (this.isOpen) {
                 if (window.Livewire) {
@@ -29,6 +36,12 @@
                 }
             }
         },
+        /**
+         * Initializes widget DOM styling watchers and keyboard shortcuts.
+         * Registers Alt+S and Ctrl+Shift+S hotkeys for opening the scanner modal.
+         *
+         * @returns {void}
+         */
         init() {
             const syncMessifyPresent = () => {
                 if (!document.getElementById('messify-global-widget')) {

@@ -232,6 +232,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->infoMessage = '';
     }
 
+    /**
+     * Triggers manual search for code entered in input box ($isScan = false), requiring manual receipt verification.
+     *
+     * @return void
+     */
     public function loadTransactionManual(): void
     {
         $this->loadTransaction(null, false);
@@ -450,6 +455,19 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
     /**
      * Search and load transaction details by scanned QR code or Control Number.
+     *
+     * Business rules:
+     * - Auto-Receive ($isScan = true): Triggered when code comes from camera feed or barcode gun.
+     *   If incoming to user's office, auto-receives custody, records receive log, updates sequence,
+     *   dispatches notification, and activates a 5-second scanner cooldown.
+     * - Manual Verification ($isScan = false): Triggered when code is typed into input box.
+     *   Leaves the transaction in its current incoming state and requires manual receipt verification.
+     * - Enforces office scoping: Rejects documents belonging to other stations.
+     * - Checks working hours: Auto-receive is blocked outside working hours with policy banner.
+     *
+     * @param string|null $codeToLoad Raw barcode/QR code string.
+     * @param bool $isScan Whether lookup originated from live optical scanning (true) or manual entry (false).
+     * @return void
      */
     public function loadTransaction(?string $codeToLoad = null, bool $isScan = false): void
     {
@@ -711,7 +729,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     }
 
     /**
-     * Execute Receive action on active document.
+     * Executes the Receive action on the active document at the user's station.
+     * Enforces working hours restrictions, one-time receive guard with pessimistic row locking,
+     * updates sequence timing, dispatches notifications, and starts a 5-second scanner cooldown.
+     *
+     * @return void
      */
     public function executeReceive(): void
     {
@@ -2275,6 +2297,13 @@ if (typeof Html5Qrcode === 'undefined') {
     let isPageCoolingDown = false;
     let pageCooldownInterval = null;
 
+    /**
+     * Activates a visual countdown cooldown banner on the full console after a successful scan.
+     * Prevents rapid back-to-back scan floods to give the server a 5-second breathing gap.
+     *
+     * @param {number} seconds Cooldown duration in seconds (defaults to 5).
+     * @returns {void}
+     */
     const startPageCooldown = (seconds = 5) => {
         isPageCoolingDown = true;
         let remaining = seconds;

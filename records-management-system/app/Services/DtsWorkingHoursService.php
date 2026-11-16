@@ -16,7 +16,12 @@ class DtsWorkingHoursService
     protected static ?string $cachedDays = null;
 
     /**
-     * Clear the in-memory cache for settings.
+     * Clear the in-memory cache for working hours settings.
+     *
+     * Resets cached values for enabled flag, start hour, end hour, and working days
+     * to force fresh queries from the database on subsequent calls.
+     *
+     * @return void
      */
     public static function clearCache(): void
     {
@@ -27,7 +32,11 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Retrieve the settings table name.
+     * Retrieve the active system settings table name.
+     *
+     * Supports both prefixed ('sys_system_settings') and non-prefixed ('system_settings') schemas.
+     *
+     * @return string Database table name.
      */
     protected static function getSettingsTable(): string
     {
@@ -35,7 +44,11 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Check if working hours restriction is enabled.
+     * Check if the DTS working hours restriction policy is enabled in system settings.
+     *
+     * When disabled, transactions can be processed 24/7 without station action restrictions.
+     *
+     * @return bool True if restriction is enabled; false otherwise.
      */
     public static function isEnabled(): bool
     {
@@ -56,7 +69,11 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Get configured start time in HH:mm format (default: '06:00').
+     * Get the configured start time for the daily working hours window in HH:mm format.
+     *
+     * Defaults to '06:00' (6:00 AM) if unconfigured or on failure.
+     *
+     * @return string 24-hour time string in HH:mm format.
      */
     public static function getStartHour(): string
     {
@@ -77,7 +94,11 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Get configured end time in HH:mm format (default: '17:00').
+     * Get the configured end time for the daily working hours window in HH:mm format.
+     *
+     * Defaults to '17:00' (5:00 PM) if unconfigured or on failure.
+     *
+     * @return string 24-hour time string in HH:mm format.
      */
     public static function getEndHour(): string
     {
@@ -98,7 +119,11 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Get configured working days: 'mon-fri' or 'all' (default: 'mon-fri').
+     * Get the configured working days policy: 'mon-fri' (workdays only) or 'all' (every day).
+     *
+     * Defaults to 'mon-fri' if unconfigured or invalid.
+     *
+     * @return string 'mon-fri' or 'all'.
      */
     public static function getWorkingDays(): string
     {
@@ -121,7 +146,13 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Determine if a given date is a working day based on settings.
+     * Determine if a given date is considered an active working day under current policy.
+     *
+     * Under 'all', every calendar day is considered a working day.
+     * Under 'mon-fri', Saturdays and Sundays are excluded.
+     *
+     * @param \Carbon\Carbon|string|null $date The date to check; defaults to current time if null.
+     * @return bool True if the date is a working day; false otherwise.
      */
     public static function isWorkingDay(Carbon|string|null $date = null): bool
     {
@@ -137,8 +168,13 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Check if the given timestamp falls within active working hours.
-     * If the restriction is disabled, this always returns true.
+     * Check if a given timestamp falls within active working hours.
+     *
+     * Evaluates both the working day calendar rule and the daily time window (start to end hour).
+     * If the working hours restriction is disabled, this always returns true (24/7 operation).
+     *
+     * @param \Carbon\Carbon|string|null $time The timestamp to check; defaults to current time if null.
+     * @return bool True if within allowed working hours or policy is disabled; false otherwise.
      */
     public static function isWithinWorkingHours(Carbon|string|null $time = null): bool
     {
@@ -162,7 +198,12 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Gate for station processing actions (Receive, Forward, Proceed, Complete, Return).
+     * Security gate for station processing actions (Receive, Forward, Return for Revision, Complete).
+     *
+     * Users may view documents anytime, but mutation actions are blocked outside working hours.
+     *
+     * @param \Carbon\Carbon|null $time Optional timestamp to test; defaults to now.
+     * @return bool True if station actions are currently permitted; false if restricted.
      */
     public static function canProcessStationAction(?Carbon $time = null): bool
     {
@@ -170,7 +211,13 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Calculate the next timestamp when working hours begin.
+     * Calculate the next timestamp when the working hours window begins.
+     *
+     * If called during a working day before the start hour, returns today's start hour.
+     * Otherwise advances day by day until the next working day's start hour is found.
+     *
+     * @param \Carbon\Carbon|string|null $from The reference timestamp; defaults to now.
+     * @return \Carbon\Carbon Timestamp when working hours next begin.
      */
     public static function getNextWorkingHoursStart(Carbon|string|null $from = null): Carbon
     {
@@ -200,7 +247,11 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Formatted human-readable working hours window notice.
+     * Retrieve formatted human-readable working hours window notice.
+     *
+     * Example output: "6:00 AM to 5:00 PM (Monday – Friday)".
+     *
+     * @return string Formatted window string.
      */
     public static function getWorkingHoursWindowNotice(): string
     {
@@ -212,7 +263,11 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Formatted notice for creation form outside working hours.
+     * Formatted notice for display on transaction creation forms when accessed outside working hours.
+     *
+     * Informs the user that the document will be saved but dispatched starting in working hours.
+     *
+     * @return string Notice banner text.
      */
     public static function getCreationNoticeBanner(): string
     {
@@ -222,6 +277,8 @@ class DtsWorkingHoursService
 
     /**
      * Formatted restriction notice when attempting station actions outside working hours.
+     *
+     * @return string Restriction message describing prohibited actions and working window.
      */
     public static function getStationActionRestrictionNotice(): string
     {
@@ -231,7 +288,14 @@ class DtsWorkingHoursService
 
     /**
      * Calculate active working seconds elapsed between two timestamps.
-     * When disabled, returns full 24/7 calendar elapsed seconds.
+     *
+     * Iterates through days in the span. For each active working day, calculates the
+     * intersection between [start, end] and [dayStartHour, dayEndHour].
+     * When the working hours restriction is disabled, returns 24/7 calendar elapsed seconds.
+     *
+     * @param \Carbon\Carbon|string|null $startDate Start timestamp.
+     * @param \Carbon\Carbon|string|null $endDate End timestamp; defaults to now.
+     * @return int Active working seconds elapsed.
      */
     public static function calculateWorkingSeconds(Carbon|string|null $startDate, Carbon|string|null $endDate = null): int
     {
@@ -282,7 +346,11 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Calculate daily working window in seconds.
+     * Calculate duration of a single daily working window in seconds.
+     *
+     * E.g. 06:00 to 17:00 is 11 hours = 39,600 seconds.
+     *
+     * @return int Total seconds in one working day.
      */
     public static function getDailyWorkingSeconds(): int
     {
@@ -302,8 +370,14 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Calculate active elapsed days between two timestamps.
+     * Calculate active elapsed working days between two timestamps.
+     *
      * When working hours restriction is enabled, 1 day = 1 full daily working window.
+     * When disabled, calculates standard calendar days.
+     *
+     * @param \Carbon\Carbon|string|null $startDate Start timestamp.
+     * @param \Carbon\Carbon|string|null $endDate End timestamp; defaults to now.
+     * @return int Number of elapsed working days.
      */
     public static function calculateWorkingDays(Carbon|string|null $startDate, Carbon|string|null $endDate = null): int
     {
@@ -324,7 +398,11 @@ class DtsWorkingHoursService
     }
 
     /**
-     * Calculate active elapsed minutes between two timestamps.
+     * Calculate active elapsed working minutes between two timestamps.
+     *
+     * @param \Carbon\Carbon|string|null $startDate Start timestamp.
+     * @param \Carbon\Carbon|string|null $endDate End timestamp; defaults to now.
+     * @return int Number of elapsed working minutes (rounded).
      */
     public static function calculateWorkingMinutes(Carbon|string|null $startDate, Carbon|string|null $endDate = null): int
     {
@@ -334,7 +412,12 @@ class DtsWorkingHoursService
 
     /**
      * Format elapsed active working time into a human-readable duration string.
-     * E.g. "2 days 4 hours 12 minutes" or "3 hours 20 minutes" or "less than a minute".
+     *
+     * E.g. "2 days 4 hours 12 minutes", "3 hours 20 minutes", or "less than a minute".
+     *
+     * @param \Carbon\Carbon|string|null $startDate Start timestamp.
+     * @param \Carbon\Carbon|string|null $endDate End timestamp; defaults to now.
+     * @return string Human-readable duration string.
      */
     public static function calculateDurationString(Carbon|string|null $startDate, Carbon|string|null $endDate = null): string
     {
@@ -377,6 +460,8 @@ class DtsWorkingHoursService
     /**
      * Dispatches any transactions that were created outside working hours
      * once active working hours commence.
+     *
+     * @return int Number of transactions dispatched.
      */
     public static function dispatchPendingOutsideWorkingHoursTransactions(): int
     {

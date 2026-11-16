@@ -735,6 +735,13 @@ body.messify-widget-open #messify-global-widget {
         playNotificationSound();
     });
 
+    /**
+     * Handler invoked when another floating modal or widget is opened.
+     * Enforces single-widget mutual exclusivity by closing Chatify if another widget opens.
+     *
+     * @param {CustomEvent} e Event payload containing { detail: { widget: string } }.
+     * @returns {void}
+     */
     const handleCloseFromOtherWidget = function(e) {
         const detail = e ? e.detail : null;
         const w = (detail && typeof detail === 'object') ? (detail.widget || (Array.isArray(detail) ? detail[0]?.widget : null)) : detail;
@@ -749,6 +756,11 @@ body.messify-widget-open #messify-global-widget {
     window.addEventListener('open-scanner-modal', function() { handleCloseFromOtherWidget({ detail: { widget: 'scanner' } }); });
     window.addEventListener('scanner-modal-opened', function() { handleCloseFromOtherWidget({ detail: { widget: 'scanner' } }); });
 
+    /**
+     * Explicitly close the Chatify floating widget and persist state to sessionStorage.
+     *
+     * @returns {void}
+     */
     window.closeMessifyWidget = function() {
         if (isOpen) {
             isOpen = false;
@@ -757,6 +769,11 @@ body.messify-widget-open #messify-global-widget {
         }
     };
 
+    /**
+     * Explicitly open the Chatify floating widget, load iframe if needed, and poll unread count.
+     *
+     * @returns {void}
+     */
     window.openMessifyWidget = function() {
         if (!isTabletOrDesktop()) return;
         if (!isOpen) {
@@ -767,6 +784,11 @@ body.messify-widget-open #messify-global-widget {
         }
     };
 
+    /**
+     * Toggle the open/closed state of the Chatify widget card.
+     *
+     * @returns {void}
+     */
     window.toggleMessifyWidget = function() {
         if (!isTabletOrDesktop()) {
             return;
@@ -779,6 +801,11 @@ body.messify-widget-open #messify-global-widget {
     };
 
     let messifyIsMaximized = false;
+    /**
+     * Toggle full expanded modal view for the Chatify widget card.
+     *
+     * @returns {void}
+     */
     window.toggleMessifyMaximize = function() {
         const card = document.getElementById('messify-widget-card');
         const iconMax = document.getElementById('messify-icon-maximize');
@@ -800,6 +827,11 @@ body.messify-widget-open #messify-global-widget {
         }
     };
 
+    /**
+     * Hard-reload the Chatify iframe content with cache-busting timestamp.
+     *
+     * @returns {void}
+     */
     window.reloadMessifyIframe = function() {
         const iframe = document.getElementById('messify-iframe');
         const loader = document.getElementById('messify-iframe-loader');
@@ -812,6 +844,11 @@ body.messify-widget-open #messify-global-widget {
         scheduleUnreadPoll(500);
     };
 
+    /**
+     * Suppress browser password managers and autofill engines inside the embedded Chatify search bar.
+     *
+     * @returns {void}
+     */
     function disableMessifySearchAutoInput() {
         const iframe = document.getElementById('messify-iframe');
         if (!iframe) return;
@@ -871,6 +908,11 @@ body.messify-widget-open #messify-global-widget {
         }
     }
 
+    /**
+     * Hide the connecting loader overlay once the Chatify iframe triggers its onload event.
+     *
+     * @returns {void}
+     */
     window.hideMessifyLoader = function() {
         messifyLoadedOnce = true;
         const loader = document.getElementById('messify-iframe-loader');
@@ -882,6 +924,13 @@ body.messify-widget-open #messify-global-widget {
         setTimeout(updateUnreadBadge, 600);
     };
 
+    /**
+     * Set visual visibility of the Chatify widget card, trigger animation, and manage mutual exclusivity.
+     *
+     * @param {boolean} show Whether to show or hide the widget card.
+     * @param {boolean} animate Whether to apply smooth CSS transition.
+     * @returns {void}
+     */
     function setWidgetVisibility(show, animate) {
         const card = document.getElementById('messify-widget-card');
         const btn = document.getElementById('messify-widget-btn');

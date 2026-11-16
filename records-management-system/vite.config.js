@@ -37,6 +37,8 @@ export default defineConfig({
                 'resources/css/dcs/rms-shared-header.css',
                 'resources/css/dcs/actions-dropdown.css',
                 'resources/css/dcs/dashboard.css',
+                'resources/css/dcs/calendar-widget.css',
+                'resources/css/dcs/floating-calendar.css',
                 'resources/css/dcs/settings.css',
                 'resources/css/dcs/register.css',
                 'resources/css/dcs/update.css',

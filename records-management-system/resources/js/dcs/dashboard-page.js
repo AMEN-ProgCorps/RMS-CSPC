@@ -1,9 +1,3 @@
-/**
- * DCS ASSET: DCS dashboard page interactions
- * FILE: resources/js/dcs/dashboard-page.js
- * DEBUG: dashboard.css / RegisterQueryHelper dashboard payloads
- */
-
 /** DCS dashboard Alpine components (clock, search, calendar, admin attention). */
 (() => {
     const register = () => {
@@ -462,15 +456,43 @@
         },
     }));
 
+    Alpine.store('dcsCal', {
+        open: false,
+        nowClock: '',
+        headerDate: '',
+        toggle() {
+            window.dispatchEvent(new CustomEvent('dcs-calendar-toggle'));
+        },
+        openPanel() {
+            window.dispatchEvent(new CustomEvent('dcs-calendar-open'));
+        },
+        closePanel() {
+            window.dispatchEvent(new CustomEvent('dcs-calendar-close'));
+        },
+    });
+
     Alpine.data('dcsDashboardCalendar', (seed = {}) => ({
         months: ['January','February','March','April','May','June','July','August','September','October','November','December'],
         holidays: Array.isArray(seed.holidays) ? seed.holidays : (window.__DCS_DASH_BOOT && window.__DCS_DASH_BOOT.holidays) || [],
+        dashboardUrl: seed.dashboardUrl || window.__DCS_DASH_URL || '/dcs',
         calendarOpen: false,
         calendarReady: false,
         calendarPersistKey: 'dcs.dashboard.calendarOpen',
+        eventsPersistKey: 'dcs.dashboard.calendarEventsOpen',
+        floatPersistKey: 'dcs.dashboard.calendarFloat',
+        eventsOpen: false,
+        jumpOpen: false,
         eventCategoryFilter: '',
         nowClock: '',
+        headerDateLabel: '',
         _clockTimer: null,
+        floatX: null,
+        floatY: null,
+        floatDragging: false,
+        _dragOffsetX: 0,
+        _dragOffsetY: 0,
+        _onFloatMove: null,
+        _onFloatUp: null,
         year: new Date().getFullYear(),
         month: new Date().getMonth(),
         events: [],
@@ -485,6 +507,12 @@
         newCategory: '',
         newCategoryColor: '#0369a1',
         form: { title: '', category_id: '', date: '', startTime: '09:00', endTime: '10:00', description: '' },
+        get floatPanelStyle() {
+            if (this.floatX == null || this.floatY == null) {
+                return 'top: 86px; right: 24px; left: auto; bottom: auto;';
+            }
+            return 'left:' + this.floatX + 'px;top:' + this.floatY + 'px;right:auto;bottom:auto;';
+        },
         csrf() {
             return document.querySelector('meta[name="csrf-token"]')?.content || '';
         },
@@ -493,21 +521,150 @@
             if (json) h['Content-Type'] = 'application/json';
             return h;
         },
-        tickClock() {
+        syncStore() {
             try {
-                this.nowClock = new Date().toLocaleTimeString([], {
+                const store = Alpine.store('dcsCal');
+                if (!store) return;
+                store.open = !!this.calendarOpen;
+                store.nowClock = this.nowClock || '';
+                store.headerDate = this.headerDateLabel || '';
+            } catch (e) {}
+        },
+        tickClock() {
+            const now = new Date();
+            try {
+                this.nowClock = now.toLocaleTimeString([], {
                     hour: 'numeric',
                     minute: '2-digit',
                     second: '2-digit',
                 });
             } catch (e) {
-                const n = new Date();
-                this.nowClock = n.toTimeString().slice(0, 8);
+                this.nowClock = now.toTimeString().slice(0, 8);
             }
+            try {
+                this.headerDateLabel = now.toLocaleDateString('en-US', {
+                    weekday: 'long',
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric',
+                });
+            } catch (e) {
+                this.headerDateLabel = now.toDateString();
+            }
+            this.syncStore();
+        },
+        loadFloatPos() {
+            try {
+                const raw = localStorage.getItem(this.floatPersistKey);
+                if (!raw) return;
+                const pos = JSON.parse(raw);
+                if (typeof pos?.x === 'number' && typeof pos?.y === 'number') {
+                    this.floatX = pos.x;
+                    this.floatY = pos.y;
+                }
+            } catch (e) {}
+        },
+        saveFloatPos() {
+            try {
+                if (this.floatX == null || this.floatY == null) return;
+                localStorage.setItem(this.floatPersistKey, JSON.stringify({ x: this.floatX, y: this.floatY }));
+            } catch (e) {}
+        },
+        clampFloatPos(x, y, el) {
+            const pad = 8;
+            const w = el?.offsetWidth || 340;
+            const h = el?.offsetHeight || 420;
+            const maxX = Math.max(pad, window.innerWidth - w - pad);
+            const maxY = Math.max(pad, window.innerHeight - h - pad);
+            return {
+                x: Math.min(Math.max(pad, x), maxX),
+                y: Math.min(Math.max(pad, y), maxY),
+            };
+        },
+        startFloatDrag(event) {
+            const handle = event.target?.closest?.('[data-float-handle]');
+            if (!handle) return;
+            if (event.target?.closest?.('button, a, input, select, textarea, label')) return;
+
+            const panel = event.currentTarget?.closest?.('.dcs-float-cal-panel') || handle.closest('.dcs-float-cal-panel');
+            if (!panel) return;
+
+            const point = event.touches?.[0] || event;
+            const rect = panel.getBoundingClientRect();
+            this.floatDragging = true;
+            this._dragOffsetX = point.clientX - rect.left;
+            this._dragOffsetY = point.clientY - rect.top;
+            this.floatX = rect.left;
+            this.floatY = rect.top;
+
+            this._onFloatMove = (ev) => {
+                const p = ev.touches?.[0] || ev;
+                if (ev.cancelable) ev.preventDefault();
+                const next = this.clampFloatPos(
+                    p.clientX - this._dragOffsetX,
+                    p.clientY - this._dragOffsetY,
+                    panel
+                );
+                this.floatX = next.x;
+                this.floatY = next.y;
+            };
+            this._onFloatUp = () => {
+                this.floatDragging = false;
+                this.saveFloatPos();
+                window.removeEventListener('mousemove', this._onFloatMove);
+                window.removeEventListener('mouseup', this._onFloatUp);
+                window.removeEventListener('touchmove', this._onFloatMove);
+                window.removeEventListener('touchend', this._onFloatUp);
+                this._onFloatMove = null;
+                this._onFloatUp = null;
+            };
+
+            window.addEventListener('mousemove', this._onFloatMove);
+            window.addEventListener('mouseup', this._onFloatUp);
+            window.addEventListener('touchmove', this._onFloatMove, { passive: false });
+            window.addEventListener('touchend', this._onFloatUp);
+        },
+        toggleEventsDropdown() {
+            this.eventsOpen = !this.eventsOpen;
+            try {
+                localStorage.setItem(this.eventsPersistKey, this.eventsOpen ? '1' : '0');
+            } catch (e) {}
+        },
+        toggleJumpPicker() {
+            this.jumpOpen = !this.jumpOpen;
+        },
+        get yearOptions() {
+            const current = new Date().getFullYear();
+            const start = Math.min(this.year, current) - 15;
+            const end = Math.max(this.year, current) + 15;
+            const out = [];
+            for (let y = start; y <= end; y++) out.push(y);
+            return out;
+        },
+        get jumpDateValue() {
+            return this.toIso(this.year, this.month, 1);
+        },
+        jumpToDate(iso) {
+            const raw = String(iso || '').slice(0, 10);
+            const parts = raw.split('-').map(Number);
+            if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return;
+            const [y, m, d] = parts;
+            if (m < 1 || m > 12 || d < 1 || d > 31) return;
+            this.year = y;
+            this.month = m - 1;
+            this.jumpOpen = false;
+            this.openDay(raw);
+        },
+        goToday() {
+            const t = new Date();
+            this.year = t.getFullYear();
+            this.month = t.getMonth();
+            this.jumpOpen = false;
         },
         async init() {
             this.tickClock();
             this._clockTimer = setInterval(() => this.tickClock(), 1000);
+            this.loadFloatPos();
 
             try {
                 this.calendarOpen = localStorage.getItem(this.calendarPersistKey) === '1';
@@ -515,14 +672,24 @@
                 this.calendarOpen = false;
             }
 
+            try {
+                const eventsPref = localStorage.getItem(this.eventsPersistKey);
+                this.eventsOpen = eventsPref === null ? false : eventsPref === '1';
+            } catch (e) {
+                this.eventsOpen = false;
+            }
+
             this.$watch('calendarOpen', (open) => {
                 try {
                     localStorage.setItem(this.calendarPersistKey, open ? '1' : '0');
                 } catch (e) {}
+                this.syncStore();
                 if (open) {
                     this.loadAll();
                 }
             });
+
+            this.syncStore();
 
             this.$nextTick(() => {
                 requestAnimationFrame(() => {
@@ -540,10 +707,45 @@
                 clearInterval(this._clockTimer);
                 this._clockTimer = null;
             }
+            if (this._onFloatUp) this._onFloatUp();
+        },
+        isDashboardPage() {
+            try {
+                const path = (window.location.pathname || '').replace(/\/+$/, '') || '/';
+                const dash = String(this.dashboardUrl || '/dcs').replace(/\/+$/, '') || '/dcs';
+                return path === dash || path.endsWith('/dcs');
+            } catch (e) {
+                return true;
+            }
+        },
+        goToDashboard() {
+            if (this.isDashboardPage()) return;
+            const url = this.dashboardUrl || '/dcs';
+            if (window.Livewire?.navigate) {
+                window.Livewire.navigate(url);
+            } else {
+                window.location.assign(url);
+            }
+        },
+        closeCalendar() {
+            this.calendarOpen = false;
+            this.jumpOpen = false;
+            this.syncStore();
+            // Calendar lives on the dashboard; closing off-dashboard returns there.
+            this.goToDashboard();
         },
         toggleCalendar() {
-            this.calendarOpen = !this.calendarOpen;
-            if (this.calendarOpen && this.events.length === 0 && this.categories.length === 0) {
+            if (this.calendarOpen) {
+                this.closeCalendar();
+                return;
+            }
+            if (!this.isDashboardPage()) {
+                this.goToDashboard();
+                return;
+            }
+            this.calendarOpen = true;
+            this.syncStore();
+            if (this.events.length === 0 && this.categories.length === 0) {
                 this.loadAll();
             }
         },

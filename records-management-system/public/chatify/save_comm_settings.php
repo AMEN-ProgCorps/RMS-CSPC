@@ -1,15 +1,13 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
 
+session_start();
+Auth::require();
+session_write_close();
+
 header('Content-Type: application/json');
 
-if (!Auth::check()) {
-    http_response_code(401);
-    echo json_encode(['error' => 'Unauthorized']);
-    exit;
-}
-
-$accountId = (int) ($_SESSION['account_id'] ?? 0);
+$accountId = Auth::accountId();
 if ($accountId <= 0) {
     http_response_code(400);
     echo json_encode(['error' => 'Invalid account']);
@@ -33,6 +31,12 @@ $helperParseBool = function ($val, $fallback = true) {
 
 try {
     $pdo = Database::getConnection();
+
+    SelfHealCache::once('account_details_comm_settings_cols', function () use ($pdo) {
+        $table = Database::t('account_details');
+        $pdo->exec("ALTER TABLE {$table} ADD COLUMN IF NOT EXISTS allow_typing_preview BOOLEAN DEFAULT TRUE");
+        $pdo->exec("ALTER TABLE {$table} ADD COLUMN IF NOT EXISTS allow_see_typing_preview BOOLEAN DEFAULT TRUE");
+    });
 
     // Fetch existing settings first so partial updates don't overwrite the other setting
     $currentStmt = $pdo->prepare('SELECT allow_typing_preview, allow_see_typing_preview FROM ' . Database::t('account_details') . ' WHERE account_id = ? LIMIT 1');
@@ -66,13 +70,6 @@ try {
         ':id' => $accountId,
     ]);
 
-    // Push updated settings to WebSocket server
-    WsPush::push([$accountId], 'update_comm_settings', [
-        'account_id'               => $accountId,
-        'allow_typing_preview'     => $allowTypingPreview,
-        'allow_see_typing_preview' => $allowSeeTypingPreview,
-    ]);
-
     echo json_encode([
         'success'  => true,
         'settings' => [
@@ -80,6 +77,15 @@ try {
             'allow_see_typing_preview' => $allowSeeTypingPreview,
         ],
     ]);
+
+    // Push updated settings to WebSocket server after flushing response to client
+    WsPush::flushResponseThenRun(function () use ($accountId, $allowTypingPreview, $allowSeeTypingPreview) {
+        WsPush::push([$accountId], 'update_comm_settings', [
+            'account_id'               => $accountId,
+            'allow_typing_preview'     => $allowTypingPreview,
+            'allow_see_typing_preview' => $allowSeeTypingPreview,
+        ]);
+    });
 } catch (Throwable $e) {
     http_response_code(500);
     echo json_encode(['error' => 'Database update failed', 'message' => $e->getMessage()]);

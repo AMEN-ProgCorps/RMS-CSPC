@@ -60,9 +60,17 @@ if (empty($convId)) {
 
 $isOfficeGc     = str_starts_with($convId, 'office_');
 $targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
+$isCustomGc     = str_starts_with($convId, 'gc_');
+$customGcId     = 0;
 
-if ($isOfficeGc && $targetOfficeId) {
-    if (!Auth::isAdmin($myAccountId) && $userOfficeId !== $targetOfficeId) {
+if ($convId !== 'global' && !$isOfficeGc && !$isCustomGc) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Invalid conversation channel.']);
+    exit;
+}
+
+if ($isOfficeGc) {
+    if (!$targetOfficeId || $targetOfficeId <= 0 || (!Auth::isAdmin($myAccountId) && $userOfficeId !== $targetOfficeId)) {
         http_response_code(403);
         echo json_encode(['error' => 'You do not belong to this office group chat.']);
         exit;
@@ -74,8 +82,6 @@ if ($isOfficeGc && $targetOfficeId) {
 }
 
 // Custom GC authorization: verify user is a member
-$isCustomGc    = str_starts_with($convId, 'gc_');
-$customGcId    = 0;
 if ($isCustomGc) {
     $customGcId = (int) substr($convId, 3);
     if ($customGcId <= 0 || (!Auth::isAdmin($myAccountId) && !CustomGroupManager::isMember($customGcId, $myAccountId))) {

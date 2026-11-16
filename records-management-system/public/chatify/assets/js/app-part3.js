@@ -2077,7 +2077,7 @@
     // shortcut for the same emoji (re-tap removes it, same "one reaction
     // per user per message" rule as the picker). Keep this list in sync
     // with Reactions::ALLOWED in core/Reactions.php.
-    const REACTION_EMOJIS = ['😆', '❤️', '😍'];
+    const REACTION_EMOJIS = ['😆', '❤️', '👍'];
     const LONG_PRESS_MS = 280;
     const LONG_PRESS_MOVE_TOLERANCE = 10;
 
@@ -3320,8 +3320,23 @@
       if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
     }
 
+    let gcXhr = null;
     let globalChatPrefetchedData = null;
     let gcPrefetchPromise = null;
+
+    function abortAnyInFlightChatXhrs() {
+      if (chatXhr) {
+        try { chatXhr.abort(); } catch(e) {}
+        chatXhr = null;
+        isLoadingChat = false;
+      }
+      if (gcXhr) {
+        try { gcXhr.abort(); } catch(e) {}
+        gcXhr = null;
+        isLoadingGC = false;
+      }
+    }
+    window.abortAnyInFlightChatXhrs = abortAnyInFlightChatXhrs;
 
     function prefetchGlobalChatSnapshot() {
       if (globalChatPrefetchedData) return Promise.resolve(globalChatPrefetchedData);
@@ -3329,15 +3344,17 @@
 
       gcPrefetchPromise = new Promise(function(resolve) {
         const xhr = new XMLHttpRequest();
-        const isOffice = (window.activeChannel === 'office');
-        const convParam = (isOffice && window.currentOfficeInfo && window.currentOfficeInfo.conv_id)
-          ? '&conv_id=' + encodeURIComponent(window.currentOfficeInfo.conv_id)
-          : '';
+        const targetConvId = (typeof getActiveChannelConvId === 'function')
+          ? getActiveChannelConvId()
+          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+        const convParam = '&conv_id=' + encodeURIComponent(targetConvId);
         xhr.open('GET', 'load.php?before_uuid=&limit=' + INITIAL_LOAD + convParam, true);
         xhr.onload = function() {
           if (this.status === 200) {
             try {
-              globalChatPrefetchedData = JSON.parse(this.responseText);
+              const parsed = JSON.parse(this.responseText);
+              if (parsed && !parsed.conv_id) parsed.conv_id = targetConvId;
+              globalChatPrefetchedData = parsed;
               if (typeof cacheGlobalChatSnapshot === 'function') {
                 cacheGlobalChatSnapshot(globalChatPrefetchedData);
               }
@@ -3391,11 +3408,14 @@
 
     function loadGlobalChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (!isGlobalChat) return;
-      if (isLoadingGC && !force) return;
-      if (isAutoPoll && !loadOlderMode && (gcViewingOlder || window.replyJumpActive)) return;
+
+      const targetConvId = (typeof getActiveChannelConvId === 'function')
+        ? getActiveChannelConvId()
+        : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
 
       if (!loadOlderMode && !isAutoPoll) {
-        if (globalChatPrefetchedData) {
+        // STRICT CHANNEL CHECK: only use prefetched data if its conv_id strictly matches targetConvId
+        if (globalChatPrefetchedData && globalChatPrefetchedData.conv_id === targetConvId) {
           const data = globalChatPrefetchedData;
           if (typeof cacheGlobalChatSnapshot === 'function') cacheGlobalChatSnapshot(data);
           globalChatPrefetchedData = null;
@@ -3406,7 +3426,8 @@
           const p = gcPrefetchPromise;
           gcPrefetchPromise = null;
           p.then(function(data) {
-            if (data && isGlobalChat) {
+            const curActive = (typeof getActiveChannelConvId === 'function') ? getActiveChannelConvId() : 'global';
+            if (data && isGlobalChat && data.conv_id === curActive) {
               if (typeof cacheGlobalChatSnapshot === 'function') cacheGlobalChatSnapshot(data);
               if (chatBox && chatBox.children.length === 0) {
                 processGlobalChatData(data, false);
@@ -3416,6 +3437,16 @@
         }
       }
 
+      if (isLoadingGC) {
+        if (!force) return;
+        if (gcXhr) {
+          try { gcXhr.abort(); } catch(e) {}
+          gcXhr = null;
+        }
+        isLoadingGC = false;
+      }
+      if (isAutoPoll && !loadOlderMode && (gcViewingOlder || window.replyJumpActive)) return;
+
       isLoadingGC = true;
 
       let cursor = '';
@@ -3424,17 +3455,16 @@
         cursor = (oldestMsgEl ? oldestMsgEl.getAttribute('data-msg-id') : '') || gcCursor || '';
       }
       const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
-      const targetConvId = (typeof getActiveChannelConvId === 'function')
-        ? getActiveChannelConvId()
-        : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
       const convParam  = '&conv_id=' + encodeURIComponent(targetConvId);
 
       const xhr = new XMLHttpRequest();
+      gcXhr = xhr;
       xhr.open('GET', 'load.php?before_uuid=' + encodeURIComponent(cursor)
                     + '&limit=' + limitParam
                     + convParam, true);
       xhr.onload = function() {
         isLoadingGC = false;
+        if (gcXhr === xhr) gcXhr = null;
         if (loadOlderMode) hideBackreadTopLoader();
         if (this.status !== 200) return;
         if (!isGlobalChat) return;
@@ -3451,13 +3481,20 @@
           console.error('[Chatify] GlobalChat parse error:', e, this.responseText);
           return;
         }
-        if (data.conv_id && data.conv_id !== targetConvId) return;
+        const currentActiveConvId = (typeof getActiveChannelConvId === 'function')
+          ? getActiveChannelConvId()
+          : 'global';
+        if (!data.conv_id || data.conv_id !== currentActiveConvId) return;
         if (!loadOlderMode && typeof cacheGlobalChatSnapshot === 'function') {
           cacheGlobalChatSnapshot(data);
         }
         processGlobalChatData(data, loadOlderMode);
       };
-      xhr.onerror = function() { isLoadingGC = false; if (loadOlderMode) hideBackreadTopLoader(); };
+      xhr.onerror = function() {
+        isLoadingGC = false;
+        if (gcXhr === xhr) gcXhr = null;
+        if (loadOlderMode) hideBackreadTopLoader();
+      };
       xhr.send();
     }
 
@@ -3465,7 +3502,9 @@
     let chatXhr = null;
 
     function processChatData(data, requestedUser, loadOlderMode = false) {
+      if (isGlobalChat || !activeDM) return;
       if (requestedUser !== activeDM && (!activeDMAccountId || String(activeDMAccountId) !== String(requestedUser))) return;
+      if (data && data.target_id && activeDMAccountId && Number(data.target_id) !== Number(activeDMAccountId)) return;
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       const newHtml = data.html || '';
       dmHasMore = data.hasMore || false;

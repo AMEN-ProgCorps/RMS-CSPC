@@ -564,13 +564,15 @@
         } else if (data.type === 'users_dm_response') {
           processUsersDmPayload(data.data || {});
         } else if (data.type === 'messages_response') {
-          if ((data.chat_type === 'global' || data.chat_type === 'office_gc') && isGlobalChat) {
-            if (data.conv_id && window.currentOfficeInfo && window.currentOfficeInfo.conv_id && data.conv_id !== window.currentOfficeInfo.conv_id) {
-              // Ignore messages for other office GCs
-            } else {
-              processGlobalChatData(data.data || {});
+          if ((data.chat_type === 'global' || data.chat_type === 'office_gc' || data.chat_type === 'custom_gc') && isGlobalChat) {
+            const curConvId = (typeof getActiveChannelConvId === 'function') ? getActiveChannelConvId() : 'global';
+            const incomingConvId = data.conv_id || (data.data && data.data.conv_id) || (data.chat_type === 'global' ? 'global' : null);
+            if (!incomingConvId || incomingConvId === curConvId) {
+              const payload = data.data || {};
+              if (!payload.conv_id && incomingConvId) payload.conv_id = incomingConvId;
+              processGlobalChatData(payload);
             }
-          } else if (data.chat_type === 'private' && activeDM && (
+          } else if (data.chat_type === 'private' && !isGlobalChat && activeDM && (
             (activeDMAccountId && Number(data.target_id) > 0 && activeDMAccountId === Number(data.target_id)) ||
             (data.target_user && data.target_user === activeDM)
           )) {
@@ -1990,8 +1992,7 @@
           loadGlobalChat(true);
         } else if (activeDM) {
           loadChat(true);
-        }
-        if (activeAdminConv) {
+        } else if (activeAdminConv) {
           loadAdminConv(activeAdminConv, true);
         }
       }, 5000);
@@ -3862,18 +3863,25 @@
     }
 
 
-    // State for global chat
+    // State for global / group chat
     let isGlobalChat = false;
-    let globalChatCache = null; // { html, hasMore, nextCursor, _raw }
+    const channelMessageCache = new Map(); // conv_id -> { html, hasMore, nextCursor, _raw }
+    window.channelMessageCache = channelMessageCache;
+    let globalChatCache = null; // legacy backwards-compat alias
 
     function cacheGlobalChatSnapshot(data) {
       if (!data) return;
-      globalChatCache = {
+      const cid = data.conv_id || (typeof getActiveChannelConvId === 'function' ? getActiveChannelConvId() : 'global');
+      const snapshot = {
         html: data.html || '',
         hasMore: data.hasMore || false,
         nextCursor: data.nextCursor || '',
         _raw: data
       };
+      channelMessageCache.set(cid, snapshot);
+      if (cid === 'global') {
+        globalChatCache = snapshot;
+      }
     }
     // ── Infinite-scroll window constants ─────────────────────────────────────
     // INITIAL_LOAD   — messages fetched when first opening a conversation.
@@ -3942,6 +3950,7 @@
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
       if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+      if (typeof abortAnyInFlightChatXhrs === 'function') abortAnyInFlightChatXhrs();
 
       isGlobalChat = false;
       activeChannel = null;
@@ -4031,11 +4040,13 @@
     window.activeCustomGc = null;
 
     function getActiveChannelConvId() {
-      if (window.activeChannel === 'gc' && window.activeCustomGc && window.activeCustomGc.conv_id) {
-        return window.activeCustomGc.conv_id;
+      if (window.activeChannel === 'gc' && window.activeCustomGc) {
+        return window.activeCustomGc.conv_id || ('gc_' + (window.activeCustomGc.gc_id || ''));
       }
-      if (window.activeChannel === 'office' && window.currentOfficeInfo && window.currentOfficeInfo.conv_id) {
-        return window.currentOfficeInfo.conv_id;
+      if (window.activeChannel === 'office') {
+        if (window.currentOfficeInfo && (window.currentOfficeInfo.conv_id || window.currentOfficeInfo.office_id)) {
+          return window.currentOfficeInfo.conv_id || ('office_' + window.currentOfficeInfo.office_id);
+        }
       }
       return 'global';
     }
@@ -4053,6 +4064,7 @@
 
       if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
       if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+      if (typeof abortAnyInFlightChatXhrs === 'function') abortAnyInFlightChatXhrs();
 
       isGlobalChat = true;
       activeChannel = 'global';
@@ -4103,7 +4115,7 @@
       renderSidebarUsers();
       updateSidebarActiveHighlight();
 
-      loadGlobalChat();
+      loadGlobalChat(false, false, true);
       if (isMobileViewport()) {
         sidebar.classList.remove('open');
         if (backButton) backButton.style.display = 'inline-flex';
@@ -4145,6 +4157,7 @@
 
       if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
       if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+      if (typeof abortAnyInFlightChatXhrs === 'function') abortAnyInFlightChatXhrs();
 
       isGlobalChat = true;
       activeChannel = 'office';
@@ -4198,7 +4211,7 @@
       renderSidebarUsers();
       updateSidebarActiveHighlight();
 
-      loadGlobalChat();
+      loadGlobalChat(false, false, true);
       if (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) {
         markRead(window.currentOfficeInfo.conv_id);
       }
@@ -4225,6 +4238,7 @@
 
       if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
       if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+      if (typeof abortAnyInFlightChatXhrs === 'function') abortAnyInFlightChatXhrs();
 
       isGlobalChat = true;
       activeChannel = 'gc';
@@ -4330,7 +4344,7 @@
       renderSidebarUsers();
       updateSidebarActiveHighlight();
 
-      loadGlobalChat();
+      loadGlobalChat(false, false, true);
       const gcConv = group.conv_id || ('gc_' + group.gc_id);
       markRead(gcConv);
       if (isMobileViewport()) {

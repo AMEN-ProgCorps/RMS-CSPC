@@ -81,18 +81,23 @@ if (empty($convId)) {
 
 $isOfficeGc     = str_starts_with($convId, 'office_');
 $targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
+$isCustomGc     = str_starts_with($convId, 'gc_');
+$customGcId     = 0;
+
+if ($convId !== 'global' && !$isOfficeGc && !$isCustomGc) {
+    http_response_code(400);
+    die(json_encode(['error' => 'Invalid conversation channel.']));
+}
 
 // Security check: Only members of this office or Super Admins can post
-if ($isOfficeGc && $targetOfficeId) {
-    if (!Auth::isAdmin($senderId) && $userOfficeId !== $targetOfficeId) {
+if ($isOfficeGc) {
+    if (!$targetOfficeId || $targetOfficeId <= 0 || (!Auth::isAdmin($senderId) && $userOfficeId !== $targetOfficeId)) {
         http_response_code(403);
         die(json_encode(['error' => 'You do not belong to this office group chat.']));
     }
 }
 
 // Custom GC authorization: verify membership
-$isCustomGc = str_starts_with($convId, 'gc_');
-$customGcId = 0;
 if ($isCustomGc) {
     $customGcId = (int) substr($convId, 3);
     if ($customGcId <= 0 || (!Auth::isAdmin($senderId) && !CustomGroupManager::isMember($customGcId, $senderId))) {

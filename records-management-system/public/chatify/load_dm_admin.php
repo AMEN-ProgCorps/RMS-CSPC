@@ -536,6 +536,9 @@ $encoded = json_encode([
     'nextCursor' => $nextCursor,   // pass as before_uuid for next "load older" request
     'jumpMode'   => $jumpMode,     // true when fetched via around_uuid (reply-quote jump)
     'jumpTarget' => $aroundUuid,   // the UUID the client should scroll+blink to
+    'conv_id'    => $convId,
+    'user_1'     => $user1,
+    'user_2'     => $user2,
 ], JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR | JSON_UNESCAPED_UNICODE);
 
 if ($encoded === false) {
@@ -545,6 +548,9 @@ if ($encoded === false) {
         'nextCursor' => null,
         'jumpMode'   => false,
         'jumpTarget' => null,
+        'conv_id'    => $convId,
+        'user_1'     => $user1,
+        'user_2'     => $user2,
     ]);
 } else {
     echo $encoded;
@@ -561,6 +567,9 @@ if ($encoded === false) {
         'nextCursor' => null,
         'jumpMode'   => false,
         'jumpTarget' => null,
+        'conv_id'    => $convId ?? null,
+        'user_1'     => $user1 ?? 0,
+        'user_2'     => $user2 ?? 0,
         'error'      => $e->getMessage(),
     ], JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR | JSON_UNESCAPED_UNICODE);
     exit;

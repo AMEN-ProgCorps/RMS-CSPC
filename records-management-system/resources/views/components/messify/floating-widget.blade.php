@@ -668,7 +668,8 @@ body.messify-widget-open #messify-global-widget {
         // 3. Update Header Bell Notification Badge (respect Notification Manager mutes)
         const bellBadge = document.getElementById('header-notif-badge') || document.querySelector('.notif-badge');
         if (bellBadge) {
-            bellBadge.style.display = systemCount > 0 ? 'block' : 'none';
+            bellBadge.style.display = systemCount > 0 ? 'inline-flex' : 'none';
+            bellBadge.textContent = systemCount > 99 ? '99+' : String(systemCount);
             bellBadge.setAttribute('data-system-unread', String(systemCount));
         }
 

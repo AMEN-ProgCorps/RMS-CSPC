@@ -1455,7 +1455,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
                 <div class="notif-modal-body" style="gap: 16px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
                         <p style="margin: 0; font-size: 13px; color: #64748b; max-width: 650px;">
-                            Uncheck any notification type to mute it. Muted notifications will not trigger audio alerts or overlay popouts, but will still be recorded in your notification history marked with a <span class="badge" style="background-color: rgba(100, 116, 139, 0.15); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.3); padding: 1px 6px; border-radius: 99px; font-size: 10px; font-weight: bold;"><i class="fa-solid fa-bell-slash"></i> MUTED</span> status.
+                            Uncheck any notification type to mute it. Muted types are hidden from the header bell and do not trigger audio alerts or overlay popouts. They remain in Notification Manager history with a <span class="badge" style="background-color: rgba(100, 116, 139, 0.15); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.3); padding: 1px 6px; border-radius: 99px; font-size: 10px; font-weight: bold;"><i class="fa-solid fa-bell-slash"></i> MUTED</span> status.
                         </p>
                         <div style="display: flex; gap: 8px;">
                             <button type="button" @click="enableAll()" class="notif-filter-btn secondary" title="Enable alerts for all categories">

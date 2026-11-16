@@ -1662,6 +1662,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $user = Auth::user();
         $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
 
+        // DCS register → appraisal redirect and post-create redirect both flash this.
+        $flashedSuccess = session()->pull('success');
+
         $this->prefill_intake_id = request()->query('prefill_intake_id') ? (int)request()->query('prefill_intake_id') : null;
         $this->prefill_source = request()->query('prefill_source');
         $this->prefill_code = request()->query('prefill_code');
@@ -1863,6 +1866,33 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 $this->date_covered = Carbon::parse(request()->query('prefill_date'))->format('Y-m-d');
             }
         }
+
+        if (is_string($flashedSuccess) && trim($flashedSuccess) !== '') {
+            $this->successMessage = trim($flashedSuccess);
+        }
+    }
+
+    /**
+     * After DCS controller appraisal saves, force a full remount so the success
+     * banner is visible. Livewire remorph of this page often leaves the alert
+     * missing until a manual refresh (same mount path that then shows it).
+     */
+    private function redirectAfterDcsAdminForward(string $message): void
+    {
+        $this->dcsAdminAlreadySent = true;
+        $this->successMessage = $message;
+        session()->flash('success', $message);
+
+        $requestId = (int) ($this->dcsRequestId ?? 0);
+        if ($requestId > 0) {
+            $this->redirect(route('rdp.add-records.inventory-and-appraisal', [
+                'dcs_request_id' => $requestId,
+            ]));
+
+            return;
+        }
+
+        $this->dispatch('scroll-to-top');
     }
 
     public function loadDcsAdminAppraisal(int $requestId): void
@@ -2061,10 +2091,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
         // No distribution offices: admin NAP Form 1 row is enough.
         if (! $hasOfficesToForward) {
-            \App\Services\RdpIntakeService::afterDcsRequestAppraised((int) $this->dcsRequestId);
-            $this->successMessage = 'Appraisal saved for your office on NAP Form 1.';
-            $this->dcsAdminAlreadySent = true;
-            $this->dispatch('scroll-to-top');
+            try {
+                \App\Services\RdpIntakeService::afterDcsRequestAppraised((int) $this->dcsRequestId);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+            $this->redirectAfterDcsAdminForward('Appraisal saved for your office on NAP Form 1.');
             return;
         }
 
@@ -2157,33 +2189,38 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             }
         }
 
-        $this->successMessage = $sent > 0
+        $message = $sent > 0
             ? 'Appraisal saved for your office and forwarded to ' . $sent . ' ' . ($sent === 1 ? 'office' : 'offices') . '.'
             : ($adminInDuplicate && $already === 0
                 ? 'Appraisal saved for your office on NAP Form 1.'
                 : 'Those offices already have this appraisal. Your office record is on NAP Form 1.');
         if ($already > 0 && $sent > 0) {
-            $this->successMessage .= ' ' . $already . ' already had it, and the appraisal fields were updated.';
+            $message .= ' ' . $already . ' already had it, and the appraisal fields were updated.';
         }
-        $this->successMessage .= ' Other offices enter their own Records Location and create their records.';
-        $this->dcsAdminAlreadySent = true;
+        $message .= ' Other offices enter their own Records Location and create their records.';
+
         $displayDocNo = trim((string) ($masterlist->doc_no ?? ''));
         $revNo = isset($masterlist->revise_no) ? (int) $masterlist->revise_no : null;
         $skipIncomingCodes = \App\Helpers\OfficeIntakeHelper::submitterOfficeCodesForRequest((int) ($this->dcsRequestId ?? 0));
         $skipIncomingCodes[] = strtoupper(trim((string) $origin));
         $skipIncomingCodes = array_values(array_unique(array_filter($skipIncomingCodes)));
-        foreach ($officeCodes as $officeCode) {
-            if ($officeCode === '' || in_array(strtoupper(trim((string) $officeCode)), $skipIncomingCodes, true)) {
-                continue;
+        try {
+            foreach ($officeCodes as $officeCode) {
+                if ($officeCode === '' || in_array(strtoupper(trim((string) $officeCode)), $skipIncomingCodes, true)) {
+                    continue;
+                }
+                \App\Services\DcsNotificationService::notifyDocumentDistributed(
+                    $officeCode,
+                    $displayDocNo !== '' ? $displayDocNo : $intakeCode,
+                    $title,
+                    $revNo
+                );
             }
-            \App\Services\DcsNotificationService::notifyDocumentDistributed(
-                $officeCode,
-                $displayDocNo !== '' ? $displayDocNo : $intakeCode,
-                $title,
-                $revNo
-            );
+        } catch (\Throwable $e) {
+            report($e);
         }
-        $this->dispatch('scroll-to-top');
+
+        $this->redirectAfterDcsAdminForward($message);
     }
 
     private function syncMasterlistEffectivityFromPeriod(int $requestId): void
@@ -4040,13 +4077,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     <!-- Alert Messages -->
     @if ($successMessage)
-        <div class="ia-alert ia-alert-success">
+        <div class="ia-alert ia-alert-success" wire:key="ia-success-{{ md5($successMessage) }}">
             <span>✅ {{ $successMessage }}</span>
             <button type="button" wire:click="clearMessages" class="ia-alert-close">✕</button>
         </div>
     @endif
     @if ($errorMessage)
-        <div class="ia-alert ia-alert-error">
+        <div class="ia-alert ia-alert-error" wire:key="ia-error-{{ md5($errorMessage) }}">
             <span>❌ {{ $errorMessage }}</span>
             <button type="button" wire:click="clearMessages" class="ia-alert-close">✕</button>
         </div>
@@ -5187,9 +5224,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     ->filter(fn ($c) => trim((string) $c) !== '')
                     ->isNotEmpty();
             @endphp
-            <button type="button" wire:click="forwardToOffices" onclick="rdpScrollToTop()" class="ia-btn ia-btn-primary ia-btn-lg" title="{{ $adminHasDupOffices ? 'Save your office inventory on NAP Form 1, then forward appraisal to the distributed offices.' : 'Save your office inventory on NAP Form 1.' }}">
+            <button type="button" wire:click="forwardToOffices" wire:loading.attr="disabled" class="ia-btn ia-btn-primary ia-btn-lg" title="{{ $adminHasDupOffices ? 'Save your office inventory on NAP Form 1, then forward appraisal to the distributed offices.' : 'Save your office inventory on NAP Form 1.' }}">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                {{ $adminHasDupOffices ? 'Create Record and Forward' : 'Create Record' }}
+                <span wire:loading.remove wire:target="forwardToOffices">{{ $adminHasDupOffices ? 'Create Record and Forward' : 'Create Record' }}</span>
+                <span wire:loading wire:target="forwardToOffices">Saving…</span>
             </button>
             @endif
             @elseif($dcsOfficeAlreadyDone)

@@ -309,7 +309,10 @@ class RegisterQueryHelper
             return 'syl||' . $syllabi . '||' . $type;
         }
 
-        if (empty($row['allows_revision'])) {
+        $allowsRevision = array_key_exists('allows_revision', $row)
+            ? (bool) $row['allows_revision']
+            : self::effectiveTypeAllowsRevision($row['doc_type_id'] ?? null, $row['sub_type_id'] ?? null);
+        if (! $allowsRevision) {
             $title = mb_strtolower(trim((string) ($row['title'] ?? '')));
             $docNo = strtolower(trim((string) ($row['doc_no'] ?? '')));
             if ($title !== '' && $title !== 'n/a' && $docNo !== '' && $docNo !== 'n/a') {
@@ -654,13 +657,13 @@ class RegisterQueryHelper
             return true;
         }
 
-        // The document-type "allows revision" setting is no longer used.
-        // Every type can be revised. Syllabi stays Rev 0.
+        // Legacy doc_types.allows_revision was removed. Syllabi / TOS / rubric stay Rev 0;
+        // Recurring filings use version_type instead of a catalog flag.
         return ! self::isSyllabiLikeName($typeRow->doc_type_name ?? null);
     }
 
     /**
-     * Effective allows_revision for a registration: prefer subtype, else parent type.
+     * Effective revision stacking for a registration: prefer subtype, else parent type.
      */
     public static function effectiveTypeAllowsRevision(mixed $docTypeId, mixed $subTypeId = null): bool
     {
@@ -671,11 +674,7 @@ class RegisterQueryHelper
             return true;
         }
 
-        $cols = ['id', 'doc_type_name'];
-        if (\Illuminate\Support\Facades\Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
-            $cols[] = 'allows_revision';
-        }
-        $row = DB::table('dcs_doc_types')->where('id', $id)->first($cols);
+        $row = DB::table('dcs_doc_types')->where('id', $id)->first(['id', 'doc_type_name']);
 
         return self::typeAllowsRevision($row);
     }
@@ -1519,6 +1518,15 @@ class RegisterQueryHelper
             );
 
         $list = self::filterBellNotifications($query->get());
+        $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap($userId);
+        if (! empty($mutedMap)) {
+            $list = $list->reject(fn ($item) => \App\Helpers\NotificationFilterHelper::isMuted(
+                (string) ($item->content ?? ''),
+                (string) ($item->subsystem_name ?? ''),
+                $mutedMap,
+                $item->created_at ?? null
+            ));
+        }
         $counts = [];
         foreach ($list as $item) {
             $name = trim((string) ($item->subsystem_name ?? ''));

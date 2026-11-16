@@ -124,8 +124,18 @@ class NotificationFilterHelper
             return 'dcs_registration';
         }
 
-        // 7. DCS Requests & Workflow
-        if ($sys === 'document control system' || str_contains($text, 'request') || str_contains($text, 'remark') || str_contains($text, 'clearance')) {
+        // 7. DCS Requests & Workflow (office intake submit / print / correction notices)
+        if (
+            $sys === 'document control system'
+            || str_contains($text, 'request')
+            || str_contains($text, 'remark')
+            || str_contains($text, 'clearance')
+            || str_contains($text, 'document change notice')
+            || str_contains($text, 'document request form')
+            || str_contains($text, 'ready for rfio')
+            || str_contains($text, 'print and sign')
+            || str_contains($text, 'after rfio correction')
+        ) {
             return 'dcs_workflow';
         }
 

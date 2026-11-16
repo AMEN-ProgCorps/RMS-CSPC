@@ -571,8 +571,8 @@ body.messify-widget-open #messify-global-widget {
             const totalSystemCount = parseInt(data.total_system_unread !== undefined ? data.total_system_unread : systemCount, 10);
             const totalCount = parseInt(data.total_unread !== undefined ? data.total_unread : (chatCount + systemCount), 10);
 
-            // Offline catch-up popout on initial login / session start
-            if (lastSystemUnread === null && totalSystemCount > 0) {
+            // Offline catch-up popout on initial login / session start (unmuted inbox only)
+            if (lastSystemUnread === null && systemCount > 0) {
                 if (!sessionStorage.getItem('rms_offline_catchup_shown')) {
                     sessionStorage.setItem('rms_offline_catchup_shown', 'true');
                     window.dispatchEvent(new CustomEvent('rms-notification-overlay-show', {
@@ -580,7 +580,7 @@ body.messify-widget-open #messify-global-widget {
                             id: null,
                             is_catchup: true,
                             subsystem_name: 'Notification Center',
-                            content: `Welcome back! You have ${totalSystemCount} unread notification${totalSystemCount > 1 ? 's' : ''} waiting in your inbox.`,
+                            content: `Welcome back! You have ${systemCount} unread notification${systemCount > 1 ? 's' : ''} waiting in your inbox.`,
                             time: 'Offline catch-up'
                         }
                     }));
@@ -647,10 +647,11 @@ body.messify-widget-open #messify-global-widget {
             }
         }
 
-        // 3. Update Header Bell Notification Badge
+        // 3. Update Header Bell Notification Badge (respect Notification Manager mutes)
         const bellBadge = document.getElementById('header-notif-badge') || document.querySelector('.notif-badge');
         if (bellBadge) {
-            bellBadge.style.display = totalSystemCount > 0 ? 'block' : 'none';
+            bellBadge.style.display = systemCount > 0 ? 'block' : 'none';
+            bellBadge.setAttribute('data-system-unread', String(systemCount));
         }
 
         // 4. Update Tab Title & Favicon Red Dot

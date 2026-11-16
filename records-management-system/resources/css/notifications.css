@@ -157,6 +157,23 @@
     color: #ffffff;
 }
 
+/* Client-side tab filter — avoids Livewire remorph flicker on tab click */
+.notif-dropdown-body[data-active-tab="dcs"] .notif-item:not([data-sys="dcs"]),
+.notif-dropdown-body[data-active-tab="dts"] .notif-item:not([data-sys="dts"]),
+.notif-dropdown-body[data-active-tab="rdp"] .notif-item:not([data-sys="rdp"]) {
+    display: none !important;
+}
+
+.notif-empty-filtered {
+    display: none;
+}
+
+.notif-dropdown-body[data-active-tab="dcs"]:not(:has(.notif-item[data-sys="dcs"])) .notif-empty-filtered,
+.notif-dropdown-body[data-active-tab="dts"]:not(:has(.notif-item[data-sys="dts"])) .notif-empty-filtered,
+.notif-dropdown-body[data-active-tab="rdp"]:not(:has(.notif-item[data-sys="rdp"])) .notif-empty-filtered {
+    display: block;
+}
+
 .notif-dropdown-header h3 {
     font-family: 'Inter', sans-serif;
     font-size: 16px;

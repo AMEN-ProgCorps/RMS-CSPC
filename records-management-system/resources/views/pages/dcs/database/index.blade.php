@@ -1377,6 +1377,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         this.$watch('notice', (v) => { if (v) setTimeout(() => { this.notice = ''; }, 4000); });
         this.$watch('open', () => this.queueStickySync(), { deep: true });
         this.$watch('visible', () => this.queueStickySync(), { deep: true });
+        // Play the shared page-enter once, then lock so in-page morphs stay still.
+        this.markPageEnterSettled();
         // After Livewire type/search/filter morphs — only reset categories when server attrs change.
         this._onDbResync = () => {
             this.syncCategoriesFromDom();
@@ -1388,8 +1390,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 this.queueStickySync();
             }
         };
-        document.addEventListener('livewire:navigated', this._onDbResync);
-        window.addEventListener('dcs-db-resync-sticky', this._onDbResync);
+        this._onDbNavigated = () => {
+            this.markPageEnterSettled();
+            this._onDbResync();
+        };
+        this._onDbMorphResync = () => {
+            // In-page morph: keep settle lock so fadeInUp does not re-fire.
+            document.querySelectorAll('.db-page').forEach((el) => el.classList.add('db-page-settled'));
+            this._onDbResync();
+        };
+        document.addEventListener('livewire:navigated', this._onDbNavigated);
+        window.addEventListener('dcs-db-resync-sticky', this._onDbMorphResync);
         this.syncCategoriesFromDom();
         // Capture-phase: always resolve the live Alpine component from the DOM root.
         // Works for ALL / typed tabs / search / filter because rows carry data-row-actions-b64.
@@ -1477,10 +1488,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             clearTimeout(this._busyTimer);
             this._busyTimer = null;
         }
+        if (this._pageEnterTimer) {
+            clearTimeout(this._pageEnterTimer);
+            this._pageEnterTimer = null;
+        }
         if (this._onResizeSticky) window.removeEventListener('resize', this._onResizeSticky);
-        if (this._onDbResync) {
-            document.removeEventListener('livewire:navigated', this._onDbResync);
-            window.removeEventListener('dcs-db-resync-sticky', this._onDbResync);
+        if (this._onDbNavigated) {
+            document.removeEventListener('livewire:navigated', this._onDbNavigated);
+        }
+        if (this._onDbMorphResync) {
+            window.removeEventListener('dcs-db-resync-sticky', this._onDbMorphResync);
         }
         if (this._onDbContextMenu) {
             document.removeEventListener('contextmenu', this._onDbContextMenu, true);
@@ -1561,6 +1578,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             root.getAttribute('data-category-state') || '{}',
         ].join('||');
     },
+    markPageEnterSettled() {
+        const pages = () => Array.from(document.querySelectorAll('.db-page'));
+        const lock = () => pages().forEach((el) => el.classList.add('db-page-settled'));
+        pages().forEach((el) => {
+            el.classList.remove('db-page-settled');
+            const onEnd = (e) => {
+                if (e && e.target !== el) return;
+                el.removeEventListener('animationend', onEnd);
+                el.classList.add('db-page-settled');
+            };
+            el.addEventListener('animationend', onEnd);
+        });
+        // Fallback if animation is disabled (reduced motion) or already finished.
+        clearTimeout(this._pageEnterTimer);
+        this._pageEnterTimer = setTimeout(lock, 420);
+    },
     syncCategoriesFromDom() {
         const root = this.dbRoot();
         if (!root) return;
@@ -1624,6 +1657,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             const revOpen = !revKey || !!this.expandedRevs[revKey];
             const open = catOpen && revOpen;
             tr.classList.toggle('db-row-collapsed', !open);
+            tr.classList.toggle('db-cat-open', catOpen);
             tr.hidden = !open;
             if (open) {
                 tr.style.removeProperty('display');
@@ -2123,9 +2157,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
                 <input type="text" wire:model.live.debounce.400ms="search" placeholder="Search documents..." autocomplete="off" wire:loading.attr="disabled" wire:target="search">
             </div>
-            <button class="db-collapse-btn" type="button" :class="{ 'is-collapsed': allCollapsed }" @click="collapseAll()" :title="allCollapsed ? 'Expand all columns' : 'Collapse all columns'">
-                <i class="fa-solid" :class="allCollapsed ? 'fa-expand' : 'fa-compress'"></i>
-                <span class="btn-label" x-text="allCollapsed ? 'Expand' : 'Collapse'"></span>
+            <button class="db-collapse-btn" type="button" :class="{ 'is-collapsed': allCollapsed }" @click="collapseAll()" title="Collapse all columns" :title="allCollapsed ? 'Expand all columns' : 'Collapse all columns'">
+                <i class="fa-solid fa-compress" x-show="!allCollapsed"></i>
+                <i class="fa-solid fa-expand" x-show="allCollapsed" x-cloak></i>
+                <span class="btn-label" x-text="allCollapsed ? 'Expand' : 'Collapse'">Collapse</span>
             </button>
             <button class="db-filter-btn {{ $receivedBy !== '' || $originator !== '' || $sourceUnit !== '' || $status !== '' || $revisionStatus !== 'all' || $dateFrom !== '' || $dateTo !== '' || $revNo !== '' || $subTypeId !== 'all' ? 'is-active' : '' }}" type="button" @click="filterOpen = true">
                 <i class="fa-solid fa-filter"></i>
@@ -2269,7 +2304,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <tr class="db-category-row">
                                 <td colspan="47">
                                     <span class="db-category-toggle" :class="{ expanded: categories['{{ $catSlug }}'] }" x-on:click="toggleCategory('{{ $catSlug }}')">
-                                        <span class="db-category-chevron" x-text="categories['{{ $catSlug }}'] ? '▼' : '▶'"></span>
+                                        <span class="db-category-chevron" x-text="categories['{{ $catSlug }}'] ? '▼' : '▶'">{{ ! empty($categoryState[$catSlug]) ? '▼' : '▶' }}</span>
                                         {{ strtoupper($catName) }}
                                         <span class="db-category-count">{{ $catTotal }}</span>
                                     </span>
@@ -2280,10 +2315,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @php $lastCategory = $catName; @endphp
                         @endif
 
-                        <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif" @if($showCategoryRows) data-cat="{{ $catSlug }}" :class="{ 'db-row-collapsed': !categories['{{ $catSlug }}'] }" @endif data-row-actions-b64="{{ base64_encode(json_encode($rowActions, JSON_UNESCAPED_UNICODE)) }}" @contextmenu.prevent="openRowMenu($event)" @if(!empty($r['is_deleted'])) title="Moved to Recycle Bin{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
+                        @php $catStartsOpen = ! $showCategoryRows || ! empty($categoryState[$catSlug]); @endphp
+                        <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif @if($showCategoryRows && ! $catStartsOpen) db-row-collapsed @endif @if($showCategoryRows && $catStartsOpen) db-cat-open @endif" @if($showCategoryRows) data-cat="{{ $catSlug }}" :class="{ 'db-row-collapsed': !categories['{{ $catSlug }}'], 'db-cat-open': !!categories['{{ $catSlug }}'] }" @endif data-row-actions-b64="{{ base64_encode(json_encode($rowActions, JSON_UNESCAPED_UNICODE)) }}" @contextmenu.prevent="openRowMenu($event)" @if(!empty($r['is_deleted'])) title="Moved to Recycle Bin{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
                             <td>
                                 @if(!empty($group['children']))
-                                    <span class="db-expand-btn" :class="{ expanded: expandedRevs['{{ $revKey }}'] }" x-on:click.stop="toggleRev('{{ $revKey }}')" title="Show {{ $group['stack_label'] ?? 'older revisions' }}" x-text="expandedRevs['{{ $revKey }}'] ? '▼' : '▶'"></span>
+                                    <span class="db-expand-btn" :class="{ expanded: expandedRevs['{{ $revKey }}'] }" x-on:click.stop="toggleRev('{{ $revKey }}')" title="Show {{ $group['stack_label'] ?? 'older revisions' }}" x-text="expandedRevs['{{ $revKey }}'] ? '▼' : '▶'">▶</span>
                                 @endif
                                 {{ $itemNo }}
                             </td>
@@ -2291,10 +2327,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </tr>
 
                         @if(!empty($r['syllabi_courses']) && count($r['syllabi_courses']))
-                            <tr class="db-courses-row" @if($showCategoryRows) data-cat="{{ $catSlug }}" :class="{ 'db-row-collapsed': !categories['{{ $catSlug }}'] }" @endif>
+                            <tr class="db-courses-row @if($showCategoryRows && ! $catStartsOpen) db-row-collapsed @endif @if($showCategoryRows && $catStartsOpen) db-cat-open @endif" @if($showCategoryRows) data-cat="{{ $catSlug }}" :class="{ 'db-row-collapsed': !categories['{{ $catSlug }}'], 'db-cat-open': !!categories['{{ $catSlug }}'] }" @endif>
                                 <td colspan="47">
                                     <div class="db-courses-toggle" :class="{ expanded: openCourses['{{ $r['request_id'] }}'] }" x-on:click="toggleCourses('{{ $r['request_id'] }}')">
-                                        <span class="db-courses-chevron" x-text="openCourses['{{ $r['request_id'] }}'] ? '▼' : '▶'"></span>
+                                        <span class="db-courses-chevron" x-text="openCourses['{{ $r['request_id'] }}'] ? '▼' : '▶'">▶</span>
                                         <span class="db-courses-label"><i class="fa-solid fa-graduation-cap"></i> Courses ({{ count($r['syllabi_courses']) }})</span>
                                     </div>
                                     <div class="db-courses-list" x-show="openCourses['{{ $r['request_id'] }}']" x-cloak>
@@ -2324,15 +2360,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     'offices' => $child['dist_office_list'] ?? [],
                                 ];
                             @endphp
-                            <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif" @if($showCategoryRows) data-cat="{{ $catSlug }}" @endif data-rev-key="{{ $revKey }}" :class="{ 'db-row-collapsed': {{ $showCategoryRows ? "!categories['{$catSlug}'] || " : '' }}!expandedRevs['{{ $revKey }}'] }" data-row-actions-b64="{{ base64_encode(json_encode($childActions, JSON_UNESCAPED_UNICODE)) }}" @contextmenu.prevent="openRowMenu($event)" @if(!empty($child['is_deleted'])) title="Moved to Recycle Bin{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
+                            <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif @if($showCategoryRows && ! $catStartsOpen) db-row-collapsed @endif @if($showCategoryRows && $catStartsOpen) db-cat-open @endif" @if($showCategoryRows) data-cat="{{ $catSlug }}" @endif data-rev-key="{{ $revKey }}" :class="{ 'db-row-collapsed': {{ $showCategoryRows ? "!categories['{$catSlug}'] || " : '' }}!expandedRevs['{{ $revKey }}'], 'db-cat-open': {{ $showCategoryRows ? "!!categories['{$catSlug}']" : 'true' }} }" data-row-actions-b64="{{ base64_encode(json_encode($childActions, JSON_UNESCAPED_UNICODE)) }}" @contextmenu.prevent="openRowMenu($event)" @if(!empty($child['is_deleted'])) title="Moved to Recycle Bin{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
                                 <td class="db-child-ind"></td>
                                 @include('pages.dcs.database._row', ['r' => $child])
                             </tr>
                             @if(!empty($child['syllabi_courses']) && count($child['syllabi_courses']))
-                                <tr class="db-courses-row db-child-courses-row" @if($showCategoryRows) data-cat="{{ $catSlug }}" @endif data-rev-key="{{ $revKey }}" :class="{ 'db-row-collapsed': {{ $showCategoryRows ? "!categories['{$catSlug}'] || " : '' }}!expandedRevs['{{ $revKey }}'] }">
+                                <tr class="db-courses-row db-child-courses-row @if($showCategoryRows && ! $catStartsOpen) db-row-collapsed @endif @if($showCategoryRows && $catStartsOpen) db-cat-open @endif" @if($showCategoryRows) data-cat="{{ $catSlug }}" @endif data-rev-key="{{ $revKey }}" :class="{ 'db-row-collapsed': {{ $showCategoryRows ? "!categories['{$catSlug}'] || " : '' }}!expandedRevs['{{ $revKey }}'], 'db-cat-open': {{ $showCategoryRows ? "!!categories['{$catSlug}']" : 'true' }} }">
                                     <td colspan="47">
                                         <div class="db-courses-toggle" :class="{ expanded: openCourses['{{ $child['request_id'] }}'] }" x-on:click="toggleCourses('{{ $child['request_id'] }}')">
-                                            <span class="db-courses-chevron" x-text="openCourses['{{ $child['request_id'] }}'] ? '▼' : '▶'"></span>
+                                            <span class="db-courses-chevron" x-text="openCourses['{{ $child['request_id'] }}'] ? '▼' : '▶'">▶</span>
                                             <span class="db-courses-label"><i class="fa-solid fa-graduation-cap"></i> Courses ({{ count($child['syllabi_courses']) }})</span>
                                         </div>
                                         <div class="db-courses-list" x-show="openCourses['{{ $child['request_id'] }}']" x-cloak>

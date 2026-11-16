@@ -1390,7 +1390,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                     <span style="font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 4px; background: rgba(59, 130, 246, 0.12); color: #2563eb; text-transform: uppercase;">
                                         [{{ $t->subsystem }}]
                                     </span>
-                                @endif
+                    @endif
 
                                 @if($t->http_status)
                                     <span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: #fee2e2; color: #dc2626;">
@@ -1411,10 +1411,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                 <span class="priority-pill {{ $t->priority }}" style="margin-left: auto; font-size: 9.5px; padding: 1px 6px;">
                                     {{ $t->priority }}
                                 </span>
-                            </div>
+                </div>
 
                             {{-- Forum Post Header / Page Target --}}
-                            <div>
+                <div>
                                 <strong class="m-item-title" style="font-size: 13px; font-weight: 700; line-height: 1.35; display: block;">
                                     @if($urlPath)
                                         {{ $urlPath }}
@@ -1424,8 +1424,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                 </strong>
                                 <div class="m-item-subtext" style="font-size: 11.5px; margin-top: 2px; line-height: 1.4;" title="{{ $t->title }}">
                                     {{ $t->title }}
-                                </div>
-                            </div>
+            </div>
+        </div>
 
                             {{-- Forum Post Footer: Occurrences / Clustered Hits, Reporter, Time --}}
                             <div class="m-forum-footer" style="display: flex; align-items: center; justify-content: space-between; margin-top: 2px; font-size: 11px; color: #64748b; border-top: 1px dashed rgba(226, 232, 240, 0.6); padding-top: 5px;">
@@ -1436,7 +1436,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                     <span title="Ticket Number" style="font-family: monospace; font-size: 10.5px; opacity: 0.85;">
                                         {{ $t->ticket_number }}
                                     </span>
-                                </div>
+                                    </div>
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <span title="Reporter" style="display: inline-flex; align-items: center; gap: 4px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                                         <i class="fa-regular fa-user" style="font-size: 10px;"></i> {{ $t->reporter_username ?? 'daemon' }}
@@ -1444,9 +1444,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
                                     @if($seen)
                                         <span style="opacity: 0.75; font-size: 10.5px;">
                                             {{ $seen->diffForHumans(short: true) }}
-                                        </span>
+                                    </span>
                                     @endif
-                                </div>
+                                    </div>
                             </div>
                         </div>
                         @empty

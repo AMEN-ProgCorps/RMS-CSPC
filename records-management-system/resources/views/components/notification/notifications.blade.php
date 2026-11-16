@@ -175,20 +175,25 @@ new class extends Component {
 
         $this->notifications = \App\Helpers\RegisterQueryHelper::filterBellNotifications($this->notifications);
 
+        // Honor Notification Manager mute preferences in the header bell inbox.
+        $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap((int) $userId);
+        if (! empty($mutedMap)) {
+            $this->notifications = collect($this->notifications)
+                ->reject(fn ($n) => \App\Helpers\NotificationFilterHelper::isMuted(
+                    (string) ($n->content ?? ''),
+                    (string) ($n->subsystem_name ?? ''),
+                    $mutedMap,
+                    $n->created_at ?? null
+                ))
+                ->values();
+        }
+
         $previousCount = $this->unreadCount;
         $this->unreadCount = $this->notifications->where('status', 'unread')->count();
 
         // If unread count increases while viewing the page, trigger the popout overlay if enabled
         if ($this->hasMounted && $this->unreadCount > $previousCount && $this->popoutNotificationsEnabled) {
-            $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap((int) $userId);
-            $latest = $this->notifications->first(function ($n) use ($mutedMap) {
-                return $n->status === 'unread' && !\App\Helpers\NotificationFilterHelper::isMuted(
-                    (string) ($n->content ?? ''),
-                    (string) ($n->subsystem_name ?? ''),
-                    $mutedMap,
-                    $n->created_at ?? null
-                );
-            });
+            $latest = $this->notifications->first(fn ($n) => $n->status === 'unread');
             if ($latest) {
                 $this->dispatchBrowserOverlay([
                     'id' => (int) $latest->id,
@@ -200,6 +205,15 @@ new class extends Component {
             }
         }
         $this->hasMounted = true;
+    }
+
+    /**
+     * Reload when Notification Manager mute preferences change.
+     */
+    #[On('rms-notification-updated')]
+    public function onNotificationPreferencesUpdated(): void
+    {
+        $this->loadNotifications();
     }
 
     /**
@@ -665,26 +679,12 @@ new class extends Component {
     }
 
     /**
-     * Filter the loaded notification collection by the active subsystem tab.
+     * Tab counts for the dropdown. Filtering itself is Alpine/CSS so tab clicks
+     * do not remorph the open dropdown (that flicker came from Livewire setTab).
      */
     public function with(): array
     {
         $all = collect($this->notifications);
-        $filtered = $all;
-
-        if ($this->activeTab !== 'all') {
-            $needle = match ($this->activeTab) {
-                'dcs' => 'Document Control System',
-                'dts' => 'Document Tracking System',
-                'rdp' => 'Records Disposition Program',
-                default => null,
-            };
-            if ($needle) {
-                $filtered = $all->filter(function ($n) use ($needle) {
-                    return strcasecmp((string) ($n->subsystem_name ?? ''), $needle) === 0;
-                })->values();
-            }
-        }
 
         $tabCounts = [
             'all' => $all->count(),
@@ -693,12 +693,8 @@ new class extends Component {
             'rdp' => $all->filter(fn ($n) => strcasecmp((string) ($n->subsystem_name ?? ''), 'Records Disposition Program') === 0)->count(),
         ];
 
-        if (! in_array($this->activeTab, $this->accessibleTabs, true)) {
-            $this->activeTab = 'all';
-        }
-
         return [
-            'filteredNotifications' => $filtered,
+            'filteredNotifications' => $all->values(),
             'tabCounts' => $tabCounts,
             'accessibleTabs' => $this->accessibleTabs,
         ];
@@ -713,11 +709,22 @@ new class extends Component {
     x-data="{
         open: @entangle('showDropdown'),
         popoutEnabled: @entangle('popoutNotificationsEnabled'),
+        activeTab: 'all',
         overlayVisible: false,
         overlayData: null,
         overlayTimer: null,
         unseenQueueCount: 0,
         lastSoundAt: 0,
+        setNotifTab(tab) {
+            this.activeTab = tab || 'all';
+        },
+        tabSysKey(name) {
+            const n = String(name || '').toLowerCase();
+            if (n.includes('document control')) return 'dcs';
+            if (n.includes('document tracking')) return 'dts';
+            if (n.includes('records disposition')) return 'rdp';
+            return 'other';
+        },
         triggerOverlay(data) {
             // Livewire used to dispatch params as [{...}]; unwrap if needed.
             if (Array.isArray(data)) {
@@ -843,30 +850,39 @@ new class extends Component {
 
         @if(count($accessibleTabs) > 1)
         <div class="notif-subsystem-tabs" role="tablist" aria-label="Filter by subsystem">
-            <button type="button" role="tab" class="notif-subsystem-tab {{ $activeTab === 'all' ? 'is-active' : '' }}" wire:click="setTab('all')" aria-selected="{{ $activeTab === 'all' ? 'true' : 'false' }}">
+            <button type="button" role="tab" class="notif-subsystem-tab" :class="{ 'is-active': activeTab === 'all' }" @click="setNotifTab('all')" :aria-selected="activeTab === 'all' ? 'true' : 'false'">
                 All @if(($tabCounts['all'] ?? 0) > 0)<span>{{ $tabCounts['all'] }}</span>@endif
             </button>
             @if(in_array('dcs', $accessibleTabs, true))
-            <button type="button" role="tab" class="notif-subsystem-tab {{ $activeTab === 'dcs' ? 'is-active' : '' }}" wire:click="setTab('dcs')" aria-selected="{{ $activeTab === 'dcs' ? 'true' : 'false' }}">
+            <button type="button" role="tab" class="notif-subsystem-tab" :class="{ 'is-active': activeTab === 'dcs' }" @click="setNotifTab('dcs')" :aria-selected="activeTab === 'dcs' ? 'true' : 'false'">
                 DCS @if(($tabCounts['dcs'] ?? 0) > 0)<span>{{ $tabCounts['dcs'] }}</span>@endif
             </button>
             @endif
             @if(in_array('dts', $accessibleTabs, true))
-            <button type="button" role="tab" class="notif-subsystem-tab {{ $activeTab === 'dts' ? 'is-active' : '' }}" wire:click="setTab('dts')" aria-selected="{{ $activeTab === 'dts' ? 'true' : 'false' }}">
+            <button type="button" role="tab" class="notif-subsystem-tab" :class="{ 'is-active': activeTab === 'dts' }" @click="setNotifTab('dts')" :aria-selected="activeTab === 'dts' ? 'true' : 'false'">
                 DTS @if(($tabCounts['dts'] ?? 0) > 0)<span>{{ $tabCounts['dts'] }}</span>@endif
             </button>
             @endif
             @if(in_array('rdp', $accessibleTabs, true))
-            <button type="button" role="tab" class="notif-subsystem-tab {{ $activeTab === 'rdp' ? 'is-active' : '' }}" wire:click="setTab('rdp')" aria-selected="{{ $activeTab === 'rdp' ? 'true' : 'false' }}">
+            <button type="button" role="tab" class="notif-subsystem-tab" :class="{ 'is-active': activeTab === 'rdp' }" @click="setNotifTab('rdp')" :aria-selected="activeTab === 'rdp' ? 'true' : 'false'">
                 RDP @if(($tabCounts['rdp'] ?? 0) > 0)<span>{{ $tabCounts['rdp'] }}</span>@endif
             </button>
             @endif
         </div>
         @endif
 
-        <div class="notif-dropdown-body">
+        <div class="notif-dropdown-body" :data-active-tab="activeTab">
             @forelse ($filteredNotifications as $notification)
-                <div class="notif-item" wire:key="notif-{{ $notification->id }}">
+                @php
+                    $sysName = (string) ($notification->subsystem_name ?? '');
+                    $sysKey = match (true) {
+                        str_contains(mb_strtolower($sysName), 'document control') => 'dcs',
+                        str_contains(mb_strtolower($sysName), 'document tracking') => 'dts',
+                        str_contains(mb_strtolower($sysName), 'records disposition') => 'rdp',
+                        default => 'other',
+                    };
+                @endphp
+                <div class="notif-item" data-sys="{{ $sysKey }}" wire:key="notif-{{ $notification->id }}">
                     <!-- Status dot indicator -->
                     @if ($notification->status === 'unread')
                         <div class="notif-unread-dot" title="Unread"></div>
@@ -902,20 +918,21 @@ new class extends Component {
                     </div>
                 </div>
             @empty
-                <div class="notif-empty-state">
+                <div class="notif-empty-state notif-empty-all">
                     <svg class="notif-empty-icon" style="margin: 0 auto 12px auto; display: block;" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                         <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                     </svg>
-                    <p>
-                        @if($activeTab === 'all')
-                            No notification currently at this session..
-                        @else
-                            No {{ strtoupper($activeTab) }} notifications right now.
-                        @endif
-                    </p>
+                    <p>No notification currently at this session..</p>
                 </div>
             @endforelse
+            <div class="notif-empty-state notif-empty-filtered" x-cloak>
+                <svg class="notif-empty-icon" style="margin: 0 auto 12px auto; display: block;" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                </svg>
+                <p>No <span x-text="String(activeTab || '').toUpperCase()"></span> notifications right now.</p>
+            </div>
         </div>
     </div>
 

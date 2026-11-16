@@ -11,10 +11,16 @@ DCS file: Adds and removes approver rows on the office DCN.
 
     const max = Math.max(1, parseInt(root.getAttribute('data-max') || '9', 10) || 9);
 
+    /**
+     * Rows action.
+     */
     function rows() {
         return Array.from(list.querySelectorAll('[data-approval-row]'));
     }
 
+    /**
+     * Renumbers action.
+     */
     function renumber() {
         const items = rows();
         items.forEach((row, i) => {

@@ -49,6 +49,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
         $this->refresh();
     }
 
+    /**
+     * Refreshes component data.
+     * @return void
+     */
     public function refresh(): void
     {
         $user = auth()->user()?->fresh(['details']);

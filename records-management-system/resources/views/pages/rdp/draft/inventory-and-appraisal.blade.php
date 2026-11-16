@@ -21,6 +21,10 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
     public string $editStoragePeriod = '';
     public bool $editIsPermanent = false;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
@@ -30,6 +34,10 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
         }
     }
 
+    /**
+     * Retrieves and populates user context data.
+     * @return array
+     */
     protected function getUserContext(): array
     {
         $user = Auth::user();
@@ -42,6 +50,13 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
         return [$userId, $userOffice];
     }
 
+    /**
+     * Displays the edit draft modal.
+     *
+     * @param int $recordId
+     *
+     * @return void
+     */
     public function openEditDraftModal(int $recordId): void
     {
         [$userId, $userOffice] = $this->getUserContext();
@@ -76,12 +91,23 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
         $this->showEditModal = true;
     }
 
+    /**
+     * Closes the edit draft modal.
+     * @return void
+     */
     public function closeEditDraftModal(): void
     {
         $this->showEditModal = false;
         $this->editingDraftId = null;
     }
 
+    /**
+     * Persists draft edits changes to the database.
+     *
+     * @param bool $andSubmit
+     *
+     * @return void
+     */
     public function saveDraftEdits(bool $andSubmit = false): void
     {
         if (!$this->editingDraftId) return;
@@ -137,6 +163,13 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
         }
     }
 
+    /**
+     * Deletes or deactivates the specified draft.
+     *
+     * @param int $recordId
+     *
+     * @return void
+     */
     public function deleteDraft(int $recordId): void
     {
         [$userId, $userOffice] = $this->getUserContext();
@@ -155,6 +188,13 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
         }
     }
 
+    /**
+     * Submits and processes draft.
+     *
+     * @param int $recordId
+     *
+     * @return void
+     */
     public function submitDraft(int $recordId): void
     {
         [$userId, $userOffice] = $this->getUserContext();
@@ -176,6 +216,10 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         [$userId, $userOffice] = $this->getUserContext();

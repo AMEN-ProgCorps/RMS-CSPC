@@ -16,6 +16,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Active Subsystems')] cla
     /** @var string Error message */
     public string $errorMessage = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;

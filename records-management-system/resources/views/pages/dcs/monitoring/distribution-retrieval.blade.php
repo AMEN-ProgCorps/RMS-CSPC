@@ -28,6 +28,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     #[Url(as: 'doc')]
     public ?int $openId = null;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         abort_unless(RegisterQueryHelper::canAccessDcsModule('reports'), 403);
@@ -36,11 +40,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the q property.
+     * @return void
+     */
     public function updatedQ(): void
     {
         $this->openId = null;
     }
 
+    /**
+     * Lifecycle hook executed after updating the status property.
+     * @return void
+     */
     public function updatedStatus(): void
     {
         if (! in_array($this->status, ['all', 'awaiting', 'not_retrieved', 'previous_out'], true)) {
@@ -49,33 +61,63 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->openId = null;
     }
 
+    /**
+     * Lifecycle hook executed after updating the type property.
+     * @return void
+     */
     public function updatedType(): void
     {
         $this->type = trim($this->type);
         $this->openId = null;
     }
 
+    /**
+     * Lifecycle hook executed after updating the show obsolete property.
+     * @return void
+     */
     public function updatedShowObsolete(): void
     {
         $this->openId = null;
     }
 
+    /**
+     * Sets the active obsolete.
+     *
+     * @param string $value
+     *
+     * @return void
+     */
     public function setObsolete(string $value): void
     {
         $this->showObsolete = $value === '1';
         $this->openId = null;
     }
 
+    /**
+     * Displays the revision dialog or panel.
+     *
+     * @param int $requestId
+     *
+     * @return void
+     */
     public function showRevision(int $requestId): void
     {
         $this->openId = $requestId > 0 ? $requestId : null;
     }
 
+    /**
+     * Closes or dismisses the revision.
+     * @return void
+     */
     public function closeRevision(): void
     {
         $this->openId = null;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         try {

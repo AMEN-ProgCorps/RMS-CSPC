@@ -20,11 +20,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public int $perPage = 15;
 
     #[On('stamp-applied')]
+    /**
+     * Refreshes after stamp data.
+     * @return void
+     */
     public function refreshAfterStamp(): void
     {
         // Soft refresh list badges without a full browser reload.
     }
 
+    /**
+     * Updated action.
+     *
+     * @param mixed $name
+     *
+     * @return void
+     */
     public function updated($name): void
     {
         if ($name !== 'page') {
@@ -32,6 +43,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the per page property.
+     * @return void
+     */
     public function updatedPerPage(): void
     {
         $allowed = [10, 15, 25, 50, 100];
@@ -40,11 +55,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Gos to page.
+     *
+     * @param int $page
+     *
+     * @return void
+     */
     public function goToPage(int $page): void
     {
         $this->page = max(1, $page);
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $requestId = (int) request('request_id', 0);
@@ -59,6 +85,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $query = DB::table('dcs_document_requests as dr')
@@ -179,6 +209,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return compact('documents', 'docTypes');
     }
 
+    /**
+     * Pages size.
+     * @return int
+     */
     private function pageSize(): int
     {
         return in_array($this->perPage, [10, 15, 25, 50, 100], true) ? $this->perPage : 15;
@@ -263,6 +297,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ->values();
     }
 
+    /**
+     * Stamps family row.
+     *
+     * @param object $row
+     * @param mixed $types
+     *
+     * @return array
+     */
     private function stampFamilyRow(object $row, $types): array
     {
         $type = $types->get((int) ($row->sub_type_id ?: $row->doc_type_id));

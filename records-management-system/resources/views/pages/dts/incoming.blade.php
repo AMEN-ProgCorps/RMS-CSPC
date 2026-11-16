@@ -14,6 +14,10 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
 
     #[On('dts-transaction-updated')]
     #[On('refresh-transactions')]
+    /**
+     * Refreshes transactions list data.
+     * @return void
+     */
     public function refreshTransactionsList(): void
     {
         $this->resetPage();
@@ -32,6 +36,10 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
     public bool $showViewFileModal = false;
     public string $attachedDocName = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         // Check user permission
@@ -41,16 +49,28 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
         }
     }
 
+    /**
+     * Toggles the layout setting or state.
+     * @return void
+     */
     public function toggleLayout(): void
     {
         $this->layoutMode = $this->layoutMode === 'table' ? 'box' : 'table';
     }
 
+    /**
+     * Lifecycle hook executed before updating the search query property.
+     * @return void
+     */
     public function updatingSearchQuery(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
@@ -177,6 +197,13 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
         }
     }
 
+    /**
+     * Views details.
+     *
+     * @param string $transactionId
+     *
+     * @return void
+     */
     public function viewDetails(string $transactionId): void
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -220,6 +247,9 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
         }
     }
 
+    /**
+     * Retrieves and populates incoming transactions property data.
+     */
     public function getIncomingTransactionsProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 

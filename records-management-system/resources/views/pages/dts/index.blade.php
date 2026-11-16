@@ -14,6 +14,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
     #[On('dts-transaction-updated')]
     #[On('refresh-transactions')]
+    /**
+     * Refreshes transactions list data.
+     * @return void
+     */
     public function refreshTransactionsList(): void
     {
         $this->resetPage();
@@ -26,6 +30,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public string $pathViewMode = 'timeline'; // timeline or table
     public bool $groupByOffice = false;
 
+    /**
+     * Toggles the group by office setting or state.
+     * @return void
+     */
     public function toggleGroupByOffice(): void
     {
         $this->groupByOffice = !$this->groupByOffice;
@@ -50,6 +58,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public array $forwardHubOffices = [];
     public array $forwardHubTempSelected = [];
 
+    /**
+     * Displays the forward hub modal.
+     * @return void
+     */
     public function openForwardHubModal(): void
     {
         $this->forwardHubTempSelected = $this->forwardHubOffices;
@@ -57,12 +69,23 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->showForwardHubModal = true;
     }
 
+    /**
+     * Closes the forward hub modal.
+     * @return void
+     */
     public function closeForwardHubModal(): void
     {
         $this->showForwardHubModal = false;
         $this->forwardHubSearch = '';
     }
 
+    /**
+     * Toggles the forward hub office setting or state.
+     *
+     * @param string $officeCode
+     *
+     * @return void
+     */
     public function toggleForwardHubOffice(string $officeCode): void
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -88,16 +111,28 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
     }
 
+    /**
+     * Selects all forward hub offices and populates the details panel.
+     * @return void
+     */
     public function selectAllForwardHubOffices(): void
     {
         $this->forwardHubTempSelected = ['ALL'];
     }
 
+    /**
+     * Resets forward hub offices and clears active selections.
+     * @return void
+     */
     public function clearForwardHubOffices(): void
     {
         $this->forwardHubTempSelected = [];
     }
 
+    /**
+     * Filters and queries forward hub modal based on criteria.
+     * @return void
+     */
     public function applyForwardHubModal(): void
     {
         $this->forwardHubOffices = $this->forwardHubTempSelected;
@@ -105,6 +140,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->forwardHubSearch = '';
     }
 
+    /**
+     * Deletes or deactivates the specified forward hub office.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeForwardHubOffice(int $index): void
     {
         if (isset($this->forwardHubOffices[$index])) {
@@ -115,6 +157,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public string $resubmitTarget = 'start'; // 'start' (Option A: Restart chain) or 'requestor' (Option B: Fast-Track to Requestor)
     public bool $editingAll = false;
 
+    /**
+     * Retrieves and populates action options property data.
+     * @return array
+     */
     public function getActionOptionsProperty(): array
     {
         $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
@@ -125,6 +171,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         return $query->pluck('option_name')->toArray();
     }
 
+    /**
+     * Retrieves and populates available target offices property data.
+     */
     public function getAvailableTargetOfficesProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -161,6 +210,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public string $currentRouteName = '';
     public array $expandedHubTransactions = [];
 
+    /**
+     * Toggles the expand hub setting or state.
+     *
+     * @param string $controlNumber
+     *
+     * @return void
+     */
     public function toggleExpandHub(string $controlNumber): void
     {
         if (in_array($controlNumber, $this->expandedHubTransactions)) {
@@ -170,6 +226,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $this->currentRouteName = request()->route()?->getName() ?: 'dts';
@@ -183,11 +243,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
     }
 
+    /**
+     * Toggles the layout setting or state.
+     * @return void
+     */
     public function toggleLayout(): void
     {
         $this->layoutMode = $this->layoutMode === 'table' ? 'box' : 'table';
     }
 
+    /**
+     * Sets the active tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
     public function setTab(string $tab): void
     {
         $perms = auth()->user()?->permissions;
@@ -203,11 +274,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the search query property.
+     * @return void
+     */
     public function updatingSearchQuery(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Retrieves and populates transactions property data.
+     */
     public function getTransactionsProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -845,11 +923,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             });
     }
 
+    /**
+     * Toggles the full configured path setting or state.
+     * @return void
+     */
     public function toggleFullConfiguredPath(): void
     {
         $this->showFullConfiguredPath = !$this->showFullConfiguredPath;
     }
 
+    /**
+     * Retrieves and populates full flow path property data.
+     */
     public function getFullFlowPathProperty()
     {
         if (!$this->selectedTransactionId || !$this->selectedTransaction) {
@@ -1073,17 +1158,31 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             });
     }
 
+    /**
+     * Retrieves and populates visible path property data.
+     */
     public function getVisiblePathProperty()
     {
         return $this->fullFlowPath;
     }
 
+    /**
+     * Displays the transaction dialog or panel.
+     *
+     * @param string $id
+     *
+     * @return void
+     */
     public function openTransaction(string $id): void
     {
         $this->selectedTransactionId = $id;
         $this->loadSelectedTransaction();
     }
 
+    /**
+     * Closes or dismisses the transaction.
+     * @return void
+     */
     public function closeTransaction(): void
     {
         if ($this->editingAll) {
@@ -1118,11 +1217,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->showForwardHubModal = false;
     }
 
+    /**
+     * Toggles the more details setting or state.
+     * @return void
+     */
     public function toggleMoreDetails(): void
     {
         $this->showMoreDetails = !$this->showMoreDetails;
     }
 
+    /**
+     * Lifecycle hook executed after updating the transaction flow property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedTransactionFlow($value): void
     {
         $currentSequenceNum = $this->selectedTransaction->sequence ?? 1;
@@ -1151,6 +1261,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->flowOffices = array_merge($lockedSteps, $newSteps);
     }
 
+    /**
+     * Creates a new flow office record.
+     * @return void
+     */
     public function addFlowOffice(): void
     {
         if ($this->selectedFlowOfficeToAdd) {
@@ -1162,6 +1276,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
     }
 
+    /**
+     * Deletes or deactivates the specified flow office.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeFlowOffice(int $index): void
     {
         if (isset($this->flowOffices[$index]) && !$this->flowOffices[$index]['is_locked']) {
@@ -1170,6 +1291,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
     }
 
+    /**
+     * Reorders flow office up items.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function moveFlowOfficeUp(int $index): void
     {
         if ($index > 0 && !$this->flowOffices[$index]['is_locked'] && !$this->flowOffices[$index - 1]['is_locked']) {
@@ -1179,6 +1307,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
     }
 
+    /**
+     * Reorders flow office down items.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function moveFlowOfficeDown(int $index): void
     {
         if ($index < count($this->flowOffices) - 1 && !$this->flowOffices[$index]['is_locked'] && !$this->flowOffices[$index + 1]['is_locked']) {
@@ -1188,6 +1323,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
     }
 
+    /**
+     * Retrieves and populates selected transaction data.
+     * @return void
+     */
     public function loadSelectedTransaction(): void
     {
         $this->selectedTransaction = DB::table('dts_transactions as dt')
@@ -1304,6 +1443,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
     }
 
+    /**
+     * Is last step.
+     * @return bool
+     */
     public function isLastStep(): bool
     {
         if (!$this->selectedTransaction) {
@@ -1322,16 +1465,28 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         return !$nextSequence;
     }
 
+    /**
+     * Triggers completion confirm.
+     * @return void
+     */
     public function triggerCompletionConfirm(): void
     {
         $this->showCompletionConfirmModal = true;
     }
 
+    /**
+     * Resets completion confirm and clears active selections.
+     * @return void
+     */
     public function cancelCompletionConfirm(): void
     {
         $this->showCompletionConfirmModal = false;
     }
 
+    /**
+     * Submits and processes and complete transaction.
+     * @return void
+     */
     public function confirmAndCompleteTransaction(): void
     {
         $this->showCompletionConfirmModal = false;
@@ -1411,6 +1566,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
     }
 
+    /**
+     * Triggers upload file modal.
+     * @return void
+     */
     public function triggerUploadFileModal(): void
     {
         $this->uploadFileName = '';
@@ -1419,26 +1578,46 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->showUploadModal = true;
     }
 
+    /**
+     * Displays the view file modal.
+     * @return void
+     */
     public function openViewFileModal(): void
     {
         $this->showViewFileModal = true;
     }
 
+    /**
+     * Closes the view file modal.
+     * @return void
+     */
     public function closeViewFileModal(): void
     {
         $this->showViewFileModal = false;
     }
 
+    /**
+     * Displays the pdf preview modal.
+     * @return void
+     */
     public function openPdfPreviewModal(): void
     {
         $this->showPdfPreviewModal = true;
     }
 
+    /**
+     * Closes the pdf preview modal.
+     * @return void
+     */
     public function closePdfPreviewModal(): void
     {
         $this->showPdfPreviewModal = false;
     }
 
+    /**
+     * Deletes or deactivates the specified uploaded file.
+     * @return void
+     */
     public function removeUploadedFile(): void
     {
         if (!$this->selectedTransactionId || !$this->selectedTransaction) return;
@@ -1457,12 +1636,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->showViewFileModal = false;
     }
 
+    /**
+     * Sets the active uploaded file.
+     * @return void
+     */
     public function changeUploadedFile(): void
     {
         $this->showViewFileModal = false;
         $this->triggerUploadFileModal();
     }
 
+    /**
+     * Resets upload modal and clears active selections.
+     * @return void
+     */
     public function cancelUploadModal(): void
     {
         $this->showUploadModal = false;
@@ -1474,6 +1661,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->showForwardHubModal = false;
     }
 
+    /**
+     * Handles upload file event or action.
+     * @return void
+     */
     public function handleUploadFile(): void
     {
         $this->uploadErrorMessage = '';
@@ -1536,6 +1727,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
     }
 
+    /**
+     * Is transaction received.
+     * @return bool
+     */
     public function isTransactionReceived(): bool
     {
         if (!$this->selectedTransactionId || !$this->selectedTransaction) {
@@ -1551,6 +1746,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         return $log && ($log->type === 'received' || (!empty($log->date_in) && $log->type !== 'forwarded'));
     }
 
+    /**
+     * Receives transaction.
+     *
+     * @param ?string $transId
+     *
+     * @return void
+     */
     public function receiveTransaction(?string $transId = null): void
     {
         $perms = auth()->user()?->permissions;
@@ -1659,6 +1861,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
     }
 
+    /**
+     * Completes transaction.
+     * @return void
+     */
     public function completeTransaction(): void
     {
         $perms = auth()->user()?->permissions;
@@ -1931,6 +2137,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->closeTransaction();
     }
 
+    /**
+     * Deletes or deactivates the specified transaction.
+     * @return void
+     */
     public function deleteTransaction(): void
     {
         if (!$this->selectedTransactionId || !$this->selectedTransaction) {
@@ -1951,6 +2161,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
     }
 
+    /**
+     * Toggles the edit all setting or state.
+     * @return void
+     */
     public function toggleEditAll(): void
     {
         $perms = auth()->user()?->permissions;
@@ -1971,6 +2185,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->editingAll = !$this->editingAll;
     }
 
+    /**
+     * Creates a new cf office record.
+     * @return void
+     */
     public function addCfOffice(): void
     {
         if (empty($this->selectedCfOfficeToAdd)) {
@@ -1982,11 +2200,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->selectedCfOfficeToAdd = '';
     }
 
+    /**
+     * Deletes or deactivates the specified cf office.
+     *
+     * @param string $officeCode
+     *
+     * @return void
+     */
     public function removeCfOffice(string $officeCode): void
     {
         $this->cfSelectedOffices = array_values(array_diff($this->cfSelectedOffices, [$officeCode]));
     }
 
+    /**
+     * Persists metadata only changes to the database.
+     * @return void
+     */
     public function saveMetadataOnly(): void
     {
         $perms = auth()->user()?->permissions;

@@ -12,6 +12,10 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
 
     #[On('dts-transaction-updated')]
     #[On('refresh-transactions')]
+    /**
+     * Refreshes transactions list data.
+     * @return void
+     */
     public function refreshTransactionsList(): void
     {
         $this->resetPage();
@@ -22,6 +26,13 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
     public string $layoutMode = 'table';
     public array $expandedHubTransactions = [];
 
+    /**
+     * Toggles the expand hub setting or state.
+     *
+     * @param string $controlNumber
+     *
+     * @return void
+     */
     public function toggleExpandHub(string $controlNumber): void
     {
         if (in_array($controlNumber, $this->expandedHubTransactions)) {
@@ -31,6 +42,10 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
         }
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -39,16 +54,27 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
         }
     }
 
+    /**
+     * Toggles the layout setting or state.
+     * @return void
+     */
     public function toggleLayout(): void
     {
         $this->layoutMode = $this->layoutMode === 'table' ? 'box' : 'table';
     }
 
+    /**
+     * Lifecycle hook executed before updating the search query property.
+     * @return void
+     */
     public function updatingSearchQuery(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Retrieves and populates my transactions property data.
+     */
     public function getMyTransactionsProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 

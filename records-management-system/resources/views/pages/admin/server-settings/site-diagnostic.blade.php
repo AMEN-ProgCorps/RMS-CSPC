@@ -15,6 +15,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
     public bool $isMultiServer = false;
     public string $serverLabel = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function mount(ServerManagementService $service): void
     {
         $this->serverLabel = $service->getServerLabel();
@@ -23,6 +30,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
         $this->refreshTelemetry($service);
     }
 
+    /**
+     * Inits telemetry history.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     protected function initTelemetryHistory(ServerManagementService $service): void
     {
         $m = $service->getHardwareMetrics();
@@ -58,6 +72,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Diagnostics & Tel
         }
     }
 
+    /**
+     * Refreshes telemetry data.
+     *
+     * @param ?ServerManagementService $service
+     *
+     * @return void
+     */
     public function refreshTelemetry(?ServerManagementService $service = null): void
     {
         $service = $service ?? app(ServerManagementService::class);

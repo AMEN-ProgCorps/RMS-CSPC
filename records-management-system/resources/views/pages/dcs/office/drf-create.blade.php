@@ -11,6 +11,10 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
@@ -30,6 +34,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $prefill = [
@@ -508,6 +516,12 @@ window.__ofiSourceConfigs = [
     const saveBtn = document.getElementById('ofiDrfSaveBtn');
     if (!form || !confirmBox || !saveBtn) return;
 
+    /**
+     * Displays the ofi alert overlay or dialog.
+     *
+     * @param {*} message
+     * @param {*} title
+     */
     function showOfiAlert(message, title) {
         const overlay = document.getElementById('ofiAlertDialog');
         if (!overlay) {
@@ -522,6 +536,9 @@ window.__ofiSourceConfigs = [
         const okBtn = overlay.querySelector('[data-ofi-alert-ok]');
         if (titleEl) titleEl.textContent = title || 'Cannot save';
         if (messageEl) messageEl.textContent = message;
+        /**
+         * Closes modal dialog.
+         */
         function close() {
             overlay.classList.remove('is-open');
             overlay.setAttribute('aria-hidden', 'true');
@@ -530,8 +547,21 @@ window.__ofiSourceConfigs = [
             overlay.removeEventListener('click', onBackdrop);
             if (okBtn) okBtn.removeEventListener('click', onOk);
         }
+        /**
+         * Handles ok event or response.
+         */
         function onOk() { close(); }
+        /**
+         * Handles backdrop event or response.
+         *
+         * @param {*} e
+         */
         function onBackdrop(e) { if (e.target === overlay) close(); }
+        /**
+         * Handles key event or response.
+         *
+         * @param {*} e
+         */
         function onKey(e) { if (e.key === 'Escape' || e.key === 'Enter') close(); }
         overlay.addEventListener('click', onBackdrop);
         document.addEventListener('keydown', onKey);
@@ -542,6 +572,9 @@ window.__ofiSourceConfigs = [
         if (okBtn) okBtn.focus();
     }
 
+    /**
+     * Renders and synchronizes confirm in the DOM.
+     */
     function syncConfirm() {
         saveBtn.disabled = !confirmBox.checked;
         saveBtn.setAttribute('aria-disabled', confirmBox.checked ? 'false' : 'true');
@@ -572,6 +605,9 @@ window.__ofiSourceConfigs = [
     const allParents = window.__ofiDocTypeParents || [];
     const sigMap = window.__ofiSigTemplateMap || { byDocTypeId: {}, parentKind: {}, externalParentId: null };
 
+    /**
+     * Selected kind.
+     */
     function selectedKind() {
         const checked = form.querySelector('input[name="docTypeKind"]:checked');
         if (checked) {
@@ -586,6 +622,9 @@ window.__ofiSourceConfigs = [
         return '';
     }
 
+    /**
+     * Renders and synchronizes opt in doc type id in the DOM.
+     */
     function syncOptInDocTypeId() {
         if (!optInDocTypeHidden) return;
         const checked = form.querySelector('input[name="docTypeKind"]:checked');
@@ -601,6 +640,9 @@ window.__ofiSourceConfigs = [
         }
     }
 
+    /**
+     * Resolves template.
+     */
     function resolveTemplate() {
         const kind = selectedKind();
         const byId = sigMap.byDocTypeId || {};
@@ -627,6 +669,12 @@ window.__ofiSourceConfigs = [
         if (kids.length > 0 && !subId) {
             return null;
         }
+        /**
+         * Picks for doc type.
+         *
+         * @param {*} docTypeId
+         * @param {*} requireCollege
+         */
         function pickForDocType(docTypeId, requireCollege) {
             if (!docTypeId) return null;
             const isSyllabi = syllabiIds.indexOf(docTypeId) !== -1;
@@ -656,6 +704,9 @@ window.__ofiSourceConfigs = [
         return pickForDocType(parentId, false);
     }
 
+    /**
+     * Clears and resets signatories.
+     */
     function clearSignatories() {
         form.querySelectorAll('#ofiDrfSigBlock [data-sig-key]').forEach(function (input) {
             input.value = '';
@@ -664,6 +715,11 @@ window.__ofiSourceConfigs = [
         });
     }
 
+    /**
+     * Applies signatories.
+     *
+     * @param {*} payload
+     */
     function applySignatories(payload) {
         clearSignatories();
         if (!payload) return;
@@ -676,6 +732,9 @@ window.__ofiSourceConfigs = [
         });
     }
 
+    /**
+     * Renders and synchronizes catalog visibility in the DOM.
+     */
     function syncCatalogVisibility() {
         const kind = selectedKind();
         // Only Internal shows Document type + Sub-type. Forms/Logbooks/External hide them.
@@ -698,6 +757,11 @@ window.__ofiSourceConfigs = [
         }
     }
 
+    /**
+     * Rebuilds parent options.
+     *
+     * @param {*} keepValue
+     */
     function rebuildParentOptions(keepValue) {
         if (!parentSelect || parentSelect.tagName !== 'SELECT') return;
         const kind = selectedKind();
@@ -727,6 +791,11 @@ window.__ofiSourceConfigs = [
         }
     }
 
+    /**
+     * Rebuilds sub options.
+     *
+     * @param {*} keepValue
+     */
     function rebuildSubOptions(keepValue) {
         if (!parentSelect || !subSelect || parentSelect.tagName !== 'SELECT') return;
         const kind = selectedKind();
@@ -766,6 +835,9 @@ window.__ofiSourceConfigs = [
         }
     }
 
+    /**
+     * Renders and synchronizes signatories for selection in the DOM.
+     */
     function refreshSignatoriesForSelection() {
         applySignatories(resolveTemplate());
     }

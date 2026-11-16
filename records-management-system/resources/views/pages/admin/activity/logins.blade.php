@@ -19,6 +19,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
     /** @var string Selected status filter */
     public string $statusFilter = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -28,16 +32,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
         }
     }
 
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
     public function updatingSearch(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the status filter property.
+     * @return void
+     */
     public function updatingStatusFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search = '';
@@ -147,6 +163,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
         }, 200, $headers);
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $secLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';

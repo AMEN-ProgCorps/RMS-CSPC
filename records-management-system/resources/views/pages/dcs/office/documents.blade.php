@@ -20,6 +20,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public int $perPage = 25;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
@@ -41,6 +45,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Selects type and populates the details panel.
+     *
+     * @param string $type
+     *
+     * @return void
+     */
     public function selectType(string $type): void
     {
         $keys = array_keys(OfficeIntakeHelper::documentGroupDefs());
@@ -50,6 +61,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $groups = OfficeIntakeHelper::officeDocumentGroups(null, false, 'received');

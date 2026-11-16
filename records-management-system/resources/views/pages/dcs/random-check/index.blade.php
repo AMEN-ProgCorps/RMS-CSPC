@@ -73,6 +73,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public bool $showOfficePicker = false;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         RandomCheckHelper::assertCanAccess();
@@ -85,6 +89,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->checkDate = now()->format('Y-m-d');
     }
 
+    /**
+     * Displays the year dialog or panel.
+     *
+     * @param int $year
+     * @param string $cycle
+     *
+     * @return void
+     */
     public function openYear(int $year, string $cycle = ''): void
     {
         RandomCheckHelper::assertCanAccess();
@@ -97,11 +109,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->notice = '';
     }
 
+    /**
+     * Selects cycle and populates the details panel.
+     *
+     * @param string $cycle
+     *
+     * @return void
+     */
     public function selectCycle(string $cycle): void
     {
         $this->selectedCycle = RandomCheckHelper::normalizeCycle($cycle);
     }
 
+    /**
+     * Backs home.
+     * @return void
+     */
     public function backHome(): void
     {
         $this->screen = 'home';
@@ -109,6 +132,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->notice = '';
     }
 
+    /**
+     * Backs year.
+     * @return void
+     */
     public function backYear(): void
     {
         $this->screen = 'year';
@@ -116,6 +143,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->notice = '';
     }
 
+    /**
+     * Displays the office dialog or panel.
+     *
+     * @param int $officeId
+     * @param string $label
+     *
+     * @return void
+     */
     public function openOffice(int $officeId, string $label = ''): void
     {
         RandomCheckHelper::assertCanAccess();
@@ -141,12 +176,26 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->openSchedule();
     }
 
+    /**
+     * Displays the check dialog or panel.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function openCheck(int $id): void
     {
         RandomCheckHelper::assertCanAccess();
         $this->hydrateCheck($id);
     }
 
+    /**
+     * Lifecycle hook executed after updating the show schedule property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedShowSchedule($value): void
     {
         if ($value) {
@@ -154,6 +203,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Displays the schedule dialog or panel.
+     * @return void
+     */
     public function openSchedule(): void
     {
         RandomCheckHelper::assertCanAccess();
@@ -161,6 +214,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->showSchedule = true;
     }
 
+    /**
+     * Closes or dismisses the schedule.
+     * @return void
+     */
     public function closeSchedule(): void
     {
         $this->showSchedule = false;
@@ -169,6 +226,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->clearScheduleOffice();
     }
 
+    /**
+     * Prepares schedule form.
+     * @return void
+     */
     private function prepareScheduleForm(): void
     {
         $this->scheduleYear = $this->selectedYear ?: (int) now()->format('Y');
@@ -180,22 +241,42 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->clearScheduleOffice();
     }
 
+    /**
+     * Resets schedule office and clears active selections.
+     * @return void
+     */
     public function clearScheduleOffice(): void
     {
         $this->scheduleOfficeId = 0;
         $this->scheduleOfficeLabel = '';
     }
 
+    /**
+     * Lifecycle hook executed after updating the schedule year property.
+     * @return void
+     */
     public function updatedScheduleYear(): void
     {
         $this->clearScheduleOffice();
     }
 
+    /**
+     * Lifecycle hook executed after updating the schedule cycle property.
+     * @return void
+     */
     public function updatedScheduleCycle(): void
     {
         $this->clearScheduleOffice();
     }
 
+    /**
+     * Selects schedule office and populates the details panel.
+     *
+     * @param int $officeId
+     * @param string $label
+     *
+     * @return void
+     */
     public function selectScheduleOffice(int $officeId, string $label): void
     {
         $this->scheduleOfficeId = $officeId;
@@ -205,6 +286,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->showOfficePicker = false;
     }
 
+    /**
+     * Selects random office and populates the details panel.
+     * @return void
+     */
     public function pickRandomOffice(): void
     {
         RandomCheckHelper::assertCanAccess();
@@ -222,6 +307,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->showOfficePicker = false;
     }
 
+    /**
+     * Submits and processes schedule.
+     * @return void
+     */
     public function confirmSchedule(): void
     {
         RandomCheckHelper::assertCanAccess();
@@ -262,31 +351,68 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Persists draft changes to the database.
+     * @return void
+     */
     public function saveDraft(): void
     {
         $this->persist(true);
     }
 
+    /**
+     * Finalizes action.
+     * @return void
+     */
     public function finalize(): void
     {
         $this->persist(false);
     }
 
+    /**
+     * Sets the active availability.
+     *
+     * @param int $index
+     * @param string $value
+     *
+     * @return void
+     */
     public function setAvailability(int $index, string $value): void
     {
         $this->patchRowFlag($index, 'availability', $value);
     }
 
+    /**
+     * Sets the active compliance.
+     *
+     * @param int $index
+     * @param string $value
+     *
+     * @return void
+     */
     public function setCompliance(int $index, string $value): void
     {
         $this->patchRowFlag($index, 'compliance_status', $value);
     }
 
+    /**
+     * Toggles the office picker setting or state.
+     * @return void
+     */
     public function toggleOfficePicker(): void
     {
         $this->showOfficePicker = ! $this->showOfficePicker;
     }
 
+    /**
+     * Patchs row flag.
+     *
+     * @param int $index
+     * @param string $field
+     * @param string $value
+     *
+     * @return void
+     */
     private function patchRowFlag(int $index, string $field, string $value): void
     {
         if ($this->locked || ! isset($this->rows[$index])) {
@@ -299,6 +425,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->rows = $rows;
     }
 
+    /**
+     * Toggles the compare setting or state.
+     * @return void
+     */
     public function toggleCompare(): void
     {
         RandomCheckHelper::assertCanAccess();
@@ -321,6 +451,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Shares office.
+     *
+     * @param ?string $filter
+     */
     public function shareOffice(?string $filter = null)
     {
         RandomCheckHelper::assertCanAccess();
@@ -357,6 +492,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return null;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $years = RandomCheckHelper::yearSummaries();
@@ -415,6 +554,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
     }
 
+    /**
+     * Saves changes to the database.
+     *
+     * @param bool $asDraft
+     *
+     * @return void
+     */
     private function persist(bool $asDraft): void
     {
         RandomCheckHelper::assertCanAccess();
@@ -458,6 +604,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->notice = (string) ($result['message'] ?? 'Saved.');
     }
 
+    /**
+     * Hydrates check.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     private function hydrateCheck(int $id): void
     {
         $check = RandomCheckHelper::loadCheck($id);
@@ -487,6 +640,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->noticeType = 'info';
     }
 
+    /**
+     * Resets work and clears active selections.
+     * @return void
+     */
     private function resetWork(): void
     {
         $this->selectedOfficeId = 0;

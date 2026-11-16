@@ -646,6 +646,9 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
 <script>
 (function () {
     var last = 0;
+    /**
+     * Pings action.
+     */
     function ping() {
         var now = Date.now();
         if (now - last < 4000) return;
@@ -673,6 +676,9 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
     }
 </style>
 <script>
+/**
+ * Prints action.
+ */
 window.print = function () {};
 @if($printReadyUrl !== '')
 (function () {
@@ -712,6 +718,9 @@ window.print = function () {};
 </div>
 <script>
 var ofiPrintedMarked = false;
+/**
+ * Ofis mark printed.
+ */
 function ofiMarkPrinted() {
     var url = @json($markPrintedUrl);
     if (!url || ofiPrintedMarked) return;
@@ -738,10 +747,16 @@ function ofiMarkPrinted() {
         ofiPrintedMarked = false;
     }
 }
+/**
+ * Ofis print clean.
+ */
 function ofiPrintClean() {
     ofiMarkPrinted();
     var prevTitle = document.title;
     var restored = false;
+    /**
+     * Restores action.
+     */
     function restore() {
         if (restored) return;
         restored = true;

@@ -16,6 +16,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Changes Logs')
     /** @var string Search query */
     public string $search = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;

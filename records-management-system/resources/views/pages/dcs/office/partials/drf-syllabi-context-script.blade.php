@@ -18,11 +18,19 @@ DCS file: Office DRF syllabi context cascade + auto title.
     let titleManual = false;
     let seeding = false;
 
+    /**
+     * Checks whether syllabi like name condition is met.
+     *
+     * @param {*} name
+     */
     function isSyllabiLikeName(name) {
         const n = String(name || '').toLowerCase();
         return n.indexOf('syllab') !== -1 || n.indexOf('tos') !== -1 || n.indexOf('rubric') !== -1;
     }
 
+    /**
+     * Selected sub name.
+     */
     function selectedSubName() {
         if (subSelect && subSelect.tagName === 'SELECT') {
             const opt = subSelect.options[subSelect.selectedIndex];
@@ -35,12 +43,25 @@ DCS file: Office DRF syllabi context cascade + auto title.
         return '';
     }
 
+    /**
+     * Connectors for sub.
+     */
     function connectorForSub() {
         const n = selectedSubName().toLowerCase();
         if (n.indexOf('tos') !== -1 || n.indexOf('rubric') !== -1) return 'TOS/Rubrics,';
         return 'Syllabus,';
     }
 
+    /**
+     * Populates select in the interface.
+     *
+     * @param {*} select
+     * @param {*} items
+     * @param {*} valueKey
+     * @param {*} labelKey
+     * @param {*} placeholder
+     * @param {*} keepValue
+     */
     function fillSelect(select, items, valueKey, labelKey, placeholder, keepValue) {
         if (!select) return;
         const previous = keepValue ? String(select.value || '') : '';
@@ -66,6 +87,13 @@ DCS file: Office DRF syllabi context cascade + auto title.
         }
     }
 
+    /**
+     * Sets the enabled value.
+     *
+     * @param {*} select
+     * @param {*} on
+     * @param {*} required
+     */
     function setEnabled(select, on, required) {
         if (!select) return;
         select.disabled = !on;
@@ -73,6 +101,11 @@ DCS file: Office DRF syllabi context cascade + auto title.
         if (!on) select.value = '';
     }
 
+    /**
+     * Rebuilds programs.
+     *
+     * @param {*} keep
+     */
     function rebuildPrograms(keep) {
         const collegeId = String(collegeSel.value || '');
         const programs = collegeId ? ((catalog.programsByCollege || {})[collegeId] || []) : [];
@@ -80,12 +113,22 @@ DCS file: Office DRF syllabi context cascade + auto title.
         setEnabled(programSel, !!collegeId, true);
     }
 
+    /**
+     * Rebuilds semesters.
+     *
+     * @param {*} keep
+     */
     function rebuildSemesters(keep) {
         const programOn = !!(programSel && programSel.value);
         fillSelect(semesterSel, catalog.semesters || [], 'semester_id', 'semester_name', 'Select semester…', keep);
         setEnabled(semesterSel, programOn, true);
     }
 
+    /**
+     * Rebuilds courses.
+     *
+     * @param {*} keep
+     */
     function rebuildCourses(keep) {
         const programId = programSel ? String(programSel.value || '') : '';
         const semesterId = semesterSel ? String(semesterSel.value || '') : '';
@@ -108,11 +151,17 @@ DCS file: Office DRF syllabi context cascade + auto title.
         setEnabled(courseSel, !!(programId && semesterId), true);
     }
 
+    /**
+     * Selected sub type id.
+     */
     function selectedSubTypeId() {
         if (!subSelect) return '';
         return String(subSelect.value || '').trim();
     }
 
+    /**
+     * Takens school year ids for course.
+     */
     function takenSchoolYearIdsForCourse() {
         const collegeId = collegeSel ? String(collegeSel.value || '') : '';
         const programId = programSel ? String(programSel.value || '') : '';
@@ -126,6 +175,11 @@ DCS file: Office DRF syllabi context cascade + auto title.
         return raw.map(function (id) { return String(id); });
     }
 
+    /**
+     * Rebuilds school years.
+     *
+     * @param {*} keep
+     */
     function rebuildSchoolYears(keep) {
         const courseOn = !!(courseSel && courseSel.value);
         const taken = takenSchoolYearIdsForCourse();
@@ -146,12 +200,20 @@ DCS file: Office DRF syllabi context cascade + auto title.
         setEnabled(schoolYearSel, courseOn && available.length > 0, true);
     }
 
+    /**
+     * Selects text.
+     *
+     * @param {*} select
+     */
     function selectText(select) {
         if (!select || select.selectedIndex < 0) return '';
         const opt = select.options[select.selectedIndex];
         return opt && opt.value ? String(opt.textContent || '').trim() : '';
     }
 
+    /**
+     * Builds title.
+     */
     function buildTitle() {
         // Department Syllabus, Semester S/Y SchoolYear for Program in Course
         const college = selectText(collegeSel);
@@ -165,12 +227,20 @@ DCS file: Office DRF syllabi context cascade + auto title.
             + ' for ' + program + ' in ' + course;
     }
 
+    /**
+     * Renders and synchronizes title in the DOM.
+     */
     function syncTitle() {
         if (!titleInput || titleManual || seeding) return;
         const next = buildTitle();
         if (next) titleInput.value = next;
     }
 
+    /**
+     * Displays the context overlay or dialog.
+     *
+     * @param {*} on
+     */
     function showContext(on) {
         block.hidden = !on;
         block.classList.toggle('is-ofi-hidden', !on);
@@ -191,6 +261,9 @@ DCS file: Office DRF syllabi context cascade + auto title.
         rebuildSchoolYears(true);
     }
 
+    /**
+     * Ofis sync syllabi context.
+     */
     window.__ofiSyncSyllabiContext = function () {
         const kindRadio = form.querySelector('input[name="docTypeKind"]:checked');
         const kindHidden = form.querySelector('input[type="hidden"][name="docTypeKind"]');
@@ -204,6 +277,9 @@ DCS file: Office DRF syllabi context cascade + auto title.
         }
     };
 
+    /**
+     * Applies seed.
+     */
     function applySeed() {
         const seedEl = document.getElementById('ofiDrfSyllabiSeed');
         if (!seedEl) return;

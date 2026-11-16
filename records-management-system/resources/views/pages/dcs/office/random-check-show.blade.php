@@ -18,6 +18,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public string $filter = 'all';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function mount(int $id): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
@@ -25,6 +32,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->checkId = $id;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $check = RandomCheckHelper::loadCheck($this->checkId);

@@ -32,6 +32,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
     public ?string $successMessage = null;
     public ?string $errorMessage = null;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -46,6 +50,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         }
     }
 
+    /**
+     * Selects target and populates the details panel.
+     *
+     * @param string $key
+     * @param bool $loadFile
+     *
+     * @return void
+     */
     public function selectTarget(string $key, bool $loadFile = false): void
     {
         $this->selectedTargetKey = $key;
@@ -84,6 +96,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         }
     }
 
+    /**
+     * Retrieves and populates target manual data.
+     * @return void
+     */
     public function loadTargetManual(): void
     {
         if (!$this->selectedTargetKey) return;
@@ -99,6 +115,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         }
     }
 
+    /**
+     * Sets the active view mode.
+     *
+     * @param string $mode
+     *
+     * @return void
+     */
     public function setViewMode(string $mode): void
     {
         if (in_array($mode, ['preview', 'editor'], true)) {
@@ -109,6 +132,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         }
     }
 
+    /**
+     * Assigns selected manual.
+     * @return void
+     */
     public function assignSelectedManual(): void
     {
         if (!$this->selectedTargetKey) return;
@@ -127,6 +154,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         }
     }
 
+    /**
+     * Unassigns target.
+     * @return void
+     */
     public function unassignTarget(): void
     {
         if (!$this->selectedTargetKey) return;
@@ -140,6 +171,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         }
     }
 
+    /**
+     * Resets to default target and clears active selections.
+     * @return void
+     */
     public function resetToDefaultTarget(): void
     {
         if (!$this->selectedTargetKey) return;
@@ -153,6 +188,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         }
     }
 
+    /**
+     * Persists editor content changes to the database.
+     * @return void
+     */
     public function saveEditorContent(): void
     {
         if (!$this->selectedTargetKey || empty($this->assignedRelativePath)) {
@@ -169,6 +208,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         }
     }
 
+    /**
+     * Displays the create modal.
+     * @return void
+     */
     public function openCreateModal(): void
     {
         $this->newFileName = '';
@@ -189,11 +232,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         $this->showCreateModal = true;
     }
 
+    /**
+     * Closes the create modal.
+     * @return void
+     */
     public function closeCreateModal(): void
     {
         $this->showCreateModal = false;
     }
 
+    /**
+     * Generates manual from template.
+     * @return void
+     */
     public function generateManualFromTemplate(): void
     {
         if (!$this->selectedTargetKey) return;
@@ -227,6 +278,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         }
     }
 
+    /**
+     * Submits and processes create manual.
+     * @return void
+     */
     public function submitCreateManual(): void
     {
         $this->validate([
@@ -268,6 +323,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         }
     }
 
+    /**
+     * Deletes or deactivates the specified assigned file.
+     * @return void
+     */
     public function deleteAssignedFile(): void
     {
         if (empty($this->assignedRelativePath)) {
@@ -287,6 +346,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         }
     }
 
+    /**
+     * Creates a new markdown snippet record.
+     *
+     * @param string $type
+     *
+     * @return void
+     */
     public function insertMarkdownSnippet(string $type): void
     {
         $snippet = match ($type) {
@@ -301,12 +367,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         $this->editorContent .= $snippet;
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = null;
         $this->errorMessage = null;
     }
 
+    /**
+     * Refreshes catalog data.
+     * @return void
+     */
     public function refreshCatalog(): void
     {
         ManualService::clearFileIndexCache();
@@ -314,6 +388,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
         $this->successMessage = "Catalog refreshed and synchronized successfully ({$count} targets).";
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $allFiles = ManualService::getAllManualFiles();

@@ -19,6 +19,10 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
     public string $editStoragePeriod = '';
     public bool $editIsPermanent = false;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
@@ -28,6 +32,10 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
         }
     }
 
+    /**
+     * Retrieves and populates user context data.
+     * @return array
+     */
     protected function getUserContext(): array
     {
         $user = Auth::user();
@@ -40,6 +48,13 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
         return [$userId, $userOffice];
     }
 
+    /**
+     * Displays the edit series modal.
+     *
+     * @param int $seriesId
+     *
+     * @return void
+     */
     public function openEditSeriesModal(int $seriesId): void
     {
         [$userId, $userOffice] = $this->getUserContext();
@@ -70,12 +85,23 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
         $this->showEditModal = true;
     }
 
+    /**
+     * Closes the edit series modal.
+     * @return void
+     */
     public function closeEditSeriesModal(): void
     {
         $this->showEditModal = false;
         $this->editingSeriesId = null;
     }
 
+    /**
+     * Persists series draft edits changes to the database.
+     *
+     * @param bool $andSubmit
+     *
+     * @return void
+     */
     public function saveSeriesDraftEdits(bool $andSubmit = false): void
     {
         if (!$this->editingSeriesId) return;
@@ -142,6 +168,13 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
         }
     }
 
+    /**
+     * Deletes or deactivates the specified draft series.
+     *
+     * @param int $seriesId
+     *
+     * @return void
+     */
     public function deleteDraftSeries(int $seriesId): void
     {
         [$userId, $userOffice] = $this->getUserContext();
@@ -160,6 +193,13 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
         }
     }
 
+    /**
+     * Submits and processes for approval.
+     *
+     * @param int $seriesId
+     *
+     * @return void
+     */
     public function submitForApproval(int $seriesId): void
     {
         [$userId, $userOffice] = $this->getUserContext();
@@ -209,6 +249,10 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         [$userId, $userOffice] = $this->getUserContext();

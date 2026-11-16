@@ -19,6 +19,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Account Changes')] class
     /** @var string Selected subsystem filter */
     public string $subsystemFilter = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;

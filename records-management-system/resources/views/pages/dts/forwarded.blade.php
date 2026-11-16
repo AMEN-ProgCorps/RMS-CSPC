@@ -12,6 +12,10 @@ new #[Layout('layouts.dts')] #[Title('Forwarded Transactions - Document Tracking
 
     #[On('dts-transaction-updated')]
     #[On('refresh-transactions')]
+    /**
+     * Refreshes transactions list data.
+     * @return void
+     */
     public function refreshTransactionsList(): void
     {
         $this->resetPage();
@@ -21,6 +25,10 @@ new #[Layout('layouts.dts')] #[Title('Forwarded Transactions - Document Tracking
     public int $perPage = 10;
     public string $layoutMode = 'table';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -29,16 +37,27 @@ new #[Layout('layouts.dts')] #[Title('Forwarded Transactions - Document Tracking
         }
     }
 
+    /**
+     * Toggles the layout setting or state.
+     * @return void
+     */
     public function toggleLayout(): void
     {
         $this->layoutMode = $this->layoutMode === 'table' ? 'box' : 'table';
     }
 
+    /**
+     * Lifecycle hook executed before updating the search query property.
+     * @return void
+     */
     public function updatingSearchQuery(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Retrieves and populates forwarded transactions property data.
+     */
     public function getForwardedTransactionsProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 

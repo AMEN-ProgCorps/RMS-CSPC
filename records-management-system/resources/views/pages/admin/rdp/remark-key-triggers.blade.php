@@ -16,6 +16,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Remark Key Triggers')] c
     public string $successMessage = '';
     public string $errorMessage = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -25,12 +29,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Remark Key Triggers')] c
         }
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     private function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
+    /**
+     * Duplicates key word.
+     *
+     * @param string $keyWord
+     * @param ?int $ignoreId
+     *
+     * @return bool
+     */
     private function duplicateKeyWord(string $keyWord, ?int $ignoreId = null): bool
     {
         return DB::table('rdp_remark_key_triggers')
@@ -39,6 +55,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Remark Key Triggers')] c
             ->exists();
     }
 
+    /**
+     * Creates a new trigger record.
+     * @return void
+     */
     public function addTrigger(): void
     {
         $this->clearMessages();
@@ -69,6 +89,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Remark Key Triggers')] c
         }
     }
 
+    /**
+     * Starts edit.
+     *
+     * @param int $triggerId
+     *
+     * @return void
+     */
     public function startEdit(int $triggerId): void
     {
         $this->clearMessages();
@@ -84,6 +111,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Remark Key Triggers')] c
         $this->editingIsActionBefore = (bool) $trigger->is_action_before;
     }
 
+    /**
+     * Resets edit and clears active selections.
+     * @return void
+     */
     public function cancelEdit(): void
     {
         $this->editingTriggerId = null;
@@ -91,6 +122,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Remark Key Triggers')] c
         $this->editingIsActionBefore = false;
     }
 
+    /**
+     * Updates trigger.
+     * @return void
+     */
     public function updateTrigger(): void
     {
         $this->clearMessages();
@@ -133,6 +168,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Remark Key Triggers')] c
         }
     }
 
+    /**
+     * Deletes or deactivates the specified trigger.
+     *
+     * @param int $triggerId
+     *
+     * @return void
+     */
     public function deleteTrigger(int $triggerId): void
     {
         $this->clearMessages();
@@ -160,6 +202,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Remark Key Triggers')] c
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $triggers = DB::table('rdp_remark_key_triggers')

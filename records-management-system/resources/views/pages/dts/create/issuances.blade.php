@@ -29,6 +29,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public bool $canReceivingOffice = false;
     public bool $canTransactionFlow = false;
 
+    /**
+     * Retrieves and populates has hub property data.
+     * @return bool
+     */
     public function getHasHubProperty(): bool
     {
         if (!$this->canTransactionFlow && $this->canReceivingOffice) {
@@ -39,6 +43,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             || in_array('[HUB]', $this->customFlowSequence);
     }
 
+    /**
+     * Selects free flow office and populates the details panel.
+     *
+     * @param string $officeCode
+     *
+     * @return void
+     */
     public function selectFreeFlowOffice(string $officeCode): void
     {
         if ($officeCode === $this->userOfficeCode || in_array($officeCode, ['ORIGIN', '[H]', '[HUB]'])) {
@@ -65,6 +76,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->receiving_search = '';
     }
 
+    /**
+     * Deletes or deactivates the specified free flow office.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeFreeFlowOffice(int $index): void
     {
         // Independent removal: only removes from receiving offices
@@ -72,6 +90,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->free_flow_receiving_offices = array_values($this->free_flow_receiving_offices);
     }
 
+    /**
+     * Selects all receiving offices and populates the details panel.
+     * @return void
+     */
     public function selectAllReceivingOffices(): void
     {
         $this->free_flow_receiving_offices = ['ALL'];
@@ -80,6 +102,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->receiving_search = '';
     }
 
+    /**
+     * Resets receiving offices and clears active selections.
+     * @return void
+     */
     public function clearReceivingOffices(): void
     {
         $this->free_flow_receiving_offices = [];
@@ -91,6 +117,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public string $hubModalSearch = '';
     public array $hubModalTempSelected = [];
 
+    /**
+     * Displays the hub modal.
+     * @return void
+     */
     public function openHubModal(): void
     {
         $this->hubModalTempSelected = $this->free_flow_receiving_offices;
@@ -98,12 +128,23 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->showHubModal = true;
     }
 
+    /**
+     * Closes the hub modal.
+     * @return void
+     */
     public function closeHubModal(): void
     {
         $this->showHubModal = false;
         $this->hubModalSearch = '';
     }
 
+    /**
+     * Toggles the hub modal office setting or state.
+     *
+     * @param string $officeCode
+     *
+     * @return void
+     */
     public function toggleHubModalOffice(string $officeCode): void
     {
         if ($officeCode === $this->userOfficeCode || in_array($officeCode, ['ORIGIN', '[H]', '[HUB]'])) {
@@ -126,16 +167,28 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         }
     }
 
+    /**
+     * Selects all hub modal offices and populates the details panel.
+     * @return void
+     */
     public function selectAllHubModalOffices(): void
     {
         $this->hubModalTempSelected = ['ALL'];
     }
 
+    /**
+     * Resets hub modal offices and clears active selections.
+     * @return void
+     */
     public function clearHubModalOffices(): void
     {
         $this->hubModalTempSelected = [];
     }
 
+    /**
+     * Filters and queries hub modal based on criteria.
+     * @return void
+     */
     public function applyHubModal(): void
     {
         $this->free_flow_receiving_offices = $this->hubModalTempSelected;
@@ -160,6 +213,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->hubModalSearch = '';
     }
 
+    /**
+     * Selects all cf offices and populates the details panel.
+     * @return void
+     */
     public function selectAllCfOffices(): void
     {
         $this->cf_selected_offices = ['ALL'];
@@ -167,6 +224,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->cf_search = '';
     }
 
+    /**
+     * Resets cf offices and clears active selections.
+     * @return void
+     */
     public function clearCfOffices(): void
     {
         $this->cf_selected_offices = [];
@@ -185,6 +246,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public string $customFlowHubSearch = '';
     public string $toastMessage = '';
 
+    /**
+     * Selects custom flow hub office and populates the details panel.
+     *
+     * @param string $officeCode
+     *
+     * @return void
+     */
     public function selectCustomFlowHubOffice(string $officeCode): void
     {
         if ($officeCode === $this->userOfficeCode || in_array($officeCode, ['ORIGIN', '[H]', '[HUB]'])) {
@@ -202,18 +270,33 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->customFlowHubSearch = '';
     }
 
+    /**
+     * Deletes or deactivates the specified custom flow hub office.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeCustomFlowHubOffice(int $index): void
     {
         unset($this->customFlowHubOffices[$index]);
         $this->customFlowHubOffices = array_values($this->customFlowHubOffices);
     }
 
+    /**
+     * Selects all custom flow hub offices and populates the details panel.
+     * @return void
+     */
     public function selectAllCustomFlowHubOffices(): void
     {
         $this->customFlowHubOffices = ['ALL'];
         $this->customFlowHubSearch = '';
     }
 
+    /**
+     * Resets custom flow hub offices and clears active selections.
+     * @return void
+     */
     public function clearCustomFlowHubOffices(): void
     {
         $this->customFlowHubOffices = [];
@@ -224,6 +307,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public bool $showSuccessModal = false;
     public array $createdTransactionSummary = [];
 
+    /**
+     * Closes the success modal.
+     * @return void
+     */
     public function closeSuccessModal(): void
     {
         $this->showSuccessModal = false;
@@ -237,6 +324,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public string $insert_office_code = '';
     public string $insert_office_search = '';
 
+    /**
+     * Ensures origin bounds.
+     *
+     * @param array $offices
+     * @param string $originOfficeCode
+     *
+     * @return array
+     */
     private function ensureOriginBounds(array $offices, string $originOfficeCode): array
     {
         if (empty($offices)) {
@@ -260,6 +355,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         return array_values($offices);
     }
 
+    /**
+     * Validates and verifies transaction flow.
+     *
+     * @param string $originOfficeCode
+     * @param ?string $clusterHead
+     *
+     * @return ?string
+     */
     private function validateTransactionFlow(string $originOfficeCode, ?string $clusterHead = null): ?string
     {
         $count = count($this->flow_offices);
@@ -301,6 +404,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         return null;
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -364,6 +471,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->allowCustomFlowScopeSelection = \App\Helpers\DtsFlowHelper::isScopeSelectionAllowed();
     }
 
+    /**
+     * Validates and verifies availability.
+     * @return void
+     */
     public function checkAvailability(): void
     {
         if (empty($this->seq_number)) {
@@ -387,6 +498,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         }
     }
 
+    /**
+     * Generates random seq.
+     * @return void
+     */
     public function generateRandomSeq(): void
     {
         $prefix = $this->issuance_type . '-' . now()->format('Y-m') . '-';
@@ -410,18 +525,30 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     }
 
 
+    /**
+     * Lifecycle hook executed after updating the seq number property.
+     * @return void
+     */
     public function updatedSeqNumber(): void
     {
         $this->availabilityMessage = '';
         $this->isAvailable = null;
     }
 
+    /**
+     * Lifecycle hook executed after updating the issuance type property.
+     * @return void
+     */
     public function updatedIssuanceType(): void
     {
         $this->availabilityMessage = '';
         $this->isAvailable = null;
     }
 
+    /**
+     * Lifecycle hook executed after updating the unit college property.
+     * @return void
+     */
     public function updatedUnitCollege(): void
     {
         if (!empty($this->transaction_flow)) {
@@ -429,6 +556,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the transaction flow property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedTransactionFlow($value): void
     {
         $this->selected_gap_index = null;
@@ -518,6 +652,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         }
     }
 
+    /**
+     * Displays the flow diagram dialog or panel.
+     * @return void
+     */
     public function openFlowDiagram(): void
     {
         if (!empty($this->transaction_flow)) {
@@ -528,12 +666,24 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         }
     }
 
+    /**
+     * Selects office for insert and populates the details panel.
+     *
+     * @param string $code
+     * @param string $name
+     *
+     * @return void
+     */
     public function selectOfficeForInsert(string $code, string $name): void
     {
         $this->insert_office_code = $code;
         $this->insert_office_search = "$name ($code)";
     }
 
+    /**
+     * Resets insert and clears active selections.
+     * @return void
+     */
     public function cancelInsert(): void
     {
         $this->selected_gap_index = null;
@@ -541,6 +691,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->insert_office_search = '';
     }
 
+    /**
+     * Creates a new office record.
+     * @return void
+     */
     public function insertOffice(): void
     {
         if ($this->selected_gap_index !== null && !empty($this->insert_office_code)) {
@@ -551,6 +705,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         }
     }
 
+    /**
+     * Deletes or deactivates the specified office from flow.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeOfficeFromFlow(int $index): void
     {
         unset($this->flow_offices[$index]);
@@ -558,11 +719,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->selected_gap_index = null;
     }
 
+    /**
+     * Resets flow to default and clears active selections.
+     * @return void
+     */
     public function resetFlowToDefault(): void
     {
         $this->updatedTransactionFlow($this->transaction_flow);
     }
 
+    /**
+     * Selects cf office and populates the details panel.
+     *
+     * @param string $officeCode
+     *
+     * @return void
+     */
     public function selectCfOffice(string $officeCode): void
     {
         if ($officeCode === 'ALL') {
@@ -580,6 +752,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
 
     public ?string $generatedQrCode = null;
 
+    /**
+     * Splits string.
+     *
+     * @param string $str
+     *
+     * @return array
+     */
     private function splitString(string $str): array
     {
         $len = strlen($str);
@@ -610,6 +789,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         }
     }
 
+    /**
+     * Combines action.
+     *
+     * @param string $a
+     * @param string $b
+     *
+     * @return string
+     */
     private function combine(string $a, string $b): string
     {
         if ($a === '') return $b;
@@ -679,6 +866,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         return $part1 . $part2 . $part3;
     }
 
+    /**
+     * Generates qr code.
+     * @return void
+     */
     public function generateQrCode(): void
     {
         if ($this->generatedQrCode) {
@@ -720,6 +911,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         );
     }
 
+    /**
+     * Displays the custom flow creator dialog or panel.
+     * @return void
+     */
     public function openCustomFlowCreator(): void
     {
         $hasPermission = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_create_own_flow;
@@ -739,6 +934,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->showCustomFlowModal = true;
     }
 
+    /**
+     * Creates a new to custom flow sequence record.
+     * @return void
+     */
     public function addToCustomFlowSequence(): void
     {
         if (empty($this->customFlowSelectedOffice)) {
@@ -749,12 +948,26 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $this->customFlowSelectedOffice = '';
     }
 
+    /**
+     * Deletes or deactivates the specified from custom flow sequence.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeFromCustomFlowSequence(int $index): void
     {
         unset($this->customFlowSequence[$index]);
         $this->customFlowSequence = array_values($this->customFlowSequence);
     }
 
+    /**
+     * Reorders up custom flow sequence items.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function moveUpCustomFlowSequence(int $index): void
     {
         if ($index > 0) {
@@ -764,6 +977,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         }
     }
 
+    /**
+     * Reorders down custom flow sequence items.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function moveDownCustomFlowSequence(int $index): void
     {
         if ($index < count($this->customFlowSequence) - 1) {
@@ -773,6 +993,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         }
     }
 
+    /**
+     * Persists custom flow changes to the database.
+     * @return void
+     */
     public function saveCustomFlow(): void
     {
         $this->validate([
@@ -881,12 +1105,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         }
     }
 
+    /**
+     * Deletes or deactivates the specified cf office.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeCfOffice(int $index): void
     {
         unset($this->cf_selected_offices[$index]);
         $this->cf_selected_offices = array_values($this->cf_selected_offices);
     }
 
+    /**
+     * Saves changes to the database.
+     */
     public function save()
     {
         $this->rateLimitError = '';
@@ -2146,6 +2380,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         </div>
 
         <script>
+            /**
+             * Prints qr code only.
+             */
             function printQrCodeOnly() {
                 const controlNo = "{{ $createdTransactionSummary['control_number'] }}";
                 const office = "{{ $createdTransactionSummary['office'] }}";
@@ -2176,6 +2413,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                             <img src="\${qrUrl}" class="qr-img" />
                         </div>
                         <script>
+                            /**
+                             * Onloads action.
+                             */
                             window.onload = function() { window.print(); window.close(); }
                         <\/script>
                     </body>

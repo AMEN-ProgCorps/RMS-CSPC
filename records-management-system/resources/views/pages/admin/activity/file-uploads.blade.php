@@ -13,6 +13,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - File Upload Activity Log
     public string $officeFilter = '';
     public string $dateFilter = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -22,21 +26,37 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - File Upload Activity Log
         }
     }
 
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
     public function updatingSearch(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the office filter property.
+     * @return void
+     */
     public function updatingOfficeFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the date filter property.
+     * @return void
+     */
     public function updatingDateFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search = '';
@@ -154,6 +174,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - File Upload Activity Log
         }, 200, $headers);
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $docDataTable = \Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data';

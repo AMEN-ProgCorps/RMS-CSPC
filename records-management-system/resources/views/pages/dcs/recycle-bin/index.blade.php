@@ -36,6 +36,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $deleteConfirmCode = '';
     public string $deleteError = '';
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $this->normalizeTab();
@@ -63,11 +67,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
     }
 
+    /**
+     * Lifecycle hook executed after updating the search property.
+     * @return void
+     */
     public function updatedSearch(): void
     {
         $this->page = 1;
     }
 
+    /**
+     * Lifecycle hook executed after updating the tab property.
+     * @return void
+     */
     public function updatedTab(): void
     {
         $this->normalizeTab();
@@ -77,17 +89,41 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->closeDelete();
     }
 
+    /**
+     * Sets the active tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
     public function setTab(string $tab): void
     {
         $this->tab = $tab;
         $this->updatedTab();
     }
 
+    /**
+     * Gos to page.
+     *
+     * @param int $page
+     *
+     * @return void
+     */
     public function goToPage(int $page): void
     {
         $this->page = max(1, $page);
     }
 
+    /**
+     * Submits and processes restore.
+     *
+     * @param int $id
+     * @param string $title
+     * @param string $docNo
+     * @param string $kind
+     *
+     * @return void
+     */
     public function confirmRestore(int $id, string $title, string $docNo, string $kind = ''): void
     {
         $this->closeDelete();
@@ -97,6 +133,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->restoreDocNo = $docNo;
     }
 
+    /**
+     * Closes or dismisses the restore.
+     * @return void
+     */
     public function closeRestore(): void
     {
         $this->restoreId = null;
@@ -105,6 +145,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->restoreDocNo = '';
     }
 
+    /**
+     * Restores action.
+     * @return void
+     */
     public function restore(): void
     {
         RegisterQueryHelper::assertFullDcsUser('recycle_bin');
@@ -139,6 +183,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Submits and processes delete.
+     *
+     * @param int $id
+     * @param string $title
+     * @param string $docNo
+     * @param string $kind
+     *
+     * @return void
+     */
     public function confirmDelete(int $id, string $title, string $docNo, string $kind = ''): void
     {
         $this->closeRestore();
@@ -150,6 +204,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->deleteError = '';
     }
 
+    /**
+     * Closes or dismisses the delete.
+     * @return void
+     */
     public function closeDelete(): void
     {
         $this->deleteId = null;
@@ -160,6 +218,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->deleteError = '';
     }
 
+    /**
+     * Permanents delete.
+     *
+     * @param ?string $confirmCode
+     *
+     * @return void
+     */
     public function permanentDelete(?string $confirmCode = null): void
     {
         RegisterQueryHelper::assertFullDcsUser('recycle_bin');
@@ -260,6 +325,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Normalizes tab.
+     * @return void
+     */
     private function normalizeTab(): void
     {
         if (! in_array($this->tab, ['documents', 'settings'], true)) {
@@ -267,6 +336,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Configured delete code.
+     * @return string
+     */
     private function configuredDeleteCode(): string
     {
         try {
@@ -292,6 +365,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return trim((string) env('DCS_RECYCLE_DELETE_CODE', ''));
     }
 
+    /**
+     * Deletes or deactivates the specified code source label.
+     * @return string
+     */
     private function deleteCodeSourceLabel(): string
     {
         try {

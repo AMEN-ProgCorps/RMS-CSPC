@@ -13,6 +13,13 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public int $id;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     *
+     * @param mixed $id
+     *
+     * @return void
+     */
     public function mount($id): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
@@ -20,6 +27,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         abort_unless(OfficeIntakeHelper::canOfficeEditIntake('drf', $this->id), 403, OfficeIntakeHelper::IMMUTABLE_MESSAGE);
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $drf = OfficeIntakeHelper::findOfficeDrf($this->id);
@@ -377,6 +388,12 @@ window.__ofiSourceConfigs = [
     const saveBtn = document.getElementById('ofiDrfSaveBtn');
     if (!form || !confirmBox || !saveBtn) return;
 
+    /**
+     * Displays the ofi alert overlay or dialog.
+     *
+     * @param {*} message
+     * @param {*} title
+     */
     function showOfiAlert(message, title) {
         const overlay = document.getElementById('ofiAlertDialog');
         if (!overlay) {
@@ -391,6 +408,9 @@ window.__ofiSourceConfigs = [
         const okBtn = overlay.querySelector('[data-ofi-alert-ok]');
         if (titleEl) titleEl.textContent = title || 'Cannot save';
         if (messageEl) messageEl.textContent = message;
+        /**
+         * Closes modal dialog.
+         */
         function close() {
             overlay.classList.remove('is-open');
             overlay.setAttribute('aria-hidden', 'true');
@@ -399,8 +419,21 @@ window.__ofiSourceConfigs = [
             overlay.removeEventListener('click', onBackdrop);
             if (okBtn) okBtn.removeEventListener('click', onOk);
         }
+        /**
+         * Handles ok event or response.
+         */
         function onOk() { close(); }
+        /**
+         * Handles backdrop event or response.
+         *
+         * @param {*} e
+         */
         function onBackdrop(e) { if (e.target === overlay) close(); }
+        /**
+         * Handles key event or response.
+         *
+         * @param {*} e
+         */
         function onKey(e) { if (e.key === 'Escape' || e.key === 'Enter') close(); }
         overlay.addEventListener('click', onBackdrop);
         document.addEventListener('keydown', onKey);
@@ -411,6 +444,9 @@ window.__ofiSourceConfigs = [
         if (okBtn) okBtn.focus();
     }
 
+    /**
+     * Renders and synchronizes confirm in the DOM.
+     */
     function syncConfirm() {
         saveBtn.disabled = !confirmBox.checked;
         saveBtn.setAttribute('aria-disabled', confirmBox.checked ? 'false' : 'true');

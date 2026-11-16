@@ -30,6 +30,12 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
     let duplicateId = 0;
     let duplicateType = '';
 
+    /**
+     * Sets the status value.
+     *
+     * @param {*} message
+     * @param {*} ok
+     */
     function setStatus(message, ok) {
         if (!statusEl) return;
         statusEl.hidden = false;
@@ -37,12 +43,18 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         statusEl.dataset.state = ok ? 'ok' : 'bad';
     }
 
+    /**
+     * Clears and resets suggestions.
+     */
     function clearSuggestions() {
         if (!suggestEl) return;
         suggestEl.hidden = true;
         suggestEl.innerHTML = '';
     }
 
+    /**
+     * Clears and resets field suggestions.
+     */
     function clearFieldSuggestions() {
         ['drfSuggestTitle', 'drfSuggestOriginator'].forEach(function (id) {
             const el = document.getElementById(id);
@@ -52,11 +64,22 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         });
     }
 
+    /**
+     * Sets the field text value.
+     *
+     * @param {*} id
+     * @param {*} value
+     */
     function setFieldText(id, value) {
         const el = document.getElementById(id);
         if (el) el.textContent = value || '—';
     }
 
+    /**
+     * Locks finder.
+     *
+     * @param {*} locked
+     */
     function lockFinder(locked) {
         [finderNo, finderTitle, finderOriginator].forEach(function (el) {
             el.readOnly = locked;
@@ -66,6 +89,11 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         if (selectedBox) selectedBox.hidden = !locked;
     }
 
+    /**
+     * Displays the selected overlay or dialog.
+     *
+     * @param {*} data
+     */
     function showSelected(data) {
         const docNo = (data.document_no || finderNo.value || '').trim();
         const title = (data.current_title || finderTitle.value || '').trim();
@@ -86,6 +114,12 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
     let suggestTitle = '';
     let suggestOriginator = '';
 
+    /**
+     * Displays the office notice overlay or dialog.
+     *
+     * @param {*} message
+     * @param {*} options
+     */
     function showOfficeNotice(message, options) {
         options = options || {};
         let root = document.getElementById('ofiNotice');
@@ -137,20 +171,41 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         (openLink && !openLink.hidden ? openLink : root.querySelector('#ofiNoticeOk'))?.focus();
     }
 
+    /**
+     * Displays the action label overlay or dialog.
+     *
+     * @param {*} type
+     */
     function openActionLabel(type) {
         return type === 'dcn' ? 'Open DCN' : 'Open Recurring DRF';
     }
 
+    /**
+     * Blocked notice title.
+     *
+     * @param {*} type
+     */
     function blockedNoticeTitle(type) {
         return type === 'dcn' ? 'Document Change Notice already open' : 'Recurring DRF already open';
     }
 
+    /**
+     * Blocked banner title.
+     *
+     * @param {*} type
+     */
     function blockedBannerTitle(type) {
         return type === 'dcn'
             ? 'Cannot start a Recurring DRF'
             : 'Cannot start another Recurring DRF';
     }
 
+    /**
+     * Displays the duplicate overlay or dialog.
+     *
+     * @param {*} message
+     * @param {*} meta
+     */
     function showDuplicate(message, meta) {
         meta = meta || {};
         duplicateMessage = message || '';
@@ -193,6 +248,9 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
     };
     let seededSignatoryKeys = [];
 
+    /**
+     * Clears and resets seeded signatories.
+     */
     function clearSeededSignatories() {
         seededSignatoryKeys.forEach(function (key) {
             const input = document.getElementById(sigFieldMap[key])
@@ -202,6 +260,11 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         seededSignatoryKeys = [];
     }
 
+    /**
+     * Seed signatories.
+     *
+     * @param {*} signatories
+     */
     function seedSignatories(signatories) {
         clearSeededSignatories();
         if (!signatories || typeof signatories !== 'object') return;
@@ -218,6 +281,11 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         });
     }
 
+    /**
+     * Renders and synchronizes signatories after lock in the DOM.
+     *
+     * @param {*} signatories
+     */
     function refreshSignatoriesAfterLock(signatories) {
         if (typeof window.__ofiRefreshDrfSignatories === 'function') {
             window.__ofiRefreshDrfSignatories();
@@ -228,6 +296,9 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         }
     }
 
+    /**
+     * Clears and resets seeded form fields.
+     */
     function clearSeededFormFields() {
         const titleInput = document.getElementById('drfTitle');
         const originInput = document.getElementById('drfOriginatorName')
@@ -249,6 +320,9 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         unlockDocTypeKind();
     }
 
+    /**
+     * Clears and resets distribute offices.
+     */
     function clearDistributeOffices() {
         const widget = window.__sourceWidgets && window.__sourceWidgets.distribute;
         if (widget && typeof widget.clear === 'function') {
@@ -264,6 +338,9 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         if (search) search.value = '';
     }
 
+    /**
+     * Clears and resets match.
+     */
     function clearMatch() {
         if (applyingMatch) return;
         showDuplicate('');
@@ -286,6 +363,12 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
     }
 
 
+    /**
+     * Suggestions button.
+     *
+     * @param {*} label
+     * @param {*} onClick
+     */
     function suggestionButton(label, onClick) {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -303,6 +386,12 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         return btn;
     }
 
+    /**
+     * Hints action.
+     *
+     * @param {*} box
+     * @param {*} text
+     */
     function hint(box, text) {
         if (!box) return;
         box.hidden = false;
@@ -313,6 +402,12 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         box.appendChild(label);
     }
 
+    /**
+     * Binds and registers tab fill event listeners.
+     *
+     * @param {*} input
+     * @param {*} read
+     */
     function bindTabFill(input, read) {
         if (!input || input.dataset.tabFillBound === '1') return;
         input.dataset.tabFillBound = '1';
@@ -328,6 +423,12 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         });
     }
 
+    /**
+     * Ensures hidden.
+     *
+     * @param {*} name
+     * @param {*} value
+     */
     function ensureHidden(name, value) {
         let el = form.querySelector('input[type="hidden"][name="' + name + '"][data-drf-recur-lock="1"]');
         if (!el) {
@@ -341,6 +442,13 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         return el;
     }
 
+    /**
+     * Locks doc type kind.
+     *
+     * @param {*} kind
+     * @param {*} docTypeId
+     * @param {*} subTypeId
+     */
     function lockDocTypeKind(kind, docTypeId, subTypeId) {
         const value = kind === 'external' ? 'external' : 'internal';
         ensureHidden('docTypeKind', value);
@@ -369,6 +477,9 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
             parentSelect.dispatchEvent(new Event('change', { bubbles: true }));
             ensureHidden('docTypeId', parentId);
             if (subSelect) {
+                /**
+                 * Applies sub.
+                 */
                 const applySub = function () {
                     if (childId && [].some.call(subSelect.options, function (o) { return o.value === childId; })) {
                         subSelect.value = childId;
@@ -393,6 +504,9 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         if (hintEl) hintEl.hidden = false;
     }
 
+    /**
+     * Unlocks doc type kind.
+     */
     function unlockDocTypeKind() {
         const parentSelect = document.getElementById('drfDocTypeId');
         const subSelect = document.getElementById('drfSubTypeId');
@@ -415,6 +529,11 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         if (hintEl) hintEl.hidden = true;
     }
 
+    /**
+     * Seed distribute offices.
+     *
+     * @param {*} ids
+     */
     function seedDistributeOffices(ids) {
         const list = Array.isArray(ids)
             ? ids.map(Number).filter(function (id) { return id > 0; })
@@ -439,6 +558,11 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         }
     }
 
+    /**
+     * Displays the field suggestions overlay or dialog.
+     *
+     * @param {*} data
+     */
     function showFieldSuggestions(data) {
         const titleBox = document.getElementById('drfSuggestTitle');
         const titleInput = document.getElementById('drfTitle');
@@ -458,6 +582,11 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         bindTabFill(originInput, function () { return suggestOriginator; });
     }
 
+    /**
+     * Applies match.
+     *
+     * @param {*} data
+     */
     function applyMatch(data) {
         applyingMatch = true;
         const scrollY = window.scrollY || window.pageYOffset || 0;
@@ -472,9 +601,15 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         if (distWidget) distWidget.setAttribute('inert', '');
         html.style.overflow = 'hidden';
         if (body) body.style.overflow = 'hidden';
+        /**
+         * Restores scroll.
+         */
         const restoreScroll = function () {
             window.scrollTo(0, scrollY);
         };
+        /**
+         * Clears and resets freeze.
+         */
         const releaseFreeze = function () {
             html.style.overflow = prevHtmlOverflow;
             if (body) body.style.overflow = prevBodyOverflow;
@@ -591,6 +726,11 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         }
     }
 
+    /**
+     * Displays the match list overlay or dialog.
+     *
+     * @param {*} matches
+     */
     function showMatchList(matches) {
         if (!suggestEl) return;
         suggestEl.hidden = false;
@@ -611,6 +751,9 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         });
     }
 
+    /**
+     * Clears and resets selection for new search.
+     */
     function resetSelectionForNewSearch() {
         // Keep finder typed values; clear only the previous pick + seeded form fields.
         applyingMatch = false;
@@ -629,6 +772,9 @@ DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds t
         lockFinder(false);
     }
 
+    /**
+     * Retrieves and returns document.
+     */
     async function findDocument() {
         const docNo = finderNo.value.trim();
         const title = finderTitle.value.trim();

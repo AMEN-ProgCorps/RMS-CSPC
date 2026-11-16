@@ -77,28 +77,51 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     /** @var list<array{position: string, name: string}> */
     public array $sigApprovals = [['position' => '', 'name' => '']];
 
+    /**
+     * Sets the active sig history tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
     public function setSigHistoryTab(string $tab): void
     {
         $tab = trim($tab);
         $this->sigHistoryTab = $tab !== '' ? $tab : 'all';
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         return $this->catalog();
     }
 
+    /**
+     * Lifecycle hook executed after updating the sig form kind property.
+     * @return void
+     */
     public function updatedSigFormKind(): void
     {
         $this->sigHistoryTab = 'all';
         $this->loadSignatoryTemplateFields();
     }
 
+    /**
+     * Lifecycle hook executed after updating the sig doc type kind property.
+     * @return void
+     */
     public function updatedSigDocTypeKind(): void
     {
         $this->loadSignatoryTemplateFields();
     }
 
+    /**
+     * Lifecycle hook executed after updating the sig parent type id property.
+     * @return void
+     */
     public function updatedSigParentTypeId(): void
     {
         $this->sigSubTypeId = '';
@@ -107,6 +130,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->loadSignatoryTemplateFields();
     }
 
+    /**
+     * Lifecycle hook executed after updating the sig sub type id property.
+     * @return void
+     */
     public function updatedSigSubTypeId(): void
     {
         if (! $this->sigScopeNeedsCollege()) {
@@ -116,6 +143,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->loadSignatoryTemplateFields();
     }
 
+    /**
+     * Lifecycle hook executed after updating the sig college id property.
+     * @return void
+     */
     public function updatedSigCollegeId(): void
     {
         $this->loadSignatoryTemplateFields();
@@ -132,6 +163,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return false;
     }
 
+    /**
+     * Resolved sig college id.
+     * @return ?int
+     */
     private function resolvedSigCollegeId(): ?int
     {
         if (! $this->sigScopeNeedsCollege()) {
@@ -161,6 +196,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->sigDocTypeKind = str_contains(mb_strtolower($label), 'external') ? 'external' : 'internal';
     }
 
+    /**
+     * Retrieves and populates signatory template fields data.
+     * @return void
+     */
     public function loadSignatoryTemplateFields(): void
     {
         if ($this->sigEffectiveFrom === '') {
@@ -229,28 +268,54 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->sigApprovals = $approvals !== [] ? $approvals : [['position' => '', 'name' => '']];
     }
 
+    /**
+     * Creates a new sig reviewer row record.
+     * @return void
+     */
     public function addSigReviewerRow(): void
     {
         $this->sigReviewers[] = ['name' => ''];
     }
 
+    /**
+     * Deletes or deactivates the specified sig reviewer row.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeSigReviewerRow(int $index): void
     {
         unset($this->sigReviewers[$index]);
         $this->sigReviewers = array_values($this->sigReviewers) ?: [['name' => '']];
     }
 
+    /**
+     * Creates a new sig approval row record.
+     * @return void
+     */
     public function addSigApprovalRow(): void
     {
         $this->sigApprovals[] = ['position' => '', 'name' => ''];
     }
 
+    /**
+     * Deletes or deactivates the specified sig approval row.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeSigApprovalRow(int $index): void
     {
         unset($this->sigApprovals[$index]);
         $this->sigApprovals = array_values($this->sigApprovals) ?: [['position' => '', 'name' => '']];
     }
 
+    /**
+     * Begins new signatory assignment.
+     * @return void
+     */
     public function beginNewSignatoryAssignment(): void
     {
         $this->sigEffectiveFrom = now()->toDateString();
@@ -266,6 +331,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->flashToast('Fields cleared for a new assignment. Save when ready — the current active set ends automatically.', 'info');
     }
 
+    /**
+     * Submits and processes replace signatory assignment.
+     * @return void
+     */
     public function confirmReplaceSignatoryAssignment(): void
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
@@ -278,6 +347,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->dispatch('settings-open-modal');
     }
 
+    /**
+     * Persists signatory template changes to the database.
+     * @return void
+     */
     public function saveSignatoryTemplate(): void
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
@@ -344,6 +417,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Resolved sig doc type id.
+     * @return ?int
+     */
     private function resolvedSigDocTypeId(): ?int
     {
         $sub = (int) $this->sigSubTypeId;
@@ -355,6 +432,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return $parent > 0 ? $parent : null;
     }
 
+    /**
+     * Closes the modal.
+     * @return void
+     */
     public function closeModal(): void
     {
         $this->editingId = null;
@@ -375,6 +456,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->dispatch('settings-close-modal');
     }
 
+    /**
+     * Displays the doc type dialog or panel.
+     *
+     * @param ?int $id
+     * @param ?int $parentId
+     *
+     * @return void
+     */
     public function openDocType(?int $id = null, ?int $parentId = null): void
     {
         $this->resetFormFor('docType', $id);
@@ -387,11 +476,25 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Displays the sub type dialog or panel.
+     *
+     * @param int $parentId
+     *
+     * @return void
+     */
     public function openSubType(int $parentId): void
     {
         $this->openDocType(null, $parentId);
     }
 
+    /**
+     * Displays the originator dialog or panel.
+     *
+     * @param ?int $id
+     *
+     * @return void
+     */
     public function openOriginator(?int $id = null): void
     {
         abort_unless(Schema::hasTable('dcs_originators'), 404);
@@ -403,6 +506,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Displays the faculty dialog or panel.
+     *
+     * @param ?int $id
+     *
+     * @return void
+     */
     public function openFaculty(?int $id = null): void
     {
         $this->resetFormFor('faculty', $id);
@@ -418,6 +528,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Displays the college dialog or panel.
+     *
+     * @param ?int $id
+     *
+     * @return void
+     */
     public function openCollege(?int $id = null): void
     {
         $this->resetFormFor('college', $id);
@@ -431,6 +548,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the office id property.
+     *
+     * @param ?string $value
+     *
+     * @return void
+     */
     public function updatedOfficeId(?string $value): void
     {
         if ($this->modalKind !== 'college' || ! $value) {
@@ -440,6 +564,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->collegeName = $office->office_name ?? '';
     }
 
+    /**
+     * Displays the program dialog or panel.
+     *
+     * @param ?int $id
+     *
+     * @return void
+     */
     public function openProgram(?int $id = null): void
     {
         $this->resetFormFor('program', $id);
@@ -452,6 +583,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Displays the semester dialog or panel.
+     *
+     * @param ?int $id
+     *
+     * @return void
+     */
     public function openSemester(?int $id = null): void
     {
         $this->resetFormFor('semester', $id);
@@ -462,6 +600,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Displays the school year dialog or panel.
+     *
+     * @param ?int $id
+     *
+     * @return void
+     */
     public function openSchoolYear(?int $id = null): void
     {
         $this->resetFormFor('schoolYear', $id);
@@ -472,6 +617,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Displays the program course dialog or panel.
+     *
+     * @param ?int $id
+     *
+     * @return void
+     */
     public function openProgramCourse(?int $id = null): void
     {
         $this->resetFormFor('programCourse', $id);
@@ -492,17 +644,39 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Sets the active course list college.
+     *
+     * @param string $collegeId
+     *
+     * @return void
+     */
     public function setCourseListCollege(string $collegeId = ''): void
     {
         $this->courseListCollegeId = $collegeId === 'all' ? '' : $collegeId;
         $this->courseListProgramId = '';
     }
 
+    /**
+     * Sets the active course list program.
+     *
+     * @param string $programId
+     *
+     * @return void
+     */
     public function setCourseListProgram(string $programId = ''): void
     {
         $this->courseListProgramId = $programId === 'all' ? '' : $programId;
     }
 
+    /**
+     * Displays the program courses bulk dialog or panel.
+     *
+     * @param ?string $collegeId
+     * @param ?string $programId
+     *
+     * @return void
+     */
     public function openProgramCoursesBulk(?string $collegeId = null, ?string $programId = null): void
     {
         $this->resetFormFor('programCoursesBulk', null);
@@ -518,6 +692,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the bulk college id property.
+     *
+     * @param ?string $value
+     *
+     * @return void
+     */
     public function updatedBulkCollegeId(?string $value): void
     {
         if ($this->modalKind !== 'programCoursesBulk') {
@@ -528,6 +709,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->resetValidation();
     }
 
+    /**
+     * Lifecycle hook executed after updating the bulk program id property.
+     *
+     * @param ?string $value
+     *
+     * @return void
+     */
     public function updatedBulkProgramId(?string $value): void
     {
         if ($this->modalKind !== 'programCoursesBulk') {
@@ -536,6 +724,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->loadBulkProgramCourses();
     }
 
+    /**
+     * Updated action.
+     *
+     * @param string $name
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updated(string $name, mixed $value = null): void
     {
         if (! str_starts_with($name, 'bulkRows.')) {
@@ -546,6 +742,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->resetErrorBag('bulkRows');
     }
 
+    /**
+     * Filters and queries bulk fill based on criteria.
+     *
+     * @param bool $blanksOnly
+     *
+     * @return void
+     */
     public function applyBulkFill(bool $blanksOnly = true): void
     {
         if ($this->modalKind !== 'programCoursesBulk' || $this->bulkRows === []) {
@@ -575,12 +778,23 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->resetErrorBag('bulkRows');
     }
 
+    /**
+     * Creates a new course row record.
+     * @return void
+     */
     public function addCourseRow(): void
     {
         $this->courseRows[] = ['code' => '', 'name' => ''];
         $this->dispatch('settings-focus-last-course-row');
     }
 
+    /**
+     * Deletes or deactivates the specified course row.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeCourseRow(int $index): void
     {
         if (count($this->courseRows) <= 1) {
@@ -591,6 +805,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->courseRows = array_values($this->courseRows);
     }
 
+    /**
+     * Displays the import originators dialog or panel.
+     * @return void
+     */
     public function openImportOriginators(): void
     {
         abort_unless(Schema::hasTable('dcs_originators'), 404);
@@ -598,12 +816,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->resetFormFor('importOriginators', null);
     }
 
+    /**
+     * Displays the import faculties dialog or panel.
+     * @return void
+     */
     public function openImportFaculties(): void
     {
         $this->csvFile = null;
         $this->resetFormFor('importFaculties', null);
     }
 
+    /**
+     * Runs csv import.
+     * @return void
+     */
     public function runCsvImport(): void
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
@@ -614,6 +840,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         };
     }
 
+    /**
+     * Submits and processes delete.
+     *
+     * @param string $kind
+     * @param int $id
+     * @param string $title
+     * @param string $message
+     *
+     * @return void
+     */
     public function confirmDelete(string $kind, int $id, string $title, string $message): void
     {
         $this->resetFormFor('delete', $id);
@@ -622,6 +858,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->modalKind = $kind . ':delete';
     }
 
+    /**
+     * Saves changes to the database.
+     * @return void
+     */
     public function save(): void
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
@@ -639,6 +879,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         };
     }
 
+    /**
+     * Deletes or deactivates the record.
+     * @return void
+     */
     public function destroy(): void
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
@@ -658,6 +902,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         };
     }
 
+    /**
+     * Persists doc type changes to the database.
+     * @return void
+     */
     private function saveDocType(): void
     {
         $this->validate(['docTypeName' => 'required|string|max:255']);
@@ -690,6 +938,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done($parentId ? 'Sub-type added.' : 'Document type added.');
     }
 
+    /**
+     * Persists originator changes to the database.
+     * @return void
+     */
     private function saveOriginator(): void
     {
         if (! Schema::hasTable('dcs_originators')) {
@@ -714,6 +966,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('Originator added.');
     }
 
+    /**
+     * Persists faculty changes to the database.
+     * @return void
+     */
     private function saveFaculty(): void
     {
         $this->validate([
@@ -756,6 +1012,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('Faculty added.');
     }
 
+    /**
+     * Processes and imports originators from csv from uploaded file.
+     * @return void
+     */
     private function importOriginatorsFromCsv(): void
     {
         if (! Schema::hasTable('dcs_originators')) {
@@ -808,6 +1068,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done($this->csvImportSummary('originator', $added, $skipped));
     }
 
+    /**
+     * Processes and imports faculties from csv from uploaded file.
+     * @return void
+     */
     private function importFacultiesFromCsv(): void
     {
         $this->validate([
@@ -921,6 +1185,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return in_array($normalized, $headers, true);
     }
 
+    /**
+     * Csvs import summary.
+     *
+     * @param string $singular
+     * @param int $added
+     * @param int $skipped
+     *
+     * @return string
+     */
     private function csvImportSummary(string $singular, int $added, int $skipped): string
     {
         $plural = $singular === 'faculty' ? 'faculties' : ($singular . 's');
@@ -932,6 +1205,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return $msg;
     }
 
+    /**
+     * Persists college changes to the database.
+     * @return void
+     */
     private function saveCollege(): void
     {
         $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
@@ -992,6 +1269,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('College added. You can add programs under it in the Programs tab.');
     }
 
+    /**
+     * Persists program changes to the database.
+     * @return void
+     */
     private function saveProgram(): void
     {
         $this->validate([
@@ -1020,6 +1301,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('Program added.');
     }
 
+    /**
+     * Persists semester changes to the database.
+     * @return void
+     */
     private function saveSemester(): void
     {
         $this->validate([
@@ -1039,6 +1324,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('Semester added.');
     }
 
+    /**
+     * Persists school year changes to the database.
+     * @return void
+     */
     private function saveSchoolYear(): void
     {
         $this->validate([
@@ -1058,6 +1347,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('School year added.');
     }
 
+    /**
+     * Persists program course changes to the database.
+     * @return void
+     */
     private function saveProgramCourse(): void
     {
         $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
@@ -1072,6 +1365,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->saveBulkProgramCourses($hasCourseCode, $hasYearLevel, $hasCourseType);
     }
 
+    /**
+     * Persists single program course changes to the database.
+     *
+     * @param bool $hasCourseCode
+     * @param bool $hasYearLevel
+     * @param bool $hasCourseType
+     *
+     * @return void
+     */
     private function saveSingleProgramCourse(bool $hasCourseCode, bool $hasYearLevel, bool $hasCourseType): void
     {
         $rules = [
@@ -1153,6 +1455,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('Course updated.');
     }
 
+    /**
+     * Persists bulk program courses changes to the database.
+     *
+     * @param bool $hasCourseCode
+     * @param bool $hasYearLevel
+     * @param bool $hasCourseType
+     *
+     * @return void
+     */
     private function saveBulkProgramCourses(bool $hasCourseCode, bool $hasYearLevel, bool $hasCourseType): void
     {
         $rules = [
@@ -1276,6 +1587,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->dispatch('settings-focus-course-row');
     }
 
+    /**
+     * Ensures bulk college from program.
+     * @return void
+     */
     private function ensureBulkCollegeFromProgram(): void
     {
         if ($this->bulkProgramId === '') {
@@ -1287,6 +1602,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Retrieves and populates bulk program courses data.
+     * @return void
+     */
     private function loadBulkProgramCourses(): void
     {
         $this->resetValidation();
@@ -1350,6 +1669,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ])->values()->all();
     }
 
+    /**
+     * Persists program courses bulk changes to the database.
+     * @return void
+     */
     private function saveProgramCoursesBulk(): void
     {
         $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
@@ -1504,6 +1827,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done($count === 1 ? 'Course updated.' : "{$count} courses updated.");
     }
 
+    /**
+     * Programs course name taken.
+     *
+     * @param int $programId
+     * @param int $semesterId
+     * @param string $courseName
+     * @param ?string $yearLevel
+     * @param bool $hasYearLevel
+     * @param ?string $courseType
+     * @param bool $hasCourseType
+     * @param ?int $exceptId
+     *
+     * @return bool
+     */
     private function programCourseNameTaken(
         int $programId,
         int $semesterId,
@@ -1534,6 +1871,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return $q->exists();
     }
 
+    /**
+     * Programs course code taken.
+     *
+     * @param int $programId
+     * @param int $semesterId
+     * @param string $courseCode
+     * @param ?string $yearLevel
+     * @param bool $hasYearLevel
+     * @param ?string $courseType
+     * @param bool $hasCourseType
+     * @param ?int $exceptId
+     *
+     * @return bool
+     */
     private function programCourseCodeTaken(
         int $programId,
         int $semesterId,
@@ -1564,6 +1915,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return $q->exists();
     }
 
+    /**
+     * Deletes or deactivates the specified doc type.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     private function destroyDocType(int $id): void
     {
         $activeChildren = DB::table('dcs_doc_types')->where('parent_id', $id);
@@ -1585,6 +1943,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('Deleted successfully.');
     }
 
+    /**
+     * Deletes or deactivates the specified originator.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     private function destroyOriginator(int $id): void
     {
         if (! Schema::hasTable('dcs_originators')) {
@@ -1600,6 +1965,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('Originator deleted.');
     }
 
+    /**
+     * Deletes or deactivates the specified faculty.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     private function destroyFaculty(int $id): void
     {
         if (DB::table('dcs_syllabi_drf')->where('faculty_id', $id)->exists()) {
@@ -1615,6 +1987,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('Faculty deleted.');
     }
 
+    /**
+     * Deletes or deactivates the specified college.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     private function destroyCollege(int $id): void
     {
         $programs = DB::table('dcs_programs')->where('college_id', $id);
@@ -1632,6 +2011,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('College deleted.');
     }
 
+    /**
+     * Deletes or deactivates the specified program.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     private function destroyProgram(int $id): void
     {
         $courses = DB::table('dcs_program_courses')->where('program_id', $id);
@@ -1651,6 +2037,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('Program deleted.');
     }
 
+    /**
+     * Deletes or deactivates the specified semester.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     private function destroySemester(int $id): void
     {
         $courses = DB::table('dcs_program_courses')->where('semester_id', $id);
@@ -1670,6 +2063,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('Semester deleted.');
     }
 
+    /**
+     * Deletes or deactivates the specified school year.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     private function destroySchoolYear(int $id): void
     {
         if (DB::table('dcs_syllabi')->where('school_year_id', $id)->exists()) {
@@ -1685,6 +2085,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('School year deleted.');
     }
 
+    /**
+     * Deletes or deactivates the specified program course.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     private function destroyProgramCourse(int $id): void
     {
         if (DB::table('dcs_syllabi')->where('course_id', $id)->exists()) {
@@ -1702,6 +2109,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->done('Course deleted.');
     }
 
+    /**
+     * Resets form for and clears active selections.
+     *
+     * @param string $kind
+     * @param ?int $id
+     *
+     * @return void
+     */
     private function resetFormFor(string $kind, ?int $id): void
     {
         $this->resetValidation();
@@ -1711,11 +2126,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->dispatch('settings-open-modal');
     }
 
+    /**
+     * Bumps course list.
+     * @return void
+     */
     private function bumpCourseList(): void
     {
         $this->courseListEpoch++;
     }
 
+    /**
+     * Dones action.
+     *
+     * @param string $message
+     *
+     * @return void
+     */
     private function done(string $message): void
     {
         \App\Helpers\RegisterPersistHelper::logAdminChange('DCS settings: ' . $message);
@@ -1723,16 +2149,35 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->flashToast($message, 'success');
     }
 
+    /**
+     * Fails action.
+     *
+     * @param string $message
+     *
+     * @return void
+     */
     private function fail(string $message): void
     {
         $this->flashToast($message, 'error');
     }
 
+    /**
+     * Flashs toast.
+     *
+     * @param string $message
+     * @param string $type
+     *
+     * @return void
+     */
     private function flashToast(string $message, string $type = 'success'): void
     {
         $this->dispatch('dcs-toast', message: $message, type: $type);
     }
 
+    /**
+     * Catalogs action.
+     * @return array
+     */
     private function catalog(): array
     {
         $docTypeParentsQ = DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name');
@@ -1918,6 +2363,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
     }
 
+    /**
+     * Offices is active.
+     *
+     * @param object $office
+     *
+     * @return bool
+     */
     private function officeIsActive(object $office): bool
     {
         $value = $office->is_active ?? false;
@@ -1928,6 +2380,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return in_array(strtolower(trim((string) $value)), ['1', 't', 'true', 'yes', 'on'], true);
     }
 
+    /**
+     * Colleges code from office.
+     *
+     * @param object $office
+     * @param string $name
+     * @param ?int $exceptId
+     *
+     * @return string
+     */
     private function collegeCodeFromOffice(object $office, string $name, ?int $exceptId = null): string
     {
         $code = strtoupper(trim((string) ($office->office_code ?? '')));
@@ -1943,6 +2404,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return $taken ? $this->uniqueCollegeCode($name, $exceptId) : $code;
     }
 
+    /**
+     * Uniques college code.
+     *
+     * @param string $name
+     * @param ?int $exceptId
+     *
+     * @return string
+     */
     private function uniqueCollegeCode(string $name, ?int $exceptId = null): string
     {
         $code = collect(explode(' ', $name))->filter(fn ($w) => strlen($w) > 0)->map(fn ($w) => mb_strtoupper(mb_substr($w, 0, 2)))->join('');
@@ -1964,6 +2433,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return $code;
     }
 
+    /**
+     * Docs type is in use.
+     *
+     * @param int $id
+     *
+     * @return bool
+     */
     private function docTypeIsInUse(int $id): bool
     {
         return DB::table('dcs_document_requests')->where(fn ($q) => $q->where('doc_type_id', $id)->orWhere('sub_type_id', $id))->exists();

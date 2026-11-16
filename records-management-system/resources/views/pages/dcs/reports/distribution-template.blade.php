@@ -619,6 +619,11 @@ DCS file: Print layout for a distribution and retrieval sheet.
             reflowDistributionSheets();
         });
 
+        /**
+         * Rows height px.
+         *
+         * @param {*} table
+         */
         function rowHeightPx(table) {
             const row = table?.querySelector('tbody tr');
             if (!row) return 22;
@@ -626,6 +631,12 @@ DCS file: Print layout for a distribution and retrieval sheet.
             return h > 0 ? h : 22;
         }
 
+        /**
+         * Frees space below table.
+         *
+         * @param {*} main
+         * @param {*} table
+         */
         function freeSpaceBelowTable(main, table) {
             if (!main || !table) return 0;
             return main.getBoundingClientRect().bottom - table.getBoundingClientRect().bottom;
@@ -646,6 +657,11 @@ DCS file: Print layout for a distribution and retrieval sheet.
             return free >= (rh * 2) - 1;
         }
 
+        /**
+         * Clones continuation sheet.
+         *
+         * @param {*} sourceSheet
+         */
         function cloneContinuationSheet(sourceSheet) {
             const clone = sourceSheet.cloneNode(true);
             clone.classList.remove('sheet--page1');
@@ -672,6 +688,9 @@ DCS file: Print layout for a distribution and retrieval sheet.
             return clone;
         }
 
+        /**
+         * Renders and synchronizes page numbers in the DOM.
+         */
         function updatePageNumbers() {
             const sheets = [...document.querySelectorAll('.sheet')];
             const total = sheets.length;
@@ -681,6 +700,9 @@ DCS file: Print layout for a distribution and retrieval sheet.
             });
         }
 
+        /**
+         * Moves overflow forward.
+         */
         function moveOverflowForward() {
             const maxPasses = 40;
             for (let pass = 0; pass < maxPasses; pass++) {
@@ -771,6 +793,9 @@ DCS file: Print layout for a distribution and retrieval sheet.
             }
         }
 
+        /**
+         * Drops empty trailing sheets.
+         */
         function dropEmptyTrailingSheets() {
             const all = [...document.querySelectorAll('.sheet')];
             for (let i = all.length - 1; i > 0; i--) {
@@ -783,6 +808,9 @@ DCS file: Print layout for a distribution and retrieval sheet.
             }
         }
 
+        /**
+         * Reflows distribution sheets.
+         */
         function reflowDistributionSheets() {
             // 1) Push clipped rows forward
             moveOverflowForward();

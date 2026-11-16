@@ -31,6 +31,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
     public ?string $recordModalError = null;
 
     #[Computed]
+    /**
+     * Selected record.
+     * @return ?object
+     */
     public function selectedRecord(): ?object
     {
         if (!$this->selectedRecordId) return null;
@@ -195,6 +199,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             || (bool)($perms->rdp_view_all_files ?? false);
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $user = Auth::user();
@@ -212,11 +220,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         }
     }
 
+    /**
+     * Sets the active status filter.
+     *
+     * @param string $status
+     *
+     * @return void
+     */
     public function setStatusFilter(string $status): void
     {
         $this->statusFilter = $status;
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search = '';
@@ -236,6 +255,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         }
     }
 
+    /**
+     * Filters and queries search filter based on criteria.
+     *
+     * @param mixed $query
+     * @param array $columns
+     *
+     * @return void
+     */
     private function applySearchFilter($query, array $columns): void
     {
         $tokens = preg_split('/\s+/', trim($this->search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
@@ -256,6 +283,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         }
     }
 
+    /**
+     * Resolves effective retention.
+     *
+     * @param array $allSeriesMap
+     * @param object $record
+     *
+     * @return object
+     */
     private function resolveEffectiveRetention(array $allSeriesMap, object $record): object
     {
         $current = $record;
@@ -321,6 +356,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         ];
     }
 
+    /**
+     * Compiles volume.
+     *
+     * @param array $volumes
+     *
+     * @return string
+     */
     private function compileVolume(array $volumes): string
     {
         $totals = [];
@@ -394,6 +436,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         return !empty($compiledParts) ? implode(', ', $compiledParts) : '—';
     }
 
+    /**
+     * Formats and prepares sub period year data.
+     *
+     * @param ?string $startStr
+     * @param ?string $endStr
+     *
+     * @return string
+     */
     private function formatSubPeriodYear(?string $startStr, ?string $endStr): string
     {
         try {
@@ -408,6 +458,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         return '';
     }
 
+    /**
+     * Formats and prepares sub period title data.
+     *
+     * @param string $parentSubject
+     * @param ?string $pDesc
+     * @param ?string $startStr
+     * @param ?string $endStr
+     * @param int $fallbackIndex
+     *
+     * @return string
+     */
     private function formatSubPeriodTitle(string $parentSubject, ?string $pDesc, ?string $startStr, ?string $endStr, int $fallbackIndex = 1): string
     {
         $pDesc = trim((string)$pDesc);
@@ -426,6 +487,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         return $year ?: ('Item ' . $fallbackIndex);
     }
 
+    /**
+     * Formats and prepares period years data.
+     *
+     * @param array $dateStrings
+     *
+     * @return string
+     */
     private function formatPeriodYears(array $dateStrings): string
     {
         $intervals = [];
@@ -478,6 +546,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         return implode(', ', $parts);
     }
 
+    /**
+     * Exports and downloads csv data.
+     * @return StreamedResponse
+     */
     public function exportCsv(): StreamedResponse
     {
         $data = $this->with();
@@ -628,6 +700,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         ]);
     }
 
+    /**
+     * Displays the record modal.
+     *
+     * @param int $recordId
+     *
+     * @return void
+     */
     public function openRecordModal(int $recordId): void
     {
         $this->selectedRecordId = $recordId;
@@ -650,6 +729,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         }
     }
 
+    /**
+     * Closes the record modal.
+     * @return void
+     */
     public function closeRecordModal(): void
     {
         $this->showRecordModal = false;
@@ -664,16 +747,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         $this->recordModalError = null;
     }
 
+    /**
+     * Sets the active today action date.
+     * @return void
+     */
     public function setTodayActionDate(): void
     {
         $this->editActionDate = Carbon::today()->format('Y-m-d');
     }
 
+    /**
+     * Toggles the custom retention fields setting or state.
+     * @return void
+     */
     public function toggleCustomRetentionFields(): void
     {
         $this->showCustomRetentionFields = !$this->showCustomRetentionFields;
     }
 
+    /**
+     * Persists record action date changes to the database.
+     * @return void
+     */
     public function saveRecordActionDate(): void
     {
         if (!$this->selectedRecordId) return;
@@ -715,6 +810,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $user = Auth::user();

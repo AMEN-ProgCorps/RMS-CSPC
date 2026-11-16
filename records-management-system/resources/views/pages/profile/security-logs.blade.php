@@ -22,6 +22,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
     public ?int $currentRoleId = null;
     public array $currentPermissions = [];
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     */
     public function mount()
     {
         $userId = Auth::id(); // Get the authenticated user's ID
@@ -46,6 +49,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Security Logs')] cla
         $this->checkRoleUpdate();
     }
 
+    /**
+     * Validates and verifies role update.
+     */
     public function checkRoleUpdate()
     {
         $user = Auth::user();

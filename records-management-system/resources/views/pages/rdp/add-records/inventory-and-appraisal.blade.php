@@ -31,6 +31,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     // Series Type Filter for Search
     public mixed $selectedSeriesTypeFilter = null;
 
+    /**
+     * Lifecycle hook executed after updating the selected series type filter property.
+     *
+     * @param mixed $val
+     *
+     * @return void
+     */
     public function updatedSelectedSeriesTypeFilter($val): void
     {
         if (empty($val)) {
@@ -44,6 +51,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->seriesModalError = null;
     }
 
+    /**
+     * Sets the active series type filter.
+     *
+     * @param ?int $typeId
+     *
+     * @return void
+     */
     public function setSeriesTypeFilter(?int $typeId): void
     {
         $this->selectedSeriesTypeFilter = $typeId;
@@ -88,6 +102,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public ?int $duplicateModalBatchIndex = null;
     public string $duplicateModalSearch = '';
 
+    /**
+     * Displays the duplicate modal.
+     *
+     * @param ?int $batchIndex
+     *
+     * @return void
+     */
     public function openDuplicateModal(?int $batchIndex = null): void
     {
         $this->duplicateModalBatchIndex = $batchIndex;
@@ -95,6 +116,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showDuplicateModal = true;
     }
 
+    /**
+     * Closes the duplicate modal.
+     * @return void
+     */
     public function closeDuplicateModal(): void
     {
         $this->showDuplicateModal = false;
@@ -102,6 +127,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->duplicateModalSearch = '';
     }
 
+    /**
+     * Toggles the modal duplicate office setting or state.
+     *
+     * @param string $code
+     *
+     * @return void
+     */
     public function toggleModalDuplicateOffice(string $code): void
     {
         $bIdx = $this->duplicateModalBatchIndex;
@@ -125,6 +157,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Toggles the modal file view setting or state.
+     *
+     * @param string $code
+     *
+     * @return void
+     */
     public function toggleModalFileView(string $code): void
     {
         $bIdx = $this->duplicateModalBatchIndex;
@@ -137,6 +176,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Selects all modal duplicate offices and populates the details panel.
+     * @return void
+     */
     public function selectAllModalDuplicateOffices(): void
     {
         $bIdx = $this->duplicateModalBatchIndex;
@@ -163,6 +206,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Resets all modal duplicate offices and clears active selections.
+     * @return void
+     */
     public function clearAllModalDuplicateOffices(): void
     {
         $bIdx = $this->duplicateModalBatchIndex;
@@ -181,11 +228,26 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public string $collectiveSearch = '';
     public array $tempCollectiveOffices = [];
 
+    /**
+     * Toggles the duplicate file view setting or state.
+     *
+     * @param string $code
+     *
+     * @return void
+     */
     public function toggleDuplicateFileView(string $code): void
     {
         $this->duplicate_file_view[$code] = !($this->duplicate_file_view[$code] ?? false);
     }
 
+    /**
+     * Toggles the batch duplicate file view setting or state.
+     *
+     * @param int $bIdx
+     * @param string $code
+     *
+     * @return void
+     */
     public function toggleBatchDuplicateFileView(int $bIdx, string $code): void
     {
         if (isset($this->batchItems[$bIdx])) {
@@ -194,6 +256,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Displays the collective modal.
+     * @return void
+     */
     public function openCollectiveModal(): void
     {
         $this->tempCollectiveOffices = $this->collectiveOffices;
@@ -201,12 +267,23 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showCollectiveModal = true;
     }
 
+    /**
+     * Closes the collective modal.
+     * @return void
+     */
     public function closeCollectiveModal(): void
     {
         $this->showCollectiveModal = false;
         $this->collectiveSearch = '';
     }
 
+    /**
+     * Toggles the collective office setting or state.
+     *
+     * @param string $code
+     *
+     * @return void
+     */
     public function toggleCollectiveOffice(string $code): void
     {
         if (in_array($code, $this->tempCollectiveOffices, true)) {
@@ -216,6 +293,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Selects all collective offices and populates the details panel.
+     * @return void
+     */
     public function selectAllCollectiveOffices(): void
     {
         $user = Auth::user();
@@ -225,11 +306,19 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->tempCollectiveOffices = array_values(array_filter($allCodes, fn($c) => !empty($c) && $c !== $userOffice));
     }
 
+    /**
+     * Resets all temp collective offices and clears active selections.
+     * @return void
+     */
     public function clearAllTempCollectiveOffices(): void
     {
         $this->tempCollectiveOffices = [];
     }
 
+    /**
+     * Filters and queries collective modal based on criteria.
+     * @return void
+     */
     public function applyCollectiveModal(): void
     {
         $user = Auth::user();
@@ -238,6 +327,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showCollectiveModal = false;
     }
 
+    /**
+     * Deletes or deactivates the specified collective office.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeCollectiveOffice(int $index): void
     {
         if (isset($this->collectiveOffices[$index])) {
@@ -246,6 +342,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Resets collective offices and clears active selections.
+     * @return void
+     */
     public function clearCollectiveOffices(): void
     {
         $this->collectiveOffices = [];
@@ -254,6 +354,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     // Verification Modal State & Actions
     public bool $showVerificationModal = false;
 
+    /**
+     * Displays the verification modal.
+     * @return void
+     */
     public function openVerificationModal(): void
     {
         if (!$this->validateRecordData()) {
@@ -262,23 +366,42 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showVerificationModal = true;
     }
 
+    /**
+     * Closes the verification modal.
+     * @return void
+     */
     public function closeVerificationModal(): void
     {
         $this->showVerificationModal = false;
     }
 
+    /**
+     * Submits and processes create record.
+     * @return void
+     */
     public function confirmCreateRecord(): void
     {
         $this->showVerificationModal = false;
         $this->createRecord();
     }
 
+    /**
+     * Submits and processes save draft.
+     * @return void
+     */
     public function confirmSaveDraft(): void
     {
         $this->showVerificationModal = false;
         $this->saveDraft();
     }
 
+    /**
+     * Retrieves and populates medium name by id data.
+     *
+     * @param ?int $id
+     *
+     * @return string
+     */
     public function getMediumNameById(?int $id): string
     {
         if (!$id) return 'Paper';
@@ -286,6 +409,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return $med ?: 'Paper';
     }
 
+    /**
+     * Formats and prepares utility values for preview data.
+     *
+     * @param array $utilityIds
+     *
+     * @return string
+     */
     public function formatUtilityValuesForPreview(array $utilityIds): string
     {
         if (empty($utilityIds)) return '—';
@@ -308,6 +438,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return implode(', ', array_unique($abbrs));
     }
 
+    /**
+     * Formats and prepares preview date data.
+     *
+     * @param ?string $date
+     *
+     * @return string
+     */
     public function formatPreviewDate(?string $date): string
     {
         if (empty($date)) return '—';
@@ -318,6 +455,15 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Formats and prepares batch date range data.
+     *
+     * @param ?string $startDate
+     * @param ?string $endDate
+     * @param bool $isHeader
+     *
+     * @return string
+     */
     public function formatBatchDateRange(?string $startDate, ?string $endDate = null, bool $isHeader = false): string
     {
         $startDate = trim((string)$startDate);
@@ -400,6 +546,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public bool $dcsAdminAlreadySent = false;
     public ?int $dcsRequestId = null;
 
+    /**
+     * Lifecycle hook executed after updating the volume amount property.
+     *
+     * @param mixed $val
+     *
+     * @return void
+     */
     public function updatedVolumeAmount($val): void
     {
         $val = trim((string)$val);
@@ -410,6 +563,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the volume unit property.
+     *
+     * @param mixed $val
+     *
+     * @return void
+     */
     public function updatedVolumeUnit($val): void
     {
         $amt = trim((string)$this->volume_amount);
@@ -445,6 +605,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public bool $batch_dropdown_expanded = true;
     public array $batch_sub_periods = [];
 
+    /**
+     * Filters and queries batch default volume based on criteria.
+     * @return void
+     */
     public function applyBatchDefaultVolume(): void
     {
         $val = trim($this->batch_default_volume);
@@ -454,6 +618,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Formats and prepares sub period year data.
+     *
+     * @param ?string $startStr
+     * @param ?string $endStr
+     *
+     * @return string
+     */
     public function formatSubPeriodYear(?string $startStr, ?string $endStr): string
     {
         try {
@@ -468,6 +640,15 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return '';
     }
 
+    /**
+     * Formats and prepares sub period default description data.
+     *
+     * @param ?string $startStr
+     * @param ?string $endStr
+     * @param ?string $subject
+     *
+     * @return string
+     */
     public function formatSubPeriodDefaultDescription(?string $startStr, ?string $endStr, ?string $subject = null): string
     {
         $subj = trim($subject ?? $this->description);
@@ -481,6 +662,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return $year;
     }
 
+    /**
+     * Syncs sub period descriptions.
+     *
+     * @param ?string $subject
+     *
+     * @return void
+     */
     public function syncSubPeriodDescriptions(?string $subject = null): void
     {
         $subj = trim($subject ?? $this->description);
@@ -496,30 +684,76 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the description property.
+     *
+     * @param mixed $val
+     *
+     * @return void
+     */
     public function updatedDescription($val): void
     {
         $this->syncSubPeriodDescriptions((string)$val);
     }
 
+    /**
+     * Lifecycle hook executed after updating the batch start date property.
+     * @return void
+     */
     public function updatedBatchStartDate(): void
     {
         $this->syncDmyFromBatchDates();
         $this->generateBatchSubPeriods();
     }
 
+    /**
+     * Lifecycle hook executed after updating the batch end date property.
+     * @return void
+     */
     public function updatedBatchEndDate(): void
     {
         $this->syncDmyFromBatchDates();
         $this->generateBatchSubPeriods();
     }
 
+    /**
+     * Lifecycle hook executed after updating the batch start day property.
+     * @return void
+     */
     public function updatedBatchStartDay(): void { $this->syncBatchDatesFromDmy(); }
+    /**
+     * Lifecycle hook executed after updating the batch start month property.
+     * @return void
+     */
     public function updatedBatchStartMonth(): void { $this->syncBatchDatesFromDmy(); }
+    /**
+     * Lifecycle hook executed after updating the batch start year property.
+     * @return void
+     */
     public function updatedBatchStartYear(): void { $this->syncBatchDatesFromDmy(); }
+    /**
+     * Lifecycle hook executed after updating the batch end day property.
+     * @return void
+     */
     public function updatedBatchEndDay(): void { $this->syncBatchDatesFromDmy(); }
+    /**
+     * Lifecycle hook executed after updating the batch end month property.
+     * @return void
+     */
     public function updatedBatchEndMonth(): void { $this->syncBatchDatesFromDmy(); }
+    /**
+     * Lifecycle hook executed after updating the batch end year property.
+     * @return void
+     */
     public function updatedBatchEndYear(): void { $this->syncBatchDatesFromDmy(); }
 
+    /**
+     * Syncs batch dates from dmy.
+     *
+     * @param bool $forceDefaults
+     *
+     * @return void
+     */
     public function syncBatchDatesFromDmy(bool $forceDefaults = false): void
     {
         if (!empty($this->batch_start_year)) {
@@ -558,6 +792,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Syncs dmy from batch dates.
+     * @return void
+     */
     public function syncDmyFromBatchDates(): void
     {
         if (!empty($this->batch_start_date)) {
@@ -578,6 +816,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the batch sub periods property.
+     *
+     * @param mixed $value
+     * @param mixed $key
+     *
+     * @return void
+     */
     public function updatedBatchSubPeriods($value, $key): void
     {
         $parts = explode('.', (string)$key);
@@ -622,6 +868,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Syncs sub period dmy.
+     *
+     * @param int $pIdx
+     *
+     * @return void
+     */
     public function syncSubPeriodDmy(int $pIdx): void
     {
         if (!isset($this->batch_sub_periods[$pIdx])) {
@@ -652,6 +905,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Recalculates batch range from sub periods.
+     * @return void
+     */
     public function recalculateBatchRangeFromSubPeriods(): void
     {
         if (empty($this->batch_sub_periods)) {
@@ -683,6 +940,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->syncDmyFromBatchDates();
     }
 
+    /**
+     * Generates batch sub periods.
+     * @return void
+     */
     public function generateBatchSubPeriods(): void
     {
         if (empty($this->batch_start_date) || empty($this->batch_end_date)) {
@@ -794,6 +1055,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->batch_sub_periods = $newSubPeriods;
     }
 
+    /**
+     * Creates a new batch sub period record.
+     * @return void
+     */
     public function addBatchSubPeriod(): void
     {
         $maxEndDate = null;
@@ -853,6 +1118,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->sortBatchSubPeriodsDesc();
     }
 
+    /**
+     * Reorders batch sub periods desc items.
+     * @return void
+     */
     public function sortBatchSubPeriodsDesc(): void
     {
         usort($this->batch_sub_periods, function($a, $b) {
@@ -863,6 +1132,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->batch_sub_periods = array_values($this->batch_sub_periods);
     }
 
+    /**
+     * Deletes or deactivates the specified batch sub period.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeBatchSubPeriod(int $index): void
     {
         if (isset($this->batch_sub_periods[$index])) {
@@ -872,11 +1148,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Toggles the batch dropdown setting or state.
+     * @return void
+     */
     public function toggleBatchDropdown(): void
     {
         $this->batch_dropdown_expanded = !$this->batch_dropdown_expanded;
     }
 
+    /**
+     * Formats and prepares volume segments data.
+     *
+     * @param string $input
+     *
+     * @return array
+     */
     public function parseVolumeSegments(string $input): array
     {
         $input = trim($input);
@@ -909,6 +1196,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return $segments;
     }
 
+    /**
+     * Canonicalizes volume unit.
+     *
+     * @param string $unit
+     *
+     * @return string
+     */
     public function canonicalizeVolumeUnit(string $unit): string
     {
         $u = strtolower(trim($unit));
@@ -942,6 +1236,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return Str::title($unit);
     }
 
+    /**
+     * Pluralizes volume unit.
+     *
+     * @param string $unit
+     * @param float|int $amount
+     *
+     * @return string
+     */
     public function pluralizeVolumeUnit(string $unit, float|int $amount): string
     {
         if ($amount == 1) {
@@ -962,6 +1264,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return $unit . 's';
     }
 
+    /**
+     * Compiles batch volume totals.
+     * @return array
+     */
     public function compileBatchVolumeTotals(): array
     {
         $rawTotals = [];
@@ -1036,6 +1342,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         ];
     }
 
+    /**
+     * Retrieves and populates batch total volume data.
+     * @return int
+     */
     public function getBatchTotalVolume(): int
     {
         $compiled = $this->compileBatchVolumeTotals();
@@ -1046,6 +1356,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return $total;
     }
 
+    /**
+     * Retrieves and populates batch total volume formatted data.
+     * @return string
+     */
     public function getBatchTotalVolumeFormatted(): string
     {
         $compiled = $this->compileBatchVolumeTotals();
@@ -1071,6 +1385,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return implode(', ', $parts);
     }
 
+    /**
+     * Sets the active to multi mode.
+     * @return void
+     */
     public function switchToMultiMode(): void
     {
         $this->entryMode = 'multi';
@@ -1081,6 +1399,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Displays the batch modal.
+     * @return void
+     */
     public function openBatchModal(): void
     {
         $this->syncDmyFromBatchDates();
@@ -1088,16 +1410,28 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showBatchModal = true;
     }
 
+    /**
+     * Closes the batch modal.
+     * @return void
+     */
     public function closeBatchModal(): void
     {
         $this->showBatchModal = false;
     }
 
+    /**
+     * Filters and queries batch modal based on criteria.
+     * @return void
+     */
     public function applyBatchModal(): void
     {
         $this->showBatchModal = false;
     }
 
+    /**
+     * Sets the active to batch mode.
+     * @return void
+     */
     public function switchToBatchMode(): void
     {
         $this->entryMode = 'batch';
@@ -1110,6 +1444,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Retrieves and populates default medium id data.
+     * @return ?int
+     */
     public function getDefaultMediumId(): ?int
     {
         try {
@@ -1122,6 +1460,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Creates a new batch item record.
+     * @return void
+     */
     public function addBatchItem(): void
     {
         $this->clearMessages();
@@ -1185,6 +1527,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Deletes or deactivates the specified batch item.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeBatchItem(int $index): void
     {
         if (isset($this->batchItems[$index])) {
@@ -1197,6 +1546,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Duplicates batch item.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function duplicateBatchItem(int $index): void
     {
         if (isset($this->batchItems[$index])) {
@@ -1211,6 +1567,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Sets the active to single mode.
+     * @return void
+     */
     public function switchToSingleMode(): void
     {
         $this->entryMode = 'single';
@@ -1231,6 +1591,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showBatchModal = false;
     }
 
+    /**
+     * Creates a new batch duplicate office record.
+     *
+     * @param int $bIdx
+     * @param ?string $officeCode
+     *
+     * @return void
+     */
     public function addBatchDuplicateOffice(int $bIdx, ?string $officeCode = null): void
     {
         if (!isset($this->batchItems[$bIdx])) {
@@ -1272,6 +1640,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->batchItems[$bIdx]['showDuplicateDropdown'] = false;
     }
 
+    /**
+     * Deletes or deactivates the specified batch duplicate office.
+     *
+     * @param int $bIdx
+     * @param int $dupIdx
+     *
+     * @return void
+     */
     public function removeBatchDuplicateOffice(int $bIdx, int $dupIdx): void
     {
         if (isset($this->batchItems[$bIdx]['duplicate_offices'][$dupIdx])) {
@@ -1284,6 +1660,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Resets batch duplicate offices and clears active selections.
+     *
+     * @param int $bIdx
+     *
+     * @return void
+     */
     public function clearBatchDuplicateOffices(int $bIdx): void
     {
         if (isset($this->batchItems[$bIdx])) {
@@ -1294,11 +1677,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the records location property.
+     * @return void
+     */
     public function updatedRecordsLocation(): void
     {
         $this->showLocationDropdown = true;
     }
 
+    /**
+     * Lifecycle hook executed after updating the records medium property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedRecordsMedium($value): void
     {
         if ($value === '' || $value === null) {
@@ -1310,18 +1704,33 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->records_medium = (int) $value;
     }
 
+    /**
+     * Selects location suggestion and populates the details panel.
+     *
+     * @param string $location
+     *
+     * @return void
+     */
     public function selectLocationSuggestion(string $location): void
     {
         $this->records_location = $location;
         $this->showLocationDropdown = false;
     }
 
+    /**
+     * Retrieves and populates office past locations data.
+     * @return array
+     */
     public function getOfficePastLocations(): array
     {
         $suggestions = $this->getLocationSuggestionsWithTypes();
         return array_values(array_unique(array_map(fn($s) => $s['name'], $suggestions)));
     }
 
+    /**
+     * Retrieves and populates location suggestions with types data.
+     * @return array
+     */
     public function getLocationSuggestionsWithTypes(): array
     {
         $user = Auth::user();
@@ -1418,6 +1827,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return $results;
     }
 
+    /**
+     * Retrieves and populates location suggestions data.
+     *
+     * @param ?string $search
+     *
+     * @return array
+     */
     public function getLocationSuggestions(?string $search = null): array
     {
         $all = $this->getLocationSuggestionsWithTypes();
@@ -1447,12 +1863,27 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return array_values(array_slice($matches, 0, 10));
     }
 
+    /**
+     * Retrieves and populates batch location suggestions data.
+     *
+     * @param int $bIdx
+     *
+     * @return array
+     */
     public function getBatchLocationSuggestions(int $bIdx): array
     {
         $term = $this->batchItems[$bIdx]['records_location'] ?? '';
         return $this->getLocationSuggestions($term);
     }
 
+    /**
+     * Selects batch location suggestion and populates the details panel.
+     *
+     * @param int $bIdx
+     * @param string $location
+     *
+     * @return void
+     */
     public function selectBatchLocationSuggestion(int $bIdx, string $location): void
     {
         if (isset($this->batchItems[$bIdx])) {
@@ -1461,6 +1892,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->activeBatchLocationIndex = null;
     }
 
+    /**
+     * Remembers location suggestion.
+     *
+     * @param ?string $locationName
+     * @param ?int $seriesId
+     * @param ?string $officeCode
+     * @param string $type
+     *
+     * @return void
+     */
     public function rememberLocationSuggestion(?string $locationName, ?int $seriesId = null, ?string $officeCode = null, string $type = 'Office'): void
     {
         $cleanName = trim((string)$locationName);
@@ -1514,6 +1955,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Creates a new quick location suggestion record.
+     *
+     * @param string $locationName
+     * @param string $locationType
+     *
+     * @return void
+     */
     public function addQuickLocationSuggestion(string $locationName, string $locationType = 'Office'): void
     {
         $user = Auth::user();
@@ -1522,6 +1971,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->records_location = mb_strtoupper(trim($locationName));
     }
 
+    /**
+     * Lifecycle hook executed after updating the uploaded file property.
+     * @return void
+     */
     public function updatedUploadedFile(): void
     {
         if (!$this->uploadedFile) return;
@@ -1537,6 +1990,15 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Computes total period.
+     *
+     * @param ?string $active
+     * @param ?string $storage
+     * @param bool $isPermanent
+     *
+     * @return string
+     */
     public function computeTotalPeriod(?string $active, ?string $storage, bool $isPermanent): string
     {
         if ($isPermanent) {
@@ -1591,6 +2053,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return $active . ' + ' . $storage;
     }
 
+    /**
+     * Syncs archival auto select.
+     * @return void
+     */
     public function syncArchivalAutoSelect(): void
     {
         $archivalId = DB::table('rdp_utility_medium')
@@ -1604,6 +2070,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the time value property.
+     *
+     * @param mixed $val
+     *
+     * @return void
+     */
     public function updatedTimeValue($val): void
     {
         if ($val === 'P') {
@@ -1618,6 +2091,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the is permanent property.
+     *
+     * @param mixed $val
+     *
+     * @return void
+     */
     public function updatedIsPermanent($val): void
     {
         if ($val) {
@@ -1638,6 +2118,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public ?string $prefill_code = null;
     public ?string $prefill_doc_id = null;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $this->showValidationErrors = false;
@@ -1895,6 +2379,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->dispatch('scroll-to-top');
     }
 
+    /**
+     * Retrieves and populates dcs admin appraisal data.
+     *
+     * @param int $requestId
+     *
+     * @return void
+     */
     public function loadDcsAdminAppraisal(int $requestId): void
     {
         $this->dcsAdminForward = true;
@@ -2003,6 +2494,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return DB::table($table)->where('document_id', $id)->exists() ? $id : null;
     }
 
+    /**
+     * Dcs office has received.
+     *
+     * @param ?int $requestId
+     *
+     * @return bool
+     */
     private function dcsOfficeHasReceived(?int $requestId): bool
     {
         $officeId = \App\Helpers\RegisterQueryHelper::currentOfficeId();
@@ -2223,6 +2721,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->redirectAfterDcsAdminForward($message);
     }
 
+    /**
+     * Syncs masterlist effectivity from period.
+     *
+     * @param int $requestId
+     *
+     * @return void
+     */
     private function syncMasterlistEffectivityFromPeriod(int $requestId): void
     {
         $period = trim((string) $this->date_covered);
@@ -2347,6 +2852,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Claims office intake.
+     * @return bool
+     */
     private function claimOfficeIntake(): bool
     {
         if (!$this->prefill_intake_id) {
@@ -2367,6 +2876,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return true;
     }
 
+    /**
+     * Resolves effective series retention.
+     *
+     * @param object $series
+     *
+     * @return array
+     */
     public function resolveEffectiveSeriesRetention(object $series): array
     {
         $current = $series;
@@ -2428,6 +2944,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         ];
     }
 
+    /**
+     * Retrieves and populates series by id data.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function loadSeriesById(int $id): void
     {
         $series = DB::table('rdp_record_series')
@@ -2515,6 +3038,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return $this->dcsAdminForward || $this->dcsOfficeLock || $this->isAppraising;
     }
 
+    /**
+     * Creates a new duplicate office record.
+     *
+     * @param ?string $officeCode
+     *
+     * @return void
+     */
     public function addDuplicateOffice(?string $officeCode = null): void
     {
         if ($this->duplicateOfficesLocked()) {
@@ -2550,6 +3080,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showDuplicateDropdown = false;
     }
 
+    /**
+     * Deletes or deactivates the specified duplicate office.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeDuplicateOffice(int $index): void
     {
         if ($this->duplicateOfficesLocked()) {
@@ -2564,6 +3101,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Resets duplicate offices and clears active selections.
+     * @return void
+     */
     public function clearDuplicateOffices(): void
     {
         if ($this->duplicateOfficesLocked()) {
@@ -2587,6 +3128,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showSeriesModal = true;
     }
 
+    /**
+     * Closes the series modal.
+     * @return void
+     */
     public function closeSeriesModal(): void
     {
         $this->showSeriesModal = false;
@@ -2599,6 +3144,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public ?int $selectedParentTypeId = null;
     public ?string $selectedParentOffice = null;
 
+    /**
+     * Retrieves and populates sub suggestions data.
+     *
+     * @param int $index
+     *
+     * @return \Illuminate\Support\Collection
+     */
     public function getSubSuggestions(int $index): \Illuminate\Support\Collection
     {
         $parentTitle = ($index === 0) ? trim($this->parentSeriesTitle) : trim($this->subsections[$index - 1] ?? '');
@@ -2647,6 +3199,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return $query->distinct()->limit(10)->get();
     }
 
+    /**
+     * Lifecycle hook executed after updating the parent series title property.
+     * @return void
+     */
     public function updatedParentSeriesTitle(): void
     {
         $this->selectedParentId = null;
@@ -2656,6 +3212,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->seriesModalError = null;
     }
 
+    /**
+     * Selects parent suggestion and populates the details panel.
+     *
+     * @param string $title
+     * @param ?int $id
+     * @param ?int $typeId
+     * @param ?string $office
+     *
+     * @return void
+     */
     public function selectParentSuggestion(string $title, ?int $id = null, ?int $typeId = null, ?string $office = null): void
     {
         $this->parentSeriesTitle = mb_strtoupper($title);
@@ -2666,6 +3232,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->seriesModalError = null;
     }
 
+    /**
+     * Selects sub suggestion and populates the details panel.
+     *
+     * @param int $index
+     * @param string $title
+     *
+     * @return void
+     */
     public function selectSubSuggestion(int $index, string $title): void
     {
         if (isset($this->subsections[$index])) {
@@ -2675,12 +3249,23 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->seriesModalError = null;
     }
 
+    /**
+     * Creates a new subsection record.
+     * @return void
+     */
     public function addSubsection(): void
     {
         $this->subsections[] = '';
         $this->seriesModalError = null;
     }
 
+    /**
+     * Deletes or deactivates the specified subsection.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeSubsection(int $index): void
     {
         if (isset($this->subsections[$index])) {
@@ -2690,6 +3275,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->seriesModalError = null;
     }
 
+    /**
+     * Persists new record series changes to the database.
+     * @return void
+     */
     public function saveNewRecordSeries(): void
     {
         $this->seriesModalError = null;
@@ -2877,6 +3466,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->seriesModalError = null;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $term = strtolower(trim($this->parentSeriesTitle));
@@ -2967,6 +3560,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         ];
     }
 
+    /**
+     * Validates and verifies record data.
+     *
+     * @param bool $requireLocation
+     *
+     * @return bool
+     */
     public function validateRecordData(bool $requireLocation = true): bool
     {
         $fail = function(string $msg): bool {
@@ -3104,6 +3704,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return true;
     }
 
+    /**
+     * Persists draft changes to the database.
+     * @return void
+     */
     public function saveDraft(): void
     {
         if ($this->dcsAdminForward) {
@@ -3425,6 +4029,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Creates a new record record.
+     * @return void
+     */
     public function createRecord(): void
     {
         if ($this->dcsAdminForward) {
@@ -3916,6 +4524,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    /**
+     * Resets form fields and clears active selections.
+     * @return void
+     */
     public function resetFormFields(): void
     {
         $this->showVerificationModal = false;
@@ -3968,6 +4580,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->dispatch('scroll-to-top');
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = null;
@@ -4027,6 +4643,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     @endpush
 
     <script>
+        /**
+         * Rdps scroll to top.
+         */
         function rdpScrollToTop() {
             const article = document.getElementById('article-container') || document.querySelector('.article-container');
             if (article) {

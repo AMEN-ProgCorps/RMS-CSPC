@@ -49,6 +49,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         $this->recentScans = session()->get('dts_recent_scans', []);
     }
 
+    /**
+     * Retrieves and populates action options property data.
+     * @return array
+     */
     public function getActionOptionsProperty(): array
     {
         $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
@@ -59,6 +63,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
         return $query->pluck('option_name')->toArray();
     }
 
+    /**
+     * Retrieves and populates available target offices property data.
+     */
     public function getAvailableTargetOfficesProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -845,6 +852,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                 }
             });
 
+            /**
+             * Starts and initializes scanning.
+             *
+             * @param {*} cameraId
+             */
             function startScanning(cameraId) {
                 if (!html5QrCode) {
                     html5QrCode = new Html5Qrcode(previewId);
@@ -880,6 +892,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                 });
             }
 
+            /**
+             * Stops and cleans up scanning.
+             */
             function stopScanning() {
                 if (html5QrCode && cameraActive) {
                     html5QrCode.stop().then(() => {
@@ -895,6 +910,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                 }
             }
 
+            /**
+             * Plays beep.
+             */
             function playBeep() {
                 try {
                     const context = new (window.AudioContext || window.webkitAudioContext)();

@@ -15,6 +15,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $type;
     public int $id;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     *
+     * @param string $type
+     * @param mixed $id
+     *
+     * @return ?RedirectResponse
+     */
     public function mount(string $type, $id): ?RedirectResponse
     {
         abort_unless(RegisterQueryHelper::canBrowseAllOfficeIntake(), 403);
@@ -39,6 +47,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return null;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $payload = OfficeIntakeHelper::requestReviewPayload($this->type, $this->id);
@@ -383,6 +395,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     const frame = document.getElementById('ofiRequestPreviewFrame');
     if (!frame) return;
 
+    /**
+     * Fits preview.
+     */
     function fitPreview() {
         let doc;
         try { doc = frame.contentDocument; } catch (e) { return; }

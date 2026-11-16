@@ -177,10 +177,16 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
     // ==========================================
     let currentActivePane = 'white';
 
+    /**
+     * Checks whether mobile condition is met.
+     */
     function isMobile() {
         return window.innerWidth <= 992;
     }
 
+    /**
+     * Initializes and sets up mobile swipe.
+     */
     function initMobileSwipe() {
         const wrapper = document.getElementById('main-swipe-wrapper');
         const whitePane = document.getElementById('pane-white');
@@ -190,6 +196,9 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
         }
     }
 
+    /**
+     * Initializes and sets up page.
+     */
     function setupPage() {
         const wrapper = document.getElementById('main-swipe-wrapper');
         const whitePane = document.getElementById('pane-white');

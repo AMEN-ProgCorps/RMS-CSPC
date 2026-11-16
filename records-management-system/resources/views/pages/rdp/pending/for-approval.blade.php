@@ -32,6 +32,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
     public string $successMessage = '';
     public string $errorMessage = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
@@ -55,17 +59,32 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         }
     }
 
+    /**
+     * Toggles the layout setting or state.
+     * @return void
+     */
     public function toggleLayout(): void
     {
         $this->layoutMode = $this->layoutMode === 'table' ? 'box' : 'table';
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
+    /**
+     * Sets the active tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
     public function setTab(string $tab): void
     {
         $this->activeTab = $tab;
@@ -74,6 +93,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         $this->clearMessages();
     }
 
+    /**
+     * Displays the approval modal.
+     *
+     * @param int $clusterId
+     * @param string $formType
+     *
+     * @return void
+     */
     public function openApprovalModal(int $clusterId, string $formType): void
     {
         $this->clearMessages();
@@ -175,6 +202,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         }
     }
 
+    /**
+     * Closes the approval modal.
+     * @return void
+     */
     public function closeApprovalModal(): void
     {
         $this->showApprovalModal = false;
@@ -182,6 +213,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         $this->clusterItems = [];
     }
 
+    /**
+     * Displays the print modal.
+     *
+     * @param int $clusterId
+     * @param string $formType
+     *
+     * @return void
+     */
     public function openPrintModal(int $clusterId, string $formType): void
     {
         $this->openApprovalModal($clusterId, $formType);
@@ -191,6 +230,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         $this->showPrintModal = true;
     }
 
+    /**
+     * Closes the print modal.
+     * @return void
+     */
     public function closePrintModal(): void
     {
         $this->showPrintModal = false;
@@ -198,6 +241,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         $this->printItems = [];
     }
 
+    /**
+     * Approves cluster.
+     * @return void
+     */
     public function approveCluster(): void
     {
         if (!$this->targetCluster) return;
@@ -214,29 +261,49 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         $this->executeApproval();
     }
 
+    /**
+     * Submits and processes nap2 approval.
+     * @return void
+     */
     public function confirmNap2Approval(): void
     {
         $this->showSeriesTypeModal = false;
         $this->executeApproval();
     }
 
+    /**
+     * Closes the series type modal.
+     * @return void
+     */
     public function closeSeriesTypeModal(): void
     {
         $this->showSeriesTypeModal = false;
     }
 
+    /**
+     * Displays the reject modal.
+     * @return void
+     */
     public function openRejectModal(): void
     {
         $this->rejectionRemarks = '';
         $this->showRejectModal = true;
     }
 
+    /**
+     * Closes the reject modal.
+     * @return void
+     */
     public function closeRejectModal(): void
     {
         $this->showRejectModal = false;
         $this->rejectionRemarks = '';
     }
 
+    /**
+     * Executes approval.
+     * @return void
+     */
     public function executeApproval(): void
     {
         if (!$this->targetCluster) return;
@@ -331,6 +398,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         }
     }
 
+    /**
+     * Rejects cluster.
+     * @return void
+     */
     public function rejectCluster(): void
     {
         if (!$this->targetCluster) return;
@@ -412,6 +483,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         }
     }
 
+    /**
+     * Marks evaluation printed.
+     * @return void
+     */
     public function markEvaluationPrinted(): void
     {
         $clusterId = (int)($this->printCluster?->cluster_id ?? 0);
@@ -430,6 +505,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         ]);
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $seriesTypes = DB::table('rdp_record_series_type')->where('is_active', true)->get();

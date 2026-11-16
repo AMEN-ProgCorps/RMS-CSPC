@@ -12,6 +12,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversion Logs')
     public string $search = '';
     public string $dateFilter = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -21,16 +25,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversion Logs')
         }
     }
 
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
     public function updatingSearch(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the date filter property.
+     * @return void
+     */
     public function updatingDateFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search = '';
@@ -38,6 +54,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversion Logs')
         $this->resetPage();
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $adminLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';

@@ -17,6 +17,10 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class extends Component {
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;

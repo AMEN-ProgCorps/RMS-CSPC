@@ -51,12 +51,20 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public string $layoutMode = 'table'; // table or box
     public string $pathViewMode = 'timeline'; // timeline or table
 
+    /**
+     * Cans view all.
+     * @return bool
+     */
     public function canViewAll(): bool
     {
         $perms = auth()->user()?->permissions;
         return (bool)($perms?->is_sadm ?? false) || (bool)($perms?->can_dts_view_all_list ?? false);
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $canViewAll = $this->canViewAll();
@@ -75,6 +83,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         ];
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -91,6 +103,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public string $exportPreparedBy = '';
     public string $exportNotedBy = '';
 
+    /**
+     * Displays the export modal.
+     * @return void
+     */
     public function openExportModal(): void
     {
         $this->exportFlowCount = 0;
@@ -102,11 +118,19 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->showExportModal = true;
     }
 
+    /**
+     * Closes the export modal.
+     * @return void
+     */
     public function closeExportModal(): void
     {
         $this->showExportModal = false;
     }
 
+    /**
+     * Creates a new export flow record.
+     * @return void
+     */
     public function addExportFlow(): void
     {
         $this->exportFlowCount++;
@@ -115,6 +139,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->exportColumns = array_values(array_unique(array_merge($this->exportColumns, $newCols)));
     }
 
+    /**
+     * Deletes or deactivates the specified export flow.
+     *
+     * @param int $flowIndex
+     *
+     * @return void
+     */
     public function removeExportFlow(int $flowIndex): void
     {
         if ($flowIndex < 1 || $flowIndex > $this->exportFlowCount) {
@@ -141,6 +172,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->exportFlowCount = max(0, $this->exportFlowCount - 1);
     }
 
+    /**
+     * Toggles the flow step columns setting or state.
+     *
+     * @param int $flowIndex
+     *
+     * @return void
+     */
     public function toggleFlowStepColumns(int $flowIndex): void
     {
         $fKeys = array_keys(\App\Helpers\DtsExportHelper::getFlowColumnDefinitions($flowIndex));
@@ -152,12 +190,20 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
     }
 
+    /**
+     * Selects all export columns and populates the details panel.
+     * @return void
+     */
     public function selectAllExportColumns(): void
     {
         $available = \App\Helpers\DtsExportHelper::getAvailableColumns('application_letters', $this->exportFlowCount);
         $this->exportColumns = array_keys($available);
     }
 
+    /**
+     * Resets default export columns and clears active selections.
+     * @return void
+     */
     public function resetDefaultExportColumns(): void
     {
         $this->exportFlowCount = 0;
@@ -165,11 +211,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->exportColumns = array_keys(array_filter($available, fn($c) => $c['default']));
     }
 
+    /**
+     * Deselects all export columns.
+     * @return void
+     */
     public function deselectAllExportColumns(): void
     {
         $this->exportColumns = [];
     }
 
+    /**
+     * Executes export.
+     */
     public function executeExport()
     {
         if (empty($this->selectedIds)) {
@@ -228,6 +281,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public string $forwardToOfficeCode = '';
     public string $activeNotes = '';
 
+    /**
+     * Retrieves and populates action options property data.
+     * @return array
+     */
     public function getActionOptionsProperty(): array
     {
         $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
@@ -244,6 +301,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public array $forwardHubOffices = [];
     public array $forwardHubTempSelected = [];
 
+    /**
+     * Displays the forward hub modal.
+     * @return void
+     */
     public function openForwardHubModal(): void
     {
         $this->forwardHubTempSelected = $this->forwardHubOffices;
@@ -251,12 +312,23 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->showForwardHubModal = true;
     }
 
+    /**
+     * Closes the forward hub modal.
+     * @return void
+     */
     public function closeForwardHubModal(): void
     {
         $this->showForwardHubModal = false;
         $this->forwardHubSearch = '';
     }
 
+    /**
+     * Toggles the forward hub office setting or state.
+     *
+     * @param string $officeCode
+     *
+     * @return void
+     */
     public function toggleForwardHubOffice(string $officeCode): void
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -282,16 +354,28 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
     }
 
+    /**
+     * Selects all forward hub offices and populates the details panel.
+     * @return void
+     */
     public function selectAllForwardHubOffices(): void
     {
         $this->forwardHubTempSelected = ['ALL'];
     }
 
+    /**
+     * Resets forward hub offices and clears active selections.
+     * @return void
+     */
     public function clearForwardHubOffices(): void
     {
         $this->forwardHubTempSelected = [];
     }
 
+    /**
+     * Filters and queries forward hub modal based on criteria.
+     * @return void
+     */
     public function applyForwardHubModal(): void
     {
         $this->forwardHubOffices = $this->forwardHubTempSelected;
@@ -299,6 +383,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->forwardHubSearch = '';
     }
 
+    /**
+     * Deletes or deactivates the specified forward hub office.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeForwardHubOffice(int $index): void
     {
         if (isset($this->forwardHubOffices[$index])) {
@@ -306,6 +397,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
     }
 
+    /**
+     * Retrieves and populates available target offices property data.
+     */
     public function getAvailableTargetOfficesProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -320,6 +414,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public array $selectedIds = [];
     public bool $selectAll = false;
 
+    /**
+     * Lifecycle hook executed after updating the select all property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedSelectAll($value): void
     {
         if ($value) {
@@ -332,11 +433,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
     }
 
+    /**
+     * Toggles the layout setting or state.
+     * @return void
+     */
     public function toggleLayout(): void
     {
         $this->layoutMode = $this->layoutMode === 'table' ? 'box' : 'table';
     }
 
+    /**
+     * Lifecycle hook executed before updating the search query property.
+     */
     public function updatingSearchQuery()
     {
         $this->resetPage();
@@ -344,6 +452,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    /**
+     * Lifecycle hook executed before updating the selected priority property.
+     */
     public function updatingSelectedPriority()
     {
         $this->resetPage();
@@ -351,6 +462,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    /**
+     * Lifecycle hook executed before updating the selected status property.
+     */
     public function updatingSelectedStatus()
     {
         $this->resetPage();
@@ -358,6 +472,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    /**
+     * Lifecycle hook executed before updating the selected office property.
+     */
     public function updatingSelectedOffice()
     {
         $this->resetPage();
@@ -365,6 +482,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    /**
+     * Lifecycle hook executed before updating the per page property.
+     */
     public function updatingPerPage()
     {
         $this->resetPage();
@@ -372,6 +492,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    /**
+     * Lifecycle hook executed before updating the date from property.
+     */
     public function updatingDateFrom()
     {
         $this->resetPage();
@@ -379,6 +502,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    /**
+     * Lifecycle hook executed before updating the date to property.
+     */
     public function updatingDateTo()
     {
         $this->resetPage();
@@ -386,6 +512,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    /**
+     * Lifecycle hook executed before updating the sort order property.
+     */
     public function updatingSortOrder()
     {
         $this->resetPage();
@@ -393,6 +522,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    /**
+     * Lifecycle hook executed before updating the status order property.
+     */
     public function updatingStatusOrder()
     {
         $this->resetPage();
@@ -400,6 +532,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function resetFilters(): void
     {
         $this->searchQuery = '';
@@ -415,6 +551,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    /**
+     * Retrieves and populates transactions property data.
+     */
     public function getTransactionsProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -614,11 +753,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                 return $step;
             });
     }
+    /**
+     * Toggles the full configured path setting or state.
+     * @return void
+     */
     public function toggleFullConfiguredPath(): void
     {
         $this->showFullConfiguredPath = !$this->showFullConfiguredPath;
     }
 
+    /**
+     * Retrieves and populates full flow path property data.
+     */
     public function getFullFlowPathProperty()
     {
         if (!$this->selectedTransactionId || !$this->selectedTransaction) {
@@ -815,17 +961,31 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             });
     }
 
+    /**
+     * Retrieves and populates visible path property data.
+     */
     public function getVisiblePathProperty()
     {
         return $this->fullFlowPath;
     }
 
+    /**
+     * Displays the transaction dialog or panel.
+     *
+     * @param string $id
+     *
+     * @return void
+     */
     public function openTransaction(string $id): void
     {
         $this->selectedTransactionId = $id;
         $this->loadSelectedTransaction();
     }
 
+    /**
+     * Closes or dismisses the transaction.
+     * @return void
+     */
     public function closeTransaction(): void
     {
         $this->selectedTransactionId = '';
@@ -849,11 +1009,19 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->showForwardHubModal = false;
     }
 
+    /**
+     * Toggles the more details setting or state.
+     * @return void
+     */
     public function toggleMoreDetails(): void
     {
         $this->showMoreDetails = !$this->showMoreDetails;
     }
 
+    /**
+     * Toggles the edit all setting or state.
+     * @return void
+     */
     public function toggleEditAll(): void
     {
         $perms = auth()->user()?->permissions;
@@ -865,6 +1033,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->editingAll = !$this->editingAll;
     }
 
+    /**
+     * Creates a new cf office record.
+     * @return void
+     */
     public function addCfOffice(): void
     {
         if (empty($this->selectedCfOfficeToAdd)) {
@@ -876,11 +1048,22 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectedCfOfficeToAdd = '';
     }
 
+    /**
+     * Deletes or deactivates the specified cf office.
+     *
+     * @param string $officeCode
+     *
+     * @return void
+     */
     public function removeCfOffice(string $officeCode): void
     {
         $this->cfSelectedOffices = array_values(array_diff($this->cfSelectedOffices, [$officeCode]));
     }
 
+    /**
+     * Creates a new flow office record.
+     * @return void
+     */
     public function addFlowOffice(): void
     {
         if ($this->selectedFlowOfficeToAdd) {
@@ -892,6 +1075,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
     }
 
+    /**
+     * Deletes or deactivates the specified flow office.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeFlowOffice(int $index): void
     {
         if (isset($this->flowOffices[$index]) && !$this->flowOffices[$index]['is_locked']) {
@@ -900,6 +1090,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
     }
 
+    /**
+     * Reorders flow office up items.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function moveFlowOfficeUp(int $index): void
     {
         if ($index > 0 && !$this->flowOffices[$index]['is_locked'] && !$this->flowOffices[$index - 1]['is_locked']) {
@@ -909,6 +1106,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
     }
 
+    /**
+     * Reorders flow office down items.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function moveFlowOfficeDown(int $index): void
     {
         if ($index < count($this->flowOffices) - 1 && !$this->flowOffices[$index]['is_locked'] && !$this->flowOffices[$index + 1]['is_locked']) {
@@ -918,6 +1122,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
     }
 
+    /**
+     * Persists metadata only changes to the database.
+     * @return void
+     */
     public function saveMetadataOnly(): void
     {
         $perms = auth()->user()?->permissions;
@@ -1168,6 +1376,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->loadSelectedTransaction();
     }
 
+    /**
+     * Retrieves and populates selected transaction data.
+     * @return void
+     */
     public function loadSelectedTransaction(): void
     {
         $this->selectedTransaction = DB::table('dts_transactions as dt')
@@ -1279,6 +1491,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
     }
 
+    /**
+     * Is last step.
+     * @return bool
+     */
     public function isLastStep(): bool
     {
         if (!$this->selectedTransaction) {
@@ -1297,22 +1513,38 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         return !$nextSequence;
     }
 
+    /**
+     * Triggers completion confirm.
+     * @return void
+     */
     public function triggerCompletionConfirm(): void
     {
         $this->showCompletionConfirmModal = true;
     }
 
+    /**
+     * Resets completion confirm and clears active selections.
+     * @return void
+     */
     public function cancelCompletionConfirm(): void
     {
         $this->showCompletionConfirmModal = false;
     }
 
+    /**
+     * Submits and processes and complete transaction.
+     * @return void
+     */
     public function confirmAndCompleteTransaction(): void
     {
         $this->showCompletionConfirmModal = false;
         $this->completeTransaction();
     }
 
+    /**
+     * Triggers upload file modal.
+     * @return void
+     */
     public function triggerUploadFileModal(): void
     {
         $this->uploadFileName = '';
@@ -1321,26 +1553,46 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->showUploadModal = true;
     }
 
+    /**
+     * Displays the view file modal.
+     * @return void
+     */
     public function openViewFileModal(): void
     {
         $this->showViewFileModal = true;
     }
 
+    /**
+     * Closes the view file modal.
+     * @return void
+     */
     public function closeViewFileModal(): void
     {
         $this->showViewFileModal = false;
     }
 
+    /**
+     * Displays the pdf preview modal.
+     * @return void
+     */
     public function openPdfPreviewModal(): void
     {
         $this->showPdfPreviewModal = true;
     }
 
+    /**
+     * Closes the pdf preview modal.
+     * @return void
+     */
     public function closePdfPreviewModal(): void
     {
         $this->showPdfPreviewModal = false;
     }
 
+    /**
+     * Deletes or deactivates the specified uploaded file.
+     * @return void
+     */
     public function removeUploadedFile(): void
     {
         if (!$this->selectedTransactionId || !$this->selectedTransaction) return;
@@ -1359,12 +1611,20 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->showViewFileModal = false;
     }
 
+    /**
+     * Sets the active uploaded file.
+     * @return void
+     */
     public function changeUploadedFile(): void
     {
         $this->showViewFileModal = false;
         $this->triggerUploadFileModal();
     }
 
+    /**
+     * Resets upload modal and clears active selections.
+     * @return void
+     */
     public function cancelUploadModal(): void
     {
         $this->showUploadModal = false;
@@ -1372,6 +1632,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->uploadErrorMessage = '';
     }
 
+    /**
+     * Handles upload file event or action.
+     * @return void
+     */
     public function handleUploadFile(): void
     {
         $this->uploadErrorMessage = '';
@@ -1434,6 +1698,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
     }
 
+    /**
+     * Reopens transaction.
+     * @return void
+     */
     public function reopenTransaction(): void
     {
         $perms = auth()->user()?->permissions;
@@ -1468,6 +1736,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->loadSelectedTransaction();
     }
 
+    /**
+     * Completes transaction.
+     * @return void
+     */
     public function completeTransaction(): void
     {
         if (!$this->selectedTransactionId || !$this->selectedTransaction) {
@@ -1714,6 +1986,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
     }
 
+    /**
+     * Deletes or deactivates the specified transaction.
+     * @return void
+     */
     public function deleteTransaction(): void
     {
         if (!$this->selectedTransactionId || !$this->selectedTransaction) {
@@ -1734,6 +2010,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         }
     }
 
+    /**
+     * Starts edit.
+     *
+     * @param string $field
+     *
+     * @return void
+     */
     public function startEdit(string $field): void
     {
         if (!auth()->user()?->permissions?->is_sadm) {
@@ -1744,6 +2027,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->editingParticulars = $field === 'particulars';
     }
 
+    /**
+     * Persists field changes to the database.
+     *
+     * @param string $field
+     *
+     * @return void
+     */
     public function saveField(string $field): void
     {
         match ($field) {

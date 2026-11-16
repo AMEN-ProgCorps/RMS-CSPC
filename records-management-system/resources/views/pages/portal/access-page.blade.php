@@ -14,6 +14,10 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
     public array $currentPermissions = [];
     public array $subsystemUnreadCounts = [];
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return mixed
+     */
     public function mount(): mixed
     {
         if (! Auth::check()) {
@@ -34,6 +38,10 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
 
     #[On('rms-notification-updated')]
     #[On('rms-notification-ping')]
+    /**
+     * Retrieves and populates subsystem unread counts data.
+     * @return void
+     */
     public function loadSubsystemUnreadCounts(): void
     {
         $user = Auth::user();
@@ -98,6 +106,9 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         }
     }
 
+    /**
+     * Validates and verifies role update.
+     */
     public function checkRoleUpdate()
     {
         $user = Auth::user();
@@ -173,6 +184,10 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         $this->redirect(route('login'));
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $activeSubsystems = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')

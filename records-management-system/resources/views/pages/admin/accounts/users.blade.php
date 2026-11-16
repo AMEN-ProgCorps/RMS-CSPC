@@ -20,6 +20,20 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] class extends Component {
+    use \Livewire\WithPagination;
+
+    /** @var string View layout mode: 'default' (Classic) or 'horizontal' (ESXi Miller Columns) */
+    public string $layoutMode = 'horizontal';
+
+    /** @var string Classic layout directory view mode ('table' or 'grid') */
+    public string $viewMode = 'table';
+
+    /** @var string Classic layout sorting column */
+    public string $sortBy = 'name';
+
+    /** @var string Classic layout sorting direction ('asc' or 'desc') */
+    public string $sortDir = 'asc';
+
     /** @var string Active scope: 'users' (Internal Staff) or 'requestors' (DTS Document Requestors) */
     public string $activeTab = 'users';
 
@@ -71,15 +85,81 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             $this->redirect(route('portal'));
             return;
         }
-        $this->cancelSelection();
+        $this->layoutMode = session('admin_users_layout_mode', session('admin_management_layout_mode', 'horizontal'));
     }
 
+    /**
+     * Sets the active layout mode.
+     *
+     * @param string $mode
+     *
+     * @return void
+     */
+    public function setLayoutMode(string $mode): void
+    {
+        if (in_array($mode, ['default', 'horizontal'])) {
+            $this->layoutMode = $mode;
+            session(['admin_users_layout_mode' => $mode]);
+            session(['admin_management_layout_mode' => $mode]);
+        }
+    }
+
+    /**
+     * Toggles the sort dir setting or state.
+     * @return void
+     */
+    public function toggleSortDir(): void
+    {
+        $this->sortDir = $this->sortDir === 'asc' ? 'desc' : 'asc';
+    }
+
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
+    public function updatingSearch(): void
+    {
+        $this->resetPage();
+    }
+
+    /**
+     * Lifecycle hook executed before updating the requestor search property.
+     * @return void
+     */
+    public function updatingRequestorSearch(): void
+    {
+        $this->resetPage();
+    }
+
+    /**
+     * Sets the active tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
+    public function setTab(string $tab): void
+    {
+        $this->switchTab($tab);
+    }
+
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
+    /**
+     * Sets the active tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
     public function switchTab(string $tab): void
     {
         $this->activeTab = $tab;
@@ -99,6 +179,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         $this->clearMessages();
     }
 
+    /**
+     * Filters and queries by cluster based on criteria.
+     *
+     * @param ?string $code
+     *
+     * @return void
+     */
     public function filterByCluster(?string $code): void
     {
         $this->selectedClusterCode = $code;
@@ -108,6 +195,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         $this->clearMessages();
     }
 
+    /**
+     * Filters and queries by role based on criteria.
+     *
+     * @param ?int $roleId
+     *
+     * @return void
+     */
     public function filterByRole(?int $roleId): void
     {
         $this->selectedRoleIdFilter = $roleId;
@@ -117,6 +211,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         $this->clearMessages();
     }
 
+    /**
+     * Filters and queries by office based on criteria.
+     *
+     * @param ?int $officeId
+     *
+     * @return void
+     */
     public function filterByOffice(?int $officeId): void
     {
         $this->selectedOfficeIdFilter = $officeId;
@@ -145,6 +246,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         $this->clearMessages();
     }
 
+    /**
+     * Initializes create mode and resets form inputs.
+     * @return void
+     */
     public function startCreate(): void
     {
         $currentUserPerms = auth()->user() ? auth()->user()->permissions : null;
@@ -170,6 +275,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
     }
 
+    /**
+     * Selects user and populates the details panel.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function selectUser(int $id): void
     {
         $this->cancelSelection();
@@ -201,6 +313,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
     }
 
+    /**
+     * Selects role and populates the details panel.
+     *
+     * @param ?int $id
+     * @param string $name
+     *
+     * @return void
+     */
     public function selectRole(?int $id, string $name): void
     {
         $this->roleId = $id;
@@ -208,6 +328,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         $this->showRoleDropdown = false;
     }
 
+    /**
+     * Selects office and populates the details panel.
+     *
+     * @param ?int $id
+     * @param string $name
+     *
+     * @return void
+     */
     public function selectOffice(?int $id, string $name): void
     {
         $this->officeId = $id;
@@ -215,16 +343,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         $this->showOfficeDropdown = false;
     }
 
+    /**
+     * Lifecycle hook executed after updating the office search property.
+     * @return void
+     */
     public function updatedOfficeSearch(): void
     {
         $this->showOfficeDropdown = true;
     }
 
+    /**
+     * Lifecycle hook executed after updating the role search property.
+     * @return void
+     */
     public function updatedRoleSearch(): void
     {
         $this->showRoleDropdown = true;
     }
 
+    /**
+     * Persists user changes to the database.
+     * @return void
+     */
     public function saveUserChanges(): void
     {
         if (!$this->selectedUserId) return;
@@ -386,6 +526,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
     }
 
+    /**
+     * Deletes or deactivates the specified user.
+     * @return void
+     */
     public function deleteUser(): void
     {
         $this->clearMessages();
@@ -584,6 +728,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         $this->reqIsActive = true;
     }
 
+    /**
+     * Selects requestor item and populates the details panel.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function selectRequestorItem(int $id): void
     {
         $this->cancelRequestorSelection();
@@ -598,6 +749,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
     }
 
+    /**
+     * Resets requestor selection and clears active selections.
+     * @return void
+     */
     public function cancelRequestorSelection(): void
     {
         $this->selectedRequestorId = null;
@@ -608,6 +763,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         $this->clearMessages();
     }
 
+    /**
+     * Persists requestor changes to the database.
+     * @return void
+     */
     public function saveRequestorChanges(): void
     {
         $this->clearMessages();
@@ -664,6 +823,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
     }
 
+    /**
+     * Deletes or deactivates the specified requestor.
+     * @return void
+     */
     public function deleteRequestor(): void
     {
         if ($this->selectedRequestorId === null || $this->selectedRequestorId <= 0) return;
@@ -691,6 +854,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $accTable = Schema::hasTable('sys_account') ? 'sys_account' : 'account';
@@ -794,7 +961,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                   });
             });
         }
-        $users = $userQuery->orderBy('username', 'asc')->get();
+        if ($this->layoutMode === 'default') {
+            $users = $userQuery->paginate(20);
+        } else {
+            $users = $userQuery->orderBy('username', 'asc')->get();
+        }
 
         // 6. Requestors Query (Mode B)
         $requestorsQuery = DB::table('dts_requestor_history as req')
@@ -823,7 +994,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                 $requestorsQuery->where('req.is_active', false);
             }
         }
-        $requestors = $requestorsQuery->orderBy('req.requestor_name', 'asc')->get();
+        if ($this->layoutMode === 'default') {
+            $requestors = $requestorsQuery->paginate(20);
+        } else {
+            $requestors = $requestorsQuery->orderBy('req.requestor_name', 'asc')->get();
+        }
 
         // Requestor filing history in DTS for Column 3
         $reqTransactions = collect();
@@ -856,6 +1031,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
 ?>
 
 @push('styles')
+    @vite('resources/css/admin/accounts_users.css')
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
         .miller-container {
@@ -1324,6 +1500,631 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
     </style>
 @endpush
 
+@if($layoutMode === 'default')
+<div class="admin-users-outer">
+    <!-- Tabs Header -->
+    <div class="tabs-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-right: 12px;">
+                <h1 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-users-gear" style="color: #0284c7;"></i> User Accounts & Credentials
+                </h1>
+                <span style="font-size: 11px; font-weight: 700; background: #f1f5f9; color: #475569; padding: 3px 8px; border-radius: 9999px; border: 1px solid #cbd5e1;">
+                    Default Layout
+                </span>
+            </div>
+            <button type="button" class="tab-btn {{ $activeTab === 'users' ? 'active' : '' }}" wire:click="setTab('users')">
+                <i class="fa-solid fa-users" style="margin-right: 6px;"></i> System Users
+            </button>
+            <button type="button" class="tab-btn {{ $activeTab === 'requestors' ? 'active' : '' }}" wire:click="setTab('requestors')">
+                <i class="fa-solid fa-address-book" style="margin-right: 6px;"></i> DTS Requestors
+            </button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <x-admin.layout-trigger :mode="$layoutMode" />
+        </div>
+    </div>
+    @php
+        // Old tabs header replaced
+    @endphp
+    <div style="display: none;">
+
+
+    @if($activeTab === 'users')
+        <div class="admin-users-container {{ !$selectedUserId ? 'no-selection' : 'has-selection' }}" wire:key="tab-users-view">
+    <!-- Left Pane: Users Directory -->
+    <div class="directory-panel">
+        <div class="directory-header-row">
+            <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Users Directory</span>
+            @php
+                $canModify = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_account;
+            @endphp
+            @if($canModify)
+            <button type="button" class="btn-create-new" wire:click="startCreate">
+                <i class="fa-solid fa-plus"></i> New User
+            </button>
+            @endif
+        </div>
+
+        <div class="directory-controls-bar">
+            <div class="search-box-wrapper">
+                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                <input type="text" class="search-box" placeholder="Search by name, email, user..." wire:model.live="search">
+            </div>
+            
+            <div class="sort-controls-wrapper">
+                <span class="sort-label">Sort By:</span>
+                <select class="sort-select" wire:model.live="sortBy">
+                    <option value="name">Name</option>
+                    <option value="username">Username</option>
+                    <option value="role">Role</option>
+                    <option value="office">Office</option>
+                    <option value="date_created">Date Created</option>
+                </select>
+                <button type="button" wire:click="toggleSortDir" class="btn-sort-dir" title="Toggle Order Direction ({{ strtoupper($sortDir) }})">
+                    @if($sortDir === 'asc')
+                        <i class="fa-solid fa-arrow-up-a-z"></i>
+                    @else
+                        <i class="fa-solid fa-arrow-down-z-a"></i>
+                    @endif
+                </button>
+            </div>
+
+            <!-- View Mode Toggle -->
+            <div class="view-mode-toggle" style="margin-left: auto;">
+                <button type="button" wire:click="$set('viewMode', 'grid')" title="Cards Grid Layout" class="view-mode-btn {{ $viewMode === 'grid' ? 'active' : '' }}">
+                    <i class="fa-solid fa-border-all"></i> Cards
+                </button>
+                <button type="button" wire:click="$set('viewMode', 'table')" title="Table Layout" class="view-mode-btn {{ $viewMode === 'table' ? 'active' : '' }}">
+                    <i class="fa-solid fa-table-list"></i> Table
+                </button>
+            </div>
+        </div>
+
+        @if($viewMode === 'table')
+            <!-- Table Layout View -->
+            <div class="users-table-container">
+                <table class="users-data-table">
+                    <thead>
+                        <tr class="users-table-head-row">
+                            <th style="min-width: 180px;">User Name</th>
+                            <th style="min-width: 220px;">Email (Google Account)</th>
+                            <th style="min-width: 150px;">Assigned Role</th>
+                            <th style="width: 110px; text-align: center;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($users as $user)
+                            @php
+                                $userDet = $user->details;
+                                $displayName = $userDet ? ($userDet->first_name . ' ' . $userDet->last_name) : $user->username;
+                                $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+                                $roleKey = \DB::table($condKeyTbl)->where('id', $user->account_role)->first();
+                            @endphp
+                            <tr class="user-tbl-row {{ $selectedUserId === $user->id ? 'selected-row' : '' }}" 
+                                wire:key="user-tbl-{{ $user->id }}" 
+                                wire:click="selectUser({{ $user->id }})">
+                                <td class="user-name-cell">{{ $displayName }}</td>
+                                <td class="user-email-cell">{{ $userDet?->email ?: '—' }}</td>
+                                <td class="user-role-cell">
+                                    <span>
+                                        {{ $roleKey?->key_name ?: 'User' }}
+                                    </span>
+                                </td>
+                                <td style="text-align: center;">
+                                    @if($user->account_active)
+                                        <span class="user-status-badge active">Active</span>
+                                    @else
+                                        <span class="user-status-badge blocked">Blocked</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="4" class="users-table-empty">No users found matching your search.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        @else
+            <!-- Cards Grid Layout View -->
+            <div class="users-list">
+                @forelse($users as $user)
+                    @php
+                        $userDet = $user->details;
+                        $initials = strtoupper(substr($userDet?->first_name ?: '?', 0, 1) . substr($userDet?->last_name ?: '?', 0, 1));
+                        $displayName = $userDet ? ($userDet->first_name . ' ' . $userDet->last_name) : $user->username;
+                        $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+                        $roleKey = \DB::table($condKeyTbl)->where('id', $user->account_role)->first();
+                    @endphp
+                    <div class="user-item-card {{ $selectedUserId === $user->id ? 'active' : '' }}" wire:key="user-{{ $user->id }}" wire:click="selectUser({{ $user->id }})">
+                        <div class="user-avatar-small">
+                            @if(!empty($userDet?->avatar_url))
+                                <img src="{{ $userDet->avatar_url }}" alt="Avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
+                            @else
+                                <span>{{ $initials }}</span>
+                            @endif
+                        </div>
+                        <div class="user-meta-info">
+                            <span class="user-display-name">{{ $displayName }}</span>
+                            <span class="user-display-email">{{ $userDet?->email ?: '@' . $user->username }}</span>
+                            <span class="user-display-role-badge">{{ $roleKey?->key_name ?: 'User' }}</span>
+                        </div>
+                        @if(!$user->account_active)
+                            <i class="fa-solid fa-ban" style="color: #ef4444; font-size: 13px;" title="Account Blocked"></i>
+                        @endif
+                    </div>
+                @empty
+                    <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
+                        No users found matching your search.
+                    </div>
+                @endforelse
+            </div>
+        @endif
+
+        @if($users->hasPages())
+            <div class="users-pagination-bar">
+                {{ $users->links('components.pagination') }}
+            </div>
+        @endif
+    </div>
+
+    <!-- Right Pane: User Details & Form (Only rendered when a user is selected or creating a new user) -->
+    @if($selectedUserId)
+        <div class="details-panel" wire:key="user-details-panel-{{ $selectedUserId }}">
+            @php
+                if ($selectedUserId > 0) {
+                    $selectedUser = \App\Models\User::with('details')->find($selectedUserId);
+                    $selectedUserDet = $selectedUser?->details;
+                    $selInitials = strtoupper(substr($selectedUserDet?->first_name ?: '?', 0, 1) . substr($selectedUserDet?->last_name ?: '?', 0, 1));
+                    $selDisplayName = $selectedUserDet ? ($selectedUserDet->first_name . ' ' . $selectedUserDet->last_name) : $selectedUser->username;
+                    $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+                    $selRoleKey = \DB::table($condKeyTbl)->where('id', $selectedUser->account_role)->first();
+                    $selRoleName = $selRoleKey?->key_name ?: 'User';
+                    $isOnline = $selectedUserDet?->is_currently_online;
+                } else {
+                    $selInitials = 'NU';
+                    $selDisplayName = 'Configure New User';
+                    $selRoleName = 'Guest';
+                    $isOnline = false;
+                }
+            @endphp
+            
+            <!-- Header -->
+            <div class="details-header">
+                <div class="details-header-avatar">
+                    @if($selectedUserId === -1)
+                        <i class="fa-solid fa-user-plus" style="font-size: 20px;"></i>
+                    @elseif(!empty($selectedUserDet?->avatar_url))
+                        <img src="{{ $selectedUserDet->avatar_url }}" alt="Avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
+                    @else
+                        <span>{{ $selInitials }}</span>
+                    @endif
+                </div>
+                <div class="details-header-info">
+                    <h2 class="details-header-name">{{ $selDisplayName }}</h2>
+                    <span class="details-header-sub">
+                        @if($selectedUserId === -1)
+                            Configure access credentials & profile details for a new platform account
+                        @else
+                            <i class="fa-solid fa-user-shield"></i> {{ $selRoleName }} &nbsp;•&nbsp; 
+                            <i class="fa-solid fa-circle {{ $isOnline ? 'online' : 'offline' }}" style="color: {{ $isOnline ? '#10b981' : '#cbd5e1' }}; font-size: 8px;"></i>
+                            {{ $isOnline ? 'Online Now' : 'Offline' }}
+                        @endif
+                    </span>
+                </div>
+                <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close Details Panel">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Body/Form -->
+            <div class="details-body">
+                @if($successMessage || session('success'))
+                    <div class="toast-alert success">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>{{ $successMessage ?: session('success') }}</span>
+                    </div>
+                @endif
+
+                @if($errorMessage || session('error'))
+                    <div class="toast-alert error">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        <span>{{ $errorMessage ?: session('error') }}</span>
+                    </div>
+                @endif
+
+                <form wire:submit.prevent="saveUserChanges" class="form-grid-layout">
+                    <!-- Email -->
+                    <div class="form-group full-width">
+                        <span class="form-label">Email Address (Google Account)</span>
+                        <input type="email" class="form-input" placeholder="e.g. john.doe@cspc.edu.ph" wire:model="email">
+                        @error('email') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                    </div>
+
+                    <!-- First Name -->
+                    <div class="form-group">
+                        <span class="form-label">First Name</span>
+                        <input type="text" class="form-input" placeholder="Enter first name..." wire:model="firstName">
+                        @error('firstName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                    </div>
+
+                    <!-- Last Name -->
+                    <div class="form-group">
+                        <span class="form-label">Last Name</span>
+                        <input type="text" class="form-input" placeholder="Enter last name..." wire:model="lastName">
+                        @error('lastName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                    </div>
+
+                    <!-- Middle Name -->
+                    <div class="form-group full-width">
+                        <span class="form-label">Middle Name</span>
+                        <input type="text" class="form-input" placeholder="Enter middle name..." wire:model="middleName">
+                        @error('middleName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                    </div>
+
+                    <!-- Role -->
+                    <div class="form-group" wire:click.outside="$set('showRoleDropdown', false)">
+                        <span class="form-label">Assigned Role</span>
+                        <div style="position: relative;">
+                            <input type="text" 
+                                   class="form-input" 
+                                   placeholder="Search and select role..." 
+                                   wire:model.live="roleSearch" 
+                                   wire:focus="$set('showRoleDropdown', true)" 
+                                   autocomplete="off" 
+                                   style="padding-right: 32px; font-family: 'Inter', sans-serif;">
+                            <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
+                            
+                            @if($showRoleDropdown)
+                                <div class="users-custom-dropdown">
+                                    <div class="users-dropdown-item placeholder-item" wire:click="selectRole(null, '')">
+                                        Select Role
+                                    </div>
+                                    @php
+                                        $rSearchLower = strtolower($roleSearch);
+                                        $filteredRoles = $roles->filter(function($r) use ($rSearchLower) {
+                                            return empty($rSearchLower) || str_contains(strtolower($r->key_name), $rSearchLower);
+                                        });
+                                    @endphp
+                                    @forelse($filteredRoles as $role)
+                                        <div class="users-dropdown-item {{ $roleId === $role->id ? 'selected' : '' }}" wire:click="selectRole({{ $role->id }}, '{{ addslashes($role->key_name) }}')">
+                                            {{ $role->key_name }}
+                                        </div>
+                                    @empty
+                                        <div class="users-dropdown-empty">No matching roles found</div>
+                                    @endforelse
+                                </div>
+                            @endif
+                        </div>
+                        @error('roleId') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                    </div>
+
+                    <!-- Office -->
+                    <div class="form-group" wire:click.outside="$set('showOfficeDropdown', false)">
+                        <span class="form-label">Assigned Office</span>
+                        <div style="position: relative;">
+                            <input type="text" 
+                                   class="form-input" 
+                                   placeholder="Search and select office..." 
+                                   wire:model.live="officeSearch" 
+                                   wire:focus="$set('showOfficeDropdown', true)" 
+                                   autocomplete="off" 
+                                   style="padding-right: 32px; font-family: 'Inter', sans-serif;">
+                            <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
+                            
+                            @if($showOfficeDropdown)
+                                <div class="users-custom-dropdown">
+                                    <div class="users-dropdown-item placeholder-item" wire:click="selectOffice(null, '')">
+                                        No Office Assigned
+                                    </div>
+                                    @php
+                                        $oSearchLower = strtolower($officeSearch);
+                                        $filteredOffices = $offices->filter(function($o) use ($oSearchLower) {
+                                            return empty($oSearchLower) 
+                                                || str_contains(strtolower($o->office_name), $oSearchLower)
+                                                || str_contains(strtolower($o->office_code), $oSearchLower);
+                                        });
+                                    @endphp
+                                    @forelse($filteredOffices as $office)
+                                        <div class="users-dropdown-item {{ $officeId === $office->id ? 'selected' : '' }}" wire:click="selectOffice({{ $office->id }}, '{{ addslashes($office->office_name) }}')">
+                                            {{ $office->office_name }} ({{ $office->office_code }})
+                                        </div>
+                                    @empty
+                                        <div class="users-dropdown-empty">No matching offices found</div>
+                                    @endforelse
+                                </div>
+                            @endif
+                        </div>
+                        @error('officeId') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                    </div>
+
+                    <!-- Active Toggle Wrapper -->
+                    <div class="form-group full-width">
+                        <div class="status-toggle-wrapper">
+                            <div class="status-toggle-label">
+                                <span class="status-toggle-title">Account Status</span>
+                                <span class="status-toggle-desc">Toggle whether this user account is active or suspended.</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" wire:model="isActive">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Footer -->
+            <div class="details-footer">
+                @php
+                    $canModify = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_account;
+                @endphp
+                @if($selectedUserId > 0)
+                    <button type="button" class="btn-delete" wire:click="deleteUser" style="margin-right: auto;" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
+                        <i class="fa-solid fa-trash-can"></i> Delete Account
+                    </button>
+                @endif
+                <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
+                <button type="button" class="btn-save" wire:click="saveUserChanges" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
+                    <i class="fa-solid fa-floppy-disk"></i> {{ $selectedUserId === -1 ? 'Create User' : 'Save Changes' }}
+                </button>
+            </div>
+        </div>
+    @endif
+    </div>
+    @elseif($activeTab === 'requestors')
+        <div class="admin-users-container {{ !$selectedRequestorId ? 'no-selection' : 'has-selection' }}" wire:key="tab-requestors-view">
+            <!-- Left Pane: Requestors Directory -->
+            <div class="directory-panel">
+                <div class="directory-header-row">
+                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Requestor Contacts Directory</span>
+                    @php
+                        $canModify = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_sadm_modify_account;
+                    @endphp
+                    @if($canModify)
+                    <button type="button" class="btn-create-new" wire:click="startCreateRequestor">
+                        <i class="fa-solid fa-plus"></i> New Requestor
+                    </button>
+                    @endif
+                </div>
+
+                <div class="directory-controls-bar">
+                    <div class="search-box-wrapper">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input type="text" class="search-box" placeholder="Search by name, position, office..." wire:model.live="requestorSearch">
+                    </div>
+                    
+                    <div class="sort-controls-wrapper">
+                        <span class="sort-label">Sort By:</span>
+                        <select class="sort-select" wire:model.live="reqSortBy">
+                            <option value="name">Name</option>
+                            <option value="position">Position</option>
+                            <option value="office">Office</option>
+                            <option value="status">Status</option>
+                            <option value="date_created">Date Created</option>
+                        </select>
+                        <button type="button" wire:click="toggleReqSortDir" class="btn-sort-dir" title="Toggle Order Direction ({{ strtoupper($reqSortDir) }})">
+                            @if($reqSortDir === 'asc')
+                                <i class="fa-solid fa-arrow-up-a-z"></i>
+                            @else
+                                <i class="fa-solid fa-arrow-down-z-a"></i>
+                            @endif
+                        </button>
+                    </div>
+
+                    <!-- View Mode Toggle -->
+                    <div class="view-mode-toggle" style="margin-left: auto;">
+                        <button type="button" wire:click="$set('reqViewMode', 'grid')" class="view-mode-btn {{ $reqViewMode === 'grid' ? 'active' : '' }}" title="Cards Grid Layout">
+                            <i class="fa-solid fa-border-all"></i> Cards
+                        </button>
+                        <button type="button" wire:click="$set('reqViewMode', 'table')" class="view-mode-btn {{ $reqViewMode === 'table' ? 'active' : '' }}" title="Table Layout">
+                            <i class="fa-solid fa-table-list"></i> Table
+                        </button>
+                    </div>
+                </div>
+
+                @if($reqViewMode === 'table')
+                    <div class="users-table-container">
+                        <table class="users-data-table">
+                            <thead>
+                                <tr class="req-table-head-row">
+                                    <th style="min-width: 180px;">Requestor Name</th>
+                                    <th style="min-width: 160px;">Position / Title</th>
+                                    <th style="min-width: 180px;">Office / Agency</th>
+                                    <th style="min-width: 120px;">Category</th>
+                                    <th style="width: 100px;">Status</th>
+                                    <th style="width: 120px; text-align: right;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($requestors as $req)
+                                    <tr class="req-tbl-row {{ $selectedRequestorId === $req->id ? 'selected-row' : '' }}" wire:click="selectRequestorItem({{ $req->id }})" wire:key="req-tbl-{{ $req->id }}">
+                                        <td class="user-name-cell">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <div style="width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: #0284c7; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;">
+                                                    <i class="fa-solid fa-user-pen"></i>
+                                                </div>
+                                                <span>{{ $req->requestor_name }}</span>
+                                            </div>
+                                        </td>
+                                        <td class="req-pos-cell">
+                                            {{ $req->requestor_position ?: '—' }}
+                                        </td>
+                                        <td class="req-office-cell" style="font-weight: 500;">
+                                            {{ $req->office_display_name }} <span class="req-office-code" style="font-size: 11px;">({{ $req->office }})</span>
+                                        </td>
+                                        <td>
+                                            <span class="req-cat-badge req-cat-{{ strtolower($req->office_category) }}">
+                                                {{ $req->office_category }}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="badge {{ $req->is_active ? 'badge-active' : 'badge-inactive' }}">
+                                                {{ $req->is_active ? 'Active' : 'Inactive' }}
+                                            </span>
+                                        </td>
+                                        <td style="text-align: right;">
+                                            <button type="button" class="btn-table-action" wire:click.stop="selectRequestorItem({{ $req->id }})">
+                                                <i class="fa-solid fa-pen-to-square"></i> Configure
+                                            </button>
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="6" class="users-table-empty">
+                                            No requestor contacts found.
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                @else
+                    <div class="directory-list" style="margin-top: 12px;">
+                        @forelse($requestors as $req)
+                            <div class="directory-item {{ $selectedRequestorId === $req->id ? 'selected' : '' }}" wire:click="selectRequestorItem({{ $req->id }})" wire:key="req-item-{{ $req->id }}">
+                                <div class="item-avatar">
+                                    <i class="fa-solid fa-user-pen"></i>
+                                </div>
+                                <div class="item-details">
+                                    <span class="item-title">{{ $req->requestor_name }}</span>
+                                    <span class="item-subtitle">
+                                        @if(!empty($req->requestor_position)) {{ $req->requestor_position }} • @endif {{ $req->office_display_name }} ({{ $req->office }})
+                                    </span>
+                                </div>
+                                <div class="item-badges" style="margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                                    <span class="req-cat-badge req-cat-{{ strtolower($req->office_category) }}">
+                                        {{ $req->office_category }}
+                                    </span>
+                                    <span class="badge {{ $req->is_active ? 'badge-active' : 'badge-inactive' }}">
+                                        {{ $req->is_active ? 'Active' : 'Inactive' }}
+                                    </span>
+                                </div>
+                            </div>
+                        @empty
+                            <div style="padding: 24px; text-align: center; color: #94a3b8; font-size: 13px;">
+                                No requestor contacts recorded yet.
+                            </div>
+                        @endforelse
+                    </div>
+                @endif
+            </div>
+
+            <!-- Right Pane: Details / Form Panel -->
+            @if($selectedRequestorId)
+                <div class="details-panel" wire:key="req-details-panel-{{ $selectedRequestorId }}">
+                    <!-- Header -->
+                    <div class="details-header">
+                        <div class="details-header-avatar">
+                            @if($selectedRequestorId === -1)
+                                <i class="fa-solid fa-user-plus" style="font-size: 20px;"></i>
+                            @else
+                                <i class="fa-solid fa-user-pen" style="font-size: 20px;"></i>
+                            @endif
+                        </div>
+                        <div class="details-header-info">
+                            <h2 class="details-header-name">{{ $selectedRequestorId === -1 ? 'Create Requestor Contact' : ($reqName ?: 'Requestor Configuration') }}</h2>
+                            <span class="details-header-sub">
+                                @if($selectedRequestorId === -1)
+                                    Register a new frequent requestor for internal or external transactions
+                                @else
+                                    <i class="fa-solid fa-building"></i> {{ $reqOffice ?: 'Assigned Office' }} &nbsp;•&nbsp; 
+                                    <i class="fa-solid fa-circle {{ $reqIsActive ? 'online' : 'offline' }}" style="color: {{ $reqIsActive ? '#10b981' : '#cbd5e1' }}; font-size: 8px;"></i>
+                                    {{ $reqIsActive ? 'Active Contact' : 'Inactive' }}
+                                @endif
+                            </span>
+                        </div>
+                        <button type="button" class="btn-close-details" wire:click="cancelRequestorSelection" title="Close Details Panel">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+
+                    <!-- Alerts -->
+                    @if($successMessage)
+                        <div class="alert alert-success" style="margin: 12px 24px 0 24px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; border-radius: 8px; font-size: 13px;">
+                            <i class="fa-solid fa-circle-check"></i> {{ $successMessage }}
+                        </div>
+                    @endif
+                    @if($errorMessage)
+                        <div class="alert alert-error" style="margin: 12px 24px 0 24px; padding: 10px 14px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; font-size: 13px;">
+                            <i class="fa-solid fa-triangle-exclamation"></i> {{ $errorMessage }}
+                        </div>
+                    @endif
+
+                    <!-- Body -->
+                    <div class="details-body">
+                        <form wire:submit.prevent="saveRequestorChanges">
+                            <div class="form-grid">
+                                <!-- Requestor Full Name -->
+                                <div class="form-group full-width">
+                                    <label class="form-label">Requestor Name <span style="color:#ef4444;">*</span></label>
+                                    <input type="text" class="form-input" wire:model="reqName" placeholder="e.g. Dr. Juan Dela Cruz">
+                                    @error('reqName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Requestor Job Position -->
+                                <div class="form-group full-width">
+                                    <label class="form-label">Job Position / Title <span style="font-size: 11px; color: #94a3b8; font-weight: normal;">(Optional)</span></label>
+                                    <input type="text" class="form-input" wire:model="reqPosition" placeholder="e.g. Regional Director / Faculty Officer">
+                                    @error('reqPosition') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Office / Agency Dropdown -->
+                                <div class="form-group full-width">
+                                    <label class="form-label">Office / Agency <span style="color:#ef4444;">*</span></label>
+                                    <select class="form-select" wire:model="reqOffice">
+                                        <option value="">Select Office / Agency</option>
+                                        <optgroup label="Internal CSPC Offices">
+                                            @foreach($offices as $o)
+                                                <option value="{{ $o->office_code }}">{{ $o->office_name }} ({{ $o->office_code }})</option>
+                                            @endforeach
+                                        </optgroup>
+                                        <optgroup label="External Source Offices">
+                                            @foreach($sourceOffices as $so)
+                                                <option value="{{ $so->s_office_code }}">{{ $so->s_office_name }} ({{ $so->s_office_code }})</option>
+                                            @endforeach
+                                        </optgroup>
+                                    </select>
+                                    @error('reqOffice') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Active Status -->
+                                <div class="form-group full-width">
+                                    <div class="status-toggle-wrapper">
+                                        <div class="status-toggle-label">
+                                            <span class="status-toggle-title">Active Status</span>
+                                            <span class="status-toggle-desc">Toggle whether this requestor contact appears in transaction forms.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="reqIsActive">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="details-footer">
+                        @if($selectedRequestorId > 0)
+                            <button type="button" class="btn-delete" wire:click="deleteRequestor" wire:confirm="Are you sure you want to deactivate this requestor?" style="margin-right: auto;" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
+                                <i class="fa-solid fa-trash-can"></i> Deactivate Requestor
+                            </button>
+                        @endif
+                        <button type="button" class="btn-cancel" wire:click="cancelRequestorSelection">Cancel</button>
+                        <button type="button" class="btn-save" wire:click="saveRequestorChanges" {{ !$canModify ? 'disabled style=opacity:0.6;cursor:not-allowed;' : '' }}>
+                            <i class="fa-solid fa-floppy-disk"></i> {{ $selectedRequestorId === -1 ? 'Create Requestor' : 'Save Changes' }}
+                        </button>
+                    </div>
+                </div>
+            @endif
+        </div>
+    @endif
+</div>
+@else
 <div class="miller-container">
     {{-- Top Action Toolbar --}}
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
@@ -1349,6 +2150,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         </div>
 
         <div style="display: flex; align-items: center; gap: 8px;">
+            <x-admin.layout-trigger :mode="$layoutMode" />
             @if($activeTab === 'users')
                 <button type="button" wire:click="startCreate" class="m-btn m-btn-primary">
                     <i class="fa-solid fa-user-plus"></i> New Staff User
@@ -2033,6 +2835,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
 </div>
 
 <script>
+    /**
+     * Users get livewire.
+     *
+     * @param {*} el
+     */
     window.usersGetLivewire = function(el) {
         try {
             const root = el ? el.closest('[wire\\:id]') : document.querySelector('.miller-container[wire\\:id]');
@@ -2045,6 +2852,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         return null;
     };
 
+    /**
+     * Users assign user office.
+     *
+     * @param {*} userId
+     * @param {*} officeId
+     * @param {*} el
+     */
     window.usersAssignUserOffice = function(userId, officeId, el) {
         const lw = window.usersGetLivewire(el);
         if (lw) {
@@ -2052,6 +2866,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
     };
 
+    /**
+     * Users assign office cluster.
+     *
+     * @param {*} officeId
+     * @param {*} clusterCode
+     * @param {*} el
+     */
     window.usersAssignOfficeCluster = function(officeId, clusterCode, el) {
         const lw = window.usersGetLivewire(el);
         if (lw) {
@@ -2059,3 +2880,5 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
     };
 </script>
+
+@endif

@@ -12,6 +12,13 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public int $id;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     *
+     * @param mixed $id
+     *
+     * @return void
+     */
     public function mount($id): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
@@ -19,6 +26,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         abort_unless(OfficeIntakeHelper::canOfficeEditIntake('dcn', $this->id), 403, OfficeIntakeHelper::IMMUTABLE_MESSAGE);
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $dcn = OfficeIntakeHelper::findOfficeDcn($this->id);
@@ -222,6 +233,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     const saveBtn = document.getElementById('ofiDcnSaveBtn');
     if (!form || !confirmBox || !saveBtn) return;
 
+    /**
+     * Renders and synchronizes confirm in the DOM.
+     */
     function syncConfirm() {
         saveBtn.disabled = !confirmBox.checked;
         saveBtn.setAttribute('aria-disabled', confirmBox.checked ? 'false' : 'true');

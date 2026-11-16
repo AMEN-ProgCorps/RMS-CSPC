@@ -23,6 +23,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Notification Logs')] cla
     /** @var string Selected subsystem filter */
     public string $subsystemFilter = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -43,16 +47,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Notification Logs')] cla
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the status filter property.
+     * @return void
+     */
     public function updatingStatusFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the subsystem filter property.
+     * @return void
+     */
     public function updatingSubsystemFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the visibility filter property.
+     * @return void
+     */
     public function updatingVisibilityFilter(): void
     {
         $this->resetPage();

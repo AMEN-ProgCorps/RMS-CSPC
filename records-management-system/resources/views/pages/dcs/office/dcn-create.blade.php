@@ -10,11 +10,19 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $office = OfficeIntakeHelper::currentUserOfficeForDcn();
@@ -225,6 +233,9 @@ window.__ofiPrevDcnSignatories = @json($prevDcnSignatories ?? ['reviewers' => []
     const confirmed = document.getElementById('dcnDocNoConfirmed');
     if (!form || !confirmBox || !saveBtn) return;
 
+    /**
+     * Renders and synchronizes also drf in the DOM.
+     */
     function syncAlsoDrf() {
         const on = !!(alsoDrf && alsoDrf.checked);
         if (alsoHint) alsoHint.hidden = !on;
@@ -235,6 +246,9 @@ window.__ofiPrevDcnSignatories = @json($prevDcnSignatories ?? ['reviewers' => []
         }
     }
 
+    /**
+     * Renders and synchronizes confirm in the DOM.
+     */
     function syncConfirm() {
         saveBtn.disabled = !confirmBox.checked;
         saveBtn.setAttribute('aria-disabled', confirmBox.checked ? 'false' : 'true');
@@ -293,6 +307,11 @@ window.__ofiPrevDcnSignatories = @json($prevDcnSignatories ?? ['reviewers' => []
 (function () {
     const prev = window.__ofiPrevDcnSignatories || { reviewers: [], approvals: [] };
 
+    /**
+     * Populates reviewers in the interface.
+     *
+     * @param {*} rows
+     */
     function fillReviewers(rows) {
         const list = document.getElementById('ofiReviewersList');
         const addBtn = document.getElementById('ofiAddReviewer');
@@ -317,6 +336,11 @@ window.__ofiPrevDcnSignatories = @json($prevDcnSignatories ?? ['reviewers' => []
         if (addBtn) addBtn.hidden = items.length >= 9;
     }
 
+    /**
+     * Populates approvals in the interface.
+     *
+     * @param {*} rows
+     */
     function fillApprovals(rows) {
         const list = document.getElementById('ofiApprovalsList');
         const addBtn = document.getElementById('ofiAddApproval');

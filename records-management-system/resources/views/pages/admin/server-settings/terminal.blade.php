@@ -22,11 +22,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
     public bool $isCreatingBackup = false;
     public string $safetyBackupMessage = '';
 
+    /**
+     * Bootstraps component services, dependencies, and lifecycle listeners.
+     * @return void
+     */
     public function boot(): void
     {
         $this->__alias = 'pages.admin.server-settings.terminal';
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function mount(ServerManagementService $service): void
     {
         $perms = auth()->user()?->permissions;
@@ -53,6 +64,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
         ];
     }
 
+    /**
+     * Generates safety backup.
+     *
+     * @param BackupService $backupService
+     *
+     * @return void
+     */
     public function generateSafetyBackup(BackupService $backupService): void
     {
         $this->isCreatingBackup = true;
@@ -83,6 +101,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
         $this->dispatch('terminal-output-updated');
     }
 
+    /**
+     * Executes command.
+     *
+     * @param ServerManagementService $service
+     * @param ?string $manualCmd
+     * @param ?string $manualTarget
+     *
+     * @return void
+     */
     public function executeCommand(ServerManagementService $service, ?string $manualCmd = null, ?string $manualTarget = null): void
     {
         $cmdToRun = trim($manualCmd ?? $this->command);
@@ -131,6 +158,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
         $this->dispatch('terminal-output-updated');
     }
 
+    /**
+     * Runs quick.
+     *
+     * @param string $cmd
+     * @param string $target
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function runQuick(string $cmd, string $target, ServerManagementService $service): void
     {
         if (!$this->hasSafetyBackup) {
@@ -140,6 +176,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
         $this->executeCommand($service, $cmd, $target);
     }
 
+    /**
+     * Resets console and clears active selections.
+     * @return void
+     */
     public function clearConsole(): void
     {
         $this->history = [
@@ -155,6 +195,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Server Terminal')] class
         $this->dispatch('terminal-output-updated');
     }
 
+    /**
+     * Sets the active target.
+     *
+     * @param string $newTarget
+     *
+     * @return void
+     */
     public function switchTarget(string $newTarget): void
     {
         if (in_array($newTarget, ['app', 'node', 'db', 'host'], true)) {

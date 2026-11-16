@@ -19,6 +19,26 @@ use Livewire\WithFileUploads;
 use Illuminate\Support\Str;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational Units')] class extends Component {
+    use \Livewire\WithPagination;
+
+    /** @var string View layout mode: 'default' (Classic) or 'horizontal' (ESXi Miller Columns) */
+    public string $layoutMode = 'horizontal';
+
+    /** @var string Classic layout directory view mode ('table' or 'grid') */
+    public string $officeViewMode = 'table';
+
+    /** @var string Classic layout sorting column */
+    public string $officeSortBy = 'name';
+
+    /** @var string Classic layout sorting direction ('asc' or 'desc') */
+    public string $officeSortDir = 'asc';
+
+    public string $otherOfficeSortBy = 'name';
+    public string $otherOfficeSortDir = 'asc';
+
+    public array $selectedOfficeIds = [];
+    public bool $selectAllOffices = false;
+
     use WithFileUploads;
 
     /** @var string Active scope: 'offices' (Internal College Units) or 'other_offices' (External Source Agencies) */
@@ -79,25 +99,151 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
-        if (!$perms || (!$perms->is_sadm && !$perms->is_admin && !$perms->can_sadm_modify_accountlist)) {
+        if (!$perms || (!$perms->is_sadm && !$perms->can_sadm_modify_accountlist)) {
             $this->redirect(route('portal'));
             return;
         }
+        $this->layoutMode = session('admin_offices_layout_mode', session('admin_management_layout_mode', 'horizontal'));
         $this->cancelSelection();
     }
 
+    /**
+     * Sets the active layout mode.
+     *
+     * @param string $mode
+     *
+     * @return void
+     */
+    public function setLayoutMode(string $mode): void
+    {
+        if (in_array($mode, ['default', 'horizontal'])) {
+            $this->layoutMode = $mode;
+            session(['admin_offices_layout_mode' => $mode]);
+            session(['admin_management_layout_mode' => $mode]);
+        }
+    }
+
+    /**
+     * Toggles the office sort dir setting or state.
+     * @return void
+     */
+    public function toggleOfficeSortDir(): void
+    {
+        $this->officeSortDir = $this->officeSortDir === 'asc' ? 'desc' : 'asc';
+    }
+
+    /**
+     * Toggles the other office sort dir setting or state.
+     * @return void
+     */
+    public function toggleOtherOfficeSortDir(): void
+    {
+        $this->otherOfficeSortDir = $this->otherOfficeSortDir === 'asc' ? 'desc' : 'asc';
+    }
+
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
+    public function updatingSearch(): void
+    {
+        $this->resetPage();
+    }
+
+    /**
+     * Lifecycle hook executed before updating the other office search property.
+     * @return void
+     */
+    public function updatingOtherOfficeSearch(): void
+    {
+        $this->resetPage();
+    }
+
+    /**
+     * Initializes create office mode and resets form inputs.
+     * @return void
+     */
+    public function startCreateOffice(): void
+    {
+        $this->startCreate();
+    }
+
+    /**
+     * Toggles the office selection setting or state.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
+    public function toggleOfficeSelection(int $id): void
+    {
+        if (in_array($id, $this->selectedOfficeIds)) {
+            $this->selectedOfficeIds = array_diff($this->selectedOfficeIds, [$id]);
+        } else {
+            $this->selectedOfficeIds[] = $id;
+        }
+    }
+
+    /**
+     * Toggles the select all offices setting or state.
+     * @return void
+     */
+    public function toggleSelectAllOffices(): void
+    {
+        if ($this->selectAllOffices) {
+            $this->selectedOfficeIds = [];
+            $this->selectAllOffices = false;
+        } else {
+            $this->selectedOfficeIds = \App\Models\office::where('is_active', true)
+                ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', 'HUB'])
+                ->pluck('id')
+                ->toArray();
+            $this->selectAllOffices = true;
+        }
+    }
+
+    /**
+     * Deletes or deactivates the specified selected offices.
+     * @return void
+     */
+    public function deleteSelectedOffices(): void
+    {
+        if (empty($this->selectedOfficeIds)) {
+            return;
+        }
+        \App\Models\office::whereIn('id', $this->selectedOfficeIds)->update(['is_active' => false]);
+        $this->selectedOfficeIds = [];
+        $this->selectAllOffices = false;
+        $this->successMessage = 'Selected offices have been deactivated.';
+    }
+
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
+    /**
+     * Sets the active tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
     public function switchTab(string $tab): void
     {
         $this->activeTab = $tab;
         $this->cancelSelection();
     }
 
+    /**
+     * Resets selection and clears active selections.
+     * @return void
+     */
     public function cancelSelection(): void
     {
         $this->selectedOfficeId = null;
@@ -140,6 +286,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         $this->clearMessages();
     }
 
+    /**
+     * Initializes create cluster mode and resets form inputs.
+     * @return void
+     */
     public function startCreateCluster(): void
     {
         $this->cancelSelection();
@@ -150,6 +300,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         $this->clusterIsActive = true;
     }
 
+    /**
+     * Selects cluster for edit and populates the details panel.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function selectClusterForEdit(int $id): void
     {
         $this->cancelSelection();
@@ -170,6 +327,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         }
     }
 
+    /**
+     * Selects cluster head and populates the details panel.
+     *
+     * @param string $code
+     * @param string $name
+     *
+     * @return void
+     */
     public function selectClusterHead(string $code, string $name): void
     {
         $this->clusterHead = $code;
@@ -177,16 +342,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         $this->showClusterHeadDropdown = false;
     }
 
+    /**
+     * Lifecycle hook executed after updating the cluster head search property.
+     * @return void
+     */
     public function updatedClusterHeadSearch(): void
     {
         $this->showClusterHeadDropdown = true;
     }
 
+    /**
+     * Lifecycle hook executed after updating the office cluster search property.
+     * @return void
+     */
     public function updatedOfficeClusterSearch(): void
     {
         $this->showOfficeClusterDropdown = true;
     }
 
+    /**
+     * Persists cluster changes to the database.
+     * @return void
+     */
     public function saveClusterChanges(): void
     {
         if ($this->selectedClusterId === null) return;
@@ -285,6 +462,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         }
     }
 
+    /**
+     * Deletes or deactivates the specified cluster.
+     * @return void
+     */
     public function deleteCluster(): void
     {
         if ($this->selectedClusterId === null || $this->selectedClusterId <= 0) return;
@@ -331,6 +512,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         }
     }
 
+    /**
+     * Selects office and populates the details panel.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function selectOffice(int $id): void
     {
         $this->cancelSelection();
@@ -351,6 +539,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         }
     }
 
+    /**
+     * Selects office cluster and populates the details panel.
+     *
+     * @param string $code
+     * @param string $name
+     *
+     * @return void
+     */
     public function selectOfficeCluster(string $code, string $name): void
     {
         $this->officeCluster = $code;
@@ -358,6 +554,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         $this->showOfficeClusterDropdown = false;
     }
 
+    /**
+     * Persists office changes to the database.
+     * @return void
+     */
     public function saveOfficeChanges(): void
     {
         if ($this->selectedOfficeId === null) return;
@@ -457,6 +657,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         }
     }
 
+    /**
+     * Deletes or deactivates the specified office.
+     * @return void
+     */
     public function deleteOffice(): void
     {
         if ($this->selectedOfficeId === null || $this->selectedOfficeId === -1) return;
@@ -500,6 +704,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         $this->otherOfficeIsActive = true;
     }
 
+    /**
+     * Selects other office and populates the details panel.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function selectOtherOffice(int $id): void
     {
         $this->cancelSelection();
@@ -513,6 +724,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         }
     }
 
+    /**
+     * Persists other office changes to the database.
+     * @return void
+     */
     public function saveOtherOfficeChanges(): void
     {
         $this->clearMessages();
@@ -589,6 +804,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         }
     }
 
+    /**
+     * Deletes or deactivates the specified other office.
+     * @return void
+     */
     public function deleteOtherOffice(): void
     {
         if (!$this->selectedOtherOfficeId) return;
@@ -601,6 +820,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         $this->successMessage = 'External agency deactivated successfully!';
     }
 
+    /**
+     * Displays the import modal.
+     *
+     * @param string $target
+     *
+     * @return void
+     */
     public function openImportModal(string $target = 'office'): void
     {
         $this->importTarget = $target;
@@ -609,6 +835,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         $this->showImportModal = true;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         // 1. Clusters Collection
@@ -649,7 +879,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
             });
         }
 
-        $offices = $officeQuery->orderBy('office_name', 'asc')->get();
+        if ($this->layoutMode === 'default') {
+            $offices = $officeQuery->orderBy('office_name', $this->officeSortDir)->paginate(20);
+        } else {
+            $offices = $officeQuery->orderBy('office_name', 'asc')->get();
+        }
 
         // Inspector pickers — filter independently of miller column search.
         $clusterPickerTerm = trim($this->officeClusterSearch);
@@ -777,7 +1011,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
             });
         }
 
-        $otherOffices = $otherOfficeQuery->orderBy('so.s_office_name', 'asc')->get();
+        if ($this->layoutMode === 'default') {
+            $otherOffices = $otherOfficeQuery->orderBy('so.s_office_name', $this->otherOfficeSortDir)->paginate(20);
+        } else {
+            $otherOffices = $otherOfficeQuery->orderBy('so.s_office_name', 'asc')->get();
+        }
 
         // Incoming transactions for selected other office
         $incomingTransactions = collect();
@@ -839,6 +1077,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
 ?>
 
 @push('styles')
+    @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/accounts_offices.css'])
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
         .miller-container {
@@ -1285,6 +1524,838 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
     </style>
 @endpush
 
+@if($layoutMode === 'default')
+<div class="activity-logs-container">
+    <!-- Tabs Header -->
+    <div class="tabs-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-right: 12px;">
+                <h1 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-sitemap" style="color: #0284c7;"></i> Organizational Units & Offices
+                </h1>
+                <span style="font-size: 11px; font-weight: 700; background: #f1f5f9; color: #475569; padding: 3px 8px; border-radius: 9999px; border: 1px solid #cbd5e1;">
+                    Default Layout
+                </span>
+            </div>
+            <button type="button" class="tab-btn {{ $activeTab === 'offices' ? 'active' : '' }}" wire:click="$set('activeTab', 'offices')">
+                <i class="fa-solid fa-building" style="margin-right: 6px;"></i> Offices Directory
+            </button>
+            <button type="button" class="tab-btn {{ $activeTab === 'other-offices' ? 'active' : '' }}" wire:click="$set('activeTab', 'other-offices')">
+                <i class="fa-solid fa-globe" style="margin-right: 6px;"></i> Other Offices (External)
+            </button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <x-admin.layout-trigger :mode="$layoutMode" />
+        </div>
+    </div>
+    @php
+        // Old tabs header replaced
+    @endphp
+    <div style="display: none;">
+
+
+    @if($activeTab === 'offices')
+        <div class="admin-offices-container {{ !$selectedOfficeId ? 'no-selection' : 'has-selection' }}" wire:key="tab-offices-view">
+            <!-- Left Pane: Offices Directory -->
+            <div class="directory-panel">
+                <div class="directory-header-row">
+                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Offices Directory</span>
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" class="btn-create-new" wire:click="startCreate">
+                            <i class="fa-solid fa-plus"></i> New Office
+                        </button>
+                        <button type="button" class="btn-create-new" style="background-color: #0284c7; border-color: #0284c7;" wire:click="startImport">
+                            <i class="fa-solid fa-file-import"></i> Import File
+                        </button>
+                    </div>
+                </div>
+
+                <div class="search-box-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" class="search-box" placeholder="Search offices..." wire:model.live="search">
+                </div>
+
+                @if(count($selectedOfficeIds) > 0)
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
+                        <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedOfficeIds) }} selected</span>
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to deactivate {{ count($selectedOfficeIds) }} office(s)? They will be soft-deleted (hidden) but retained for transparency.')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkDeleteOffices(); }"
+                            style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-trash-can"></i> Delete Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Deactivating {{ count($selectedOfficeIds) }} office(s)...</span>
+                        </button>
+                    </div>
+                @endif
+
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" wire:click="toggleAllOffices" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedOfficeIds) > 0 ? 'checked' : '' }}>
+                        <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                    </div>
+
+                    <!-- Layout View Mode Toggle -->
+                    <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                        <button type="button" wire:click="$set('officeViewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $officeViewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $officeViewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $officeViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-border-all"></i> Cards
+                        </button>
+                        <button type="button" wire:click="$set('officeViewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $officeViewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $officeViewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $officeViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-table-list"></i> Table
+                        </button>
+                    </div>
+                </div>
+
+                @if($officeViewMode === 'table')
+                    <!-- Table Layout View -->
+                    <div style="overflow-x: auto; max-height: calc(100vh - 280px); overflow-y: auto;">
+                        <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12.5px;">
+                            <thead>
+                                <tr style="background: #f8fafc; color: #475569; text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px; border-bottom: 1.5px solid #cbd5e1;">
+                                    <th style="padding: 8px 10px; width: 36px;"></th>
+                                    <th style="padding: 8px 10px;">Code</th>
+                                    <th style="padding: 8px 10px;">Office Name</th>
+                                    <th style="padding: 8px 10px;">Cluster</th>
+                                    <th style="padding: 8px 10px; text-align: center;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($offices as $office)
+                                    <tr class="office-tbl-row {{ $selectedOfficeId === $office->id ? 'selected-row' : '' }}" 
+                                        wire:key="office-tbl-{{ $office->id }}" 
+                                        wire:click="selectOffice({{ $office->id }})"
+                                        style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $selectedOfficeId === $office->id ? '#eff6ff' : '#ffffff' }}; transition: background 0.12s ease;">
+                                        <td style="padding: 8px 10px;" onclick="event.stopPropagation()">
+                                            @if(!in_array($office->office_code, ['ORIGIN', '[H]']))
+                                                <input type="checkbox" wire:click.stop="toggleOfficeSelection({{ $office->id }})" {{ in_array($office->id, $selectedOfficeIds) ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #3b82f6;">
+                                            @endif
+                                        </td>
+                                        <td style="padding: 8px 10px; font-weight: 700; color: #0284c7; font-family: monospace; font-size: 12px;">{{ $office->office_code }}</td>
+                                        <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">{{ $office->office_name }}</td>
+                                        <td style="padding: 8px 10px; color: #64748b;">{{ $office->cluster ?: '—' }}</td>
+                                        <td style="padding: 8px 10px; text-align: center;">
+                                            @if($office->is_active)
+                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;">Active</span>
+                                            @else
+                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #fee2e2; color: #991b1b; border: 1px solid #fecdd3;">Suspended</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="5" style="text-align: center; color: #94a3b8; padding: 20px;">No offices configured.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                @else
+                    <!-- Cards Grid Layout View -->
+                    <div class="offices-list">
+                        @forelse($offices as $office)
+                            @php
+                                $officeInitials = strtoupper(substr($office->office_code ?: '?', 0, 3));
+                            @endphp
+                            <div class="office-item-card {{ $selectedOfficeId === $office->id ? 'active' : '' }}" wire:key="office-{{ $office->id }}" wire:click="selectOffice({{ $office->id }})">
+                                @if(!in_array($office->office_code, ['ORIGIN', '[H]']))
+                                    <input type="checkbox" wire:click.stop="toggleOfficeSelection({{ $office->id }})" {{ in_array($office->id, $selectedOfficeIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
+                                @endif
+                                <div class="office-avatar-small">
+                                    <span>{{ $officeInitials }}</span>
+                                </div>
+                                <div class="office-meta-info">
+                                    <span class="office-display-name">{{ $office->office_name }}</span>
+                                    <span class="office-display-code">Code: {{ $office->office_code }}</span>
+                                    @if($office->cluster)
+                                        <span class="office-status-badge" style="background: rgba(14, 165, 233, 0.08); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.2); font-weight: 600; padding: 2px 6px; border-radius: 4px; font-size: 11px; display: inline-block; margin-top: 4px;">
+                                            <i class="fa-solid fa-sitemap" style="font-size: 9px; margin-right: 3px;"></i> {{ $office->cluster }}
+                                        </span>
+                                    @endif
+                                    @if($office->is_active)
+                                        <span class="office-status-badge active-badge" style="display: block; width: fit-content; margin-top: 4px;">Active</span>
+                                    @else
+                                        <span class="office-status-badge inactive-badge" style="display: block; width: fit-content; margin-top: 4px;">Suspended</span>
+                                    @endif
+                                </div>
+                            </div>
+                        @empty
+                            <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
+                                No offices configured.
+                            </div>
+                        @endforelse
+                    </div>
+                @endif
+
+                @if($offices->hasPages())
+                    <div class="offices-pagination-bar">
+                        {{ $offices->links('components.pagination') }}
+                    </div>
+                @endif
+            </div>
+
+            <!-- Right Pane: Office Form Configurator -->
+            @if($selectedOfficeId)
+                <div class="details-panel">
+                @if($successMessage)
+                    <div class="toast-alert success" style="margin: 20px 20px 0 20px;">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>{{ $successMessage }}</span>
+                    </div>
+                @endif
+
+                @if($errorMessage)
+                    <div class="toast-alert error" style="margin: 20px 20px 0 20px;">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        <span>{{ $errorMessage }}</span>
+                    </div>
+                @endif
+
+                @if($selectedOfficeId === -2)
+                        <!-- Header -->
+                        <div class="details-header">
+                            <div class="details-header-avatar" style="background-color: #e0f2fe; color: #0369a1;">
+                                <i class="fa-solid fa-file-import"></i>
+                            </div>
+                            <div class="details-header-info">
+                                <h2 class="details-header-name">Import Offices from File</h2>
+                                <span class="details-header-sub">Upload a .txt file containing multiple office configurations</span>
+                            </div>
+                            <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close Details Panel">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+
+                        <!-- Body Form -->
+                        <div class="details-body">
+                            <div class="form-group">
+                                <label class="form-label" for="officeFileInput" style="font-weight: 600; color: #334155; margin-bottom: 8px; display: block;">Select Office Text File (.txt)</label>
+                                <input type="file" 
+                                       id="officeFileInput" 
+                                       wire:model="officeFile" 
+                                       accept=".txt,text/plain" 
+                                       style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; font-size: 13px; font-family: 'Inter', sans-serif;">
+                                <div wire:loading wire:target="officeFile" style="font-size: 12px; color: #0284c7; margin-top: 6px; font-weight: 600;">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Uploading file... Please wait.
+                                </div>
+                                @error('officeFile') <span style="color:#ef4444; font-size:11px; margin-top:4px; display:block;">{{ $message }}</span> @enderror
+                                
+                                <p style="font-size: 12.5px; color: #64748b; margin-top: 12px; line-height: 1.5; font-family: 'Inter', sans-serif;">
+                                    <strong>Instructions:</strong> The uploaded file must be a plain text file (<code>.txt</code>). Every line must end with a semicolon (<code>;</code>):
+                                    <br>• Line 1: <code>=&lt;office name&gt;;</code> (must start with an equals sign <code>=</code>)
+                                    <br>• Line 2: <code>&lt;office short code&gt;;</code>
+                                    <br>• Line 3 (Optional): <code>&lt;active status (true/false)&gt;;</code> (e.g. <code>true;</code> or <code>false;</code>)
+                                    <br>• Line 4 (Optional): <code>&lt;cluster code&gt;;</code> (must refer to an existing cluster code)
+                                    <br>• Lines starting with <code>#</code> are classified as comments and will be ignored.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Footer Actions -->
+                        <div class="details-footer">
+                            <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
+                            <button type="button" class="btn-save" style="background-color: #0284c7; border-color: #0284c7;" 
+                                    wire:click="importOffices" 
+                                    wire:loading.attr="disabled" 
+                                    wire:target="officeFile, importOffices">
+                                <span wire:loading.remove wire:target="officeFile, importOffices">
+                                    <i class="fa-solid fa-file-import"></i> Extract Office Data
+                                </span>
+                                <span wire:loading wire:target="officeFile, importOffices">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Processing...
+                                </span>
+                            </button>
+                        </div>
+                    @else
+                        <!-- Header -->
+                        <div class="details-header">
+                            <div class="details-header-avatar">
+                                <i class="fa-solid fa-building"></i>
+                            </div>
+                            <div class="details-header-info">
+                                <h2 class="details-header-name">
+                                    {{ $selectedOfficeId === -1 ? 'Configure New Office' : $officeName }}
+                                </h2>
+                                <span class="details-header-sub">
+                                    {{ $selectedOfficeId === -1 ? 'Add a new office entry to register tracking clearance' : 'Review & adjust active office registration' }}
+                                </span>
+                            </div>
+                            <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close Details Panel">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+
+                        <!-- Body Form -->
+                        <div class="details-body">
+                            <form wire:submit.prevent="saveOfficeChanges" style="display: flex; flex-direction: column; gap: 20px;">
+                                <!-- Office Name -->
+                                <div class="form-group">
+                                    <span class="form-label">Office Name</span>
+                                    <input type="text" class="form-input" placeholder="e.g. College of Computer Studies" wire:model="officeName">
+                                    @error('officeName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Office Code -->
+                                <div class="form-group">
+                                    <span class="form-label">Office Short Code</span>
+                                    <input type="text" class="form-input" placeholder="e.g. CCS" wire:model="officeCode" {{ in_array($officeCode, ['ORIGIN', '[H]', '[HUB]', 'HUB']) ? 'disabled' : '' }}>
+                                    @error('officeCode') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Cluster Dropdown -->
+                                <div class="form-group" wire:click.outside="$set('showOfficeClusterDropdown', false)">
+                                    <span class="form-label">Cluster</span>
+                                    <div style="position: relative;">
+                                        <input type="text" 
+                                               class="form-input" 
+                                               placeholder="Search and select cluster..." 
+                                               wire:model.live="officeClusterSearch" 
+                                               wire:focus="$set('showOfficeClusterDropdown', true)" 
+                                               autocomplete="off" 
+                                               style="padding-right: 32px;">
+                                        <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
+                                        
+                                        @if($showOfficeClusterDropdown)
+                                            <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50;">
+                                                <div wire:click="selectOfficeCluster('', '')" style="padding: 9px 14px; font-size: 13px; color: #64748b; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-style: italic;">
+                                                    None (No Cluster)
+                                                </div>
+                                                @php
+                                                    $oClusterSearchLower = strtolower($officeClusterSearch);
+                                                    $allClusters = \App\Models\Cluster::where('is_active', true)->orderBy('cluster_name')->get();
+                                                    $filteredClusters = $allClusters->filter(function($c) use ($oClusterSearchLower) {
+                                                        return empty($oClusterSearchLower) 
+                                                            || str_contains(strtolower($c->cluster_name), $oClusterSearchLower) 
+                                                            || str_contains(strtolower($c->cluster_code), $oClusterSearchLower);
+                                                    });
+                                                @endphp
+                                                @forelse($filteredClusters as $clusterObj)
+                                                    <div wire:click="selectOfficeCluster('{{ $clusterObj->cluster_code }}', '{{ addslashes($clusterObj->cluster_name) }}')" style="padding: 9px 14px; font-size: 13px; cursor: pointer; border-bottom: 1px solid #f1f5f9;">
+                                                        {{ $clusterObj->cluster_name }} ({{ $clusterObj->cluster_code }})
+                                                    </div>
+                                                @empty
+                                                    <div style="padding: 12px 14px; font-size: 13px; color: #94a3b8; text-align: center;">No matching clusters found</div>
+                                                @endforelse
+                                            </div>
+                                        @endif
+                                    </div>
+                                    @error('officeCluster') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Active Toggle Wrapper (Only shown for edit mode, not create mode) -->
+                                @if($selectedOfficeId > 0)
+                                    <div class="form-group">
+                                        <div class="status-toggle-wrapper">
+                                            <div class="status-toggle-label">
+                                                <span class="status-toggle-title">Office Active Status</span>
+                                                <span class="status-toggle-desc">Toggle whether this office is active or soft-deactivated for transparency.</span>
+                                            </div>
+                                            <label class="switch">
+                                                <input type="checkbox" wire:model="isActive" {{ in_array($officeCode, ['ORIGIN', '[H]', '[HUB]', 'HUB']) ? 'disabled' : '' }}>
+                                                <span class="slider"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                @endif
+                            </form>
+                        </div>
+
+                        <!-- Footer Actions -->
+                        <div class="details-footer">
+                            @if($selectedOfficeId > 0 && !in_array($officeCode, ['ORIGIN', '[H]', '[HUB]', 'HUB']))
+                                <button type="button" class="btn-delete" wire:click="deleteOffice" style="margin-right: auto;">
+                                    <i class="fa-solid fa-trash-can"></i> Delete Office
+                                </button>
+                            @endif
+                            <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
+                            <button type="button" class="btn-save" wire:click="saveOfficeChanges">
+                                <i class="fa-solid fa-floppy-disk"></i> Save Configuration
+                            </button>
+                        </div>
+                    @endif
+                </div>
+            @endif
+        </div>
+    @elseif($activeTab === 'clusters')
+        <div class="admin-offices-container {{ !$selectedClusterId ? 'no-selection' : 'has-selection' }}" wire:key="tab-clusters-view">
+            <!-- Left Pane: Clusters Directory -->
+            <div class="directory-panel">
+                <div class="directory-header-row">
+                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Clusters Directory</span>
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" class="btn-create-new" wire:click="startCreateCluster">
+                            <i class="fa-solid fa-plus"></i> New Cluster
+                        </button>
+                        <button type="button" class="btn-create-new" style="background-color: #0284c7; border-color: #0284c7;" wire:click="startImportCluster">
+                            <i class="fa-solid fa-file-import"></i> Import File
+                        </button>
+                    </div>
+                </div>
+
+                <div class="search-box-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" class="search-box" placeholder="Search clusters..." wire:model.live="clusterSearch">
+                </div>
+
+                @if(count($selectedClusterIds) > 0)
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; margin-bottom: 8px;">
+                        <span style="font-size: 12px; font-weight: 600; color: #be123c;">{{ count($selectedClusterIds) }} selected</span>
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to deactivate {{ count($selectedClusterIds) }} cluster(s)? They will be soft-deleted (hidden) but retained for transparency.')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkDeleteClusters(); }"
+                            style="background: #e11d48; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-trash-can"></i> Delete Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Deactivating {{ count($selectedClusterIds) }} cluster(s)...</span>
+                        </button>
+                    </div>
+                @endif
+
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" wire:click="toggleAllClusters" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedClusterIds) > 0 ? 'checked' : '' }}>
+                        <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                    </div>
+
+                    <!-- Layout View Mode Toggle -->
+                    <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                        <button type="button" wire:click="$set('clusterViewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $clusterViewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $clusterViewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $clusterViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-border-all"></i> Cards
+                        </button>
+                        <button type="button" wire:click="$set('clusterViewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $clusterViewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $clusterViewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $clusterViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-table-list"></i> Table
+                        </button>
+                    </div>
+                </div>
+                
+                @if($clusterViewMode === 'table')
+                    <!-- Table Layout View -->
+                    <div style="overflow-x: auto; max-height: calc(100vh - 280px); overflow-y: auto;">
+                        <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12.5px;">
+                            <thead>
+                                <tr style="background: #f8fafc; color: #475569; text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px; border-bottom: 1.5px solid #cbd5e1;">
+                                    <th style="padding: 8px 10px; width: 36px;"></th>
+                                    <th style="padding: 8px 10px;">Code</th>
+                                    <th style="padding: 8px 10px;">Cluster Name</th>
+                                    <th style="padding: 8px 10px;">Cluster Head</th>
+                                    <th style="padding: 8px 10px; text-align: center;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($clusters as $cluster)
+                                    <tr class="cluster-tbl-row {{ $selectedClusterId === $cluster->id ? 'selected-row' : '' }}" 
+                                        wire:key="cluster-tbl-{{ $cluster->id }}" 
+                                        wire:click="selectCluster({{ $cluster->id }})"
+                                        style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $selectedClusterId === $cluster->id ? '#eff6ff' : '#ffffff' }}; transition: background 0.12s ease;">
+                                        <td style="padding: 8px 10px;" onclick="event.stopPropagation()">
+                                            <input type="checkbox" wire:click.stop="toggleClusterSelection({{ $cluster->id }})" {{ in_array($cluster->id, $selectedClusterIds) ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #3b82f6;">
+                                        </td>
+                                        <td style="padding: 8px 10px; font-weight: 700; color: #166534; font-family: monospace; font-size: 12px;">{{ $cluster->cluster_code }}</td>
+                                        <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">{{ $cluster->cluster_name }}</td>
+                                        <td style="padding: 8px 10px; color: #64748b;">{{ $cluster->cluster_head ?: '—' }}</td>
+                                        <td style="padding: 8px 10px; text-align: center;">
+                                            @if($cluster->is_active)
+                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;">Active</span>
+                                            @else
+                                                <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #fee2e2; color: #991b1b; border: 1px solid #fecdd3;">Suspended</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="5" style="text-align: center; color: #94a3b8; padding: 20px;">No clusters configured.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                @else
+                    <!-- Cards Grid Layout View -->
+                    <div class="offices-list">
+                        @forelse($clusters as $cluster)
+                            @php
+                                $clusterInitials = strtoupper(substr($cluster->cluster_code ?: '?', 0, 3));
+                            @endphp
+                            <div class="office-item-card {{ $selectedClusterId === $cluster->id ? 'active' : '' }}" wire:key="cluster-{{ $cluster->id }}" wire:click="selectCluster({{ $cluster->id }})">
+                                <input type="checkbox" wire:click.stop="toggleClusterSelection({{ $cluster->id }})" {{ in_array($cluster->id, $selectedClusterIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0;">
+                                <div class="office-avatar-small" style="background-color: #f0fdf4; color: #166534;">
+                                    <span>{{ $clusterInitials }}</span>
+                                </div>
+                                <div class="office-meta-info">
+                                    <span class="office-display-name">{{ $cluster->cluster_name }}</span>
+                                    <span class="office-display-code">Code: {{ $cluster->cluster_code }}</span>
+                                    @if($cluster->cluster_head)
+                                        <span class="office-display-code" style="color: #64748b; font-size: 11px;">Head: {{ $cluster->cluster_head }}</span>
+                                    @endif
+                                    @if($cluster->is_active)
+                                        <span class="office-status-badge active-badge" style="display: block; width: fit-content; margin-top: 4px;">Active</span>
+                                    @else
+                                        <span class="office-status-badge inactive-badge" style="display: block; width: fit-content; margin-top: 4px;">Suspended</span>
+                                    @endif
+                                </div>
+                            </div>
+                        @empty
+                            <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
+                                No clusters configured.
+                            </div>
+                        @endforelse
+                    </div>
+                @endif
+
+                @if($clusters->hasPages())
+                    <div class="clusters-pagination-bar">
+                        {{ $clusters->links('components.pagination') }}
+                    </div>
+                @endif
+            </div>
+
+            <!-- Right Pane: Cluster Form Configurator -->
+            @if($selectedClusterId)
+                <div class="details-panel">
+                @if($successMessage)
+                    <div class="toast-alert success" style="margin: 20px 20px 0 20px;">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>{{ $successMessage }}</span>
+                    </div>
+                @endif
+
+                @if($errorMessage)
+                    <div class="toast-alert error" style="margin: 20px 20px 0 20px;">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        <span>{{ $errorMessage }}</span>
+                    </div>
+                @endif
+
+                @if($selectedClusterId === -2)
+                        <!-- Header -->
+                        <div class="details-header">
+                            <div class="details-header-avatar" style="background-color: #e0f2fe; color: #0369a1;">
+                                <i class="fa-solid fa-file-import"></i>
+                            </div>
+                            <div class="details-header-info">
+                                <h2 class="details-header-name">Import Clusters from File</h2>
+                                <span class="details-header-sub">Upload a .txt file containing multiple cluster configurations</span>
+                            </div>
+                        </div>
+
+                        <!-- Body Form -->
+                        <div class="details-body">
+                            <div class="form-group">
+                                <label class="form-label" for="clusterFileInput" style="font-weight: 600; color: #334155; margin-bottom: 8px; display: block;">Select Cluster Text File (.txt)</label>
+                                <input type="file" 
+                                       id="clusterFileInput" 
+                                       wire:model="clusterFile" 
+                                       accept=".txt,text/plain" 
+                                       style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; font-size: 13px; font-family: 'Inter', sans-serif;">
+                                <div wire:loading wire:target="clusterFile" style="font-size: 12px; color: #0284c7; margin-top: 6px; font-weight: 600;">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Uploading file... Please wait.
+                                </div>
+                                @error('clusterFile') <span style="color:#ef4444; font-size:11px; margin-top:4px; display:block;">{{ $message }}</span> @enderror
+                                
+                                <p style="font-size: 12.5px; color: #64748b; margin-top: 12px; line-height: 1.5; font-family: 'Inter', sans-serif;">
+                                    <strong>Instructions:</strong> The uploaded file must be a plain text file (<code>.txt</code>). Every line must end with a semicolon (<code>;</code>):
+                                    <br>• Line 1: <code>=&lt;cluster name&gt;;</code> (must start with an equals sign <code>=</code>)
+                                    <br>• Line 2: <code>&lt;cluster short code&gt;;</code>
+                                    <br>• Line 3 (Optional): <code>&lt;cluster head (office_code or office_name)&gt;;</code>
+                                    <br>• Line 4 (Optional): <code>&lt;active status (true/false)&gt;;</code> (e.g. <code>true;</code> or <code>false;</code>)
+                                    <br>• Lines starting with <code>#</code> are classified as comments and will be ignored.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Footer Actions -->
+                        <div class="details-footer">
+                            <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
+                            <button type="button" class="btn-save" style="background-color: #0284c7; border-color: #0284c7;" 
+                                    wire:click="importClusters" 
+                                    wire:loading.attr="disabled" 
+                                    wire:target="clusterFile, importClusters">
+                                <span wire:loading.remove wire:target="clusterFile, importClusters">
+                                    <i class="fa-solid fa-file-import"></i> Extract Cluster Data
+                                </span>
+                                <span wire:loading wire:target="clusterFile, importClusters">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Processing...
+                                </span>
+                            </button>
+                        </div>
+                    @else
+                        <!-- Header -->
+                        <div class="details-header">
+                            <div class="details-header-avatar" style="background-color: #f0fdf4; color: #166534;">
+                                <i class="fa-solid fa-sitemap"></i>
+                            </div>
+                            <div class="details-header-info">
+                                <h2 class="details-header-name">
+                                    {{ $selectedClusterId === -1 ? 'Configure New Cluster' : $clusterName }}
+                                </h2>
+                                <span class="details-header-sub">
+                                    {{ $selectedClusterId === -1 ? 'Add a new cluster entity to group related offices' : 'Review & adjust active cluster definition' }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Body Form -->
+                        <div class="details-body">
+                            <form wire:submit.prevent="saveClusterChanges" style="display: flex; flex-direction: column; gap: 20px;">
+                                <!-- Cluster Name -->
+                                <div class="form-group">
+                                    <span class="form-label">Cluster Name</span>
+                                    <input type="text" class="form-input" placeholder="e.g. Academic Affairs" wire:model="clusterName">
+                                    @error('clusterName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Cluster Code -->
+                                <div class="form-group">
+                                    <span class="form-label">Cluster Short Code</span>
+                                    <input type="text" class="form-input" placeholder="e.g. ACAD" wire:model="clusterCode">
+                                    @error('clusterCode') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Cluster Head (Office dropdown) -->
+                                <div class="form-group" wire:click.outside="$set('showClusterHeadDropdown', false)">
+                                    <span class="form-label">Cluster Head (Office)</span>
+                                    <div style="position: relative;">
+                                        <input type="text" 
+                                               class="form-input" 
+                                               placeholder="Search and select office..." 
+                                               wire:model.live="clusterHeadSearch" 
+                                               wire:focus="$set('showClusterHeadDropdown', true)" 
+                                               autocomplete="off" 
+                                               style="padding-right: 32px; background-color: white;">
+                                        <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
+                                        
+                                        @if($showClusterHeadDropdown)
+                                            <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50;">
+                                                <div wire:click="selectClusterHead('', '')" style="padding: 9px 14px; font-size: 13px; color: #64748b; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-style: italic;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                                    None (No Head)
+                                                </div>
+                                                @php
+                                                    $cHeadSearchLower = strtolower($clusterHeadSearch);
+                                                    $filteredClusterOffices = $clusterOffices->filter(function($o) use ($cHeadSearchLower) {
+                                                        return empty($cHeadSearchLower) 
+                                                            || str_contains(strtolower($o->office_name), $cHeadSearchLower) 
+                                                            || str_contains(strtolower($o->office_code), $cHeadSearchLower);
+                                                    });
+                                                @endphp
+                                                @forelse($filteredClusterOffices as $headOfficeOption)
+                                                    <div wire:click="selectClusterHead('{{ $headOfficeOption->office_code }}', '{{ addslashes($headOfficeOption->office_name) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                                        {{ $headOfficeOption->office_name }} ({{ $headOfficeOption->office_code }})
+                                                    </div>
+                                                @empty
+                                                    <div style="padding: 12px 14px; font-size: 13px; color: #94a3b8; text-align: center;">No matching offices found in this cluster</div>
+                                                @endforelse
+                                            </div>
+                                        @endif
+                                    </div>
+                                    @error('clusterHead') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                                </div>
+
+                                <!-- Active Toggle Wrapper (Only shown for edit mode, not create mode) -->
+                                @if($selectedClusterId > 0)
+                                    <div class="form-group">
+                                        <div class="status-toggle-wrapper">
+                                            <div class="status-toggle-label">
+                                                <span class="status-toggle-title">Cluster Active Status</span>
+                                                <span class="status-toggle-desc">Toggle whether this cluster is active or suspended.</span>
+                                            </div>
+                                            <label class="switch">
+                                                <input type="checkbox" wire:model="clusterIsActive">
+                                                <span class="slider"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                @endif
+                            </form>
+                        </div>
+
+                        <!-- Footer Actions -->
+                        <div class="details-footer">
+                            @if($selectedClusterId > 0)
+                                <button type="button" class="btn-delete" wire:click="deleteCluster" wire:confirm="Are you sure you want to deactivate this cluster? It will be soft-deleted (hidden) but retained for transparency." style="margin-right: auto;">
+                                    <i class="fa-solid fa-trash-can"></i> Delete Cluster
+                                </button>
+                            @endif
+                            <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
+                            <button type="button" class="btn-save" wire:click="saveClusterChanges">
+                                <i class="fa-solid fa-floppy-disk"></i> Save Configuration
+                            </button>
+                        </div>
+                    @endif
+                </div>
+            @endif
+        </div>
+    @elseif($activeTab === 'other_offices')
+        <div class="admin-offices-container {{ !$selectedOtherOfficeId ? 'no-selection' : 'has-selection' }}" wire:key="tab-other-offices-view">
+            <!-- Left Pane: Other Offices Directory -->
+            <div class="directory-panel">
+                <div class="directory-header-row">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="form-label" style="margin: 0; font-size: 14px; font-weight: 700; color: #0f172a; font-family: 'Outfit', sans-serif;">External Source Offices</span>
+                        <span style="background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 700;">{{ $otherOffices->total() }}</span>
+                    </div>
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" class="btn-create-new" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); border: none; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);" wire:click="startCreateOtherOffice">
+                            <i class="fa-solid fa-plus"></i> New External Office
+                        </button>
+                    </div>
+                </div>
+
+                <div class="search-box-wrapper" style="margin-top: 10px;">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" class="search-box" placeholder="Search external office name or code..." wire:model.live="otherOfficeSearch">
+                </div>
+
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 4px; margin-top: 4px; border-bottom: 1px solid #e2e8f0;">
+                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">Registered External Entities</span>
+
+                    <!-- Layout View Mode Toggle -->
+                    <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                        <button type="button" wire:click="$set('otherOfficeViewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $otherOfficeViewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $otherOfficeViewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $otherOfficeViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-border-all"></i> Cards
+                        </button>
+                        <button type="button" wire:click="$set('otherOfficeViewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $otherOfficeViewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $otherOfficeViewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $otherOfficeViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                            <i class="fa-solid fa-table-list"></i> Table
+                        </button>
+                    </div>
+                </div>
+
+                @if($otherOfficeViewMode === 'table')
+                    <!-- Table Layout View -->
+                    <div class="other-offices-table-wrapper" style="margin-top: 10px;">
+                        <table class="other-offices-table">
+                            <thead>
+                                <tr>
+                                    <th>Code</th>
+                                    <th>External Office Name</th>
+                                    <th>Created By</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($otherOffices as $so)
+                                    <tr class="{{ $selectedOtherOfficeId === $so->id ? 'selected' : '' }}" style="cursor: pointer;" wire:click="selectOtherOffice({{ $so->id }})" wire:key="so-row-{{ $so->id }}">
+                                        <td>
+                                            <span class="item-code-badge">{{ $so->s_office_code }}</span>
+                                        </td>
+                                        <td style="font-weight: 600; color: #0f172a;">
+                                            {{ $so->s_office_name }}
+                                        </td>
+                                        <td style="color: #64748b; font-size: 12px;">
+                                            <i class="fa-solid fa-circle-user" style="color: #94a3b8; margin-right: 4px;"></i>
+                                            {{ $so->creator_office_name ?: ($so->created_by_office ?: 'System') }}
+                                        </td>
+                                        <td>
+                                            @if($so->is_active ?? true)
+                                                <span class="status-badge-active">Active</span>
+                                            @else
+                                                <span class="status-badge-inactive">Inactive</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="4" style="text-align: center; padding: 32px 16px; color: #94a3b8;">
+                                            <i class="fa-solid fa-building-circle-exclamation" style="font-size: 28px; margin-bottom: 8px; color: #cbd5e1; display: block;"></i>
+                                            <span style="font-weight: 600;">No external offices found.</span>
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                @else
+                    <!-- Cards Grid Layout View -->
+                    <div class="directory-list grid-view" style="margin-top: 10px;">
+                        @forelse($otherOffices as $so)
+                            <div class="directory-item {{ $selectedOtherOfficeId === $so->id ? 'selected' : '' }}" wire:click="selectOtherOffice({{ $so->id }})" wire:key="so-item-{{ $so->id }}">
+                                <div class="item-avatar">
+                                    <i class="fa-solid fa-building-flag"></i>
+                                </div>
+                                <div class="item-info">
+                                    <div class="item-name-row">
+                                        <span class="item-name">{{ $so->s_office_name }}</span>
+                                        <span class="item-code-badge">{{ $so->s_office_code }}</span>
+                                    </div>
+                                    <span class="item-meta">
+                                        <i class="fa-solid fa-circle-user" style="color: #94a3b8;"></i>
+                                        <span class="item-meta-creator">Created by {{ $so->creator_office_name ?: ($so->created_by_office ?: 'System') }}</span>
+                                    </span>
+                                </div>
+                                <div>
+                                    <i class="fa-solid fa-chevron-right" style="color: #cbd5e1; font-size: 12px;"></i>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="no-results-placeholder" style="padding: 32px 16px; text-align: center;">
+                                <i class="fa-solid fa-building-circle-exclamation" style="font-size: 28px; color: #cbd5e1; margin-bottom: 8px; display: block;"></i>
+                                <span style="font-weight: 600; color: #64748b;">No external offices found.</span>
+                            </div>
+                        @endforelse
+                    </div>
+                @endif
+
+                <div class="other-offices-pagination-bar">
+                    {{ $otherOffices->links() }}
+                </div>
+            </div>
+
+            <!-- Right Pane: Details & Form Panel -->
+            @if($selectedOtherOfficeId !== null)
+                <div class="details-panel" wire:key="so-details-panel">
+                    <div class="details-header" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; color: white;">
+                                <i class="fa-solid fa-building-flag"></i>
+                            </div>
+                            <div>
+                                <h2 style="color: white; margin: 0; font-size: 16px; font-weight: 700;">{{ $selectedOtherOfficeId === -1 ? 'Create New External Office' : 'External Office Details' }}</h2>
+                                <span style="color: rgba(255,255,255,0.8); font-size: 12px;">Configure external agency info for document tracking.</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="details-body">
+                        <form wire:submit.prevent="saveOtherOfficeChanges">
+                            <div class="form-group">
+                                <label class="form-label">External Office Name <span style="color: #ef4444;">*</span></label>
+                                <input type="text" class="form-input" wire:model="otherOfficeName" placeholder="e.g. Commission on Higher Education - Region V">
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">External Office Code <span style="color: #ef4444;">*</span></label>
+                                <input type="text" class="form-input" wire:model="otherOfficeCode" placeholder="e.g. CHED RO V" style="text-transform: uppercase;">
+                                <span style="font-size: 11.5px; color: #64748b; margin-top: 4px; display: block;">This code is stored as metadata on external transactions.</span>
+                            </div>
+
+                            @if($selectedOtherOfficeId > 0)
+                                <div class="form-group">
+                                    <div class="status-toggle-wrapper">
+                                        <div class="status-toggle-label">
+                                            <span class="status-toggle-title">Active Status</span>
+                                            <span class="status-toggle-desc">Toggle whether this external office is active.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="otherOfficeIsActive">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            @endif
+                        </form>
+                    </div>
+
+                    <div class="details-footer">
+                        @if($selectedOtherOfficeId > 0)
+                            <button type="button" class="btn-delete" wire:click="deleteOtherOffice" wire:confirm="Are you sure you want to deactivate this external office?" style="margin-right: auto;">
+                                <i class="fa-solid fa-trash-can"></i> Deactivate Office
+                            </button>
+                        @endif
+                        <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
+                        <button type="button" class="btn-save" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); border: none;" wire:click="saveOtherOfficeChanges">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Office
+                        </button>
+                    </div>
+                </div>
+            @endif
+        </div>
+    @endif
+</div>
+@else
 <div class="miller-container">
     {{-- Top Action Toolbar --}}
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
@@ -1311,7 +2382,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
 
         <div style="display: flex; align-items: center; gap: 8px;">
             @if($activeTab === 'offices')
-                <button type="button" wire:click="startCreate" class="m-btn m-btn-primary">
+                <x-admin.layout-trigger :mode="$layoutMode" />
+            <button type="button" wire:click="startCreate" class="m-btn m-btn-primary">
                     <i class="fa-solid fa-plus"></i> New Office
                 </button>
                 <button type="button" wire:click="startCreateCluster" class="m-btn m-btn-secondary">
@@ -2146,3 +3218,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
         </div>
     @endif
 </div>
+
+@endif
+

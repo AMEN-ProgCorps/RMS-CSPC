@@ -11,19 +11,33 @@ DCS file: Same print-ready poll for the lock icons on My DRF and My DCN.
     var activeMs = 2500;
     var hiddenMs = 15000;
 
+    /**
+     * Pendings action.
+     */
     function pending() {
         return Array.prototype.slice.call(document.querySelectorAll('[data-print-locked]'));
     }
+    /**
+     * Clears and resets timer.
+     */
     function clearTimer() {
         if (timer) {
             clearInterval(timer);
             timer = null;
         }
     }
+    /**
+     * Schedules action.
+     *
+     * @param {*} ms
+     */
     function schedule(ms) {
         clearTimer();
         timer = setInterval(tick, ms);
     }
+    /**
+     * Ticks action.
+     */
     async function tick() {
         if (typeof document !== 'undefined' && document.hidden) return;
         var left = pending();

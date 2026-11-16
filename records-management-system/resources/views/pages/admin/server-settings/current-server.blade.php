@@ -34,17 +34,32 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     public bool $hasSafetyBackup = false;
     public bool $isCreatingSafetyBackup = false;
 
+    /**
+     * Bootstraps component services, dependencies, and lifecycle listeners.
+     * @return void
+     */
     public function boot(): void
     {
         $this->__alias = 'pages.admin.server-settings.current-server';
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function mount(ServerManagementService $service): void
     {
         $this->refreshData($service);
         $this->checkBackupRequirement();
     }
 
+    /**
+     * Validates and verifies backup requirement.
+     * @return void
+     */
     public function checkBackupRequirement(): void
     {
         $this->latestBackup = BackupService::getLatestBackup();
@@ -98,6 +113,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         }
     }
 
+    /**
+     * Closes the safety backup modal.
+     * @return void
+     */
     public function dismissSafetyBackupModal(): void
     {
         if (!$this->isBackupModalSkippable) {
@@ -121,6 +140,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         $this->showSafetyBackupModal = false;
     }
 
+    /**
+     * Executes safety backup.
+     *
+     * @param BackupService $backupService
+     *
+     * @return void
+     */
     public function executeSafetyBackup(BackupService $backupService): void
     {
         $this->isCreatingSafetyBackup = true;
@@ -146,6 +172,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         $this->successMessage = "Safety backup created successfully ({$res['filename']}). The system is secured.";
     }
 
+    /**
+     * Refreshes data data.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function refreshData(ServerManagementService $service): void
     {
         $this->metrics = $service->getHardwareMetrics();
@@ -162,6 +195,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         }
     }
 
+    /**
+     * Toggles the auto detect setting or state.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function toggleAutoDetect(ServerManagementService $service): void
     {
         if ($this->isAutoLabel) {
@@ -180,6 +220,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         }
     }
 
+    /**
+     * Persists custom label changes to the database.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function saveCustomLabel(ServerManagementService $service): void
     {
         if ($this->isAutoLabel) {
@@ -199,6 +246,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
 
 
 
+    /**
+     * Runs git pull.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function runGitPull(ServerManagementService $service): void
     {
         $this->isBusy = true;
@@ -227,6 +281,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         } catch (\Throwable) {}
     }
 
+    /**
+     * Optimizes caches.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function optimizeCaches(ServerManagementService $service): void
     {
         $this->isBusy = true;
@@ -255,6 +316,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         } catch (\Throwable) {}
     }
 
+    /**
+     * Updates database.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function updateDatabase(ServerManagementService $service): void
     {
         $this->isBusy = true;
@@ -285,6 +353,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         } catch (\Throwable) {}
     }
 
+    /**
+     * Renders node.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function renderNode(ServerManagementService $service): void
     {
         $this->isBusy = true;
@@ -315,6 +390,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         } catch (\Throwable) {}
     }
 
+    /**
+     * Stops local db.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function stopLocalDb(ServerManagementService $service): void
     {
         try {
@@ -331,6 +413,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         } catch (\Throwable) {}
     }
 
+    /**
+     * Starts local db.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function startLocalDb(ServerManagementService $service): void
     {
         try {
@@ -347,6 +436,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         } catch (\Throwable) {}
     }
 
+    /**
+     * Closes the modal.
+     * @return void
+     */
     public function closeModal(): void
     {
         $this->showOutputModal = false;

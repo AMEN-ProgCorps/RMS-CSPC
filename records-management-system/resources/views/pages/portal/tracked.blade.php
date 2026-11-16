@@ -59,6 +59,13 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
     public string $docStatus = 'Ongoing';
     public string $docStatusColor = '#2563EB';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     *
+     * @param ?string $number
+     *
+     * @return void
+     */
     public function mount(?string $number = null): void
     {
         if (!empty($number)) {
@@ -111,6 +118,10 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
         }
     }
 
+    /**
+     * Sets the active account.
+     * @return void
+     */
     public function switchAccount(): void
     {
         session()->forget(['verified_tracker_email', 'verified_tracker_name', 'verified_tracker_avatar', 'verified_tracker_auth_type']);
@@ -131,6 +142,10 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
     public string $emailErrorMessage = '';
     public bool $isUnauthorizedEmail = false;
 
+    /**
+     * Closes the email error modal.
+     * @return void
+     */
     public function closeEmailErrorModal(): void
     {
         $this->showEmailErrorModal = false;
@@ -138,6 +153,10 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
         $this->isUnauthorizedEmail = false;
     }
 
+    /**
+     * Validates and verifies email.
+     * @return void
+     */
     public function verifyEmail(): void
     {
         $validated = \Illuminate\Support\Facades\Validator::make(
@@ -203,6 +222,10 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
         }
     }
 
+    /**
+     * Submits and processes password.
+     * @return void
+     */
     public function submitPassword(): void
     {
         $this->validate(['documentPassword' => ['required', 'string']]);
@@ -259,6 +282,10 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
         }
     }
 
+    /**
+     * Retrieves and populates document data data.
+     * @return void
+     */
     private function loadDocumentData(): void
     {
         try {
@@ -601,10 +628,16 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
     // ==========================================
     let currentActivePane = 'white';
 
+    /**
+     * Checks whether mobile condition is met.
+     */
     function isMobile() {
         return window.innerWidth <= 992;
     }
 
+    /**
+     * Initializes and sets up mobile swipe.
+     */
     function initMobileSwipe() {
         const wrapper = document.getElementById('main-swipe-wrapper');
         const whitePane = document.getElementById('pane-white');
@@ -614,6 +647,9 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
         }
     }
 
+    /**
+     * Initializes and sets up swipe.
+     */
     function setupSwipe() {
         const wrapper = document.getElementById('main-swipe-wrapper');
         const whitePane = document.getElementById('pane-white');
@@ -650,13 +686,24 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 (function () {
     const STORAGE_KEY = 'rms_tracking_device';
 
+    /**
+     * Retrieves and returns device.
+     */
     function getDevice() {
         try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; }
     }
+    /**
+     * Persists device to local storage or state.
+     *
+     * @param {*} d
+     */
     function saveDevice(d) { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); }
 
     let cleanupListeners = null;
 
+    /**
+     * Initializes setup component.
+     */
     function setup() {
         if (cleanupListeners) { cleanupListeners(); cleanupListeners = null; }
 
@@ -692,6 +739,9 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
             @this.call('logAudit', d ? JSON.stringify(d) : '{}');
         });
 
+        /**
+         * Clears and resets listeners.
+         */
         cleanupListeners = function () { offNotFound(); offEmail(); offAudit(); };
     }
 
@@ -700,6 +750,9 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 })();
 </script>
 <script>
+/**
+ * Validates and verifies device status.
+ */
 window.checkDeviceStatus = function () {
     const KEY = 'rms_tracking_device';
     let d;

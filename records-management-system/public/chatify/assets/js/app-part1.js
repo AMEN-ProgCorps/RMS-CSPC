@@ -398,8 +398,10 @@
       }
 
       applyAdminBadges();
-      if ((wasAtBottom || isSentByMe) && !window.replyJumpActive) {
-        scrollToBottom(true, true);
+      if (isSentByMe && !window.replyJumpActive) {
+        scrollToBottom(true, true, true);
+      } else if (wasAtBottom && !userScrolledUp && !(window.isTouchDown || window.isUserScrollingOrTouching) && !window.replyJumpActive) {
+        scrollToBottom(false, true, false);
       } else {
         showScrollIndicator(isSentByMe ? 0 : 1);
       }
@@ -532,8 +534,8 @@
       }
 
       applyAdminBadges();
-      if (wasAtBottom && !window.replyJumpActive) {
-        scrollToBottom(true, true);
+      if (wasAtBottom && !userScrolledUp && !(window.isTouchDown || window.isUserScrollingOrTouching) && !window.replyJumpActive) {
+        scrollToBottom(false, true, false);
       } else {
         showScrollIndicator(1);
       }
@@ -6426,8 +6428,6 @@
           if (isFirstLoad) {
             isFirstLoad = false;
             handleFirstLoadScroll();
-          } else if (wasAtBottom && shouldAutoScroll) {
-            scrollToBottom(true, true);
           }
           if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
           applyEmojiOnly();
@@ -6455,9 +6455,9 @@
             if (isFirstLoad) {
               isFirstLoad = false;
               handleFirstLoadScroll();
-            } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
-              scrollToBottom(true, true);
-            } else if (userScrolledUp || window.replyJumpActive) {
+            } else if (wasAtBottom && !userScrolledUp && !(window.isTouchDown || window.isUserScrollingOrTouching) && !window.replyJumpActive) {
+              scrollToBottom(false, true, false);
+            } else if (userScrolledUp || (window.isTouchDown || window.isUserScrollingOrTouching) || window.replyJumpActive) {
               if (actuallyAddedCount > 0) {
                 showScrollIndicator(actuallyAddedCount);
               } else if (window.replyJumpActive) {
@@ -6503,11 +6503,11 @@
           isFirstLoad = false;
           handleFirstLoadScroll();
         } else if (!adminConvViewingOlder) {
-          if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
-            scrollToBottom(true, true);
+          if (wasAtBottom && !userScrolledUp && !(window.isTouchDown || window.isUserScrollingOrTouching) && !window.replyJumpActive) {
+            scrollToBottom(false, true, false);
           } else {
             chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-            if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCountF > 0) {
+            if ((userScrolledUp || (window.isTouchDown || window.isUserScrollingOrTouching) || window.replyJumpActive) && genuinelyNewCountF > 0) {
               showScrollIndicator(genuinelyNewCountF);
             } else if (window.replyJumpActive) {
               showScrollIndicator(0);
@@ -6518,7 +6518,9 @@
         applyEmojiOnly();
         attachImageLoadListeners();
         adminConvCursor = data.nextCursor || '';
-        adminConvViewingOlder = false;
+        if (wasAtBottom && !userScrolledUp && !window.isTouchDown) {
+          adminConvViewingOlder = false;
+        }
         if (adminConvHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
       };
       xhr.onerror = function() { isLoadingAdminConv = false; adminConvXhr = null; if (loadOlderMode) hideBackreadTopLoader(); };

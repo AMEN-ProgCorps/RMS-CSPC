@@ -1122,23 +1122,90 @@
 
     // Active user scroll tracking — prevents background polls / image loads
     // from triggering scrollToBottom jumps while the user is actively scrolling.
+    // ── Active user touch & scroll tracking ──────────────────────────────────
+    // Prevents background polls, image loads, and real-time updates from
+    // dropping / snapping the scroll position while the user is holding their
+    // finger on the screen or actively scrolling / backreading.
+    let isTouchDown = false;
+    window.isTouchDown = false;
     let isUserScrollingOrTouching = false;
+    window.isUserScrollingOrTouching = false;
     let userScrollTouchTimeout = null;
 
-    function markUserScrollingActive() {
+    function handleChatTouchStart() {
+      isTouchDown = true;
+      window.isTouchDown = true;
       isUserScrollingOrTouching = true;
+      window.isUserScrollingOrTouching = true;
+      if (userScrollTouchTimeout) {
+        clearTimeout(userScrollTouchTimeout);
+        userScrollTouchTimeout = null;
+      }
+      cancelActiveScrollAnimation();
+    }
+
+    function handleChatTouchMove() {
+      isTouchDown = true;
+      window.isTouchDown = true;
+      isUserScrollingOrTouching = true;
+      window.isUserScrollingOrTouching = true;
+      if (userScrollTouchTimeout) {
+        clearTimeout(userScrollTouchTimeout);
+        userScrollTouchTimeout = null;
+      }
+    }
+
+    function handleChatTouchEnd(e) {
+      if (!e || !e.touches || e.touches.length === 0) {
+        isTouchDown = false;
+        window.isTouchDown = false;
+        if (userScrollTouchTimeout) clearTimeout(userScrollTouchTimeout);
+        userScrollTouchTimeout = setTimeout(function() {
+          isUserScrollingOrTouching = false;
+          window.isUserScrollingOrTouching = false;
+        }, 1200);
+      }
+    }
+
+    function handleChatTouchCancel() {
+      isTouchDown = false;
+      window.isTouchDown = false;
       if (userScrollTouchTimeout) clearTimeout(userScrollTouchTimeout);
       userScrollTouchTimeout = setTimeout(function() {
         isUserScrollingOrTouching = false;
-      }, 500);
+        window.isUserScrollingOrTouching = false;
+      }, 400);
+    }
+
+    function markUserScrollingActive() {
+      isUserScrollingOrTouching = true;
+      window.isUserScrollingOrTouching = true;
+      if (userScrollTouchTimeout) clearTimeout(userScrollTouchTimeout);
+      userScrollTouchTimeout = setTimeout(function() {
+        if (!isTouchDown) {
+          isUserScrollingOrTouching = false;
+          window.isUserScrollingOrTouching = false;
+        }
+      }, 800);
     }
 
     if (chatBox) {
-      chatBox.addEventListener('touchstart', markUserScrollingActive, { passive: true });
-      chatBox.addEventListener('touchmove', markUserScrollingActive, { passive: true });
-      chatBox.addEventListener('touchend', markUserScrollingActive, { passive: true });
-      chatBox.addEventListener('touchcancel', markUserScrollingActive, { passive: true });
+      chatBox.addEventListener('touchstart', handleChatTouchStart, { passive: true });
+      chatBox.addEventListener('touchmove', handleChatTouchMove, { passive: true });
+      chatBox.addEventListener('touchend', handleChatTouchEnd, { passive: true });
+      chatBox.addEventListener('touchcancel', handleChatTouchCancel, { passive: true });
       chatBox.addEventListener('wheel', markUserScrollingActive, { passive: true });
+      if (window.PointerEvent) {
+        chatBox.addEventListener('pointerdown', function(e) {
+          if (e.pointerType === 'touch') handleChatTouchStart();
+        }, { passive: true });
+        chatBox.addEventListener('pointerup', function(e) {
+          if (e.pointerType === 'touch') handleChatTouchEnd(e);
+        }, { passive: true });
+        chatBox.addEventListener('pointercancel', function(e) {
+          if (e.pointerType === 'touch') handleChatTouchCancel();
+        }, { passive: true });
+      }
     }
 
     // Enhanced scroll management
@@ -1163,16 +1230,19 @@
     }
     window.isAtBottom = isAtBottom;
 
-    function scrollToBottom(force = false, instant = false) {
-      // Never snap or jump scroll position while the user is actively touch-dragging or scrolling
-      if (isUserScrollingOrTouching && !force) return;
+    function scrollToBottom(force = false, instant = false, userExplicit = false) {
+      // NEVER snap or jump scroll position while user is actively holding their finger on the chat UI
+      if ((isTouchDown || window.isTouchDown) && !userExplicit) return;
 
-      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
-      if (viewingOlder && !force) return;
+      // Never snap or jump scroll position while user is actively scrolling / during momentum
+      if ((isUserScrollingOrTouching || window.isUserScrollingOrTouching) && !userExplicit) return;
+
+      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive || userScrolledUp;
+      if (viewingOlder && !userExplicit) return;
 
       cancelActiveScrollAnimation();
 
-      if (force || shouldAutoScroll) {
+      if (force || shouldAutoScroll || userExplicit) {
         // Instant scroll — no animation (used on page load / switch / refresh)
         if (instant) {
           chatBox.scrollTop = chatBox.scrollHeight;
@@ -1224,19 +1294,28 @@
       // Reset scroll tracking flags
       userScrolledUp = false;
       shouldAutoScroll = true;
-      isUserScrollingOrTouching = false;
       clearFirstLoadScrollTimers();
 
+      // If user is already touching or holding the screen, do not force jump to bottom
+      if (isTouchDown || window.isTouchDown) {
+        chatFullyLoaded = true;
+        return;
+      }
+
       // Immediately jump to the latest chat at the bottom
-      scrollToBottom(true, true);
+      scrollToBottom(true, true, true);
       
       // Double-rAF ensures browser paint and subpixel reflows are completely settled without delayed timeouts
       requestAnimationFrame(function() {
-        chatBox.scrollTop = chatBox.scrollHeight;
-        hideScrollIndicator();
-        requestAnimationFrame(function() {
+        if (!isTouchDown && !window.isTouchDown) {
           chatBox.scrollTop = chatBox.scrollHeight;
           hideScrollIndicator();
+        }
+        requestAnimationFrame(function() {
+          if (!isTouchDown && !window.isTouchDown) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+            hideScrollIndicator();
+          }
         });
       });
 
@@ -2720,12 +2799,12 @@
 
     // Ensure scroll position is maintained at latest chat when images finish loading
     chatBox.addEventListener('load', function(event) {
-      if (isUserScrollingOrTouching) return;
+      if (isTouchDown || isUserScrollingOrTouching || window.isTouchDown || window.isUserScrollingOrTouching) return;
       if (event.target.tagName === 'IMG') {
         const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
-        if (viewingOlder) return; // Never auto-scroll to bottom when user is viewing older messages
-        if (shouldAutoScroll || !userScrolledUp || isAtBottom()) {
-          scrollToBottom(true, true);
+        if (viewingOlder || userScrolledUp) return; // Never auto-scroll to bottom when user is viewing older messages or scrolled up
+        if (shouldAutoScroll && isAtBottom()) {
+          scrollToBottom(false, true, false);
         }
       }
     }, true);
@@ -2945,7 +3024,7 @@
         return true;
       }
 
-      scrollToBottom(true, true);
+      scrollToBottom(true, true, true);
       hideScrollIndicator(true);
       if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
         markRead(activeDM);
@@ -3220,8 +3299,6 @@
         if (isFirstLoad) {
           isFirstLoad = false;
           handleFirstLoadScroll();
-        } else if (wasAtBottom && shouldAutoScroll) {
-          scrollToBottom(true, true);
         }
         if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
         applyEmojiOnly();
@@ -3256,9 +3333,9 @@
           if (isFirstLoad) {
             isFirstLoad = false;
             handleFirstLoadScroll();
-          } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
-            scrollToBottom(true, true);
-          } else if (userScrolledUp || window.replyJumpActive) {
+          } else if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching && !window.replyJumpActive) {
+            scrollToBottom(false, true, false);
+          } else if (userScrolledUp || isTouchDown || isUserScrollingOrTouching || window.replyJumpActive) {
             if (actuallyAddedCount > 0) {
               showScrollIndicator(actuallyAddedCount);
             } else if (window.replyJumpActive) {
@@ -3302,11 +3379,11 @@
         isFirstLoad = false;
         handleFirstLoadScroll();
       } else if (!gcViewingOlder) {
-        if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
-          scrollToBottom(true, true);
+        if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching && !window.replyJumpActive) {
+          scrollToBottom(false, true, false);
         } else {
           chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
-          if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCount > 0) {
+          if ((userScrolledUp || isTouchDown || isUserScrollingOrTouching || window.replyJumpActive) && genuinelyNewCount > 0) {
             showScrollIndicator(genuinelyNewCount);
           } else if (window.replyJumpActive) {
             showScrollIndicator(0);
@@ -3316,7 +3393,9 @@
       applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
       gcCursor = data.nextCursor || '';
-      gcViewingOlder = false;
+      if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching) {
+        gcViewingOlder = false;
+      }
       if (gcHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
     }
 
@@ -3685,9 +3764,9 @@
           if (isFirstLoad) {
             isFirstLoad = false;
             handleFirstLoadScroll();
-          } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
-            scrollToBottom(true, true);
-          } else if (userScrolledUp || window.replyJumpActive) {
+          } else if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching && !window.replyJumpActive) {
+            scrollToBottom(false, true, false);
+          } else if (userScrolledUp || isTouchDown || isUserScrollingOrTouching || window.replyJumpActive) {
             if (actuallyAddedCount > 0) {
               showScrollIndicator(actuallyAddedCount);
             } else if (window.replyJumpActive) {
@@ -3695,6 +3774,9 @@
             }
           }
         }
+        applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
+        if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) markRead(activeDM);
+        updateSeenIndicator();
         if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
         return;
       }
@@ -3733,11 +3815,11 @@
         isFirstLoad = false;
         handleFirstLoadScroll();
       } else if (!dmViewingOlder) {
-        if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
-          scrollToBottom(true, true);
+        if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching && !window.replyJumpActive) {
+          scrollToBottom(false, true, false);
         } else {
           chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-          if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCountF > 0) {
+          if ((userScrolledUp || isTouchDown || isUserScrollingOrTouching || window.replyJumpActive) && genuinelyNewCountF > 0) {
             showScrollIndicator(genuinelyNewCountF);
           } else if (window.replyJumpActive) {
             showScrollIndicator(0);
@@ -3745,6 +3827,9 @@
         }
       }
       dmCursor = data.nextCursor || '';
+      if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching) {
+        dmViewingOlder = false;
+      }
       if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
     }
 
@@ -6548,8 +6633,8 @@
           scrollAnchorObserver.observe(img);
         }
         img.addEventListener('load', () => {
-          if (!viewingOlder && isAtBottom() && shouldAutoScroll) {
-            scrollToBottom(true, true);
+          if (!viewingOlder && !userScrolledUp && !(isTouchDown || window.isTouchDown || isUserScrollingOrTouching || window.isUserScrollingOrTouching) && isAtBottom() && shouldAutoScroll) {
+            scrollToBottom(false, true, false);
           }
         });
       });

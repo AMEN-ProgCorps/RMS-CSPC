@@ -1829,6 +1829,11 @@
       justify-content: flex-end;
     }
 
+    .message-container.sent.is-optimistic-sending .message-bubble {
+      opacity: 0.88;
+      transition: opacity 0.2s ease;
+    }
+
     .message-container.received {
       justify-content: flex-start;
     }

@@ -42,7 +42,7 @@ if ($emoji === '❤' || $emoji === '🖤' || $emoji === '🤍') {
 
 header('Content-Type: application/json');
 
-if ($msgUuid === '' || $emoji === '' || !in_array($chatType, ['global', 'office_gc', 'private'], true)) {
+if ($msgUuid === '' || $emoji === '' || !in_array($chatType, ['global', 'office_gc', 'custom_gc', 'private'], true)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'Missing or invalid parameters.']);
     exit;
@@ -94,6 +94,15 @@ if ($chatType === 'private') {
             if ($userOfficeId !== $targetOfficeId) {
                 http_response_code(403);
                 echo json_encode(['success' => false, 'error' => 'You do not belong to this office group chat.']);
+                exit;
+            }
+        }
+    } elseif (str_starts_with($convId, 'gc_')) {
+        $targetGcId = (int) substr($convId, 3);
+        if ($targetGcId > 0 && !Auth::isAdmin($accountId)) {
+            if (!CustomGroupManager::isMember($targetGcId, $accountId)) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'You do not belong to this group chat.']);
                 exit;
             }
         }

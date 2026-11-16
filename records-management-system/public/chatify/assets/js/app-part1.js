@@ -665,6 +665,21 @@
             return;
           }
 
+          // If this message is a WebSocket echo of our own sent message, reconcile and confirm
+          // any pending optimistic bubble immediately without duplicate rendering.
+          if (targetMsgId && Number(data.sender_id) === Number(wsConfig.accountId)) {
+            const pendingBubble = chatBox.querySelector('.message-container.sent.is-optimistic-sending');
+            if (pendingBubble) {
+              pendingBubble.setAttribute('data-msg-id', targetMsgId);
+              pendingBubble.removeAttribute('id');
+              pendingBubble.removeAttribute('data-sending-uid');
+              pendingBubble.classList.remove('is-optimistic-sending');
+              if (data.reply_to_msg_uuid) pendingBubble.setAttribute('data-reply-to', data.reply_to_msg_uuid);
+              if (typeof updateSeenIndicator === 'function') updateSeenIndicator();
+              return;
+            }
+          }
+
           // Admin spy mode: keep conversations list and counter live in real-time
           if (typeof isAdminAllChatsView !== 'undefined' && isAdminAllChatsView && adminSpyType === 'conversations') {
             const targetConvId = data.conv_id || (data.chat_type === 'private' ? (

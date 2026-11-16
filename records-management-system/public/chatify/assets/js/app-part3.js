@@ -4677,37 +4677,71 @@
       messageInput.focus({ preventScroll: true });
       if (isIOS) iosBlurSuppressed = false;
 
-      // Show optimistic "Sending..." bubble immediately (only if NOT editing).
+      // Show instant optimistic message bubble immediately in chatBox (only if NOT editing).
       let sendIndId = null;
+      let sendUid = null;
       if (!editingMsgId) {
         const emptyChat = chatBox.querySelector('.empty-chat');
         if (emptyChat) emptyChat.remove();
 
-        const sendUid = ++sendingUidCounter;
+        sendUid = ++sendingUidCounter;
         sendIndId = 'sending-indicator-' + sendUid;
+
+        const d = new Date();
+        const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
+        const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
+        const fullTimeDisplay = `${dateStr} at ${timeStr}`;
+
+        const emojiOnlyClass = isEmojiOnly(message) ? ' emoji-only' : '';
+        const replyUuid = activeReply ? activeReply.msgId : null;
+        const replyQuoteHtml = (() => {
+          let snippetText = activeReply && activeReply.snippet ? activeReply.snippet : '';
+          if (!snippetText && replyUuid) {
+            const targetContainer = chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`);
+            if (targetContainer && typeof getReplySnippet === 'function') {
+              snippetText = getReplySnippet(targetContainer);
+            }
+          }
+          if (!replyUuid || !snippetText) return '';
+          if (String(snippetText).startsWith('image:')) {
+            const imgFile = String(snippetText).slice(6);
+            const cleanFile = imgFile.replace(/_thumb\.webp$/, '.webp');
+            const thumbFile = cleanFile.replace(/\.webp$/, '_thumb.webp');
+            const targetCont = chatBox ? chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`) : null;
+            const targetImg = targetCont ? targetCont.querySelector('img.chat-viewable-image') : null;
+            const imgSrc = (targetImg && targetImg.src) ? targetImg.src : ('uploads/' + encodeURIComponent(thumbFile));
+            return `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(replyUuid)}" data-reply-file="${escapeHtml(cleanFile)}"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false"></div>`;
+          }
+          return `<div class="reply-quote" data-reply-to="${escapeHtml(replyUuid)}"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
+        })();
 
         const sendingBubble = document.createElement('div');
         sendingBubble.id = sendIndId;
-        sendingBubble.setAttribute('data-sending-uid', sendUid);
-        sendingBubble.className = 'message-container sent msg-animate-sent';
+        sendingBubble.setAttribute('data-sending-uid', String(sendUid));
+        sendingBubble.setAttribute('data-created-at', d.toISOString());
+        sendingBubble.setAttribute('data-created-time', String(Math.floor(Date.now() / 1000)));
+        if (replyUuid) sendingBubble.setAttribute('data-reply-to', replyUuid);
+        sendingBubble.className = 'message-container sent is-optimistic-sending msg-animate-sent';
         sendingBubble.innerHTML = `
-          <div class="message-bubble sending-bubble">
-            <div class="message-content sending-dots"><span></span><span></span><span></span></div>
-          </div>
           <div class="message-avatar" data-sender-name="${escapeHtml(name)}">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
+          <div class="bubble-wrapper">
+            <div class="message-click-timestamp">${fullTimeDisplay}</div>
+            ${replyQuoteHtml}
+            <div class="message-bubble${emojiOnlyClass}">
+              <div class="message-content">${escapeHtml(message)}</div>
+            </div>
+          </div>
         `;
+        const contentEl = sendingBubble.querySelector('.message-content');
+        if (contentEl) {
+          linkifyContent(contentEl);
+          applyReadMoreToElement(contentEl);
+        }
         sendingBubble.addEventListener('animationend', () => sendingBubble.classList.remove('msg-animate-sent'), { once: true });
-        // Append optimistic sending bubble into floating overlay so it doesn't reflow chat
-        const overlay3 = getSendingOverlay();
-        if (overlay3) overlay3.appendChild(sendingBubble);
-        else chatBox.appendChild(sendingBubble);
+        chatBox.appendChild(sendingBubble);
         window.replyJumpActive = false;
         shouldAutoScroll = true;
         userScrolledUp = false;
-        // Always scroll for the user's own outgoing message — isAtBottom() can read
-        // stale while the virtual keyboard is open (viewport/chatBox height is still
-        // reflowing), which silently blocked this scroll and left the new message
-        // hidden below the fold when the keyboard was up.
         scrollToBottom(true, true);
         hideScrollIndicator(true);
       }
@@ -4871,26 +4905,26 @@
             hideEditBanner();
           }
 
-          // Convert optimistic sending bubble in-place immediately without full chat reload.
+          // Confirm optimistic message in-place without full chat reload.
           // If the user was viewing older history (e.g. jumped to a distant reply),
           // returning to latest chat resets the view and snaps cleanly to the live bottom.
           if (!editingMsgId && sendIndId) {
             if (wasViewingOlder) {
               if (typeof clearSendingOverlay === 'function') clearSendingOverlay();
-              const ind = document.getElementById(sendIndId);
+              const ind = document.getElementById(sendIndId) || chatBox.querySelector(`[data-sending-uid="${sendUid}"]`);
               if (ind && ind.parentNode) ind.parentNode.removeChild(ind);
               returnToLatestChat();
             } else {
-              const sendingBubble = document.getElementById(sendIndId);
+              const sendingBubble = document.getElementById(sendIndId) || chatBox.querySelector(`[data-sending-uid="${sendUid}"]`);
               if (sendingBubble) {
                 if (confirmedMsg && confirmedMsg.id) {
                   const existingInChatBox = chatBox.querySelector(`.message-container[data-msg-id="${confirmedMsg.id}"]`);
-                  if (existingInChatBox) {
+                  if (existingInChatBox && existingInChatBox !== sendingBubble) {
                     if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
                     updateSeenIndicator();
                   } else {
                     sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
-                    sendingBubble.setAttribute('data-created-at', new Date().toISOString());
+                    sendingBubble.setAttribute('data-created-at', confirmedMsg.created_at || new Date().toISOString());
                     sendingBubble.setAttribute('data-created-time', String(Math.floor(Date.now() / 1000)));
                     sendingBubble.setAttribute('data-edit-count', '0');
                     const replyUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid) ? confirmedMsg.reply_to_msg_uuid : (activeReply ? activeReply.msgId : null);
@@ -4899,77 +4933,27 @@
                     }
                     sendingBubble.removeAttribute('id');
                     sendingBubble.removeAttribute('data-sending-uid');
-                  
-                  // Move from floating sending overlay to main chatBox if needed
-                  if (sendingBubble.parentNode && sendingBubble.parentNode !== chatBox) {
-                    sendingBubble.parentNode.removeChild(sendingBubble);
-                    chatBox.appendChild(sendingBubble);
-                  }
+                    sendingBubble.classList.remove('is-optimistic-sending');
 
-                  const msgContent = confirmedMsg.plaintext || message;
-                  const d = new Date();
-                  const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
-                  const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
-                  const fullTimeDisplay = `${dateStr} at ${timeStr}`;
-                  const senderLabel = (name || 'you').toLowerCase();
-
-                  sendingBubble.className = 'message-container sent';
-                  const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
-                  const replyQuoteHtml = (() => {
-                    let snippetText = (confirmedMsg && (confirmedMsg.reply_snippet || confirmedMsg.reply_message))
-                      ? (confirmedMsg.reply_snippet || confirmedMsg.reply_message)
-                      : (activeReply && activeReply.snippet ? activeReply.snippet : '');
-                    if (!snippetText && replyUuid) {
-                      const targetContainer = chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`);
-                      if (targetContainer && typeof getReplySnippet === 'function') {
-                        snippetText = getReplySnippet(targetContainer);
+                    const serverContent = confirmedMsg.plaintext;
+                    if (serverContent && serverContent !== message) {
+                      const contentEl = sendingBubble.querySelector('.message-content');
+                      if (contentEl) {
+                        contentEl.textContent = serverContent;
+                        linkifyContent(contentEl);
+                        applyReadMoreToElement(contentEl);
                       }
                     }
-                    if (!replyUuid || !snippetText) return '';
-                    if (String(snippetText).startsWith('image:')) {
-                      const imgFile = String(snippetText).slice(6);
-                      const cleanFile = imgFile.replace(/_thumb\.webp$/, '.webp');
-                      const thumbFile = cleanFile.replace(/\.webp$/, '_thumb.webp');
-                      const targetCont = chatBox ? chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`) : null;
-                      const targetImg = targetCont ? targetCont.querySelector('img.chat-viewable-image') : null;
-                      const imgSrc = (targetImg && targetImg.src) ? targetImg.src : ('uploads/' + encodeURIComponent(thumbFile));
-                      return `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(replyUuid)}" data-reply-file="${escapeHtml(cleanFile)}"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="const rq=this.closest('.reply-quote-image-container'); if(rq){ rq.className='reply-quote reply-quote-image-container reply-quote-lazy-load'; rq.setAttribute('data-filename', '${escapeHtml(cleanFile)}'); rq.onclick=function(){ loadCachedImage(this); }; rq.innerHTML='<div class=\\'load-img-inner\\'><svg class=\\'load-img-icon\\' viewBox=\\'0 0 24 24\\' width=\\'22\\' height=\\'22\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><rect x=\\'3\\' y=\\'3\\' width=\\'18\\' height=\\'18\\' rx=\\'2\\' ry=\\'2\\'/><circle cx=\\'8.5\\' cy=\\'8.5\\' r=\\'1.5\\'/><polyline points=\\'21 15 16 10 5 21\\'/></svg><span class=\\'load-img-label\\'>Load image</span></div>'; }"></div>`;
-                    }
-                    return `<div class="reply-quote" data-reply-to="${escapeHtml(replyUuid)}"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
-                  })();
-                  sendingBubble.innerHTML = `
-                    <div class="message-avatar" data-sender-name="${escapeHtml(name)}">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
-                    <div class="bubble-wrapper">
-                      <div class="message-click-timestamp">${fullTimeDisplay}</div>
-                      ${replyQuoteHtml}
-                      <div class="message-bubble${emojiOnlyClass}">
-                        <div class="message-content">${escapeHtml(msgContent)}</div>
-                      </div>
-                    </div>
-                  `;
-                    const contentEl = sendingBubble.querySelector('.message-content');
-                    if (contentEl) {
-                      linkifyContent(contentEl);
-                      applyReadMoreToElement(contentEl);
-                    }
+
                     applyAdminBadges();
-                    // The optimistic bubble just became a real, permanent
-                    // .message-container inside chatBox — cap the window at
-                    // MAX_WINDOW just like any other real-time append.
                     if (!gcViewingOlder && !dmViewingOlder) {
                       const trimmed = trimChatMessages(MAX_WINDOW);
                       if (trimmed) refreshCursorAfterTopTrim();
                     }
-                    // Always scroll to bottom for confirmed message
-                    window.replyJumpActive = false;
-                    shouldAutoScroll = true;
-                    userScrolledUp = false;
-                    scrollToBottom(true, true);
-                    hideScrollIndicator(true);
                     updateSeenIndicator();
                   }
                 } else {
-                  // If confirmedMsg is missing or invalid, remove the optimistic sending bubble so it doesn't float stuck!
+                  // If confirmedMsg is missing or invalid, remove optimistic bubble
                   if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
                 }
               }

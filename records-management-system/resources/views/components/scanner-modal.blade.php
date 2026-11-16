@@ -353,7 +353,17 @@ new class extends Component {
         }
 
         $this->dispatch('scanner-modal-opened');
+        $this->dispatch('rms-widget-opened', widget: 'scanner');
         $this->dispatch('init-camera-scanner');
+    }
+
+    #[On('rms-widget-opened')]
+    public function handleOtherWidgetOpened($widget = null, $detail = null): void
+    {
+        $widgetName = $widget ?? (is_array($detail) ? ($detail['widget'] ?? null) : null);
+        if ($widgetName && $widgetName !== 'scanner' && $this->isOpen) {
+            $this->closeModal();
+        }
     }
 
     #[On('close-scanner-modal')]
@@ -2843,6 +2853,30 @@ new class extends Component {
             window.addEventListener('init-camera-scanner', handleInitCameraScanner);
             window.addEventListener('stop-camera-scanner', handleStopCameraScanner);
             window.addEventListener('scanner-code-invalid', handleScannerCodeInvalid);
+
+            window.addEventListener('scanner-modal-opened', () => {
+                window.dispatchEvent(new CustomEvent('rms-widget-opened', { detail: { widget: 'scanner' } }));
+                if (typeof window.closeMessifyWidget === 'function') {
+                    window.closeMessifyWidget();
+                }
+            });
+
+            window.addEventListener('rms-widget-opened', (e) => {
+                const detail = e.detail;
+                const w = (detail && typeof detail === 'object') ? (detail.widget || (Array.isArray(detail) ? detail[0]?.widget : null)) : detail;
+                if (w && w !== 'scanner') {
+                    const comp = resolveModalComponent();
+                    if (comp) {
+                        if (typeof comp.closeModal === 'function') {
+                            comp.closeModal();
+                        } else if (comp.$wire && typeof comp.$wire.closeModal === 'function') {
+                            comp.$wire.closeModal();
+                        } else if (typeof comp.call === 'function') {
+                            comp.call('closeModal');
+                        }
+                    }
+                }
+            });
         }
 
         window.addEventListener('beforeunload', () => {

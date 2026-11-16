@@ -11,10 +11,22 @@
     x-data="{
         isOpen: false,
         openScanner() {
-            if (window.Livewire) {
-                Livewire.dispatch('toggle-scanner-modal');
+            if (this.isOpen) {
+                if (window.Livewire) {
+                    Livewire.dispatch('close-scanner-modal');
+                } else {
+                    window.dispatchEvent(new CustomEvent('close-scanner-modal'));
+                }
             } else {
-                window.dispatchEvent(new CustomEvent('toggle-scanner-modal'));
+                window.dispatchEvent(new CustomEvent('rms-widget-opened', { detail: { widget: 'scanner' } }));
+                if (typeof window.closeMessifyWidget === 'function') {
+                    window.closeMessifyWidget();
+                }
+                if (window.Livewire) {
+                    Livewire.dispatch('open-scanner-modal');
+                } else {
+                    window.dispatchEvent(new CustomEvent('open-scanner-modal'));
+                }
             }
         },
         init() {
@@ -40,6 +52,7 @@
     }"
     x-on:scanner-modal-opened.window="isOpen = true"
     x-on:scanner-modal-closed.window="isOpen = false"
+    x-on:rms-widget-opened.window="if ($event.detail && ($event.detail.widget || (Array.isArray($event.detail) ? $event.detail[0]?.widget : null)) !== 'scanner' && isOpen) { isOpen = false; if (window.Livewire) { Livewire.dispatch('close-scanner-modal'); } else { window.dispatchEvent(new CustomEvent('close-scanner-modal')); } }"
 >
     <!-- Floating Scanner Trigger Button -->
     <button

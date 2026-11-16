@@ -2,6 +2,8 @@
 {{-- Always define stubs so onclick handlers never throw ReferenceError before the widget script loads. --}}
 <script>
     window.toggleMessifyWidget = window.toggleMessifyWidget || function () {};
+    window.closeMessifyWidget = window.closeMessifyWidget || function () {};
+    window.openMessifyWidget = window.openMessifyWidget || function () {};
     window.toggleMessifyMaximize = window.toggleMessifyMaximize || function () {};
     window.reloadMessifyIframe = window.reloadMessifyIframe || function () {};
     window.hideMessifyLoader = window.hideMessifyLoader || function () {};
@@ -733,13 +735,37 @@ body.messify-widget-open #messify-global-widget {
         playNotificationSound();
     });
 
-    window.addEventListener('rms-widget-opened', function(e) {
-        if (e.detail && e.detail.widget !== 'messify' && isOpen) {
+    const handleCloseFromOtherWidget = function(e) {
+        const detail = e ? e.detail : null;
+        const w = (detail && typeof detail === 'object') ? (detail.widget || (Array.isArray(detail) ? detail[0]?.widget : null)) : detail;
+        if (w !== 'messify' && isOpen) {
             isOpen = false;
             sessionStorage.setItem('messify_widget_open', false);
             setWidgetVisibility(false, true);
         }
-    });
+    };
+
+    window.addEventListener('rms-widget-opened', handleCloseFromOtherWidget);
+    window.addEventListener('open-scanner-modal', function() { handleCloseFromOtherWidget({ detail: { widget: 'scanner' } }); });
+    window.addEventListener('scanner-modal-opened', function() { handleCloseFromOtherWidget({ detail: { widget: 'scanner' } }); });
+
+    window.closeMessifyWidget = function() {
+        if (isOpen) {
+            isOpen = false;
+            sessionStorage.setItem('messify_widget_open', false);
+            setWidgetVisibility(false, true);
+        }
+    };
+
+    window.openMessifyWidget = function() {
+        if (!isTabletOrDesktop()) return;
+        if (!isOpen) {
+            isOpen = true;
+            sessionStorage.setItem('messify_widget_open', true);
+            setWidgetVisibility(true, true);
+            scheduleUnreadPoll(200);
+        }
+    };
 
     window.toggleMessifyWidget = function() {
         if (!isTabletOrDesktop()) {
@@ -873,6 +899,12 @@ body.messify-widget-open #messify-global-widget {
         if (show) {
             document.body.classList.add('messify-widget-open');
             window.dispatchEvent(new CustomEvent('rms-widget-opened', { detail: { widget: 'messify' } }));
+            if (window.Livewire && typeof window.Livewire.dispatch === 'function') {
+                window.Livewire.dispatch('close-scanner-modal');
+                window.Livewire.dispatch('close-report-modal');
+            }
+            window.dispatchEvent(new CustomEvent('close-scanner-modal'));
+            window.dispatchEvent(new CustomEvent('close-report-modal'));
             const labelEl = document.getElementById('messify-widget-btn-label');
             if (labelEl) labelEl.textContent = 'Close';
 

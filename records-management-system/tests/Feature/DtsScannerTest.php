@@ -905,4 +905,19 @@ class DtsScannerTest extends TestCase
             ->assertSee('Scanner cooldown active')
             ->assertDispatched('scanner-code-invalid');
     }
+
+    /**
+     * Test single widget open rule: scanner closes when another widget opens.
+     */
+    public function test_scanner_closes_when_another_widget_opens()
+    {
+        $user = $this->testUser;
+        Auth::login($user);
+
+        Volt::test('components.scanner-modal')
+            ->call('openModal')
+            ->assertSet('isOpen', true)
+            ->dispatch('rms-widget-opened', widget: 'messify')
+            ->assertSet('isOpen', false);
+    }
 }

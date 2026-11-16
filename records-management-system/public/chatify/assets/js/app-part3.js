@@ -2509,8 +2509,11 @@
       if (isGlobalChat) {
         const targetConvId = (typeof getActiveChannelConvId === 'function')
           ? getActiveChannelConvId()
-          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
-        params.set('chat_type', targetConvId.startsWith('office_') ? 'office_gc' : 'global');
+          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+        const isOffice = Boolean(targetConvId && targetConvId.startsWith('office_'));
+        const isCustom = Boolean(targetConvId && targetConvId.startsWith('gc_'));
+        const effectiveChatType = isCustom ? 'custom_gc' : (isOffice ? 'office_gc' : 'global');
+        params.set('chat_type', effectiveChatType);
         params.set('conv_id', targetConvId);
       } else if (activeDM) {
         params.set('chat_type', 'private');
@@ -2538,10 +2541,13 @@
               const recipId = activeDMAccountId || Number(data.target_id) || null;
               const targetConvId = (typeof getActiveChannelConvId === 'function')
                 ? getActiveChannelConvId()
-                : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+                : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+              const isOffice = Boolean(targetConvId && targetConvId.startsWith('office_'));
+              const isCustom = Boolean(targetConvId && targetConvId.startsWith('gc_'));
+              const effectiveChatType = isGlobalChat ? (isCustom ? 'custom_gc' : (isOffice ? 'office_gc' : 'global')) : 'private';
               ws.send(JSON.stringify({
                 type: 'reaction',
-                chat_type: isGlobalChat ? (targetConvId.startsWith('office_') ? 'office_gc' : 'global') : 'private',
+                chat_type: effectiveChatType,
                 conv_id: isGlobalChat ? targetConvId : null,
                 recipient_id: recipId,
                 msg_uuid: data.msg_uuid,
@@ -2986,8 +2992,12 @@
         gcViewingOlder = false;
         gcCursor = '';
         removePaginationBtn();
-        forceBottomScrollState('__global__');
-        if (typeof globalChatCache !== 'undefined') globalChatCache = null;
+        const curCid = (typeof getActiveChannelConvId === 'function') ? getActiveChannelConvId() : 'global';
+        forceBottomScrollState(curCid || '__global__');
+        if (typeof globalChatCache !== 'undefined' && (!curCid || curCid === 'global')) globalChatCache = null;
+        if (typeof channelMessageCache !== 'undefined' && channelMessageCache.delete && curCid) {
+          channelMessageCache.delete(curCid);
+        }
         chatBox.innerHTML = '';
         isFirstLoad = true;
         chatFullyLoaded = false;
@@ -3203,12 +3213,18 @@
       gcHasMore        = data.hasMore || false;
 
       if (!loadOlderMode && !newHtml.trim()) {
-        const title = (window.activeChannel === 'office' && window.currentOfficeInfo)
+        const isOffice = window.activeChannel === 'office';
+        const isCustom = window.activeChannel === 'gc';
+        const title = (isOffice && window.currentOfficeInfo)
           ? (window.currentOfficeInfo.office_code || window.currentOfficeInfo.display_title || 'Office Group Chat')
-          : 'Global Chat';
-        const sub = (window.activeChannel === 'office')
+          : (isCustom && window.activeCustomGc
+            ? (window.activeCustomGc.name || window.activeCustomGc.full_name || 'Group Chat')
+            : 'Global Chat');
+        const sub = isOffice
           ? 'No messages yet. Say hello to your office team!'
-          : 'No messages yet. Send a message to get the conversation started!';
+          : (isCustom
+            ? 'No messages yet. Say hello to your group!'
+            : 'No messages yet. Send a message to get the conversation started!');
         chatBox.innerHTML = `<div class="empty-chat">
           <div class="chat-icon">
             <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
@@ -3418,14 +3434,12 @@
     window.abortAnyInFlightChatXhrs = abortAnyInFlightChatXhrs;
 
     function prefetchGlobalChatSnapshot() {
-      if (globalChatPrefetchedData) return Promise.resolve(globalChatPrefetchedData);
+      if (globalChatPrefetchedData && globalChatPrefetchedData.conv_id === 'global') return Promise.resolve(globalChatPrefetchedData);
       if (gcPrefetchPromise) return gcPrefetchPromise;
 
       gcPrefetchPromise = new Promise(function(resolve) {
         const xhr = new XMLHttpRequest();
-        const targetConvId = (typeof getActiveChannelConvId === 'function')
-          ? getActiveChannelConvId()
-          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+        const targetConvId = 'global';
         const convParam = '&conv_id=' + encodeURIComponent(targetConvId);
         xhr.open('GET', 'load.php?before_uuid=&limit=' + INITIAL_LOAD + convParam, true);
         xhr.onload = function() {
@@ -3490,7 +3504,9 @@
 
       const targetConvId = (typeof getActiveChannelConvId === 'function')
         ? getActiveChannelConvId()
-        : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+        : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+
+      if (!targetConvId) return;
 
       if (!loadOlderMode && !isAutoPoll) {
         // STRICT CHANNEL CHECK: only use prefetched data if its conv_id strictly matches targetConvId
@@ -3506,7 +3522,7 @@
           gcPrefetchPromise = null;
           p.then(function(data) {
             const curActive = (typeof getActiveChannelConvId === 'function') ? getActiveChannelConvId() : 'global';
-            if (data && isGlobalChat && data.conv_id === curActive) {
+            if (data && isGlobalChat && data.conv_id === curActive && curActive === targetConvId) {
               if (typeof cacheGlobalChatSnapshot === 'function') cacheGlobalChatSnapshot(data);
               if (chatBox && chatBox.children.length === 0) {
                 processGlobalChatData(data, false);
@@ -3562,8 +3578,8 @@
         }
         const currentActiveConvId = (typeof getActiveChannelConvId === 'function')
           ? getActiveChannelConvId()
-          : 'global';
-        if (!data.conv_id || data.conv_id !== currentActiveConvId) return;
+          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+        if (!data.conv_id || data.conv_id !== currentActiveConvId || currentActiveConvId !== targetConvId) return;
         if (!loadOlderMode && typeof cacheGlobalChatSnapshot === 'function') {
           cacheGlobalChatSnapshot(data);
         }
@@ -4111,7 +4127,7 @@
             if (clearedGlobal) {
               const targetConvId = (typeof getActiveChannelConvId === 'function')
                 ? getActiveChannelConvId()
-                : (window.activeChannel === 'office' ? (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) : 'global');
+                : (window.activeChannel === 'office' ? (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
               const isCustomGcClear = targetConvId && targetConvId.startsWith('gc_');
               const isOfficeClear   = targetConvId && targetConvId.startsWith('office_');
               ws.send(JSON.stringify({
@@ -4179,7 +4195,7 @@
       if (isGlobalChat) {
         const targetConvId = (typeof getActiveChannelConvId === 'function')
           ? getActiveChannelConvId()
-          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
         // Custom GC — do NOT send global=1, just send the gc_ conv_id directly
         if (targetConvId && targetConvId.startsWith('gc_')) {
           params += "&conv_id=" + encodeURIComponent(targetConvId);
@@ -4720,7 +4736,7 @@
           : '';
         const targetConvId = (typeof getActiveChannelConvId === 'function')
           ? getActiveChannelConvId()
-          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
         const channelConvParam = isGlobalChat
           ? '&conv_id=' + encodeURIComponent(targetConvId)
           : '';
@@ -6822,7 +6838,7 @@
         if (isGlobalChat) {
           const targetConvId = (typeof getActiveChannelConvId === 'function')
             ? getActiveChannelConvId()
-            : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+            : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
           params += '&conv_id=' + encodeURIComponent(targetConvId);
         }
         if (!isGlobalChat && (activeDM || activeDMAccountId)) {

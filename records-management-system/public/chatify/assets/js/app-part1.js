@@ -2089,8 +2089,8 @@
             : 0;
           if (window.currentOfficeInfo) {
             const oldOfficeId = window.currentOfficeInfo.office_id ? Number(window.currentOfficeInfo.office_id) : 0;
-            window.currentOfficeInfo.office_id = freshOfficeId > 0 ? freshOfficeId : null;
             if (freshOfficeId > 0) {
+              window.currentOfficeInfo.office_id = freshOfficeId;
               window.currentOfficeInfo.conv_id = 'office_' + freshOfficeId;
               if (data.currentUser.office_name) window.currentOfficeInfo.office_name = data.currentUser.office_name;
               if (data.currentUser.office_code) window.currentOfficeInfo.office_code = data.currentUser.office_code;
@@ -2099,11 +2099,7 @@
               if (tEl) tEl.textContent = window.currentOfficeInfo.display_title;
               const subEl = document.getElementById('officeGcLastMsg');
               if (subEl) subEl.textContent = data.currentUser.office_name || '';
-            } else {
-              window.currentOfficeInfo.conv_id = null;
-              window.currentOfficeInfo.office_name = null;
-              window.currentOfficeInfo.office_code = null;
-              window.currentOfficeInfo.display_title = null;
+              window._hadAssignedOffice = true;
             }
             if (oldOfficeId > 0 && freshOfficeId > 0 && oldOfficeId !== freshOfficeId && window.activeChannel === 'office') {
               if (typeof selectOfficeChat === 'function') selectOfficeChat();
@@ -2114,7 +2110,8 @@
             const isSpy = (typeof isAdminAllChatsView !== 'undefined') ? isAdminAllChatsView : false;
             ocItem.style.display = (freshOfficeId > 0 && !isSpy) ? '' : 'none';
           }
-          if (freshOfficeId <= 0) {
+          const isUserAdmin = !!(serverIsAdmin || (typeof isAdmin !== 'undefined' && isAdmin) || (typeof window.isSuperAdmin !== 'undefined' && window.isSuperAdmin));
+          if (freshOfficeId <= 0 && !isUserAdmin && window._hadAssignedOffice) {
             if (localStorage.getItem('activeDM') === '__office__') {
               localStorage.removeItem('activeDM');
             }
@@ -2126,6 +2123,17 @@
           if (typeof updateOfficeInfoButtonVisibility === 'function') {
             updateOfficeInfoButtonVisibility();
           }
+        }
+      }
+
+      // Preserve active Custom GC across background user fetches
+      if (window.activeChannel === 'gc' && (window.activeCustomGc || window.activeCustomGcId)) {
+        const targetGid = window.activeCustomGcId || (window.activeCustomGc ? Number(window.activeCustomGc.gc_id) : 0);
+        const matchingGc = (allUsersData || []).find(u => u.is_custom_gc && Number(u.gc_id) === targetGid);
+        if (matchingGc) {
+          window.activeCustomGc = matchingGc;
+          window.activeCustomGcId = Number(matchingGc.gc_id);
+          window.activeCustomGcConvId = matchingGc.conv_id || ('gc_' + matchingGc.gc_id);
         }
       }
 
@@ -2718,7 +2726,7 @@
         if (u.conv_id) item.dataset.convId = String(u.conv_id);
 
         if (u.is_office_gc) {
-          item.onclick = () => selectOfficeChat();
+          item.onclick = () => selectOfficeChat(u);
           item.onmouseenter = null;
           item.onpointerdown = null;
         } else if (u.is_custom_gc) {
@@ -3958,6 +3966,10 @@
       activeChannel = null;
       window.activeChannel = null;
       window.activeCustomGc = null;
+      window.activeCustomGcId = null;
+      window.activeCustomGcConvId = null;
+      window.activeOfficeId = null;
+      window.activeOfficeConvId = null;
       const _hEl = document.querySelector('.header');
       if (_hEl) _hEl.classList.remove('is-global-chat');
       activeDM = u.username || u.email || (u.account_id ? String(u.account_id) : '');
@@ -4040,17 +4052,40 @@
     let activeChannel = 'global'; // 'global' | 'office' | 'gc' | null
     window.activeChannel = activeChannel;
     window.activeCustomGc = null;
+    window.activeCustomGcId = null;
+    window.activeCustomGcConvId = null;
+    window.activeOfficeId = null;
+    window.activeOfficeConvId = null;
 
     function getActiveChannelConvId() {
-      if (window.activeChannel === 'gc' && window.activeCustomGc) {
-        return window.activeCustomGc.conv_id || ('gc_' + (window.activeCustomGc.gc_id || ''));
+      if (window.activeChannel === 'gc') {
+        if (window.activeCustomGc && (window.activeCustomGc.conv_id || window.activeCustomGc.gc_id)) {
+          return window.activeCustomGc.conv_id || ('gc_' + window.activeCustomGc.gc_id);
+        }
+        if (window.activeCustomGcConvId) {
+          return window.activeCustomGcConvId;
+        }
+        if (window.activeCustomGcId) {
+          return 'gc_' + window.activeCustomGcId;
+        }
+        return '';
       }
       if (window.activeChannel === 'office') {
         if (window.currentOfficeInfo && (window.currentOfficeInfo.conv_id || window.currentOfficeInfo.office_id)) {
           return window.currentOfficeInfo.conv_id || ('office_' + window.currentOfficeInfo.office_id);
         }
+        if (window.activeOfficeConvId) {
+          return window.activeOfficeConvId;
+        }
+        if (window.activeOfficeId) {
+          return 'office_' + window.activeOfficeId;
+        }
+        return '';
       }
-      return 'global';
+      if (window.activeChannel === 'global') {
+        return 'global';
+      }
+      return isGlobalChat ? 'global' : '';
     }
     window.getActiveChannelConvId = getActiveChannelConvId;
 
@@ -4077,6 +4112,10 @@
       activeDMAccountId = null;
       activeAdminConv = null;
       window.activeCustomGc = null;
+      window.activeCustomGcId = null;
+      window.activeCustomGcConvId = null;
+      window.activeOfficeId = null;
+      window.activeOfficeConvId = null;
       updateSidebarActiveHighlight();
       updateClearChatButtonVisibility();
       updateOfficeInfoButtonVisibility();
@@ -4137,16 +4176,33 @@
     window.updateCustomGcBadge = updateCustomGcBadge;
     // ── End Office GC unread badge helpers ────────────────────────────────────
 
-    function selectOfficeChat() {
+    function selectOfficeChat(officeObj) {
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
+      if (officeObj && (officeObj.office_id || officeObj.is_office_gc)) {
+        if (!window.currentOfficeInfo) window.currentOfficeInfo = {};
+        const oid = Number(officeObj.office_id || 0);
+        if (oid > 0) {
+          window.currentOfficeInfo.office_id = oid;
+          window.currentOfficeInfo.conv_id = officeObj.conv_id || ('office_' + oid);
+          if (officeObj.display_title || officeObj.name || officeObj.full_name) {
+            window.currentOfficeInfo.display_title = officeObj.display_title || officeObj.full_name || officeObj.name;
+          }
+        }
+      }
       const hasOffice = !!(window.currentOfficeInfo && window.currentOfficeInfo.office_id && Number(window.currentOfficeInfo.office_id) > 0);
       if (!hasOffice) {
-        localStorage.removeItem('activeDM');
-        const oc = document.getElementById('officeChatItem');
-        if (oc) oc.style.display = 'none';
-        if (typeof updateOfficeInfoButtonVisibility === 'function') updateOfficeInfoButtonVisibility();
-        selectGlobalChat();
-        return;
+        if (window.activeOfficeId && Number(window.activeOfficeId) > 0) {
+          if (!window.currentOfficeInfo) window.currentOfficeInfo = {};
+          window.currentOfficeInfo.office_id = Number(window.activeOfficeId);
+          window.currentOfficeInfo.conv_id = window.activeOfficeConvId || ('office_' + window.activeOfficeId);
+        } else {
+          localStorage.removeItem('activeDM');
+          const oc = document.getElementById('officeChatItem');
+          if (oc) oc.style.display = 'none';
+          if (typeof updateOfficeInfoButtonVisibility === 'function') updateOfficeInfoButtonVisibility();
+          selectGlobalChat();
+          return;
+        }
       }
 
       if (isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv) {
@@ -4170,6 +4226,12 @@
       activeDMAccountId = null;
       activeAdminConv = null;
       window.activeCustomGc = null;
+      window.activeCustomGcId = null;
+      window.activeCustomGcConvId = null;
+      if (window.currentOfficeInfo && window.currentOfficeInfo.office_id) {
+        window.activeOfficeId = Number(window.currentOfficeInfo.office_id);
+        window.activeOfficeConvId = window.currentOfficeInfo.conv_id || ('office_' + window.currentOfficeInfo.office_id);
+      }
       updateSidebarActiveHighlight();
       updateClearChatButtonVisibility();
       updateOfficeInfoButtonVisibility();
@@ -4246,6 +4308,10 @@
       activeChannel = 'gc';
       window.activeChannel = 'gc';
       window.activeCustomGc = group;
+      window.activeCustomGcId = Number(group.gc_id);
+      window.activeCustomGcConvId = group.conv_id || ('gc_' + group.gc_id);
+      window.activeOfficeId = null;
+      window.activeOfficeConvId = null;
       window.activeCustomGcGroupInfo = null;
       window.activeCustomGcMembers = null;
 
@@ -6725,6 +6791,10 @@
       activeChannel = null;
       window.activeChannel = null;
       window.activeCustomGc = null;
+      window.activeCustomGcId = null;
+      window.activeCustomGcConvId = null;
+      window.activeOfficeId = null;
+      window.activeOfficeConvId = null;
       window.activeCustomGcMembers = null;
       window.activeCustomGcGroupInfo = null;
       isGlobalChat = false;

@@ -12,9 +12,9 @@
         isOpen: false,
         openScanner() {
             if (window.Livewire) {
-                Livewire.dispatch('open-scanner-modal');
+                Livewire.dispatch('toggle-scanner-modal');
             } else {
-                window.dispatchEvent(new CustomEvent('open-scanner-modal'));
+                window.dispatchEvent(new CustomEvent('toggle-scanner-modal'));
             }
         },
         init() {
@@ -46,19 +46,25 @@
         type="button"
         id="rms-scanner-fab-btn"
         class="rms-scanner-fab"
-        data-tooltip="Open Scanner"
+        :class="{ 'is-active': isOpen }"
+        :data-tooltip="isOpen ? 'Close Scanner (Alt+S)' : 'DTS QR Scanner (Alt+S)'"
         @click="openScanner()"
-        aria-label="Open Scanner Modal"
-        title="DTS Barcode & QR Scanner (Alt+S)"
+        aria-label="Toggle Scanner"
+        :title="isOpen ? 'Close DTS Scanner (Alt+S)' : 'DTS Barcode & QR Scanner (Alt+S)'"
     >
         <span class="rms-scanner-fab-icon" aria-hidden="true">
             <!-- Viewfinder / QR Scanner SVG -->
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <svg x-show="!isOpen" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
                 <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
                 <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
                 <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
                 <line x1="7" y1="12" x2="17" y2="12"></line>
+            </svg>
+            <!-- Close Icon when open -->
+            <svg x-show="isOpen" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
         </span>
     </button>
@@ -90,6 +96,11 @@
         transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
                     box-shadow 0.2s ease,
                     background 0.2s ease;
+    }
+
+    .rms-scanner-fab.is-active {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.5), 0 0 0 2px rgba(56, 189, 248, 0.7);
     }
 
     .rms-scanner-fab:hover {

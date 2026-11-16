@@ -666,4 +666,24 @@ class DtsScannerTest extends TestCase
             ->assertSee('desktop-only')
             ->assertSee('Chatify');
     }
+
+    /**
+     * Test DTS index page and scanner modal render cleanly without SQL or view errors.
+     */
+    public function test_dts_index_and_scanner_modal_render_without_error()
+    {
+        $user = $this->testUser;
+        Auth::login($user);
+
+        $response = $this->actingAs($user)->get('/dts');
+        $response->assertStatus(200);
+
+        Volt::test('components.scanner-modal')
+            ->assertSet('isOpen', false)
+            ->call('openModal')
+            ->assertSet('isOpen', true)
+            ->assertSee('dts-scanner-widget-card')
+            ->call('closeModal')
+            ->assertSet('isOpen', false);
+    }
 }

@@ -2,6 +2,51 @@
     display: none !important;
 }
 
+.guide-container {
+    position: absolute;
+    top: 10px;
+    right: 195px; /* Immediately to the left of notification bell (155px) */
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 15;
+    pointer-events: none;
+}
+
+.guide-wrapper {
+    position: relative;
+    display: inline-block;
+    pointer-events: auto;
+}
+
+.header-guide-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 3px;
+    border-radius: 50%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease, transform 0.2s ease, color 0.2s ease;
+    outline: none;
+    color: #ffffff;
+    width: 30px;
+    height: 30px;
+}
+
+.header-guide-btn:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    transform: scale(1.05);
+    color: #ffffff;
+}
+
+.header-guide-btn:active {
+    transform: scale(0.95);
+}
+
 .notification-container {
     position: absolute;
     top: 10px; /* Centered matching the actions-container top alignment */

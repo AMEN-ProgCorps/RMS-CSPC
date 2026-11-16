@@ -195,10 +195,10 @@
     @endauth
     <x-rms-error />
     <x-messify.floating-widget />
+    <x-dts.scanner-widget />
     @auth
     <livewire:components.scanner-modal />
     <livewire:components.session-guard />
-    <livewire:components.report-problem />
     @endauth
 </body>
 </html>

@@ -103,30 +103,32 @@ new class extends Component {
     x-on:rms-open-manual.window="$wire.openManual($event.detail?.name || $event.detail)"
     x-on:rms-widget-opened.window="if ($event.detail && $event.detail.widget !== 'manual' && isOpen) { isOpen = false; $wire.closeModal(); }"
 >
-    <!-- Floating Trigger Button (rendered if a manual exists for this page) -->
+    <!-- Header Guide Button (rendered when manual exists for current route) -->
     @if($manual)
-    <button
-        type="button"
-        class="rms-manual-fab"
-        :class="{ 'is-open': isOpen }"
-        :data-tooltip="isOpen ? 'Close Guide' : 'Page Guide'"
-        @click="isOpen ? (isOpen = false, $wire.closeModal()) : $wire.openModal()"
-        aria-label="Toggle Page Guide"
-    >
-        <span class="rms-manual-fab-icon" aria-hidden="true">
-            <!-- Question Mark Icon when closed -->
-            <svg x-show="!isOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-                <line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-            <!-- Close Icon when open -->
-            <svg x-show="isOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-        </span>
-    </button>
+    <div class="guide-wrapper">
+        <button
+            type="button"
+            class="header-guide-btn"
+            :class="{ 'is-open': isOpen }"
+            :title="isOpen ? 'Close Page Guide' : 'Page Guide: {{ addslashes($manual['title'] ?? 'User Manual') }}'"
+            @click="isOpen ? (isOpen = false, $wire.closeModal()) : $wire.openModal()"
+            aria-label="Toggle Page Guide"
+        >
+            <span style="display: flex; align-items: center; justify-content: center;" aria-hidden="true">
+                <!-- Book / Manual Icon when closed -->
+                <svg x-show="!isOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                    <circle cx="12" cy="9.5" r="1.5" fill="currentColor"/>
+                </svg>
+                <!-- Close Icon when open -->
+                <svg x-show="isOpen" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </span>
+        </button>
+    </div>
     @endif
 
     <!-- Floating Manual Widget Card (Docked in bottom-right) -->
@@ -349,30 +351,30 @@ new class extends Component {
         box-shadow: 0 12px 30px rgba(225, 29, 72, 0.4) !important;
     }
 
-    /* Floating Manual Card Window - sits at bottom: 96px, completely ABOVE the bottom buttons */
+    /* Header-docked Manual Card Window */
     .rms-manual-widget-card {
         position: fixed;
-        right: 24px;
-        bottom: 96px;
-        width: 440px;
+        right: 20px;
+        top: 52px;
+        width: 450px;
         max-width: calc(100vw - 32px);
-        height: 580px;
-        max-height: calc(100vh - 120px);
+        height: calc(100vh - 72px);
+        max-height: 680px;
         background: #ffffff;
         border-radius: 16px;
-        box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(15, 23, 42, 0.06);
+        box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(15, 23, 42, 0.08);
         z-index: 1000010;
         display: flex;
         flex-direction: column;
         overflow: hidden;
         font-family: Inter, system-ui, sans-serif;
-        animation: rmsManualSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        animation: rmsManualSlideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    @keyframes rmsManualSlideUp {
+    @keyframes rmsManualSlideDown {
         from {
             opacity: 0;
-            transform: translateY(18px) scale(0.98);
+            transform: translateY(-12px) scale(0.98);
         }
         to {
             opacity: 1;
@@ -656,26 +658,22 @@ new class extends Component {
     }
 
     @media (max-width: 767px) {
-        .rms-manual-fab {
-            right: 80px;
-            bottom: 24px;
-        }
-        body.no-report-widget .rms-manual-fab {
-            right: 16px;
-        }
         .rms-manual-widget-card {
             right: 12px;
+            left: 12px;
+            top: 50px;
             bottom: 12px;
-            width: calc(100vw - 24px);
-            max-width: calc(100vw - 24px);
-            max-height: calc(100vh - 24px);
-            height: calc(100vh - 24px);
+            width: auto;
+            max-width: none;
+            max-height: calc(100vh - 62px);
+            height: auto;
             border-radius: 16px;
         }
     }
 
     @media print {
-        .rms-manual-fab,
+        .guide-wrapper,
+        .header-guide-btn,
         .rms-manual-widget-card {
             display: none !important;
         }

@@ -80,6 +80,37 @@ class DtsScannerTest extends TestCase
 
         // Authenticate
         Auth::login($this->testUser);
+
+        if (\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_log_types')) {
+            $types = [
+                ['type_id' => 'created', 'type_label' => 'Created', 'description' => 'Created'],
+                ['type_id' => 'forwarded', 'type_label' => 'Forwarded', 'description' => 'Forwarded'],
+                ['type_id' => 'received', 'type_label' => 'Received', 'description' => 'Received'],
+                ['type_id' => 'returned', 'type_label' => 'Returned for Revision', 'description' => 'Returned'],
+                ['type_id' => 'completed', 'type_label' => 'Completed', 'description' => 'Completed'],
+            ];
+            foreach ($types as $t) {
+                if (!DB::table('dts_transaction_log_types')->where('type_id', $t['type_id'])->exists()) {
+                    DB::table('dts_transaction_log_types')->insert($t);
+                }
+            }
+        }
+
+        $subsystemsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $subsystems = [
+            ['subsystem_id' => 1, 'subsystem_name' => 'Document Tracking System', 'subsystem_version' => '1.0.0', 'is_active' => true],
+            ['subsystem_id' => 2, 'subsystem_name' => 'Records Disposition Program', 'subsystem_version' => '1.0.0', 'is_active' => true],
+            ['subsystem_id' => 3, 'subsystem_name' => 'Admin Console', 'subsystem_version' => '1.0.0', 'is_active' => true],
+            ['subsystem_id' => 4, 'subsystem_name' => 'Profile Manager', 'subsystem_version' => '1.0.0', 'is_active' => true],
+            ['subsystem_id' => 5, 'subsystem_name' => 'Messify', 'subsystem_version' => '1.0.0', 'is_active' => true],
+            ['subsystem_id' => 6, 'subsystem_name' => 'Document Control System', 'subsystem_version' => '1.0.0', 'is_active' => true],
+        ];
+        foreach ($subsystems as $sub) {
+            DB::table($subsystemsTable)->updateOrInsert(
+                ['subsystem_id' => $sub['subsystem_id']],
+                $sub
+            );
+        }
     }
 
     private function createRequestor(string $name = 'Tester User', ?string $office = null): int
@@ -598,14 +629,9 @@ class DtsScannerTest extends TestCase
 
         // Ensure subsystems are active
         $subsystemsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
-        DB::table($subsystemsTable)->updateOrInsert(
-            ['subsystem_name' => 'Document Tracking System'],
-            ['is_active' => true]
-        );
-        DB::table($subsystemsTable)->updateOrInsert(
-            ['subsystem_name' => 'Chatify'],
-            ['is_active' => true]
-        );
+        DB::table($subsystemsTable)->whereIn('subsystem_name', ['Document Tracking System', 'Messify'])->update([
+            'is_active' => true,
+        ]);
 
         // Scenario 1: User has receive permission
         DB::table($this->condDetailsTable)

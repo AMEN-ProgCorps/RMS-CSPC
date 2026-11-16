@@ -1217,6 +1217,17 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 }; ?>
 
 <div class="advanced-scanner-wrapper" style="padding: 24px; max-width: 1400px; margin: 0 auto; font-family: Outfit, 'Segoe UI', sans-serif;">
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                if (window.Livewire) {
+                    Livewire.dispatch('open-scanner-modal');
+                } else {
+                    window.dispatchEvent(new CustomEvent('open-scanner-modal'));
+                }
+            }, 100);
+        });
+    </script>
 
     {{-- Header Banner & Mode Switches --}}
     <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;">

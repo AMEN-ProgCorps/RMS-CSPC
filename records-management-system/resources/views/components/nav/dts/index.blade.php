@@ -56,9 +56,10 @@
 
 {{-- 2. Scanner Section --}}
 <div id="dts-scanner-id" class="button-section-container">
-    <div class="button-container {{ request()->routeIs('dts.scanner') ? 'force-active' : '' }}" 
+    <div class="button-container" 
          data-nav-guide="{{ $navGuides['Scanner'] ?? 'Scan barcode slips and verify document transaction status' }}"
-         onclick="proccedto('{{ route('dts.scanner') }}')">
+         onclick="window.Livewire ? Livewire.dispatch('open-scanner-modal') : window.dispatchEvent(new CustomEvent('open-scanner-modal'))"
+         title="Open Scanner Console (Modal)">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
                 <path d="M3 8V5a2 2 0 0 1 2-2h3v2H5v3H3zm13-5h3a2 2 0 0 1 2 2v3h-2V5h-3V3zM3 16v3a2 2 0 0 0 2 2h3v-2H5v-3H3zm18 0v3a2 2 0 0 1-2 2h-3v-2h3v-3h2zM7 7h3.5v3.5H7V7zm6.5 0h3.5v3.5h-3.5V7zM7 13.5h3.5v3.5H7v-3.5zm6.5 0h3.5v3.5h-3.5v-3.5z" fill="#4F4F4F"/>

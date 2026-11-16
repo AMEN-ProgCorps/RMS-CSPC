@@ -20,11 +20,49 @@ new class extends Component {
     public array $actionOptions = [];
     public string $resubmitTarget = 'start';
 
+    // Advanced Scanner Modes & Available Directory
+    public bool $continuousMode = false;
+    public bool $autoAction = false;
+    public bool $showAvailableModal = false;
+    public string $availableSearch = '';
+    public string $availableFilter = 'all';
+
     // Forward HUB Selection Modal State
     public bool $showForwardHubModal = false;
     public string $forwardHubSearch = '';
     public array $forwardHubOffices = [];
     public array $forwardHubTempSelected = [];
+
+    public function toggleContinuousMode(): void
+    {
+        $this->continuousMode = !$this->continuousMode;
+        session()->put('dts_scanner_continuous', $this->continuousMode);
+    }
+
+    public function toggleAutoAction(): void
+    {
+        $this->autoAction = !$this->autoAction;
+        session()->put('dts_scanner_auto_action', $this->autoAction);
+    }
+
+    public function openAvailableCodesModal(): void
+    {
+        $this->availableSearch = '';
+        $this->availableFilter = 'all';
+        $this->showAvailableModal = true;
+    }
+
+    public function closeAvailableCodesModal(): void
+    {
+        $this->showAvailableModal = false;
+        $this->availableSearch = '';
+    }
+
+    public function loadAvailableTransaction(string $qrCode): void
+    {
+        $this->closeAvailableCodesModal();
+        $this->loadTransaction($qrCode);
+    }
 
     public function openForwardHubModal(): void
     {
@@ -108,6 +146,8 @@ new class extends Component {
 
         $this->actionNeeded = $this->actionOptions[0] ?? 'For Approval';
         $this->recentScans = session()->get('dts_recent_scans', []);
+        $this->continuousMode = (bool) session()->get('dts_scanner_continuous', false);
+        $this->autoAction = (bool) session()->get('dts_scanner_auto_action', false);
     }
 
     public function getAvailableTargetOfficesProperty()
@@ -115,6 +155,138 @@ new class extends Component {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
         return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
+    }
+
+    public function getAvailableTransactionsProperty()
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        $canViewAllCodes = (bool) (auth()->user()?->permissions?->can_dts_view_all_scanner_codes ?? false);
+
+        if (!$userOfficeCode && !$canViewAllCodes && !auth()->user()?->permissions?->is_sadm) {
+            return collect();
+        }
+
+        $query = DB::table('dts_transactions as dt')
+            ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
+            ->whereNotIn('dt.status', ['completed', 'cancelled']);
+
+        if ($userOfficeCode && !$canViewAllCodes) {
+            $query->where(function ($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhere(function ($sub) use ($userOfficeCode) {
+                      $sub->where('dt.current_office', 'ORIGIN')
+                          ->where('dtd.originated_from', $userOfficeCode);
+                  });
+            });
+        }
+
+        if (!empty(trim($this->availableSearch))) {
+            $s = '%' . trim($this->availableSearch) . '%';
+            $query->where(function ($sub) use ($s) {
+                $sub->where('dtd.control_number', 'like', $s)
+                    ->orWhere('dt.qr_code', 'like', $s)
+                    ->orWhere('dtd.subject', 'like', $s)
+                    ->orWhere('dtd.classification', 'like', $s)
+                    ->orWhere('dtd.originated_from', 'like', $s)
+                    ->orWhere('req.requestor_name', 'like', $s)
+                    ->orWhere('originated_office.office_name', 'like', $s);
+            });
+        }
+
+        $transactions = $query->select(
+            'dt.transaction_id',
+            'dt.trans_type as type',
+            'dt.status',
+            'dt.sequence',
+            'dt.qr_code',
+            'dt.current_office',
+            'current_office_tb.office_name as current_office_name',
+            'dtd.control_number',
+            'dtd.subject',
+            'dtd.classification',
+            'dtd.action_needed',
+            'dtd.originated_from',
+            'originated_office.office_name as originated_office_name',
+            'req.requestor_name',
+            'dtd.date_created as tx_created_at'
+        )->orderBy('dtd.date_created', 'desc')->limit(60)->get();
+
+        return $transactions->map(function ($item) use ($userOfficeCode) {
+            $checkOffice = $userOfficeCode ?: $item->current_office;
+            $lastLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
+                ->where('transaction_id', $item->transaction_id)
+                ->where('office_code', $checkOffice)
+                ->orderBy('id', 'desc')
+                ->first();
+
+            $item->is_received = $lastLog && ($lastLog->type === 'received' || (!empty($lastLog->date_in) && $lastLog->type !== 'forwarded'));
+            $item->document_type = $item->classification ?: $item->type ?: 'Document';
+            return $item;
+        })->filter(function ($item) {
+            if ($this->availableFilter === 'incoming') {
+                return !$item->is_received;
+            }
+            if ($this->availableFilter === 'received') {
+                return (bool) $item->is_received;
+            }
+            return true;
+        });
+    }
+
+    public function getAvailableCountsProperty(): array
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        $canViewAllCodes = (bool) (auth()->user()?->permissions?->can_dts_view_all_scanner_codes ?? false);
+        if (!$userOfficeCode && !$canViewAllCodes && !auth()->user()?->permissions?->is_sadm) {
+            return ['all' => 0, 'incoming' => 0, 'received' => 0];
+        }
+
+        $query = DB::table('dts_transactions as dt')
+            ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->whereNotIn('dt.status', ['completed', 'cancelled']);
+
+        if ($userOfficeCode && !$canViewAllCodes) {
+            $query->where(function ($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhere(function ($sub) use ($userOfficeCode) {
+                      $sub->where('dt.current_office', 'ORIGIN')
+                          ->where('dtd.originated_from', $userOfficeCode);
+                  });
+            });
+        }
+
+        $allRows = $query->select('dt.transaction_id', 'dt.current_office')->get();
+        $incomingCount = 0;
+        $receivedCount = 0;
+
+        foreach ($allRows as $row) {
+            $checkOffice = $userOfficeCode ?: $row->current_office;
+            $lastLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
+                ->where('transaction_id', $row->transaction_id)
+                ->where('office_code', $checkOffice)
+                ->orderBy('id', 'desc')
+                ->first();
+
+            $isReceived = $lastLog && ($lastLog->type === 'received' || (!empty($lastLog->date_in) && $lastLog->type !== 'forwarded'));
+            if ($isReceived) {
+                $receivedCount++;
+            } else {
+                $incomingCount++;
+            }
+        }
+
+        return [
+            'all' => count($allRows),
+            'incoming' => $incomingCount,
+            'received' => $receivedCount,
+        ];
     }
 
     #[On('open-scanner-modal')]
@@ -270,6 +442,7 @@ new class extends Component {
                 $this->errorMessage = 'Invalid QR Code: Only valid, registered QR codes can be processed by the scanner.';
             }
             $this->dispatch('scanner-code-invalid');
+            $this->dispatch('scanner-audio-error');
             return;
         }
 
@@ -277,12 +450,14 @@ new class extends Component {
         if ($rawStatus === 'completed') {
             $this->errorMessage = 'That QR code is already finished its transaction.';
             $this->dispatch('scanner-code-invalid');
+            $this->dispatch('scanner-audio-error');
             return;
         }
 
         if ($rawStatus === 'cancelled') {
             $this->errorMessage = 'That QR code transaction has been cancelled.';
             $this->dispatch('scanner-code-invalid');
+            $this->dispatch('scanner-audio-error');
             return;
         }
 
@@ -292,6 +467,7 @@ new class extends Component {
         if (!$userOfficeCode) {
             $this->errorMessage = 'User office code could not be resolved.';
             $this->dispatch('scanner-code-invalid');
+            $this->dispatch('scanner-audio-error');
             return;
         }
 
@@ -299,6 +475,7 @@ new class extends Component {
             $currOfficeName = $transaction->current_office_name ?: $transaction->current_office;
             $this->errorMessage = "That QR code is no longer within your office transaction list. Current station: {$currOfficeName}.";
             $this->dispatch('scanner-code-invalid');
+            $this->dispatch('scanner-audio-error');
             return;
         }
 
@@ -792,6 +969,7 @@ new class extends Component {
 
             if ($alreadyReceived) {
                 $this->errorMessage = "Transaction '{$this->activeTransaction['control_number']}' has already been received at your office.";
+                $this->dispatch('scanner-audio-error');
                 return;
             }
 
@@ -800,10 +978,12 @@ new class extends Component {
             $this->activeTransaction = null;
             $this->scannedCode = '';
             $this->notes = '';
+            $this->dispatch('scanner-audio-action');
             $this->dispatch('focus-scanner-input');
             $this->dispatch('dts-transaction-updated');
         } catch (\Throwable $e) {
             $this->errorMessage = 'Action failed: ' . $e->getMessage();
+            $this->dispatch('scanner-audio-error');
         }
     }
 };
@@ -840,13 +1020,69 @@ new class extends Component {
                             </svg>
                         </div>
                         <div style="min-width: 0; flex: 1;">
-                            <h3 class="global-scanner-title">DTS Barcode & QR Scanner</h3>
-                            <p class="global-scanner-subtitle">Scan QR code with webcam, barcode gun, or control number</p>
+                            <h3 class="global-scanner-title">DTS Advanced Scanner Console</h3>
+                            <p class="global-scanner-subtitle">Webcam QR scanner, hardware barcode gun listener, & routing workstation</p>
                         </div>
                     </div>
-                    <button type="button" wire:click="closeModal" class="global-scanner-close-btn" aria-label="Close scanner">
-                        &times;
-                    </button>
+                    
+                    <!-- Advanced Toolbar Controls -->
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <!-- Available Documents Directory Button -->
+                        <button
+                            type="button"
+                            wire:click="openAvailableCodesModal"
+                            class="scanner-tool-btn"
+                            title="Browse pending documents for your station"
+                            style="display: inline-flex; align-items: center; gap: 5px; background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; border-radius: 8px; padding: 5px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; transition: all 0.15s;"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                            </svg>
+                            <span>Available</span>
+                            <span style="background: #0284c7; color: #fff; font-size: 10px; padding: 1px 5px; border-radius: 99px;">
+                                {{ $this->availableCounts['all'] ?? 0 }}
+                            </span>
+                        </button>
+
+                        <!-- Batch / Continuous Intake Mode Toggle -->
+                        <button
+                            type="button"
+                            wire:click="toggleContinuousMode"
+                            class="scanner-tool-btn"
+                            title="Continuous Batch Mode: Scan consecutively without closing"
+                            style="display: inline-flex; align-items: center; gap: 5px; border-radius: 8px; padding: 5px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $continuousMode ? 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;' : 'background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0;' }}"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="23 4 23 10 17 10"></polyline>
+                                <polyline points="1 20 1 14 7 14"></polyline>
+                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                            </svg>
+                            <span>Batch: {{ $continuousMode ? 'ON' : 'OFF' }}</span>
+                        </button>
+
+                        <!-- Auto-Action Toggle -->
+                        <button
+                            type="button"
+                            wire:click="toggleAutoAction"
+                            class="scanner-tool-btn"
+                            title="Auto Action: Automatically execute Receive or Forward when scanned"
+                            style="display: inline-flex; align-items: center; gap: 5px; border-radius: 8px; padding: 5px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $autoAction ? 'background: #fef3c7; color: #b45309; border: 1px solid #fde68a;' : 'background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0;' }}"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                            </svg>
+                            <span>Auto: {{ $autoAction ? 'ON' : 'OFF' }}</span>
+                        </button>
+
+                        <!-- Close Button -->
+                        <button type="button" wire:click="closeModal" class="global-scanner-close-btn" aria-label="Close scanner">
+                            &times;
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Modal Body -->
@@ -2082,6 +2318,76 @@ new class extends Component {
             }
         };
 
+        // Web Audio API Synthesizer Feedback for Scanner
+        let audioCtx = null;
+        function playBeep(freq, type, duration) {
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type || 'sine';
+                osc.frequency.value = freq || 800;
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) {
+                // Audio context not allowed or unsupported
+            }
+        }
+
+        window.addEventListener('scanner-audio-success', () => {
+            playBeep(880, 'sine', 0.12);
+            setTimeout(() => playBeep(1320, 'sine', 0.18), 120);
+        });
+
+        window.addEventListener('scanner-audio-action', () => {
+            playBeep(587.33, 'triangle', 0.1);
+            setTimeout(() => playBeep(880, 'triangle', 0.1), 100);
+            setTimeout(() => playBeep(1174.66, 'triangle', 0.2), 200);
+        });
+
+        window.addEventListener('scanner-audio-error', () => {
+            playBeep(250, 'sawtooth', 0.25);
+        });
+
+        // Hardware Barcode Gun Keypress Listener
+        let gunBarcodeBuffer = '';
+        let lastKeyTime = 0;
+        window.addEventListener('keydown', (e) => {
+            const modal = document.querySelector('.global-scanner-modal');
+            if (!modal) return;
+
+            if (e.target.tagName === 'TEXTAREA' || (e.target.tagName === 'INPUT' && e.target.id !== 'global-scanner-code-input')) {
+                return;
+            }
+
+            const now = Date.now();
+            if (now - lastKeyTime > 120) {
+                gunBarcodeBuffer = '';
+            }
+            lastKeyTime = now;
+
+            if (e.key === 'Enter') {
+                if (gunBarcodeBuffer.length >= 4) {
+                    e.preventDefault();
+                    if (window.Livewire) {
+                        Livewire.dispatch('open-scanner-modal', { code: gunBarcodeBuffer.trim() });
+                    }
+                    gunBarcodeBuffer = '';
+                }
+            } else if (e.key.length === 1) {
+                gunBarcodeBuffer += e.key;
+            }
+        });
+
         // Livewire 3 dispatches both Livewire events and DOM CustomEvents to window.
         // We bind only to window once to prevent duplicate concurrent camera starts.
         if (!window.__scannerModalEventsBound) {
@@ -2096,6 +2402,125 @@ new class extends Component {
         });
     })();
     </script>
+
+    <!-- Available Documents Directory Modal -->
+    @if($showAvailableModal)
+        <div class="available-modal-backdrop" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px); z-index: 100010; display: flex; align-items: center; justify-content: center; padding: 16px; animation: modalFadeIn 0.15s ease-out;" wire:click.self="closeAvailableCodesModal">
+            <div class="available-modal-card" style="background: #ffffff; border-radius: 16px; max-width: 860px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e2e8f0; overflow: hidden;">
+                
+                {{-- Modal Header --}}
+                <div class="available-modal-header" style="padding: 16px 22px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; background: #f8fafc;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 38px; height: 38px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 16px;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0;">
+                                Available Documents for Station Action
+                            </h3>
+                            <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
+                                Documents stationed at your office pending receipt or dispatch.
+                            </p>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="closeAvailableCodesModal" class="available-modal-close"
+                            style="width: 30px; height: 30px; border-radius: 8px; border: 1px solid #e2e8f0; background: #ffffff; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;">
+                        &times;
+                    </button>
+                </div>
+
+                {{-- Modal Filters & Search Bar --}}
+                <div style="padding: 14px 22px; border-bottom: 1px solid #f1f5f9; background: #ffffff; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; gap: 6px; background: #f1f5f9; padding: 4px; border-radius: 10px;">
+                        <button type="button" wire:click="$set('availableFilter', 'all')"
+                                style="padding: 5px 11px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'all' ? 'background: #ffffff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                            All ({{ $this->availableCounts['all'] ?? 0 }})
+                        </button>
+                        <button type="button" wire:click="$set('availableFilter', 'incoming')"
+                                style="padding: 5px 11px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'incoming' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                            Incoming / To Receive ({{ $this->availableCounts['incoming'] ?? 0 }})
+                        </button>
+                        <button type="button" wire:click="$set('availableFilter', 'received')"
+                                style="padding: 5px 11px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'received' ? 'background: #ffffff; color: #16a34a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                            In Custody / To Forward ({{ $this->availableCounts['received'] ?? 0 }})
+                        </button>
+                    </div>
+
+                    <div style="position: relative; flex: 1; min-width: 200px; max-width: 300px;">
+                        <input type="text" wire:model.live.debounce.250ms="availableSearch" placeholder="Search control no, subject..." 
+                               style="width: 100%; height: 34px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 12px; font-size: 12px; outline: none; box-sizing: border-box;" />
+                    </div>
+                </div>
+
+                {{-- Modal Body: Scrollable Document List --}}
+                <div style="padding: 16px 22px; overflow-y: auto; flex: 1; max-height: calc(88vh - 180px);">
+                    @if($this->availableTransactions->isNotEmpty())
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            @foreach($this->availableTransactions as $item)
+                                <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; background: #ffffff;">
+                                    <div style="flex: 1; min-width: 0;">
+                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
+                                            <span style="font-family: monospace; font-size: 13.5px; font-weight: 800; color: #0f172a;">
+                                                {{ $item->control_number }}
+                                            </span>
+                                            @if(!$item->is_received)
+                                                <span style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
+                                                    Pending Receipt
+                                                </span>
+                                            @else
+                                                <span style="font-size: 10px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
+                                                    In Custody
+                                                </span>
+                                            @endif
+                                            <span style="font-size: 11px; background: #f1f5f9; color: #475569; padding: 2px 6px; border-radius: 4px;">
+                                                {{ $item->document_type ?? 'Document' }}
+                                            </span>
+                                        </div>
+                                        <div style="font-size: 12.5px; font-weight: 600; color: #334155; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                            {{ $item->subject ?: 'Untitled Transaction' }}
+                                        </div>
+                                        <div style="font-size: 11px; color: #64748b; display: flex; gap: 10px; flex-wrap: wrap;">
+                                            <span>Origin: <strong>{{ $item->originated_office_name ?? $item->originated_from }}</strong></span>
+                                            @if($item->requestor_name)
+                                                <span>Requestor: <strong>{{ $item->requestor_name }}</strong></span>
+                                            @endif
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        wire:click="loadAvailableTransaction('{{ $item->qr_code }}')"
+                                        style="background: #0284c7; color: #ffffff; border: none; border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; transition: background 0.15s;"
+                                    >
+                                        <span>Load</span>
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                                    </button>
+                                </div>
+                            @endforeach
+                        </div>
+                    @else
+                        <div style="text-align: center; padding: 36px 20px; color: #94a3b8;">
+                            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 10px auto; opacity: 0.6;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            <p style="font-size: 13.5px; font-weight: 600; color: #64748b; margin: 0 0 4px 0;">No Documents Found</p>
+                            <p style="font-size: 12px; margin: 0;">No active documents matched the current station filter or search query.</p>
+                        </div>
+                    @endif
+                </div>
+
+                {{-- Modal Footer --}}
+                <div style="padding: 12px 22px; border-top: 1px solid #e2e8f0; background: #f8fafc; display: flex; justify-content: flex-end;">
+                    <button type="button" wire:click="closeAvailableCodesModal" style="background: #e2e8f0; color: #334155; border: none; border-radius: 8px; padding: 7px 16px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
 
     <!-- Office Hub Collective Modal for Forwarding -->
     <x-dts.hub-collective-modal 

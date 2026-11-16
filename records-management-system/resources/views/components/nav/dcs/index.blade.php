@@ -372,5 +372,6 @@
             <span class="dcs-account-server">{{ \App\Services\ServerManagementService::getServerLabel() }}</span>
         @endif
         <span class="dcs-account-email">{{ auth()->user()?->details?->email }}</span>
+        <span class="dcs-account-office" title="{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</span>
     </div>
 </nav>

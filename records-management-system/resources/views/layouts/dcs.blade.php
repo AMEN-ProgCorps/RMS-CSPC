@@ -238,10 +238,12 @@
             <span class="subtitle">Camarines Sur Polytechnic Colleges</span>
             <span class="title">Records Management System</span>
         </div>
+        <div class="guide-container">
+            <livewire:components.page-manual />
+        </div>
         <div class="notification-container">
             <livewire:components.notification.notifications />
         </div>
-        <span class="office_name">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</span>
         <x-actions.dropdown />
     </header>
 
@@ -253,8 +255,6 @@
 
     @auth
         <livewire:components.session-guard />
-        <livewire:components.report-problem />
-        <livewire:components.page-manual />
     @endauth
 
     <div class="dcs-top-tabs-host">
@@ -269,6 +269,8 @@
     <x-rms-error />
     <x-dcs.toast />
     <x-messify.floating-widget />
+    <x-dts.scanner-widget />
+    <livewire:components.scanner-modal />
     @stack('scripts')
     @livewireScripts
 </body>

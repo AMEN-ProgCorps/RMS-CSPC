@@ -58,6 +58,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     public string $successMessage = '';
     public string $errorMessage = '';
     public string $infoMessage = '';
+    public bool $availableCodesEnabled = true;
 
     /** @var bool Available codes modal open state */
     public bool $showAvailableModal = false;
@@ -97,6 +98,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         $this->actionNeeded = $this->actionOptions[0] ?? 'For Action';
         $this->sessionScans = session()->get('dts_scanner_session_logs', []);
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $setting = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
+        $this->availableCodesEnabled = ($setting !== 'false');
     }
 
     /**
@@ -274,6 +279,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
      */
     public function openAvailableCodesModal(): void
     {
+        if (!$this->availableCodesEnabled) {
+            $this->showAvailableModal = false;
+            return;
+        }
         $this->availableSearch = '';
         $this->availableFilter = 'all';
         $this->showAvailableModal = true;
@@ -1314,6 +1323,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     <label for="scanner-main-input" style="font-size: 13px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 4px; margin: 0;">
                         <i class="fa-solid fa-barcode" style="color: #0284c7;"></i> Barcode Gun / Manual Input
                     </label>
+                    @if($availableCodesEnabled)
                     <button type="button" wire:click="openAvailableCodesModal" 
                             style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: #0284c7; background: #e0f2fe; border: 1px solid #bae6fd; padding: 4px 10px; border-radius: 8px; cursor: pointer; transition: all 0.2s;">
                         <i class="fa-solid fa-list-check"></i>
@@ -1324,6 +1334,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                             </span>
                         @endif
                     </button>
+                    @endif
                 </div>
                 <div style="position: relative;">
                     <input type="text" 
@@ -1938,7 +1949,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     </style>
 
     {{-- Available Codes / Actionable Transactions Modal --}}
-    @if($showAvailableModal)
+    @if($showAvailableModal && $availableCodesEnabled)
         <div class="available-modal-backdrop" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 16px; animation: modalFadeIn 0.15s ease-out;">
             <div class="available-modal-card" style="background: #ffffff; border-radius: 16px; max-width: 860px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e2e8f0; overflow: hidden; animation: modalZoom 0.2s cubic-bezier(0.16, 1, 0.3, 1);">
                 

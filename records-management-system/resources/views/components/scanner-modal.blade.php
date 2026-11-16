@@ -24,6 +24,7 @@ new class extends Component {
     public bool $isMaximized = false;
     public bool $continuousMode = false;
     public bool $autoAction = false;
+    public bool $availableCodesEnabled = true;
     public bool $showAvailableModal = false;
     public string $availableSearch = '';
     public string $availableFilter = 'all';
@@ -66,6 +67,10 @@ new class extends Component {
 
     public function toggleAvailableCodesModal(): void
     {
+        if (!$this->availableCodesEnabled) {
+            $this->showAvailableModal = false;
+            return;
+        }
         if ($this->showAvailableModal) {
             $this->closeAvailableCodesModal();
         } else {
@@ -75,6 +80,10 @@ new class extends Component {
 
     public function openAvailableCodesModal(): void
     {
+        if (!$this->availableCodesEnabled) {
+            $this->showAvailableModal = false;
+            return;
+        }
         $this->availableSearch = '';
         $this->availableFilter = 'all';
         $this->showAvailableModal = true;
@@ -176,6 +185,10 @@ new class extends Component {
         $this->recentScans = session()->get('dts_recent_scans', []);
         $this->continuousMode = (bool) session()->get('dts_scanner_continuous', false);
         $this->autoAction = (bool) session()->get('dts_scanner_auto_action', false);
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $setting = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
+        $this->availableCodesEnabled = ($setting !== 'false');
     }
 
     public function getAvailableTargetOfficesProperty()
@@ -330,7 +343,12 @@ new class extends Component {
     #[On('open-scanner-modal')]
     public function openModal(string $code = ''): void
     {
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $setting = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
+        $this->availableCodesEnabled = ($setting !== 'false');
+
         $this->isOpen = true;
+        $this->showAvailableModal = false;
         $this->clearMessages();
         $this->activeTransaction = null;
         $this->forwardToOfficeCode = '';
@@ -1062,6 +1080,7 @@ new class extends Component {
 
                 <!-- Header Actions Toolbar -->
                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    @if($availableCodesEnabled)
                     <!-- Available Directory Button -->
                     <button
                         type="button"
@@ -1078,6 +1097,7 @@ new class extends Component {
                         <span>Available</span>
                         <span class="count-badge">{{ $this->availableCounts['all'] ?? 0 }}</span>
                     </button>
+                    @endif
 
                     <!-- Batch / Continuous Intake Mode Toggle -->
                     <button
@@ -1756,44 +1776,76 @@ new class extends Component {
                                 </svg>
                             </div>
                             <h4 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">DTS Scanner Console Armed</h4>
-                            <p style="font-size: 12px; color: #64748b; margin: 0 0 16px 0; max-width: 380px; line-height: 1.45;">
-                                Aim your camera at a document QR code, use a handheld barcode scanner, or choose a document waiting at your station.
-                            </p>
+                            @if($availableCodesEnabled)
+                                <p style="font-size: 12px; color: #64748b; margin: 0 0 16px 0; max-width: 380px; line-height: 1.45;">
+                                    Aim your camera at a document QR code, use a handheld barcode scanner, or choose a document waiting at your station.
+                                </p>
 
-                            <!-- Quick Stats Cards -->
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 420px; margin-bottom: 14px;">
-                                <div wire:click="openAvailableCodesModal" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#4ade80';" onmouseout="this.style.borderColor='#bbf7d0';">
-                                    <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #166534; letter-spacing: 0.04em;">Pending Receipt</div>
-                                    <div style="font-size: 20px; font-weight: 800; color: #15803d; margin-top: 2px;">{{ $this->availableCounts['incoming'] ?? 0 }}</div>
-                                    <div style="font-size: 10.5px; color: #166534; margin-top: 2px;">Incoming documents</div>
+                                <!-- Quick Stats Cards -->
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 420px; margin-bottom: 14px;">
+                                    <div wire:click="openAvailableCodesModal" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#4ade80';" onmouseout="this.style.borderColor='#bbf7d0';">
+                                        <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #166534; letter-spacing: 0.04em;">Pending Receipt</div>
+                                        <div style="font-size: 20px; font-weight: 800; color: #15803d; margin-top: 2px;">{{ $this->availableCounts['incoming'] ?? 0 }}</div>
+                                        <div style="font-size: 10.5px; color: #166534; margin-top: 2px;">Incoming documents</div>
+                                    </div>
+                                    <div wire:click="openAvailableCodesModal" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#60a5fa';" onmouseout="this.style.borderColor='#bfdbfe';">
+                                        <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #1e40af; letter-spacing: 0.04em;">In Custody</div>
+                                        <div style="font-size: 20px; font-weight: 800; color: #1d4ed8; margin-top: 2px;">{{ $this->availableCounts['received'] ?? 0 }}</div>
+                                        <div style="font-size: 10.5px; color: #1e40af; margin-top: 2px;">Ready to forward</div>
+                                    </div>
                                 </div>
-                                <div wire:click="openAvailableCodesModal" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#60a5fa';" onmouseout="this.style.borderColor='#bfdbfe';">
-                                    <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #1e40af; letter-spacing: 0.04em;">In Custody</div>
-                                    <div style="font-size: 20px; font-weight: 800; color: #1d4ed8; margin-top: 2px;">{{ $this->availableCounts['received'] ?? 0 }}</div>
-                                    <div style="font-size: 10.5px; color: #1e40af; margin-top: 2px;">Ready to forward</div>
-                                </div>
-                            </div>
 
-                            <button
-                                type="button"
-                                wire:click="openAvailableCodesModal"
-                                style="background: #0284c7; color: #ffffff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);"
-                                onmouseover="this.style.background='#0369a1';"
-                                onmouseout="this.style.background='#0284c7';"
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                    <polyline points="14 2 14 8 20 8"></polyline>
-                                </svg>
-                                <span>Browse Available Documents ({{ $this->availableCounts['all'] ?? 0 }})</span>
-                            </button>
+                                <button
+                                    type="button"
+                                    wire:click="openAvailableCodesModal"
+                                    style="background: #0284c7; color: #ffffff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);"
+                                    onmouseover="this.style.background='#0369a1';"
+                                    onmouseout="this.style.background='#0284c7';"
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                        <polyline points="14 2 14 8 20 8"></polyline>
+                                    </svg>
+                                    <span>Browse Available Documents ({{ $this->availableCounts['all'] ?? 0 }})</span>
+                                </button>
+                            @else
+                                <p style="font-size: 12px; color: #64748b; margin: 0 0 16px 0; max-width: 400px; line-height: 1.45;">
+                                    Aim your camera at a document QR code, scan with a handheld barcode scanner, or enter the Control Number or QR Code below to process a transaction.
+                                </p>
+
+                                <!-- Priority Hardware Scanning & Manual Input Instructions -->
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 420px; margin-bottom: 14px;">
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; text-align: left;">
+                                        <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                                            <div style="width: 22px; height: 22px; border-radius: 6px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 11px;">
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h.01M17 7h.01M7 17h.01M17 17h.01"/></svg>
+                                            </div>
+                                            <span style="font-size: 11.5px; font-weight: 700; color: #0f172a;">Camera QR Scanner</span>
+                                        </div>
+                                        <div style="font-size: 10.5px; color: #64748b; line-height: 1.35;">
+                                            Position QR code in the viewfinder to automatically scan and load document.
+                                        </div>
+                                    </div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; text-align: left;">
+                                        <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                                            <div style="width: 22px; height: 22px; border-radius: 6px; background: #fef3c7; color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 11px;">
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 7V4h16v3M4 17v3h16v-3M9 12h6"/></svg>
+                                            </div>
+                                            <span style="font-size: 11.5px; font-weight: 700; color: #0f172a;">Barcode Gun / Manual</span>
+                                        </div>
+                                        <div style="font-size: 10.5px; color: #64748b; line-height: 1.35;">
+                                            Use USB barcode gun or type the Control Number in the input box and click Search.
+                                        </div>
+                                    </div>
+                                </div>
+                            @endif
                         </div>
                     @endif
                 </div>
             </div>
 
             <!-- Available Documents Directory View (Contained 100% Inside Widget Card) -->
-            @if($showAvailableModal)
+            @if($showAvailableModal && $availableCodesEnabled)
                 <div class="dts-available-inner-pane" style="position: absolute; top: 46px; left: 0; right: 0; bottom: 0; background: #ffffff; z-index: 50; display: flex; flex-direction: column; overflow: hidden;">
                     <!-- Sub-Header / Filters / Search -->
                     <div style="padding: 10px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; flex-shrink: 0;">

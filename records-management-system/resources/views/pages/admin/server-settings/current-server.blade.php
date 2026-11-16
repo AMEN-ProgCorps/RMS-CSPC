@@ -15,6 +15,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     public string $serverLabel = '';
     public bool $isAutoLabel = false;
     public string $customLabelInput = '';
+    public bool $dtsEnableAvailableCodes = true;
 
     public string $successMessage = '';
     public string $errorMessage = '';
@@ -193,6 +194,36 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         } else {
             $this->customLabelInput = '';
         }
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $val = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
+        $this->dtsEnableAvailableCodes = ($val !== 'false');
+    }
+
+    /**
+     * Toggles the DTS Scanner Available Codes directory feature.
+     * @return void
+     */
+    public function toggleAvailableCodes(): void
+    {
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $this->dtsEnableAvailableCodes = !$this->dtsEnableAvailableCodes;
+        \Illuminate\Support\Facades\DB::table($sysTable)->updateOrInsert(
+            ['key' => 'dts_enable_available_codes'],
+            [
+                'value' => $this->dtsEnableAvailableCodes ? 'true' : 'false',
+                'updated_at' => now(),
+            ]
+        );
+
+        \Illuminate\Support\Facades\DB::table('sys_admin_logs')->insert([
+            'changes' => ($this->dtsEnableAvailableCodes ? 'Enabled' : 'Disabled') . ' DTS Scanner Available Codes feature via Server Settings',
+            'admin_id' => auth()->id() ?? 1,
+            'what_system' => 2,
+            'when_changes' => now(),
+        ]);
+
+        $this->successMessage = 'DTS Scanner Available Codes feature ' . ($this->dtsEnableAvailableCodes ? 'enabled' : 'disabled') . ' successfully.';
     }
 
     /**
@@ -637,6 +668,40 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
                 <i class="fa-solid fa-arrow-right" style="font-size: 10px;"></i>
             </a>
             @endif
+        </div>
+    </div>
+
+    <!-- DTS Scanner Feature Controls Card -->
+    <div style="background: #ffffff; padding: 20px 24px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 6px rgba(0,0,0,0.02); display: flex; flex-direction: column; gap: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 42px; height: 42px; border-radius: 10px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">
+                    <i class="fa-solid fa-qrcode"></i>
+                </div>
+                <div>
+                    <div style="font-size: 14px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                        <span>DTS Scanner Available Codes Directory</span>
+                        <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; background: {{ $dtsEnableAvailableCodes ? '#ecfdf5' : '#fef2f2' }}; color: {{ $dtsEnableAvailableCodes ? '#059669' : '#dc2626' }}; padding: 3px 8px; border-radius: 6px; border: 1px solid {{ $dtsEnableAvailableCodes ? '#a7f3d0' : '#fecaca' }};">
+                            {{ $dtsEnableAvailableCodes ? 'Feature Active' : 'Feature Disabled' }}
+                        </span>
+                    </div>
+                    <p style="font-size: 12px; color: #64748b; margin: 4px 0 0 0; max-width: 650px; line-height: 1.45;">
+                        Controls whether users can browse and select station documents from the <strong>Available Documents</strong> directory in the scanner widget.
+                        When <strong>Disabled</strong>, the station directory is locked and hidden, returning users strictly to <strong>priority hardware QR scanning, barcode guns, or manual Control Number input</strong>.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Toggle Button -->
+            <div>
+                <button type="button" 
+                        wire:click="toggleAvailableCodes" 
+                        wire:loading.attr="disabled" 
+                        style="height: 38px; box-sizing: border-box; background: {{ $dtsEnableAvailableCodes ? '#0284c7' : '#64748b' }}; color: #ffffff; border: 1px solid {{ $dtsEnableAvailableCodes ? '#0369a1' : '#475569' }}; padding: 0 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25); transition: all 0.2s;">
+                    <i class="fa-solid {{ $dtsEnableAvailableCodes ? 'fa-toggle-on' : 'fa-toggle-off' }}" style="font-size: 16px;"></i>
+                    <span>{{ $dtsEnableAvailableCodes ? 'Available Codes: Enabled' : 'Available Codes: Disabled' }}</span>
+                </button>
+            </div>
         </div>
     </div>
 

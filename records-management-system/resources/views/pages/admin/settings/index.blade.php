@@ -21,6 +21,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $autoForwardCreatedTransaction = true;
     public bool $dtsQrIncludeCodeDefault = false;
     public bool $dtsAllowCustomFlowScopeSelection = false;
+    public bool $dtsEnableAvailableCodes = true;
     public bool $rdpRequiredUploadFile = false;
     public bool $rdpIncludeDescriptionOnPrint = false;
     public string $rdpPrintFontFamily = 'Arial, sans-serif';
@@ -548,6 +549,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $scopeSelection = \DB::table($sysTable)->where('key', 'dts_allow_custom_flow_scope_selection')->value('value');
         $this->dtsAllowCustomFlowScopeSelection = ($scopeSelection === 'true');
 
+        $availCodes = \DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
+        $this->dtsEnableAvailableCodes = ($availCodes !== 'false');
+
         $rdpReq = \DB::table('sys_system_settings')->where('key', 'rdp_required_upload_file')->value('value');
         $this->rdpRequiredUploadFile = ($rdpReq === 'true');
 
@@ -1061,6 +1065,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ['key' => 'dts_allow_custom_flow_scope_selection'],
                     [
                         'value' => $this->dtsAllowCustomFlowScopeSelection ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_enable_available_codes'],
+                    [
+                        'value' => $this->dtsEnableAvailableCodes ? 'true' : 'false',
                         'updated_at' => now(),
                     ]
                 );
@@ -2316,6 +2328,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         </div>
                         <label class="switch">
                             <input type="checkbox" wire:model="dtsAllowCustomFlowScopeSelection">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Setting: Available Station Documents Directory in Scanner -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Enable Available Station Documents Directory in Scanner</span>
+                            <span class="setting-desc">When enabled (default), users opening the DTS Scanner Console can browse, search, and select incoming/in-custody station documents directly from the directory without scanning. When disabled, the Available Documents Directory feature is deactivated and hidden, returning users strictly to priority camera scanning, handheld barcode scanners, or manual Control/QR number entry.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="dtsEnableAvailableCodes">
                             <span class="slider"></span>
                         </label>
                     </div>

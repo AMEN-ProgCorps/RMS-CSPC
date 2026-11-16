@@ -692,4 +692,49 @@ class DtsScannerTest extends TestCase
             ->call('closeModal')
             ->assertSet('isOpen', false);
     }
+
+    /**
+     * Test server settings toggle for disabling Available Codes enforces priority scanning mode.
+     */
+    public function test_scanner_available_codes_toggle_enforces_priority_scanning_when_disabled()
+    {
+        $user = $this->testUser;
+        Auth::login($user);
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+
+        // 1. Verify toggle in Current Server settings page
+        DB::table($sysTable)->updateOrInsert(['key' => 'dts_enable_available_codes'], ['value' => 'true']);
+        Volt::test('pages.admin.server-settings.current-server')
+            ->assertSet('dtsEnableAvailableCodes', true)
+            ->call('toggleAvailableCodes')
+            ->assertSet('dtsEnableAvailableCodes', false);
+
+        $this->assertEquals('false', DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value'));
+
+        // 2. When disabled, scanner modal hides Available Codes directory and enforces priority scanning
+        Volt::test('components.scanner-modal')
+            ->call('openModal')
+            ->assertSet('isOpen', true)
+            ->assertSet('availableCodesEnabled', false)
+            ->assertDontSee('Browse Available Documents')
+            ->assertSee('Camera QR Scanner')
+            ->assertSee('Barcode Gun / Manual')
+            ->call('openAvailableCodesModal')
+            ->assertSet('showAvailableModal', false); // Remains blocked/closed
+
+        // 3. Re-enable via server settings and verify directory returns
+        Volt::test('pages.admin.server-settings.current-server')
+            ->call('toggleAvailableCodes')
+            ->assertSet('dtsEnableAvailableCodes', true);
+
+        $this->assertEquals('true', DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value'));
+
+        Volt::test('components.scanner-modal')
+            ->call('openModal')
+            ->assertSet('availableCodesEnabled', true)
+            ->assertSee('Browse Available Documents')
+            ->call('openAvailableCodesModal')
+            ->assertSet('showAvailableModal', true);
+    }
 }

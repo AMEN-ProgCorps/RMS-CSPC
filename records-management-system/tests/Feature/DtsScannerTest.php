@@ -719,7 +719,7 @@ class DtsScannerTest extends TestCase
             ->assertSet('availableCodesEnabled', false)
             ->assertDontSee('Browse Available Documents')
             ->assertSee('Camera QR Scanner')
-            ->assertSee('Barcode Gun / Manual')
+            ->assertSee('Manual Input')
             ->call('openAvailableCodesModal')
             ->assertSet('showAvailableModal', false); // Remains blocked/closed
 

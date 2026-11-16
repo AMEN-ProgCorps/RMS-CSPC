@@ -76,7 +76,7 @@
         :data-tooltip="isOpen ? 'Close Scanner (Alt+S)' : 'DTS QR Scanner (Alt+S)'"
         @click="openScanner()"
         aria-label="Toggle Scanner"
-        :title="isOpen ? 'Close DTS Scanner (Alt+S)' : 'DTS Barcode & QR Scanner (Alt+S)'"
+        :title="isOpen ? 'Close DTS Scanner (Alt+S)' : 'DTS QR Scanner (Alt+S)'"
     >
         <span class="rms-scanner-fab-icon" aria-hidden="true">
             <!-- Viewfinder / QR Scanner SVG -->

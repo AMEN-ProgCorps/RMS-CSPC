@@ -667,9 +667,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
             <!-- Details Form / Input Panel -->
             <div style="display: flex; flex-direction: column; gap: 20px;">
-                <!-- Barcode Gun Entry Card -->
+                <!-- Manual Input Entry Card -->
                 <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
-                    <h3 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #1e293b; font-family: Outfit, sans-serif;">Barcode Gun / Text Scanner Input</h3>
+                    <h3 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #1e293b; font-family: Outfit, sans-serif;">Manual Input</h3>
                     <form wire:submit.prevent="loadTransaction" style="display: flex; gap: 8px;">
                         <div style="position: relative; flex: 1;">
                            <input 
@@ -789,7 +789,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     <div style="background: #fff; border: 1.5px dashed #cbd5e1; border-radius: 12px; padding: 40px; text-align: center; color: #94a3b8; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);">
                         <i class="fa-solid fa-qrcode" style="font-size: 40px; margin-bottom: 12px; color: #cbd5e1;"></i>
                         <p style="font-size: 13px; margin: 0; font-family: Outfit, sans-serif; font-weight: 500;">No active scanned details</p>
-                        <p style="font-size: 12px; margin: 4px 0 0 0; color: #94a3b8;">Use webcam feed or barcode gun to load document context</p>
+                        <p style="font-size: 12px; margin: 4px 0 0 0; color: #94a3b8;">Use webcam feed or manual input to load document context</p>
                     </div>
                 @endif
 

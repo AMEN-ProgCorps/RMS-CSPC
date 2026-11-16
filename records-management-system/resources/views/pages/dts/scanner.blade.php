@@ -1367,11 +1367,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         {{-- Left Column: Scanner Hardware & Live Camera Viewport --}}
         <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
             
-            {{-- Direct Text / Barcode Gun Input --}}
+            {{-- Direct Text / Manual Input --}}
             <div style="margin-bottom: 20px;">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                     <label for="scanner-main-input" style="font-size: 13px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 4px; margin: 0;">
-                        <i class="fa-solid fa-barcode" style="color: #0284c7;"></i> Barcode Gun / Manual Input
+                        <i class="fa-solid fa-keyboard" style="color: #0284c7;"></i> Manual Input
                     </label>
                     @if($availableCodesEnabled)
                     <button type="button" wire:click="openAvailableCodesModal" 
@@ -1391,7 +1391,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                            id="scanner-main-input" 
                            wire:model.live.debounce.250ms="scannedCode" 
                            wire:keydown.enter="loadTransactionManual"
-                           placeholder="Scan barcode gun or enter Control / QR Code..." 
+                           placeholder="Enter Control Number or QR Code..." 
                            autofocus
                            style="width: 100%; height: 46px; border: 2px solid #0284c7; border-radius: 12px; padding: 0 44px 0 16px; font-size: 15px; font-weight: 600; color: #0f172a; outline: none; background: #f0f9ff; transition: all 0.2s;" />
                     @if($scannedCode)
@@ -1402,7 +1402,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     @endif
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
-                    <span style="font-size: 11px; color: #64748b;">Press <kbd style="background: #e2e8f0; padding: 1px 4px; border-radius: 4px; font-family: monospace;">Enter</kbd> or trigger barcode gun</span>
+                    <span style="font-size: 11px; color: #64748b;">Press <kbd style="background: #e2e8f0; padding: 1px 4px; border-radius: 4px; font-family: monospace;">Enter</kbd> or click Lookup</span>
                     <button type="button" wire:click="loadTransactionManual" style="font-size: 12px; font-weight: 700; color: #0284c7; background: transparent; border: none; cursor: pointer;">
                         Lookup Code &rarr;
                     </button>
@@ -1474,7 +1474,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 <ul style="margin: 0; padding-left: 18px; line-height: 1.5;">
                     <li><strong>Webcam distance:</strong> Hold the QR code approximately <strong>25–35 cm (arm's length)</strong> away from laptop cameras so the fixed-focus lens stays sharp.</li>
                     <li><strong>Paste screenshot:</strong> Press <kbd style="background: #e2e8f0; padding: 1px 4px; border-radius: 4px; font-family: monospace;">Ctrl+V</kbd> anywhere on this page to immediately scan a copied QR code image.</li>
-                    <li>Handheld USB/Bluetooth barcode guns auto-focus and trigger instantly.</li>
+                    <li><strong>Manual Lookup:</strong> Type the Control Number or QR Code in the input field and press Enter.</li>
                 </ul>
             </div>
         </div>
@@ -1702,7 +1702,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     </div>
                     <h3 style="font-size: 16px; font-weight: 700; color: #1e293b; margin: 0 0 6px 0;">Awaiting Scanned Input</h3>
                     <p style="font-size: 13px; color: #64748b; max-width: 380px; margin: 0 auto 18px auto; line-height: 1.5;">
-                        Scan any document QR code via camera, trigger your handheld barcode scanner, or type a control number into the input box on the left.
+                        Scan any document QR code via camera, or type a Control Number into the input box on the left.
                     </p>
                     <div style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #0284c7; background: #e0f2fe; padding: 6px 14px; border-radius: 9999px;">
                         <span style="width: 6px; height: 6px; border-radius: 50%; background: #0284c7; animation: pulse 1.5s infinite;"></span>

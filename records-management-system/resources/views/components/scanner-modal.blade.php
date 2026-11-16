@@ -1831,7 +1831,7 @@ new class extends Component {
                             id="global-scanner-code-input" 
                             wire:model.live.debounce.300ms="scannedCode" 
                             wire:keydown.enter="loadTransactionManual" 
-                            placeholder="Scan barcode gun or enter Control/QR..." 
+                            placeholder="Enter Control Number or QR Code..." 
                             style="flex: 1; min-width: 0; padding: 8px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 12.5px; outline: none; transition: border-color 0.15s; box-sizing: border-box;" 
                             onfocus="this.style.borderColor='#0284c7';" 
                             onblur="this.style.borderColor='#cbd5e1';"
@@ -2054,7 +2054,7 @@ new class extends Component {
                             <h4 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">DTS Scanner Console Armed</h4>
                             @if($availableCodesEnabled)
                                 <p style="font-size: 12px; color: #64748b; margin: 0 0 16px 0; max-width: 380px; line-height: 1.45;">
-                                    Aim your camera at a document QR code, use a handheld barcode scanner, or choose a document waiting at your station.
+                                    Aim your camera at a document QR code, or choose a document waiting at your station.
                                 </p>
 
                                 <!-- Quick Stats Cards -->
@@ -2086,7 +2086,7 @@ new class extends Component {
                                 </button>
                             @else
                                 <p style="font-size: 12px; color: #64748b; margin: 0 0 16px 0; max-width: 400px; line-height: 1.45;">
-                                    Aim your camera at a document QR code, scan with a handheld barcode scanner, or enter the Control Number or QR Code below to process a transaction.
+                                    Aim your camera at a document QR code, or enter the Control Number or QR Code below to process a transaction.
                                 </p>
 
                                 <!-- Priority Hardware Scanning & Manual Input Instructions -->
@@ -2107,10 +2107,10 @@ new class extends Component {
                                             <div style="width: 22px; height: 22px; border-radius: 6px; background: #fef3c7; color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 11px;">
                                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 7V4h16v3M4 17v3h16v-3M9 12h6"/></svg>
                                             </div>
-                                            <span style="font-size: 11.5px; font-weight: 700; color: #0f172a;">Barcode Gun / Manual</span>
+                                            <span style="font-size: 11.5px; font-weight: 700; color: #0f172a;">Manual Input</span>
                                         </div>
                                         <div style="font-size: 10.5px; color: #64748b; line-height: 1.35;">
-                                            Use USB barcode gun or type the Control Number in the input box and click Search.
+                                            Type the Control Number or QR Code in the input box and click Search.
                                         </div>
                                     </div>
                                 </div>

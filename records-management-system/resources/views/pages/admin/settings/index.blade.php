@@ -2386,7 +2386,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     <div class="setting-item">
                         <div class="setting-details">
                             <span class="setting-title">Enable Available Station Documents Directory in Scanner</span>
-                            <span class="setting-desc">When enabled (default), users opening the DTS Scanner Console can browse, search, and select incoming/in-custody station documents directly from the directory without scanning. When disabled, the Available Documents Directory feature is deactivated and hidden, returning users strictly to priority camera scanning, handheld barcode scanners, or manual Control/QR number entry.</span>
+                            <span class="setting-desc">When enabled (default), users opening the DTS Scanner Console can browse, search, and select incoming/in-custody station documents directly from the directory without scanning. When disabled, the Available Documents Directory feature is deactivated and hidden, returning users strictly to priority camera scanning or manual Control/QR number entry.</span>
                         </div>
                         <label class="switch">
                             <input type="checkbox" wire:model="dtsEnableAvailableCodes">

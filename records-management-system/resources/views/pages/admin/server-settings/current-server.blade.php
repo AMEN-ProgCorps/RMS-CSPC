@@ -737,7 +737,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
                     </div>
                     <p style="font-size: 12px; color: #64748b; margin: 4px 0 0 0; max-width: 650px; line-height: 1.45;">
                         Controls whether users can browse and select station documents from the <strong>Available Documents</strong> directory in the scanner widget.
-                        When <strong>Disabled</strong>, the station directory is locked and hidden, returning users strictly to <strong>priority hardware QR scanning, barcode guns, or manual Control Number input</strong>.
+                        When <strong>Disabled</strong>, the station directory is locked and hidden, returning users strictly to <strong>priority camera QR scanning or manual Control Number input</strong>.
                     </p>
                 </div>
             </div>

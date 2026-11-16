@@ -262,6 +262,21 @@
         detail = detail || {};
         var backTarget = previousPage();
         var status = detail.status || 408;
+
+        // If the user recently dismissed an error modal, suppress repeated popups for 30 seconds
+        var now = Date.now();
+        if (window.__rmsErrorDismissedAt && (now - window.__rmsErrorDismissedAt) < 30000) {
+            return;
+        }
+
+        // Debounce identical error popouts within 15 seconds to avoid flashing or spamming loops
+        var errKey = (status || '0') + '|' + (detail.title || '') + '|' + (detail.message || '');
+        if (window.__rmsLastShownErrorKey === errKey && (now - (window.__rmsLastShownErrorAt || 0)) < 15000) {
+            return;
+        }
+        window.__rmsLastShownErrorKey = errKey;
+        window.__rmsLastShownErrorAt = now;
+
         var title = detail.title || 'Slow internet';
         var message = detail.message || 'Your internet connection is too slow. Check your connection and try again.';
         var file = detail.file || '';
@@ -296,6 +311,7 @@
             var dismissBtn = document.getElementById('rmsErrorDismiss');
             if (dismissBtn) {
                 dismissBtn.addEventListener('click', function () {
+                    window.__rmsErrorDismissedAt = Date.now();
                     existing.hidden = true;
                     existing.style.display = 'none';
                 });
@@ -483,6 +499,13 @@
                 if (typeof payload.preventDefault === 'function') {
                     payload.preventDefault();
                 }
+
+                var status = Number(payload.status) || 0;
+                // Never interrupt user with 503/504/408 popups during background automated polling or idle intervals
+                if ((status === 503 || status === 504 || status === 408) && !userIsWaiting()) {
+                    return;
+                }
+
                 var diagnosed = window.rmsDiagnoseError(payload.status, payload.content);
                 document.dispatchEvent(new CustomEvent('rms:error', { detail: diagnosed }));
             });
@@ -498,7 +521,14 @@
         var detail = event.detail || {};
         var status = Number(detail.status) || 0;
         if (status === 401 || status === 419 || status === 422) return;
-        showErrorScreen(detail, true);
+
+        // Do not force-open error modal for transient 503 / 504 / 408 / network issues unless user actively requested an action
+        var isTransient = (status === 503 || status === 504 || status === 408 || status === 0);
+        if (isTransient && !userIsWaiting()) {
+            return;
+        }
+
+        showErrorScreen(detail, !isTransient);
     });
 
     window.addEventListener('error', function (event) {

@@ -161,12 +161,10 @@ body.messify-widget-open #messify-global-widget {
 
 #messify-widget-card.is-maximized {
     position: fixed !important;
-    top: 24px !important;
-    left: 24px !important;
-    right: 24px !important;
     bottom: 88px !important;
-    width: auto !important;
-    height: auto !important;
+    right: 24px !important;
+    width: calc(100vw - 48px) !important;
+    height: calc(100vh - 112px) !important;
     max-width: none !important;
     max-height: none !important;
     border-radius: 14px !important;

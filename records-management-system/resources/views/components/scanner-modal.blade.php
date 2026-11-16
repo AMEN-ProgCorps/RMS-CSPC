@@ -64,6 +64,15 @@ new class extends Component {
         session()->put('dts_scanner_auto_action', $this->autoAction);
     }
 
+    public function toggleAvailableCodesModal(): void
+    {
+        if ($this->showAvailableModal) {
+            $this->closeAvailableCodesModal();
+        } else {
+            $this->openAvailableCodesModal();
+        }
+    }
+
     public function openAvailableCodesModal(): void
     {
         $this->availableSearch = '';
@@ -1056,7 +1065,7 @@ new class extends Component {
                     <!-- Available Directory Button -->
                     <button
                         type="button"
-                        wire:click="{{ $showAvailableModal ? 'closeAvailableCodesModal' : 'openAvailableCodesModal' }}"
+                        wire:click="toggleAvailableCodesModal"
                         class="scanner-header-pill-btn btn-cyan {{ $showAvailableModal ? 'btn-cyan-active' : '' }}"
                         title="Browse pending documents for your station"
                     >
@@ -1450,7 +1459,7 @@ new class extends Component {
             </style>
 
             <!-- Two-Column Body (Landscape 2:1 Split) -->
-            <div class="dts-scanner-widget-body" style="{{ $showAvailableModal ? 'display: none !important;' : '' }}">
+            <div class="dts-scanner-widget-body">
                 <!-- Left Pane: Viewport, Camera Controls, & Barcode Gun Input (Width: 390px) -->
                 <div class="dts-scanner-left-pane">
                     @if($successMessage)
@@ -1785,7 +1794,7 @@ new class extends Component {
 
             <!-- Available Documents Directory View (Contained 100% Inside Widget Card) -->
             @if($showAvailableModal)
-                <div class="dts-available-inner-pane" style="flex: 1; display: flex; flex-direction: column; background: #ffffff; overflow: hidden; min-height: 0;">
+                <div class="dts-available-inner-pane" style="position: absolute; top: 46px; left: 0; right: 0; bottom: 0; background: #ffffff; z-index: 50; display: flex; flex-direction: column; overflow: hidden;">
                     <!-- Sub-Header / Filters / Search -->
                     <div style="padding: 10px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; flex-shrink: 0;">
                         <div style="display: flex; align-items: center; gap: 8px;">
@@ -2314,57 +2323,62 @@ new class extends Component {
             };
             modalHtml5QrCode = createFreshModalDecoder();
 
-            let attempts = [];
+            const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+
+            let candidates = [];
 
             // 1. Explicit camera device target passed
             if (cameraTarget && typeof cameraTarget === 'string' && cameraTarget !== 'environment' && cameraTarget !== 'user') {
                 modalActiveCameraId = cameraTarget;
-                attempts.push({ camera: { deviceId: cameraTarget }, stream: modalBareConfig });
-                attempts.push({ camera: cameraTarget, stream: modalBareConfig });
+                candidates.push({ deviceId: cameraTarget });
             }
 
             // 2. Previously selected active camera
-            if (modalActiveCameraId) {
-                attempts.push({ camera: { deviceId: modalActiveCameraId }, stream: modalBareConfig });
+            if (modalActiveCameraId && !candidates.some(c => c.deviceId === modalActiveCameraId)) {
+                candidates.push({ deviceId: modalActiveCameraId });
             }
 
             // 3. Available enumerated system cameras (webcams, USB cameras, integrated laptop cameras)
             if (modalAvailableCameras && modalAvailableCameras.length > 0) {
-                const backCam = modalAvailableCameras.find(c => /back|rear|environment/i.test(c.label || ''));
-                if (cameraTarget === 'environment' && backCam) {
-                    attempts.push({ camera: { deviceId: backCam.id }, stream: modalBareConfig });
+                if (isTouch) {
+                    const backCam = modalAvailableCameras.find(c => /back|rear|environment/i.test(c.label || ''));
+                    if (backCam) candidates.push({ deviceId: backCam.id });
+                } else {
+                    candidates.push({ deviceId: modalAvailableCameras[0].id });
                 }
                 for (const c of modalAvailableCameras) {
-                    if (c.id && !attempts.some(a => a.camera && (a.camera.deviceId === c.id || a.camera === c.id))) {
-                        attempts.push({ camera: { deviceId: c.id }, stream: modalBareConfig });
+                    if (c.id && !candidates.some(cand => cand.deviceId === c.id)) {
+                        candidates.push({ deviceId: c.id });
                     }
                 }
             }
 
             // 4. Facing modes (environment for rear camera, user for front/selfie)
-            if (cameraTarget === 'user') {
-                attempts.push({ camera: { facingMode: 'user' }, stream: modalBareConfig });
-                attempts.push({ camera: { facingMode: 'environment' }, stream: modalBareConfig });
+            if (isTouch) {
+                if (cameraTarget === 'user') {
+                    candidates.push({ facingMode: 'user' });
+                    candidates.push({ facingMode: 'environment' });
+                } else {
+                    candidates.push({ facingMode: 'environment' });
+                    candidates.push({ facingMode: 'user' });
+                }
             } else {
-                attempts.push({ camera: { facingMode: 'environment' }, stream: modalBareConfig });
-                attempts.push({ camera: { facingMode: 'user' }, stream: modalBareConfig });
+                candidates.push({ facingMode: 'user' });
+                candidates.push({ facingMode: 'environment' });
             }
-
-            // 5. Ultimate fallback: unconstrained default webcam (works on all PC webcams)
-            attempts.push({ camera: true, stream: modalBareConfig });
-            attempts.push({ camera: {}, stream: modalBareConfig });
 
             let started = false;
             let lastErr = null;
 
-            for (const att of attempts) {
+            for (const cand of candidates) {
                 try {
-                    await modalHtml5QrCode.start(att.camera, att.stream, onModalScanSuccess, () => {});
+                    await modalHtml5QrCode.start(cand, modalBareConfig, onModalScanSuccess, () => {});
                     started = true;
+                    if (cand.deviceId) modalActiveCameraId = cand.deviceId;
                     break;
                 } catch (err) {
                     lastErr = err;
-                    console.warn('Modal camera start attempt failed:', err);
+                    console.warn('Modal camera start attempt failed with candidate:', cand, err);
                     try { if (modalHtml5QrCode.isScanning) await modalHtml5QrCode.stop(); } catch(e) {}
                     try {
                         const clearing = modalHtml5QrCode.clear();
@@ -2399,11 +2413,26 @@ new class extends Component {
                 console.error('switchModalCamera failed:', err);
                 const placeholder = document.getElementById('camera-loading-placeholder');
                 if (placeholder) {
+                    const errName = (err && err.name) || '';
+                    const errMsg = (err && (err.message || String(err))) || 'Camera switch failed';
+                    let guidance = 'Please allow camera permission in your browser or connect a webcam.';
+                    if (errName === 'NotAllowedError' || /permission/i.test(errMsg)) {
+                        guidance = 'Camera access is blocked by your browser. Click the lock/tune icon in your address bar, select <b>Always allow</b>, and click Retry.';
+                    } else if (errName === 'NotFoundError' || /device not found/i.test(errMsg)) {
+                        guidance = 'No camera found. Check if your laptop privacy shutter is open or if Windows has "Camera off" toggled.';
+                    } else if (errName === 'NotReadableError') {
+                        guidance = 'Camera is in use by another application (e.g. Teams, Zoom, or another browser tab).';
+                    }
                     placeholder.innerHTML = `
-                        <div style="color: #ef4444; font-size: 12px; text-align: center; padding: 10px;">
-                            <div style="font-weight: 600;">Camera switch failed.</div>
-                            <button type="button" onclick="window.flipModalCamera()" style="margin-top: 6px; padding: 4px 12px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 11px; cursor: pointer;">Retry Switching</button>
-                        </div>
+                        <svg style="width: 24px; height: 24px; margin-bottom: 5px; stroke: #f59e0b;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                        <div style="font-weight: 700; font-size: 12px; color: #f8fafc;">Camera Access Unavailable</div>
+                        <div style="font-size: 10px; color: #cbd5e1; max-width: 280px; text-align: center; margin-top: 3px; line-height: 1.35;">${guidance}</div>
+                        <div style="font-size: 9.5px; font-family: monospace; color: #f87171; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; margin-top: 5px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${errMsg}">${errName ? errName + ': ' : ''}${errMsg}</div>
+                        <button type="button" onclick="window.switchModalCamera()" style="margin-top: 7px; padding: 4px 12px; background: #0284c7; color: #ffffff; border: none; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#0369a1'" onmouseout="this.style.background='#0284c7'">
+                            Retry Camera
+                        </button>
                     `;
                     placeholder.style.display = 'flex';
                 }
@@ -2488,15 +2517,24 @@ new class extends Component {
                 const placeholder = document.getElementById('camera-loading-placeholder');
                 if (placeholder) {
                     placeholder.style.display = 'flex';
+                    const errName = (err && err.name) || '';
+                    const errMsg = (err && (err.message || String(err))) || 'Unknown camera error';
+                    let guidance = 'Please allow camera permission in your browser or connect a webcam.';
+                    if (errName === 'NotAllowedError' || /permission/i.test(errMsg)) {
+                        guidance = 'Camera access is blocked by your browser. Click the lock/camera icon in your address bar, select <b>Always allow</b>, and click Retry.';
+                    } else if (errName === 'NotFoundError' || /device not found/i.test(errMsg)) {
+                        guidance = 'No camera found. Check if your laptop privacy shutter is open or if Windows has "Camera off" toggled.';
+                    } else if (errName === 'NotReadableError') {
+                        guidance = 'Camera is in use by another application (e.g. Teams, Zoom, or another browser tab).';
+                    }
                     placeholder.innerHTML = `
-                        <svg style="width: 24px; height: 24px; margin-bottom: 6px; stroke: #f59e0b;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg style="width: 24px; height: 24px; margin-bottom: 5px; stroke: #f59e0b;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                         </svg>
-                        <div style="font-weight: 600; font-size: 11.5px; color: #cbd5e1;">Camera Not Connected / Permission Needed</div>
-                        <small style="opacity: 0.8; font-size: 10px; max-width: 260px; text-align: center; margin-top: 2px;">
-                            Please allow camera access in your browser or connect a webcam. You can also use a USB barcode gun below.
-                        </small>
-                        <button type="button" onclick="window.switchModalCamera()" style="margin-top: 8px; padding: 4px 12px; background: #0284c7; color: #ffffff; border: none; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">
+                        <div style="font-weight: 700; font-size: 12px; color: #f8fafc;">Camera Access Unavailable</div>
+                        <div style="font-size: 10px; color: #cbd5e1; max-width: 280px; text-align: center; margin-top: 3px; line-height: 1.35;">${guidance}</div>
+                        <div style="font-size: 9.5px; font-family: monospace; color: #f87171; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; margin-top: 5px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${errMsg}">${errName ? errName + ': ' : ''}${errMsg}</div>
+                        <button type="button" onclick="window.switchModalCamera()" style="margin-top: 7px; padding: 4px 12px; background: #0284c7; color: #ffffff; border: none; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#0369a1'" onmouseout="this.style.background='#0284c7'">
                             Retry Camera
                         </button>
                     `;

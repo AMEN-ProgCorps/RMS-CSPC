@@ -20,33 +20,34 @@ class CustomGroupManager
     private static function ensureTables(PDO $pdo): void
     {
         if (self::$_tablesEnsured) return;
+        SelfHealCache::once('custom_groups_tables', function () use ($pdo) {
+            try {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS messify_chat_custom_groups (
+                        id BIGSERIAL PRIMARY KEY,
+                        name VARCHAR(100) NOT NULL,
+                        creator_id INT NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    );
+                    CREATE TABLE IF NOT EXISTS messify_chat_custom_group_members (
+                        id BIGSERIAL PRIMARY KEY,
+                        group_id BIGINT NOT NULL REFERENCES messify_chat_custom_groups(id) ON DELETE CASCADE,
+                        account_id INT NOT NULL,
+                        joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        UNIQUE(group_id, account_id)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_ccgm_account ON messify_chat_custom_group_members(account_id);
+                    CREATE INDEX IF NOT EXISTS idx_ccgm_group ON messify_chat_custom_group_members(group_id);
+                    ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS last_read_msg_id BIGINT DEFAULT 0;
+                    ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS last_opened_at TIMESTAMP WITH TIME ZONE;
+                    ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS new_member_seen BOOLEAN NOT NULL DEFAULT FALSE;
+                    ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+                ");
+            } catch (Throwable $t) {
+                error_log('CustomGroupManager::ensureTables() — ' . $t->getMessage());
+            }
+        });
         self::$_tablesEnsured = true;
-
-        try {
-            $pdo->exec("
-                CREATE TABLE IF NOT EXISTS messify_chat_custom_groups (
-                    id BIGSERIAL PRIMARY KEY,
-                    name VARCHAR(100) NOT NULL,
-                    creator_id INT NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                );
-                CREATE TABLE IF NOT EXISTS messify_chat_custom_group_members (
-                    id BIGSERIAL PRIMARY KEY,
-                    group_id BIGINT NOT NULL REFERENCES messify_chat_custom_groups(id) ON DELETE CASCADE,
-                    account_id INT NOT NULL,
-                    joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    UNIQUE(group_id, account_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_ccgm_account ON messify_chat_custom_group_members(account_id);
-                CREATE INDEX IF NOT EXISTS idx_ccgm_group ON messify_chat_custom_group_members(group_id);
-                ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS last_read_msg_id BIGINT DEFAULT 0;
-                ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS last_opened_at TIMESTAMP WITH TIME ZONE;
-                ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS new_member_seen BOOLEAN NOT NULL DEFAULT FALSE;
-                ALTER TABLE messify_chat_custom_group_members ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
-            ");
-        } catch (Throwable $t) {
-            error_log('CustomGroupManager::ensureTables() — ' . $t->getMessage());
-        }
     }
 
     // -------------------------------------------------------------------------

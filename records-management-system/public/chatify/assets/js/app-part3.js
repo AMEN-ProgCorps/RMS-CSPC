@@ -3464,6 +3464,10 @@
     }
 
     function speculateGlobalChatCard(cardElement) {
+      if (typeof speculateChannelCard === 'function') {
+        speculateChannelCard('global', cardElement || document.getElementById('globalChatItem'));
+        return;
+      }
       const el = cardElement || document.getElementById('globalChatItem');
       if (el && el.dataset.preloaded === 'true') return;
       if (globalChatPrefetchedData || gcPrefetchPromise) {
@@ -3476,7 +3480,7 @@
 
       // Register Speculation Rules API rule dynamically for load.php
       if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
-        const url = 'load.php?before_uuid=';
+        const url = 'load.php?conv_id=global&before_uuid=&limit=' + INITIAL_LOAD;
         const ruleId = 'speculation-rule-global-chat';
         if (!document.getElementById(ruleId)) {
           try {
@@ -3526,6 +3530,27 @@
               if (typeof cacheGlobalChatSnapshot === 'function') cacheGlobalChatSnapshot(data);
               if (chatBox && chatBox.children.length === 0) {
                 processGlobalChatData(data, false);
+              }
+            }
+          });
+        }
+
+        // Check if channelMessageCache has a snapshot for instant paint
+        const cachedSnap = (typeof channelMessageCache !== 'undefined' && channelMessageCache.get)
+          ? channelMessageCache.get(targetConvId)
+          : null;
+        if (cachedSnap && cachedSnap.html && chatBox && chatBox.children.length === 0) {
+          processGlobalChatData(cachedSnap._raw || cachedSnap, false);
+        }
+
+        // Check if channelPrefetchPromises has an in-flight fetch for targetConvId
+        if (typeof channelPrefetchPromises !== 'undefined' && channelPrefetchPromises.has(targetConvId)) {
+          const cp = channelPrefetchPromises.get(targetConvId);
+          cp.then(function(data) {
+            const curActive = (typeof getActiveChannelConvId === 'function') ? getActiveChannelConvId() : 'global';
+            if (data && isGlobalChat && curActive === targetConvId) {
+              if (chatBox && chatBox.children.length === 0) {
+                processGlobalChatData(data._raw || data, false);
               }
             }
           });

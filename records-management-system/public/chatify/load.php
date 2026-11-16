@@ -127,7 +127,10 @@ $reactions = GlobalChatManager::loadReactions($pageUuids, $convId);
 $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 
 // ── Build a name cache for all senders in this batch ────────────────────────
-$nameMap = UserResolver::buildNameMap();
+$batchSenderIds = array_column($rawMessages, 'sender_id');
+$batchReplySenderIds = array_column($rawMessages, 'reply_sender_id');
+$uniqueParticipantIds = array_values(array_unique(array_filter(array_merge([$myAccountId], $batchSenderIds, $batchReplySenderIds), 'is_numeric')));
+$nameMap = !empty($uniqueParticipantIds) ? UserResolver::buildNameMapForIds($uniqueParticipantIds) : [];
 
 // ── Build a verification cache: account_id => is_messify_verified ────────────
 // Loaded lazily per-sender using UserResolver::getUserInfo() which caches rows.

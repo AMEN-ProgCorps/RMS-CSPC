@@ -117,18 +117,20 @@ class OfficeChatManager
     private static function ensureReadTable(PDO $pdo): void
     {
         if (self::$_readTableEnsured) return;
-        try {
-            $pdo->exec(
-                'CREATE TABLE IF NOT EXISTS messify_chat_office_gc_reads (
-                    account_id  INT    NOT NULL,
-                    office_id   INT    NOT NULL,
-                    last_read_msg_id BIGINT DEFAULT 0,
-                    PRIMARY KEY (account_id, office_id)
-                )'
-            );
-        } catch (Throwable $e) {
-            error_log('OfficeChatManager::ensureReadTable() — ' . $e->getMessage());
-        }
+        SelfHealCache::once('office_chat_read_table', function () use ($pdo) {
+            try {
+                $pdo->exec(
+                    'CREATE TABLE IF NOT EXISTS messify_chat_office_gc_reads (
+                        account_id  INT    NOT NULL,
+                        office_id   INT    NOT NULL,
+                        last_read_msg_id BIGINT DEFAULT 0,
+                        PRIMARY KEY (account_id, office_id)
+                    )'
+                );
+            } catch (Throwable $e) {
+                error_log('OfficeChatManager::ensureReadTable() — ' . $e->getMessage());
+            }
+        });
         self::$_readTableEnsured = true;
     }
 

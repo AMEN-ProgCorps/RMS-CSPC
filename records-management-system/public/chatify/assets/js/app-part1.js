@@ -2410,6 +2410,99 @@
       }
     }
 
+    const channelPrefetchInFlight = new Set();
+    const channelPrefetchPromises = new Map();
+    window.channelPrefetchInFlight = channelPrefetchInFlight;
+    window.channelPrefetchPromises = channelPrefetchPromises;
+
+    function prefetchChannelSnapshot(convId) {
+      if (!convId) return Promise.resolve(null);
+      if (typeof channelMessageCache !== 'undefined' && channelMessageCache.has(convId)) {
+        return Promise.resolve(channelMessageCache.get(convId));
+      }
+      if (channelPrefetchPromises.has(convId)) {
+        return channelPrefetchPromises.get(convId);
+      }
+
+      channelPrefetchInFlight.add(convId);
+      const promise = new Promise(function(resolve) {
+        const xhr = new XMLHttpRequest();
+        const url = 'load.php?conv_id=' + encodeURIComponent(convId) + '&before_uuid=&limit=' + INITIAL_LOAD;
+        xhr.open('GET', url, true);
+        xhr.onload = function() {
+          channelPrefetchInFlight.delete(convId);
+          channelPrefetchPromises.delete(convId);
+          if (this.status === 200) {
+            try {
+              let rawText = (this.responseText || '').trim();
+              const firstBrace = rawText.indexOf('{');
+              const lastBrace = rawText.lastIndexOf('}');
+              if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
+                rawText = rawText.substring(firstBrace, lastBrace + 1);
+              }
+              const parsed = JSON.parse(rawText);
+              if (parsed && !parsed.conv_id) parsed.conv_id = convId;
+              if (typeof cacheGlobalChatSnapshot === 'function') {
+                cacheGlobalChatSnapshot(parsed);
+              }
+              if (convId === 'global') {
+                globalChatPrefetchedData = parsed;
+              }
+            } catch (e) {}
+          }
+          resolve((typeof channelMessageCache !== 'undefined' ? channelMessageCache.get(convId) : null) || null);
+        };
+        xhr.onerror = function() {
+          channelPrefetchInFlight.delete(convId);
+          channelPrefetchPromises.delete(convId);
+          resolve(null);
+        };
+        xhr.send();
+      });
+
+      channelPrefetchPromises.set(convId, promise);
+      return promise;
+    }
+    window.prefetchChannelSnapshot = prefetchChannelSnapshot;
+
+    function speculateChannelCard(convId, cardElement) {
+      if (!convId) return;
+      if (cardElement && cardElement.dataset.preloaded === 'true') return;
+      if ((typeof channelMessageCache !== 'undefined' && channelMessageCache.has(convId)) ||
+          channelPrefetchInFlight.has(convId) ||
+          channelPrefetchPromises.has(convId)) {
+        if (cardElement) cardElement.dataset.preloaded = 'true';
+        return;
+      }
+      if (cardElement) cardElement.dataset.preloaded = 'true';
+
+      prefetchChannelSnapshot(convId);
+
+      // Register Speculation Rules API rule dynamically for browser engine prefetch
+      if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
+        const url = 'load.php?conv_id=' + encodeURIComponent(convId) + '&before_uuid=&limit=' + INITIAL_LOAD;
+        const ruleId = 'speculation-rule-chan-' + String(convId).replace(/[^a-zA-Z0-9_-]/g, '');
+        if (!document.getElementById(ruleId)) {
+          try {
+            const ruleScript = document.createElement('script');
+            ruleScript.id = ruleId;
+            ruleScript.type = 'speculationrules';
+            ruleScript.textContent = JSON.stringify({
+              "prefetch": [
+                {
+                  "source": "list",
+                  "urls": [url],
+                  "eagerness": "immediate"
+                }
+              ]
+            });
+            document.head.appendChild(ruleScript);
+          } catch (e) {}
+        }
+      }
+    }
+    window.speculateChannelCard = speculateChannelCard;
+
     // Fetches one conversation's latest page in the background and drops it
     // straight into dmMessageCache — no UI touched, no effect on activeDM/
     // chatBox. Used to warm the cache BEFORE the user clicks, so the click
@@ -2453,16 +2546,50 @@
     }
 
     // Warms the cache for the most recent conversations right after the
-    // sidebar list loads, one request at a time (gentle on the server and
-    // doesn't compete with the live WS connection or an in-flight send).
-    // This is what makes even a FIRST click on a recent conversation feel
-    // instant, not just revisits within the session.
-    // Preloading is strictly demand-driven: triggered ONLY when hovering (mouseenter)
-    // or touching (pointerdown) a sidebar conversation card.
+    // sidebar list loads, staggered in the background during idle time.
+    // On mobile devices where mouse hover doesn't exist, this background
+    // warmup is what guarantees instant 0ms taps on the top conversations!
+    let _prefetchTopTimer = null;
     function prefetchTopConversations() {
-      // Intentionally no-op: preloading happens on card hover
-      return;
+      if (_prefetchTopTimer) clearTimeout(_prefetchTopTimer);
+      _prefetchTopTimer = setTimeout(() => {
+        const runWarmup = () => {
+          // 1. Warm up Global Chat
+          speculateChannelCard('global', document.getElementById('globalChatItem'));
+
+          // 2. Warm up Office GC if available
+          if (window.currentOfficeInfo && (window.currentOfficeInfo.conv_id || window.currentOfficeInfo.office_id)) {
+            const ocId = window.currentOfficeInfo.conv_id || ('office_' + window.currentOfficeInfo.office_id);
+            speculateChannelCard(ocId, document.getElementById('officeChatItem'));
+          }
+
+          // 3. Warm up top 4 visible conversations (Custom GCs and recent DMs)
+          if (Array.isArray(allUsersData) && allUsersData.length > 0) {
+            const topSlice = allUsersData.slice(0, 4);
+            topSlice.forEach((u, i) => {
+              setTimeout(() => {
+                if (u.is_custom_gc) {
+                  const gcId = u.conv_id || ('gc_' + u.gc_id);
+                  speculateChannelCard(gcId, null);
+                } else if (u.is_office_gc) {
+                  const offId = u.conv_id || ('office_' + u.office_id);
+                  speculateChannelCard(offId, null);
+                } else if (u.account_id || u.username) {
+                  speculateConversationCard(u, null);
+                }
+              }, i * 150);
+            });
+          }
+        };
+
+        if ('requestIdleCallback' in window) {
+          window.requestIdleCallback(runWarmup, { timeout: 1500 });
+        } else {
+          setTimeout(runWarmup, 100);
+        }
+      }, 350);
     }
+    window.prefetchTopConversations = prefetchTopConversations;
 
     // Patches one sidebar row in-place (unread badge, move-to-top ordering)
     // using data we already have from a WS event or our own just-sent
@@ -2726,17 +2853,22 @@
         if (u.conv_id) item.dataset.convId = String(u.conv_id);
 
         if (u.is_office_gc) {
+          const offConvId = u.conv_id || ('office_' + (u.office_id || ''));
           item.onclick = () => selectOfficeChat(u);
-          item.onmouseenter = null;
-          item.onpointerdown = null;
+          item.onmouseenter = () => speculateChannelCard(offConvId, item);
+          item.onpointerdown = () => speculateChannelCard(offConvId, item);
+          item.ontouchstart = () => speculateChannelCard(offConvId, item);
         } else if (u.is_custom_gc) {
+          const gcConvId = u.conv_id || ('gc_' + (u.gc_id || ''));
           item.onclick = () => selectCustomGc(u);
-          item.onmouseenter = null;
-          item.onpointerdown = null;
+          item.onmouseenter = () => speculateChannelCard(gcConvId, item);
+          item.onpointerdown = () => speculateChannelCard(gcConvId, item);
+          item.ontouchstart = () => speculateChannelCard(gcConvId, item);
         } else {
           item.onclick = () => selectDM(u);
           item.onmouseenter = () => speculateConversationCard(u, item);
           item.onpointerdown = () => speculateConversationCard(u, item);
+          item.ontouchstart = () => speculateConversationCard(u, item);
         }
 
         const isNewlyAdded = u.is_custom_gc && !isThisActive && (u.is_newly_added || (window.newlyAddedGcIds && window.newlyAddedGcIds.has(Number(u.gc_id)))) && !_openedGcIdsSet.has(Number(u.gc_id));
@@ -2945,6 +3077,9 @@
       }
 
       updateSidebarActiveHighlight();
+      if (typeof prefetchTopConversations === 'function') {
+        prefetchTopConversations();
+      }
     }
 
     // ── Notify feature: mention + notify any user from the sidebar list ──
@@ -4150,7 +4285,17 @@
       chatHeaderTitle.innerHTML = 'Global Chat';
       applyHeaderAdminBadge();
       applyHeaderAvatar({ avatar_url: 'cspc.webp', name: 'Global Chat' });
-      chatBox.innerHTML = '';
+
+      const cached = (typeof channelMessageCache !== 'undefined' && channelMessageCache.get)
+        ? channelMessageCache.get('global')
+        : null;
+      if (cached && cached.html) {
+        processGlobalChatData(cached._raw || cached, false);
+      } else if (typeof globalChatPrefetchedData !== 'undefined' && globalChatPrefetchedData && globalChatPrefetchedData.conv_id === 'global' && globalChatPrefetchedData.html) {
+        processGlobalChatData(globalChatPrefetchedData, false);
+      } else {
+        chatBox.innerHTML = '';
+      }
 
       removePaginationBtn();
       renderSidebarUsers();
@@ -4269,7 +4414,17 @@
       chatHeaderTitle.innerHTML = officeTitle;
       applyHeaderAdminBadge();
       applyHeaderAvatar({ avatar_url: 'cspc.webp', name: officeTitle });
-      chatBox.innerHTML = '';
+
+      const officeConv = (window.currentOfficeInfo && window.currentOfficeInfo.conv_id)
+        || (window.activeOfficeId ? 'office_' + window.activeOfficeId : null);
+      const cached = (officeConv && typeof channelMessageCache !== 'undefined' && channelMessageCache.get)
+        ? channelMessageCache.get(officeConv)
+        : null;
+      if (cached && cached.html) {
+        processGlobalChatData(cached._raw || cached, false);
+      } else {
+        chatBox.innerHTML = '';
+      }
 
       removePaginationBtn();
       renderSidebarUsers();
@@ -4406,14 +4561,22 @@
       chatHeaderTitle.innerHTML = escapeHtml(group.name);
       applyHeaderAdminBadge();
       applyHeaderAvatar({ avatar_url: 'cspc.webp', name: group.name });
-      chatBox.innerHTML = '';
+
+      const gcConv = group.conv_id || ('gc_' + group.gc_id);
+      const cached = (typeof channelMessageCache !== 'undefined' && channelMessageCache.get)
+        ? channelMessageCache.get(gcConv)
+        : null;
+      if (cached && cached.html) {
+        processGlobalChatData(cached._raw || cached, false);
+      } else {
+        chatBox.innerHTML = '';
+      }
 
       removePaginationBtn();
       renderSidebarUsers();
       updateSidebarActiveHighlight();
 
       loadGlobalChat(false, false, true);
-      const gcConv = group.conv_id || ('gc_' + group.gc_id);
       markRead(gcConv);
       if (isMobileViewport()) {
         sidebar.classList.remove('open');

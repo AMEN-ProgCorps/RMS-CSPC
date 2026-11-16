@@ -328,6 +328,7 @@ Route::middleware(['auth'])
     Route::get('/open-chat', [ChatController::class, 'openChat'])->name('open-chat');
     Route::get('/chatify', [ChatController::class, 'openChat'])->name('chatify');
     Route::get('/chatify/open-chat', [ChatController::class, 'openChat'])->name('chatify.open-chat');
+    Route::get('/messify', [ChatController::class, 'openChat'])->name('messify');
     Route::get('/messify/open-chat', [ChatController::class, 'openChat'])->name('messify.open-chat');
     Route::get('/chat/unread-count', function () {
         $user = Auth::user();

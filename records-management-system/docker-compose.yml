@@ -96,7 +96,7 @@ services:
       - .:/app
     env_file:
       - .env.docker
-    command: sh -c "npm install && node server.js"
+    command: sh -c "if [ -d /app/public/chatify/ws-server ]; then cd /app/public/chatify/ws-server; elif [ -d /app/public/messify/ws-server ]; then cd /app/public/messify/ws-server; fi && npm install && node server.js"
     networks:
       - rms_net
 

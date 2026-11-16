@@ -633,12 +633,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                 }
 
                 $adminLogsTbl = Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
-                DB::table($adminLogsTbl)->insert([
-                    'changes' => "Reassigned user @{$user->username} to office: {$office->office_name} ({$office->office_code}) via Miller drag-and-drop",
-                    'admin_id' => auth()->id(),
-                    'what_system' => 3,
-                    'when_changes' => now()
-                ]);
+                $subsystemTbl = Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+                $pk = Schema::hasColumn($subsystemTbl, 'subsystem_id') ? 'subsystem_id' : 'id';
+                $subsystemId = DB::table($subsystemTbl)->where($pk, 3)->value($pk) 
+                    ?? DB::table($subsystemTbl)->where('subsystem_name', 'Admin Console')->value($pk) 
+                    ?? DB::table($subsystemTbl)->value($pk);
+                if ($subsystemId) {
+                    try {
+                        DB::table($adminLogsTbl)->insert([
+                            'changes' => "Reassigned user @{$user->username} to office: {$office->office_name} ({$office->office_code}) via Miller drag-and-drop",
+                            'admin_id' => auth()->id() ?? $user->id,
+                            'what_system' => $subsystemId,
+                            'when_changes' => now()
+                        ]);
+                    } catch (\Throwable $e) {
+                        // Non-fatal audit log
+                    }
+                }
 
                 $this->successMessage = "User @{$user->username} successfully reassigned to {$office->office_name} ({$office->office_code})!";
             });

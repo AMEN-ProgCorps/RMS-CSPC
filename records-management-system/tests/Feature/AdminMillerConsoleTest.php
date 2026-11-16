@@ -43,6 +43,26 @@ class AdminMillerConsoleTest extends TestCase
             $admin->permissions->save();
         }
 
+        $subsystemTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $pk = \Illuminate\Support\Facades\Schema::hasColumn($subsystemTbl, 'subsystem_id') ? 'subsystem_id' : 'id';
+        if (!DB::table($subsystemTbl)->where($pk, 3)->exists()) {
+            $insertData = [
+                $pk => 3,
+                'subsystem_name' => 'Admin Console',
+                'is_active' => true,
+                'created_at' => now(),
+            ];
+            if (\Illuminate\Support\Facades\Schema::hasColumn($subsystemTbl, 'subsystem_version')) {
+                $insertData['subsystem_version'] = '1.0.0';
+            }
+            if (\Illuminate\Support\Facades\Schema::hasColumn($subsystemTbl, 'update_at')) {
+                $insertData['update_at'] = now();
+            } elseif (\Illuminate\Support\Facades\Schema::hasColumn($subsystemTbl, 'updated_at')) {
+                $insertData['updated_at'] = now();
+            }
+            DB::table($subsystemTbl)->insert($insertData);
+        }
+
         Auth::login($admin);
     }
 
@@ -116,14 +136,9 @@ class AdminMillerConsoleTest extends TestCase
         $office = DB::table('sys_office')->where('id', '!=', $user->details?->office_id ?? 0)->first();
 
         if ($user && $office) {
-            $comp = Volt::test('pages.admin.accounts.users')
-                ->call('assignUserOffice', $user->id, $office->id);
-            
-            if ($comp->get('errorMessage')) {
-                dump('assignUserOffice error: ' . $comp->get('errorMessage'));
-            }
-
-            $comp->assertHasNoErrors()
+            Volt::test('pages.admin.accounts.users')
+                ->call('assignUserOffice', $user->id, $office->id)
+                ->assertHasNoErrors()
                 ->assertSee('successfully reassigned to');
 
             $this->assertDatabaseHas('sys_account_details', [

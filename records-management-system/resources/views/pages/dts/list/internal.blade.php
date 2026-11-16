@@ -236,6 +236,82 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         }
         return $query->pluck('option_name')->toArray();
     }
+
+    // Forward HUB Selection Modal State
+    public bool $showForwardHubModal = false;
+    public string $forwardHubSearch = '';
+    public array $forwardHubOffices = [];
+    public array $forwardHubTempSelected = [];
+
+    public function openForwardHubModal(): void
+    {
+        $this->forwardHubTempSelected = $this->forwardHubOffices;
+        $this->forwardHubSearch = '';
+        $this->showForwardHubModal = true;
+    }
+
+    public function closeForwardHubModal(): void
+    {
+        $this->showForwardHubModal = false;
+        $this->forwardHubSearch = '';
+    }
+
+    public function toggleForwardHubOffice(string $officeCode): void
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        if ($officeCode === $userOfficeCode || in_array($officeCode, ['ORIGIN', '[H]', '[HUB]'])) {
+            return;
+        }
+
+        if (in_array('ALL', $this->forwardHubTempSelected)) {
+            $allActive = collect($this->availableTargetOffices)
+                ->pluck('office_code')
+                ->filter(fn($c) => $c !== $userOfficeCode && !in_array($c, ['ORIGIN', '[H]', '[HUB]', 'ALL']))
+                ->toArray();
+            $this->forwardHubTempSelected = array_values(array_diff($allActive, [$officeCode]));
+            return;
+        }
+
+        if (in_array($officeCode, $this->forwardHubTempSelected)) {
+            $this->forwardHubTempSelected = array_values(array_diff($this->forwardHubTempSelected, [$officeCode]));
+        } else {
+            $this->forwardHubTempSelected[] = $officeCode;
+        }
+    }
+
+    public function selectAllForwardHubOffices(): void
+    {
+        $this->forwardHubTempSelected = ['ALL'];
+    }
+
+    public function clearForwardHubOffices(): void
+    {
+        $this->forwardHubTempSelected = [];
+    }
+
+    public function applyForwardHubModal(): void
+    {
+        $this->forwardHubOffices = $this->forwardHubTempSelected;
+        $this->showForwardHubModal = false;
+        $this->forwardHubSearch = '';
+    }
+
+    public function removeForwardHubOffice(int $index): void
+    {
+        if (isset($this->forwardHubOffices[$index])) {
+            array_splice($this->forwardHubOffices, $index, 1);
+        }
+    }
+
+    public function getAvailableTargetOfficesProperty()
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+        return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
+    }
+
     public bool $editingControl = false;
     public bool $editingFileCode = false;
     public bool $editingParticulars = false;
@@ -741,6 +817,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         $this->emailAccess = '';
         $this->docPassword = '';
         $this->transactionFlow = '';
+        $this->forwardToOfficeCode = '';
+        $this->forwardHubOffices = [];
+        $this->forwardHubTempSelected = [];
+        $this->showForwardHubModal = false;
     }
 
     public function toggleMoreDetails(): void
@@ -1396,12 +1476,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 return;
             }
 
+            if ($this->forwardToOfficeCode === '[HUB]' && empty($this->forwardHubOffices)) {
+                session()->flash('error', 'Please select at least one recipient office for Office Hub broadcast.');
+                return;
+            }
+
             try {
                 $result = \App\Services\DtsRoutingService::forwardToOtherOffice(
                     $this->selectedTransactionId,
                     $this->forwardToOfficeCode,
                     $this->activeNotes,
-                    auth()->id()
+                    auth()->id(),
+                    $this->forwardHubOffices
                 );
                 session()->flash('success', "Transaction '{$result['control_number']}' has been forwarded to {$result['target_office_name']}!");
                 $this->closeTransaction();
@@ -1662,6 +1748,570 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
 ?>
 @push('styles')
     @vite(['resources/css/dts/list_transaction.css', 'resources/css/dts/receive.css'])
+    <style>
+        .dts-timeline-node-wrapper {
+            position: relative;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+        }
+        .dts-timeline-node-wrapper .dts-node-tooltip {
+            position: absolute;
+            bottom: 34px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 210px;
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 8px 10px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            border: 1px solid #334155;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.15s ease, visibility 0.15s ease;
+            z-index: 9999;
+            text-align: left;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+        .dts-timeline-node-wrapper .dts-node-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 6px;
+            border-style: solid;
+            border-color: #0f172a transparent transparent transparent;
+        }
+        .dts-timeline-node-wrapper:first-child .dts-node-tooltip {
+            left: -10px;
+            right: auto;
+            transform: none;
+        }
+        .dts-timeline-node-wrapper:first-child .dts-node-tooltip::after {
+            left: 26px;
+            right: auto;
+            transform: none;
+        }
+        .dts-timeline-node-wrapper:last-child .dts-node-tooltip {
+            left: auto;
+            right: -10px;
+            transform: none;
+        }
+        .dts-timeline-node-wrapper:last-child .dts-node-tooltip::after {
+            left: auto;
+            right: 26px;
+            transform: none;
+        }
+        .dts-timeline-node-wrapper:only-child .dts-node-tooltip,
+        .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip {
+            left: 50%;
+            right: auto;
+            transform: translateX(-50%);
+        }
+        .dts-timeline-node-wrapper:only-child .dts-node-tooltip::after,
+        .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip::after {
+            left: 50%;
+            right: auto;
+            transform: translateX(-50%);
+        }
+        .dts-timeline-node-wrapper:hover .dts-node-tooltip {
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+        .dts-timeline-node-dot {
+            transition: all 0.2s ease;
+        }
+        .dts-timeline-node-wrapper:hover .dts-timeline-node-dot {
+            transform: scale(1.2) !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════
+           DTS ISSUANCE OVERHAULED MODAL (Unique Registry Dossier)
+           ═══════════════════════════════════════════════════════════════ */
+        .dts-im-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            box-sizing: border-box;
+            animation: dtsImFadeIn 0.2s ease-out;
+        }
+        @keyframes dtsImFadeIn {
+            from { opacity: 0; transform: scale(0.98); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .dts-im-card {
+            background: #ffffff;
+            width: 100%;
+            max-width: 1060px;
+            max-height: 94vh;
+            border-radius: 18px;
+            box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            border: 1px solid #e2e8f0;
+        }
+        .dts-im-header {
+            background: linear-gradient(135deg, #091b3e 0%, #173878 50%, #1e40af 100%);
+            color: #ffffff;
+            padding: 20px 26px 18px;
+            flex-shrink: 0;
+            position: relative;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        .dts-im-header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .dts-im-header-identity {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .dts-im-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            color: #e0f2fe;
+        }
+        .dts-im-status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11.5px;
+            font-weight: 700;
+            border: 1px solid transparent;
+        }
+        .dts-im-close-btn {
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            font-size: 20px;
+            color: #ffffff;
+            cursor: pointer;
+            border-radius: 50%;
+            width: 34px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+            line-height: 1;
+        }
+        .dts-im-close-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: rotate(90deg);
+        }
+        .dts-im-header-main {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .dts-im-control-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .dts-im-control-label {
+            font-size: 10.5px;
+            font-weight: 700;
+            letter-spacing: 0.9px;
+            text-transform: uppercase;
+            color: #93c5fd;
+        }
+        .dts-im-control-val {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 20px;
+            font-weight: 800;
+            color: #ffffff;
+            font-family: 'JetBrains Mono', monospace, monospace;
+            letter-spacing: 0.5px;
+        }
+        .dts-im-copy-btn {
+            background: rgba(255, 255, 255, 0.18);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            color: #ffffff;
+            border-radius: 6px;
+            padding: 3px 9px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.15s ease;
+        }
+        .dts-im-copy-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        .dts-im-meta-cluster {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+        .dts-im-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(15, 23, 42, 0.35);
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .dts-im-meta-item i {
+            color: #93c5fd;
+            font-size: 13px;
+        }
+        .dts-im-meta-k {
+            display: block;
+            font-size: 9.5px;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: #cbd5e1;
+        }
+        .dts-im-meta-v {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #ffffff;
+            white-space: nowrap;
+        }
+        .dts-im-body {
+            padding: 22px 26px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            background: #f8fafc;
+        }
+        .dts-im-card-panel {
+            background: #ffffff;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+            padding: 18px 20px;
+        }
+        .dts-im-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            gap: 10px;
+        }
+        .dts-im-panel-title {
+            font-size: 13.5px;
+            font-weight: 700;
+            color: #0f172a;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+        .dts-im-subject-box {
+            border-left: 4px solid #2563eb;
+            background: #f8fafc;
+            border-radius: 0 8px 8px 0;
+            padding: 12px 16px;
+            font-size: 13.5px;
+            line-height: 1.6;
+            color: #1e293b;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+        .dts-im-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 12px;
+        }
+        .dts-im-tile {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 10px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .dts-im-tile-k {
+            font-size: 10.5px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .dts-im-tile-v {
+            font-size: 13px;
+            font-weight: 600;
+            color: #0f172a;
+            word-break: break-word;
+        }
+        .dts-im-tabs {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #f1f5f9;
+            padding: 4px;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+        }
+        .dts-im-tab-btn {
+            border: none;
+            background: transparent;
+            padding: 6px 14px;
+            border-radius: 7px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #64748b;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s ease;
+        }
+        .dts-im-tab-btn.active {
+            background: #ffffff;
+            color: #1e40af;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+        .dts-im-table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        }
+        .dts-im-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 12.5px;
+            text-align: left;
+        }
+        .dts-im-table th {
+            background: #f1f5f9;
+            color: #475569;
+            font-weight: 700;
+            padding: 10px 14px;
+            border-bottom: 1.5px solid #cbd5e1;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            white-space: nowrap;
+        }
+        .dts-im-table td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: middle;
+            color: #334155;
+            background: #ffffff;
+        }
+        .dts-im-table tbody tr:hover td {
+            background: #f8fafc;
+        }
+        .dts-im-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .dts-im-step-num {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #e0f2fe;
+            color: #0284c7;
+            font-weight: 700;
+            font-size: 11.5px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .dts-im-office-badge {
+            font-weight: 700;
+            color: #1e40af;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11.5px;
+            margin-right: 6px;
+            display: inline-block;
+        }
+        .dts-im-user-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11.5px;
+            color: #475569;
+            margin-top: 3px;
+        }
+        .dts-im-duration-pill {
+            background: #f1f5f9;
+            color: #475569;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+        .dts-im-footer {
+            padding: 14px 26px;
+            background: #ffffff;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            flex-shrink: 0;
+        }
+        .dts-im-footer-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .dts-im-btn {
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #334155;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s ease;
+            font-family: inherit;
+            line-height: 1;
+        }
+        .dts-im-btn:hover {
+            background: #f8fafc;
+            border-color: #94a3b8;
+        }
+        .dts-im-btn-primary {
+            background: #2563eb;
+            color: #ffffff;
+            border-color: #1d4ed8;
+        }
+        .dts-im-btn-primary:hover {
+            background: #1d4ed8;
+        }
+        .dts-im-btn-success {
+            background: #16a34a;
+            color: #ffffff;
+            border-color: #15803d;
+        }
+        .dts-im-btn-success:hover {
+            background: #15803d;
+        }
+        .dts-im-btn-danger {
+            background: #fee2e2;
+            color: #b91c1c;
+            border-color: #fca5a5;
+        }
+        .dts-im-btn-danger:hover {
+            background: #fecaca;
+        }
+
+        /* Dark Mode Overrides */
+        [data-theme="dark"] .dts-im-card {
+            background: #0f172a;
+            border-color: #1e293b;
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .dts-im-body {
+            background: #090d16;
+        }
+        [data-theme="dark"] .dts-im-card-panel {
+            background: #131c2e;
+            border-color: #1e293b;
+        }
+        [data-theme="dark"] .dts-im-panel-title {
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .dts-im-subject-box {
+            background: #1e293b;
+            color: #f1f5f9;
+        }
+        [data-theme="dark"] .dts-im-tile {
+            background: #1a2438;
+            border-color: #334155;
+        }
+        [data-theme="dark"] .dts-im-tile-v {
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .dts-im-tabs {
+            background: #1e293b;
+            border-color: #334155;
+        }
+        [data-theme="dark"] .dts-im-tab-btn.active {
+            background: #0f172a;
+            color: #60a5fa;
+        }
+        [data-theme="dark"] .dts-im-table th {
+            background: #1e293b;
+            color: #cbd5e1;
+            border-color: #334155;
+        }
+        [data-theme="dark"] .dts-im-table td {
+            background: #131c2e;
+            color: #e2e8f0;
+            border-color: #1e293b;
+        }
+        [data-theme="dark"] .dts-im-table tbody tr:hover td {
+            background: #1a2438;
+        }
+        [data-theme="dark"] .dts-im-footer {
+            background: #0f172a;
+            border-color: #1e293b;
+        }
+        [data-theme="dark"] .dts-im-btn {
+            background: #1e293b;
+            border-color: #334155;
+            color: #e2e8f0;
+        }
+        [data-theme="dark"] .dts-im-btn:hover {
+            background: #334155;
+        }
+    </style>
 @endpush
 
 <div class="rms-container">
@@ -1908,284 +2558,345 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         </div>
     </div>
 
-    <!-- Details Overlay Modal -->
+    <!-- Details Overlay Modal (Executive Dossier) -->
     @if($selectedTransactionId && $selectedTransaction)
-        <div class="modal-backdrop" wire:click="closeTransaction">
-            <div class="modal-content" wire:click.stop>
-                <button type="button" class="modal-close-btn" wire:click="closeTransaction">&times;</button>
+        <div class="dts-im-backdrop" wire:click="closeTransaction">
+            <div class="dts-im-card" wire:click.stop>
                 
-                <form class="receive-card" method="post" action="#" onsubmit="return false;" style="box-shadow: none;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; padding-right: 36px; flex-wrap: wrap; gap: 10px;">
-                        <h1 class="receive-title" style="margin: 0;">Transaction Details</h1>
-                        <div style="display: flex; align-items: center; gap: 12px; font-size: 12px; color: #64748b; background: #f8fafc; padding: 6px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
-                            <div style="display: flex; align-items: center; gap: 5px;">
-                                <i class="fa-regular fa-clock" style="color: #64748b; font-size: 11.5px;"></i>
-                                <span><strong style="color: #475569; font-weight: 600;">Created:</strong> {{ !empty($selectedTransaction->date_created) ? \Carbon\Carbon::parse($selectedTransaction->date_created)->format('M d, Y h:i A') : 'N/A' }}</span>
+                <!-- ══ Header Banner ══ -->
+                <div class="dts-im-header">
+                    <div class="dts-im-header-top">
+                        <div class="dts-im-header-identity">
+                            <div class="dts-im-badge">
+                                <i class="fa-solid fa-building-user"></i>
+                                <span>INTERNAL TRANSACTION DOSSIER</span>
                             </div>
-                            <span style="color: #cbd5e1;">|</span>
-                            <div style="display: flex; align-items: center; gap: 5px;">
-                                <i class="fa-regular fa-user" style="color: #64748b; font-size: 11.5px;"></i>
-                                <span><strong style="color: #475569; font-weight: 600;">By:</strong> <span style="color: #0f172a; font-weight: 600;">{{ !empty(trim($selectedTransaction->creator_name ?? '')) ? $selectedTransaction->creator_name : ($selectedTransaction->creator_username ?? 'N/A') }}</span></span>
+                            @php
+                                $status = strtolower($selectedTransaction->status ?? 'ongoing');
+                                $statusConfig = match($status) {
+                                    'completed' => ['bg' => '#dcfce7', 'text' => '#15803d', 'border' => '#86efac', 'icon' => 'fa-circle-check', 'label' => 'Completed'],
+                                    'revision'  => ['bg' => '#fef3c7', 'text' => '#b45309', 'border' => '#fcd34d', 'icon' => 'fa-triangle-exclamation', 'label' => 'In Revision'],
+                                    'cancelled' => ['bg' => '#fee2e2', 'text' => '#b91c1c', 'border' => '#fca5a5', 'icon' => 'fa-ban', 'label' => 'Cancelled'],
+                                    'drafted'   => ['bg' => '#f1f5f9', 'text' => '#475569', 'border' => '#cbd5e1', 'icon' => 'fa-pen-ruler', 'label' => 'Draft'],
+                                    default     => ['bg' => '#e0f2fe', 'text' => '#0369a1', 'border' => '#7dd3fc', 'icon' => 'fa-arrows-rotate fa-spin', 'label' => 'Ongoing']
+                                };
+                            @endphp
+                            <div class="dts-im-status-pill" style="background: {{ $statusConfig['bg'] }}; color: {{ $statusConfig['text'] }}; border: 1px solid {{ $statusConfig['border'] }};">
+                                <i class="fa-solid {{ $statusConfig['icon'] }}"></i>
+                                <span>{{ $statusConfig['label'] }}</span>
+                            </div>
+                        </div>
+                        <button type="button" class="dts-im-close-btn" wire:click="closeTransaction" title="Close modal">&times;</button>
+                    </div>
+
+                    <div class="dts-im-header-main">
+                        <div class="dts-im-control-wrap">
+                            <span class="dts-im-control-label">Control Number</span>
+                            @if ($editingAll && ((auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false)))
+                                <input type="text" class="receive-field-input" wire:model="controlNumber" style="font-size: 16px; font-weight: 700; max-width: 300px; color: #0f172a;">
+                            @else
+                                <div class="dts-im-control-val">
+                                    <span>{{ $controlNumber ?: ($selectedTransaction->control_number ?? 'N/A') }}</span>
+                                    <button type="button" class="dts-im-copy-btn" onclick="navigator.clipboard.writeText('{{ $controlNumber }}'); const el = this; el.innerHTML = '<i class=\'fa-solid fa-check\'></i> Copied'; setTimeout(() => { el.innerHTML = '<i class=\'fa-regular fa-copy\'></i> Copy'; }, 1500);" title="Copy Control Number">
+                                        <i class="fa-regular fa-copy"></i> Copy
+                                    </button>
+                                </div>
+                            @endif
+                        </div>
+
+                        <div class="dts-im-meta-cluster">
+                            <div class="dts-im-meta-item" title="Date Created">
+                                <i class="fa-regular fa-calendar-check"></i>
+                                <div>
+                                    <span class="dts-im-meta-k">Created</span>
+                                    <span class="dts-im-meta-v">{{ !empty($selectedTransaction->date_created) ? \Carbon\Carbon::parse($selectedTransaction->date_created)->format('M d, Y · h:i A') : 'N/A' }}</span>
+                                </div>
+                            </div>
+                            <div class="dts-im-meta-item" title="Originating Office">
+                                <i class="fa-solid fa-landmark"></i>
+                                <div>
+                                    <span class="dts-im-meta-k">Origin Office</span>
+                                    <span class="dts-im-meta-v">{{ $selectedTransaction->originated_office_name ?? ($selectedTransaction->originated_from ?? 'N/A') }}</span>
+                                </div>
+                            </div>
+                            <div class="dts-im-meta-item" title="Originating Office">
+                                <i class="fa-solid fa-landmark"></i>
+                                <div>
+                                    <span class="dts-im-meta-k">Origin Office</span>
+                                    <span class="dts-im-meta-v">{{ $selectedTransaction->originated_office_name ?? ($selectedTransaction->originated_from ?? 'N/A') }}</span>
+                                </div>
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <!-- ══ Scrollable Body ══ -->
+                <div class="dts-im-body">
                     
-                    <div class="receive-fields">
-                        <!-- Control Number field -->
-                        @php
-                            $canSeeModalCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false) || (strtolower($selectedTransaction->status ?? '') === 'completed');
-                        @endphp
-                        @if ($canSeeModalCtrlNo)
-                        <div class="receive-field-row">
-                            <span class="receive-field-label">Control #:</span>
-                            @if ($editingAll && ((auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false)))
-                                <input type="text" class="receive-field-input" wire:model="controlNumber">
-                            @else
-                                <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly>
+                    <!-- Panel 1: Document Details & Subject -->
+                    <div class="dts-im-card-panel">
+                        <div class="dts-im-panel-header">
+                            <div class="dts-im-panel-title">
+                                <i class="fa-solid fa-align-left" style="color: #2563eb;"></i>
+                                <span>Subject &amp; Core Information</span>
+                            </div>
+                            @if (!empty($selectedTransaction->classification))
+                                <span style="background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 12px; text-transform: uppercase;">
+                                    {{ $selectedTransaction->classification }}
+                                </span>
                             @endif
                         </div>
+
+                        <!-- Subject / Particulars Box -->
+                        @if ($editingAll)
+                            <div style="margin-bottom: 14px;">
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 4px;">Subject / Particulars:</label>
+                                <textarea class="receive-field-input" wire:model="particulars" style="min-height: 75px; max-height: 180px; width: 100%; border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.5; resize: vertical;"></textarea>
+                            </div>
+                        @else
+                            <div class="dts-im-subject-box">
+                                <div style="font-size: 10.5px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
+                                    <i class="fa-regular fa-comment-dots" style="margin-right: 4px; color: #3b82f6;"></i> Subject / Particulars
+                                </div>
+                                <div>{{ $particulars ?: 'No subject or particulars provided.' }}</div>
+                            </div>
                         @endif
 
-                        <!-- Originator field -->
-                        <div class="receive-field-row">
-                            <span class="receive-field-label">Originator:</span>
-                            <input type="text" class="receive-field-input" value="{{ $selectedTransaction->originated_office_name ?? 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
-                        </div>
-
-                        <!-- Document Name field (formerly Flow) -->
-                        <div class="receive-field-row" style="align-items: center;">
-                            <span class="receive-field-label">Document Name:</span>
-                            @if ($editingAll)
-                                @php
-                                    $availableFlows = DB::table('dts_transaction_flow')
-                                        ->where('is_active', true)
-                                        ->where('flow_name', 'not like', 'Flow for %')
-                                        ->orWhere('flow_code', $transactionFlow)
-                                        ->orderBy('flow_name', 'asc')
-                                        ->get();
-                                @endphp
-                                <select class="receive-field-input" wire:model.live="transactionFlow" style="height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
-                                    @foreach ($availableFlows as $f)
-                                        @php
-                                            $fDisplay = null;
-                                            if (!empty($f->referenced_flow)) {
-                                                if (preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $f->referenced_flow, $matches)) {
-                                                    $rName = DB::table('dts_transaction_flow')->where('id', $matches[1])->value('flow_name');
-                                                    if (!empty($rName) && !str_starts_with($rName, 'Flow for ') && !str_starts_with($rName, 'REF-')) {
-                                                        $fDisplay = $rName;
+                        <!-- Key Attributes Grid -->
+                        <div class="dts-im-grid">
+                            <!-- Flow Template -->
+                            <div class="dts-im-tile">
+                                <span class="dts-im-tile-k"><i class="fa-solid fa-diagram-project" style="color: #3b82f6;"></i> Flow Template</span>
+                                @if ($editingAll)
+                                    @php
+                                        $availableFlows = DB::table('dts_transaction_flow')
+                                            ->where('is_active', true)
+                                            ->where('flow_name', 'not like', 'Flow for %')
+                                            ->orWhere('flow_code', $transactionFlow)
+                                            ->orderBy('flow_name', 'asc')
+                                            ->get();
+                                    @endphp
+                                    <select class="receive-field-input" wire:model.live="transactionFlow" style="height: 36px; padding: 0 8px; border-radius: 6px; font-size: 12px;">
+                                        @foreach ($availableFlows as $f)
+                                            @php
+                                                $fDisplay = null;
+                                                if (!empty($f->referenced_flow)) {
+                                                    if (preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\\d+)$/', $f->referenced_flow, $matches)) {
+                                                        $rName = DB::table('dts_transaction_flow')->where('id', $matches[1])->value('flow_name');
+                                                        if (!empty($rName) && !str_starts_with($rName, 'Flow for ') && !str_starts_with($rName, 'REF-')) {
+                                                            $fDisplay = $rName;
+                                                        }
+                                                    } elseif (!str_starts_with($f->referenced_flow, 'REF-') && !str_starts_with($f->referenced_flow, 'FLOW-') && !str_starts_with($f->referenced_flow, 'Flow for ')) {
+                                                        $fDisplay = $f->referenced_flow;
                                                     }
-                                                } elseif (!str_starts_with($f->referenced_flow, 'REF-') && !str_starts_with($f->referenced_flow, 'FLOW-') && !str_starts_with($f->referenced_flow, 'Flow for ')) {
-                                                    $fDisplay = $f->referenced_flow;
                                                 }
-                                            }
-                                            if (empty($fDisplay) && !empty($f->flow_name)) {
-                                                if (!str_starts_with($f->flow_name, 'Flow for ') && !str_starts_with($f->flow_name, 'REF-') && !str_starts_with($f->flow_name, 'FLOW-')) {
-                                                    $fDisplay = $f->flow_name;
+                                                if (empty($fDisplay) && !empty($f->flow_name)) {
+                                                    if (!str_starts_with($f->flow_name, 'Flow for ') && !str_starts_with($f->flow_name, 'REF-') && !str_starts_with($f->flow_name, 'FLOW-')) {
+                                                        $fDisplay = $f->flow_name;
+                                                    }
                                                 }
-                                            }
-                                            if (empty($fDisplay) || str_starts_with($fDisplay, 'REF-') || str_starts_with($fDisplay, 'FLOW-') || str_starts_with($fDisplay, 'Flow for ')) {
-                                                $fDisplay = !empty($selectedTransaction->classification)
-                                                    ? ucfirst($selectedTransaction->classification)
-                                                    : ucfirst($selectedTransaction->trans_type ?? 'Internal');
-                                            }
-                                        @endphp
-                                        <option value="{{ $f->flow_code }}">{{ $fDisplay }}</option>
-                                    @endforeach
-                                </select>
-                            @else
-                                @php
-                                    $flowRow = DB::table('dts_transaction_flow')->where('flow_code', $transactionFlow)->first();
-                                    $flowName = null;
-
-                                    // 1. Try resolving referenced_flow by ID or clean text
-                                    if ($flowRow && !empty($flowRow->referenced_flow)) {
-                                        if (preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $flowRow->referenced_flow, $matches)) {
-                                            $rName = DB::table('dts_transaction_flow')->where('id', $matches[1])->value('flow_name');
-                                            if (!empty($rName) && !str_starts_with($rName, 'Flow for ') && !str_starts_with($rName, 'REF-')) {
-                                                $flowName = $rName;
-                                            }
-                                        } elseif (!str_starts_with($flowRow->referenced_flow, 'REF-') && !str_starts_with($flowRow->referenced_flow, 'FLOW-') && !str_starts_with($flowRow->referenced_flow, 'Flow for ')) {
-                                            $flowName = $flowRow->referenced_flow;
-                                        }
-                                    }
-
-                                    // 2. Try flow_name if not auto-generated
-                                    if (empty($flowName) && $flowRow && !empty($flowRow->flow_name)) {
-                                        if (!str_starts_with($flowRow->flow_name, 'Flow for ') && !str_starts_with($flowRow->flow_name, 'REF-') && !str_starts_with($flowRow->flow_name, 'FLOW-')) {
-                                            $flowName = $flowRow->flow_name;
-                                        }
-                                    }
-
-                                    // 3. Try attached document name if available
-                                    if (empty($flowName)) {
-                                        $attName = $this->attachedDocName ?? ($attachedDocName ?? '');
-                                        if (!empty($attName)) {
-                                            $flowName = $attName;
-                                        } elseif (!empty($selectedTransaction->doc_dir)) {
-                                            $docData = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')->where('document_path', $selectedTransaction->doc_dir)->first();
-                                            if (!empty($docData?->document_name)) {
-                                                $flowName = $docData->document_name;
+                                                if (empty($fDisplay) || str_starts_with($fDisplay, 'REF-') || str_starts_with($fDisplay, 'FLOW-') || str_starts_with($fDisplay, 'Flow for ')) {
+                                                    $fDisplay = !empty($selectedTransaction->classification)
+                                                        ? ucfirst($selectedTransaction->classification)
+                                                        : ucfirst($selectedTransaction->trans_type ?? 'Transaction');
+                                                }
+                                            @endphp
+                                            <option value="{{ $f->flow_code }}">{{ $fDisplay }}</option>
+                                        @endforeach
+                                    </select>
+                                @else
+                                    @php
+                                        $flowRow = DB::table('dts_transaction_flow')->where('flow_code', $transactionFlow)->first();
+                                        $flowName = null;
+                                        if ($flowRow && !empty($flowRow->referenced_flow)) {
+                                            if (preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\\d+)$/', $flowRow->referenced_flow, $matches)) {
+                                                $rName = DB::table('dts_transaction_flow')->where('id', $matches[1])->value('flow_name');
+                                                if (!empty($rName) && !str_starts_with($rName, 'Flow for ') && !str_starts_with($rName, 'REF-')) {
+                                                    $flowName = $rName;
+                                                }
+                                            } elseif (!str_starts_with($flowRow->referenced_flow, 'REF-') && !str_starts_with($flowRow->referenced_flow, 'FLOW-') && !str_starts_with($flowRow->referenced_flow, 'Flow for ')) {
+                                                $flowName = $flowRow->referenced_flow;
                                             }
                                         }
-                                    }
+                                        if (empty($flowName) && $flowRow && !empty($flowRow->flow_name)) {
+                                            if (!str_starts_with($flowRow->flow_name, 'Flow for ') && !str_starts_with($flowRow->flow_name, 'REF-') && !str_starts_with($flowRow->flow_name, 'FLOW-')) {
+                                                $flowName = $flowRow->flow_name;
+                                            }
+                                        }
+                                        if (empty($flowName)) {
+                                            $attName = $this->attachedDocName ?? ($attachedDocName ?? '');
+                                            if (!empty($attName)) {
+                                                $flowName = $attName;
+                                            }
+                                        }
+                                        if (empty($flowName) || str_starts_with($flowName, 'REF-') || str_starts_with($flowName, 'FLOW-') || str_starts_with($flowName, 'Flow for ')) {
+                                            $flowName = !empty($selectedTransaction->classification)
+                                                ? ucfirst($selectedTransaction->classification)
+                                                : ucfirst($selectedTransaction->trans_type ?? 'Transaction');
+                                        }
+                                    @endphp
+                                    <span class="dts-im-tile-v">{{ $flowName }}</span>
+                                @endif
+                            </div>
 
-                                    // 4. Fallback to classification or transaction type
-                                    if (empty($flowName) || str_starts_with($flowName, 'REF-') || str_starts_with($flowName, 'FLOW-') || str_starts_with($flowName, 'Flow for ')) {
-                                        $flowName = !empty($selectedTransaction->classification)
-                                            ? ucfirst($selectedTransaction->classification)
-                                            : ucfirst($selectedTransaction->trans_type ?? 'Internal');
-                                    }
-                                @endphp
-                                <input type="text" class="receive-field-input" value="{{ $flowName }}" readonly style="background-color: #f8fafc; color: #64748b;">
-                            @endif
-                        </div>
+                            <!-- Current Station -->
+                            <div class="dts-im-tile">
+                                <span class="dts-im-tile-k"><i class="fa-solid fa-location-dot" style="color: #ef4444;"></i> Current Location</span>
+                                <span class="dts-im-tile-v">
+                                    <span class="dts-im-office-badge">{{ $selectedTransaction->current_office ?: 'N/A' }}</span>
+                                    <span style="font-size: 11px; color: #64748b;">(Step {{ $selectedTransaction->sequence ?? 1 }})</span>
+                                </span>
+                            </div>
 
-                        <!-- Subject field -->
-                        <div class="receive-field-row receive-field-row--particulars" style="grid-template-columns: 110px minmax(0, 1fr); align-items: start; min-width: 0; width: 100%;">
-                            <span class="receive-field-label" style="padding-top: 8px;">Subject:</span>
-                            @if ($editingAll)
-                                <textarea class="receive-field-input" wire:model="particulars" style="min-height: 72px; max-height: 160px; resize: vertical; min-width: 0; max-width: 100%; word-break: break-word;"></textarea>
-                            @else
-                                <div class="receive-particulars-display" style="width: 100%; min-width: 0; max-width: 100%; min-height: 48px; max-height: 120px; overflow-y: auto; overflow-x: hidden; overflow-wrap: anywhere; word-break: break-word; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; background-color: #f8fafc; color: #334155; line-height: 1.5;">
-                                    {{ $particulars ?: 'No subject provided.' }}
-                                </div>
-                            @endif
-                        </div>
+                            <!-- Classification -->
+                            <div class="dts-im-tile">
+                                <span class="dts-im-tile-k"><i class="fa-solid fa-tags" style="color: #8b5cf6;"></i> Classification</span>
+                                @if ($editingAll)
+                                    @php
+                                        $availableClassifications = DB::table('dts_classifications')
+                                            ->where('is_active', true)
+                                            ->orderBy('classification_name', 'asc')
+                                            ->get();
+                                    @endphp
+                                    <select class="receive-field-input" wire:model="classification" style="height: 36px; padding: 0 8px; border-radius: 6px; font-size: 12px;">
+                                        <option value="">Select Classification...</option>
+                                        @foreach ($availableClassifications as $c)
+                                            <option value="{{ $c->classification_name }}">{{ $c->classification_name }}</option>
+                                        @endforeach
+                                    </select>
+                                @else
+                                    <span class="dts-im-tile-v">{{ $classification ?: ($selectedTransaction->classification ?? 'N/A') }}</span>
+                                @endif
+                            </div>
 
-                        <!-- Show More Details Button -->
-                        <div style="margin: 14px 0 6px; display: flex; justify-content: flex-start; padding: 0 4px;">
-                            <button type="button" wire:click="toggleMoreDetails" style="background: none; border: none; color: #2563eb; font-weight: 600; font-size: 13px; cursor: pointer; padding: 0; outline: none; font-family: 'Inter', sans-serif;">
-                                {{ $showMoreDetails ? '▲ Hide Details' : '▼ Show More Details' }}
-                            </button>
-                        </div>
+                            <!-- Action Needed -->
+                            <div class="dts-im-tile">
+                                <span class="dts-im-tile-k"><i class="fa-solid fa-clipboard-check" style="color: #10b981;"></i> Action Needed</span>
+                                @if ($editingAll)
+                                    @php
+                                        $availableActionNeeded = DB::table('dts_action_options')
+                                            ->orderBy('option_name', 'asc')
+                                            ->get();
+                                    @endphp
+                                    <select class="receive-field-input" wire:model="actionNeeded" style="height: 36px; padding: 0 8px; border-radius: 6px; font-size: 12px;">
+                                        <option value="">Select Action Needed...</option>
+                                        @foreach ($availableActionNeeded as $an)
+                                            <option value="{{ $an->option_name }}">{{ $an->option_name }}</option>
+                                        @endforeach
+                                    </select>
+                                @else
+                                    <span class="dts-im-tile-v">{{ $actionNeeded ?: ($selectedTransaction->action_needed ?? 'N/A') }}</span>
+                                @endif
+                            </div>
 
-                        @if ($showMoreDetails)
-                            <div style="border-top: 1.5px dashed #e2e8f0; padding-top: 12px; margin-top: 6px;">
-                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
-                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Requestor Name:</span>
-                                    @if ($editingAll)
-                                        <input type="text" class="receive-field-input" wire:model="requestorName">
-                                    @else
-                                        <input type="text" class="receive-field-input" value="{{ $requestorName ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
-                                    @endif
-                                </div>
-                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
-                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Requestor Position:</span>
-                                    @if ($editingAll)
-                                        <input type="text" class="receive-field-input" wire:model="requestorPosition">
-                                    @else
-                                        <input type="text" class="receive-field-input" value="{{ $requestorPosition ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
-                                    @endif
-                                </div>
-                                @if ($editingAll || (!empty(trim($emailAccess ?? '')) && $emailAccess !== 'N/A'))
-                                    <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
-                                        <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Email Access:</span>
-                                        @if ($editingAll)
-                                            <input type="email" class="receive-field-input" wire:model="emailAccess">
-                                        @else
-                                            <input type="text" class="receive-field-input" value="{{ $emailAccess }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                            <!-- Requestor Name -->
+                            <div class="dts-im-tile">
+                                <span class="dts-im-tile-k"><i class="fa-regular fa-user" style="color: #6366f1;"></i> Requestor Name</span>
+                                @if ($editingAll)
+                                    <input type="text" class="receive-field-input" wire:model="requestorName" style="height: 36px; padding: 0 8px; border-radius: 6px; font-size: 12px;">
+                                @else
+                                    <span class="dts-im-tile-v">{{ $requestorName ?: ($selectedTransaction->requestor_name ?? 'N/A') }}</span>
+                                @endif
+                            </div>
+
+                            <!-- Requestor Position -->
+                            <div class="dts-im-tile">
+                                <span class="dts-im-tile-k"><i class="fa-solid fa-id-badge" style="color: #6366f1;"></i> Requestor Position</span>
+                                @if ($editingAll)
+                                    <input type="text" class="receive-field-input" wire:model="requestorPosition" style="height: 36px; padding: 0 8px; border-radius: 6px; font-size: 12px;">
+                                @else
+                                    <span class="dts-im-tile-v">{{ $requestorPosition ?: ($selectedTransaction->requestor_label ?? 'N/A') }}</span>
+                                @endif
+                            </div>
+
+                            <!-- Email Access -->
+                            <div class="dts-im-tile">
+                                <span class="dts-im-tile-k"><i class="fa-regular fa-envelope" style="color: #0284c7;"></i> Email Access</span>
+                                @if ($editingAll)
+                                    <input type="email" class="receive-field-input" wire:model="emailAccess" style="height: 36px; padding: 0 8px; border-radius: 6px; font-size: 12px;">
+                                @else
+                                    <span class="dts-im-tile-v">{{ $emailAccess ?: ($selectedTransaction->access_email ?? 'N/A') }}</span>
+                                @endif
+                            </div>
+
+                            <!-- Document Password -->
+                            <div class="dts-im-tile">
+                                <span class="dts-im-tile-k"><i class="fa-solid fa-key" style="color: #f59e0b;"></i> Document Password</span>
+                                @if ($editingAll)
+                                    <input type="text" class="receive-field-input" wire:model="docPassword" style="height: 36px; padding: 0 8px; border-radius: 6px; font-size: 12px;">
+                                @else
+                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                                        <span class="dts-im-tile-v font-mono" style="font-family: monospace;">
+                                            {{ $showPassword ? ($docPassword ?: ($selectedTransaction->document_password ?? 'None')) : (!empty($docPassword) || !empty($selectedTransaction->document_password) ? '••••••••' : 'None') }}
+                                        </span>
+                                        @if (!empty($docPassword) || !empty($selectedTransaction->document_password))
+                                            <button type="button" wire:click="$toggle('showPassword')" style="border: none; background: none; color: #64748b; cursor: pointer; font-size: 12px; padding: 0;" title="Toggle Password">
+                                                <i class="fa-solid {{ $showPassword ? 'fa-eye-slash' : 'fa-eye' }}"></i>
+                                            </button>
                                         @endif
                                     </div>
                                 @endif
-                                @if ($editingAll || (!empty(trim($docPassword ?? '')) && $docPassword !== 'N/A'))
-                                    <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 4px; align-items: center;">
-                                        <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Document Password:</span>
-                                        <div style="display: flex; gap: 8px; width: 100%; align-items: center;">
-                                            @if ($editingAll)
-                                                <input type="text" class="receive-field-input" wire:model="docPassword" style="flex: 1;">
-                                            @else
-                                                <input type="{{ $showPassword ? 'text' : 'password' }}" class="receive-field-input" value="{{ $docPassword }}" readonly style="background-color: #f8fafc; color: #64748b; flex: 1;">
-                                                <button type="button" wire:click="$toggle('showPassword')" style="background: #e2e8f0; border: 1px solid #cbd5e1; color: #475569; border-radius: 6px; padding: 8px 12px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; outline: none; transition: all 0.2s ease; height: 38px;">
-                                                    <i class="fa-solid {{ $showPassword ? 'fa-eye-slash' : 'fa-eye' }}"></i>
-                                                    {{ $showPassword ? 'Hide' : 'Show' }}
-                                                </button>
-                                            @endif
+                            </div>
+
+
+                            <!-- Attached Document -->
+                            <div class="dts-im-tile" style="grid-column: span 2;">
+                                <span class="dts-im-tile-k"><i class="fa-solid fa-paperclip" style="color: #0891b2;"></i> Attached Document</span>
+                                @if (!empty($selectedTransaction->doc_dir))
+                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px;">
+                                        <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+                                            <i class="fa-solid fa-file-pdf" style="color: #dc2626; font-size: 16px;"></i>
+                                            <span style="font-size: 12px; font-weight: 600; color: #0284c7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                {{ $attachedDocName ?: basename($selectedTransaction->doc_dir) }}
+                                            </span>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                                            <button type="button" class="dts-im-btn" wire:click="openPdfPreviewModal" style="padding: 4px 10px; font-size: 11.5px; color: #0284c7; border-color: #bae6fd; background: #f0f9ff;">
+                                                <i class="fa-solid fa-file-pdf"></i> Preview
+                                            </button>
+                                            <button type="button" class="dts-im-btn" wire:click="openViewFileModal" style="padding: 4px 10px; font-size: 11.5px;">
+                                                <i class="fa-solid fa-gear"></i> Manage
+                                            </button>
                                         </div>
                                     </div>
+                                @else
+                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px;">
+                                        <span style="font-size: 12px; color: #94a3b8; font-style: italic;">No document currently attached</span>
+                                        <button type="button" class="dts-im-btn" wire:click="triggerUploadFileModal" style="padding: 4px 10px; font-size: 11.5px; color: #16a34a; border-color: #bbf7d0; background: #f0fdf4;">
+                                            <i class="fa-solid fa-cloud-arrow-up"></i> Upload Document
+                                        </button>
+                                    </div>
                                 @endif
                             </div>
-                        @endif
+                        </div>
                     </div>
 
-                    <hr class="receive-divider">
-
-                    @if ($showCopyFurnished)
-                        <!-- Copy Furnished Section -->
-                        <h2 class="receive-title" style="font-size: 16px; margin-top: 10px;">Copy Furnished Offices</h2>
-                        
-                        @if ($editingAll)
-                            <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center; max-width: 500px;">
-                                <select class="receive-field-input" style="flex: 1; height: 38px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0 10px;" wire:model="selectedCfOfficeToAdd">
-                                    <option value="">-- Select Office to Add --</option>
-                                    @foreach(DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]'])->orderBy('office_name', 'asc')->get() as $off)
-                                        <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
-                                    @endforeach
-                                </select>
-                                <button type="button" class="receive-action-btn" wire:click="addCfOffice" style="padding: 8px 16px; height: 38px; white-space: nowrap; background-color: #2563eb; color: #fff;">
-                                    + Add Office
-                                </button>
+                    <!-- Panel 2: Routing Flow & Steps -->
+                    <div class="dts-im-card-panel">
+                        <div class="dts-im-panel-header">
+                            <div class="dts-im-panel-title">
+                                <i class="fa-solid fa-route" style="color: #2563eb;"></i>
+                                <span>Routing Stations &amp; Audit Trail</span>
                             </div>
-                        @endif
-
-                        <div class="receive-table-wrap">
-                            <table class="receive-table">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 60px;">#</th>
-                                        <th>Office Code</th>
-                                        <th>Office Name</th>
-                                        @if ($editingAll)
-                                            <th style="width: 100px;">Actions</th>
-                                        @endif
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @php
-                                        $cfOfficeDetails = collect($cfSelectedOffices)->map(function($code) {
-                                            $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $code)->first();
-                                            return (object)[
-                                                'code' => $code,
-                                                'name' => $off ? $off->office_name : 'Unknown Office'
-                                            ];
-                                        });
-                                    @endphp
-                                    @forelse ($cfOfficeDetails as $index => $cf)
-                                        <tr>
-                                            <td>{{ $index + 1 }}</td>
-                                            <td style="font-weight: 600; color: #3b82f6;">{{ $cf->code }}</td>
-                                            <td class="office-cell">{{ $cf->name }}</td>
-                                            @if ($editingAll)
-                                                <td>
-                                                    <button type="button" class="receive-action-btn receive-action-btn--danger" wire:click="removeCfOffice('{{ $cf->code }}')" style="padding: 4px 8px; font-size: 11px;">
-                                                        Remove
-                                                    </button>
-                                                </td>
-                                            @endif
-                                        </tr>
-                                    @empty
-                                        <tr>
-                                            <td colspan="{{ $editingAll ? 4 : 3 }}" style="padding: 24px; color: #888; font-style: italic; text-align: center;">No copy furnished offices added to this transaction.</td>
-                                        </tr>
-                                    @endforelse
-                                </tbody>
-                            </table>
-                        </div>
-                    @else
-                        <!-- Transaction Path Section Header & View Toggle -->
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; margin-bottom: 8px;">
-                            <h2 class="receive-title" style="font-size: 16px; margin: 0;">Transaction Path</h2>
-                            <div style="display: flex; gap: 4px; background: #f1f5f9; padding: 3px; border-radius: 8px; border: 1px solid #cbd5e1;">
-                                <button type="button" wire:click="$set('pathViewMode', 'timeline')" style="padding: 5px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; border: none; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.15s; {{ $pathViewMode === 'timeline' ? 'background: #2563eb; color: #ffffff; box-shadow: 0 1px 3px rgba(37,99,235,0.3);' : 'background: transparent; color: #64748b;' }}">
-                                    <i class="fa-solid fa-chart-line"></i> Timeline View
+                            <!-- View Mode Tabs -->
+                            <div class="dts-im-tabs">
+                                <button type="button" class="dts-im-tab-btn {{ !$showCopyFurnished && $pathViewMode === 'table' ? 'active' : '' }}" wire:click="$set('pathViewMode', 'table'); $set('showCopyFurnished', false);">
+                                    <i class="fa-solid fa-table-list"></i> Table View
                                 </button>
-                                <button type="button" wire:click="$set('pathViewMode', 'table')" style="padding: 5px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; border: none; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.15s; {{ $pathViewMode === 'table' ? 'background: #2563eb; color: #ffffff; box-shadow: 0 1px 3px rgba(37,99,235,0.3);' : 'background: transparent; color: #64748b;' }}">
-                                    <i class="fa-solid fa-table-cells"></i> Table View
+                                <button type="button" class="dts-im-tab-btn {{ !$showCopyFurnished && $pathViewMode === 'timeline' ? 'active' : '' }}" wire:click="$set('pathViewMode', 'timeline'); $set('showCopyFurnished', false);">
+                                    <i class="fa-solid fa-timeline"></i> Timeline View
+                                </button>
+                                <button type="button" class="dts-im-tab-btn {{ $showCopyFurnished ? 'active' : '' }}" wire:click="$set('showCopyFurnished', true)">
+                                    <i class="fa-solid fa-copy"></i> Copy Furnished ({{ count($cfSelectedOffices) }})
                                 </button>
                             </div>
                         </div>
 
-                        @if ($editingAll)
-                            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; max-width: 500px;">
+                        <!-- Edit Flow Add-Office Toolbar -->
+                        @if ($editingAll && !$showCopyFurnished)
+                            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 14px; background: #eff6ff; padding: 10px 14px; border-radius: 8px; border: 1px solid #bfdbfe;">
+                                <i class="fa-solid fa-plus-circle" style="color: #2563eb;"></i>
+                                <span style="font-size: 12px; font-weight: 700; color: #1e40af; white-space: nowrap;">Add Station to Path:</span>
                                 @php
                                     $allSystemOffices = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
                                         ->where('is_active', true)
@@ -2193,7 +2904,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                         ->orderBy('office_name', 'asc')
                                         ->get();
                                 @endphp
-                                <select class="receive-field-input" wire:model="selectedFlowOfficeToAdd" style="flex: 1; height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
+                                <select class="receive-field-input" wire:model="selectedFlowOfficeToAdd" style="flex: 1; height: 34px; padding: 0 10px; border-radius: 6px; font-size: 12px; background: #ffffff;">
                                     <option value="">Select Office to Add...</option>
                                     <option value="ORIGIN">ORIGIN (Creator Office)</option>
                                     <option value="[H]"> [H] (Cluster Head Office)</option>
@@ -2201,101 +2912,87 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                         <option value="{{ $o->office_code }}">{{ $o->office_name }} ({{ $o->office_code }})</option>
                                     @endforeach
                                 </select>
-                                <button type="button" wire:click="addFlowOffice" style="background: #2563eb; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;">Add Office</button>
+                                <button type="button" wire:click="addFlowOffice" class="dts-im-btn dts-im-btn-primary" style="height: 34px; font-size: 12px; padding: 0 14px;">
+                                    Add Office
+                                </button>
                             </div>
                         @endif
 
-                        @if ($pathViewMode === 'timeline')
-                            <style>
-                                .dts-timeline-node-wrapper {
-                                    position: relative;
-                                    display: flex;
-                                    flex-direction: column;
-                                    align-items: center;
-                                }
-                                .dts-timeline-node-wrapper .dts-node-tooltip {
-                                    position: absolute;
-                                    bottom: 68px;
-                                    left: 50%;
-                                    transform: translateX(-50%);
-                                    width: 250px;
-                                    background: #0f172a;
-                                    color: #f8fafc;
-                                    padding: 12px 14px;
-                                    border-radius: 10px;
-                                    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
-                                    border: 1px solid #334155;
-                                    opacity: 0;
-                                    visibility: hidden;
-                                    pointer-events: none;
-                                    transition: opacity 0.15s ease, visibility 0.15s ease;
-                                    z-index: 9999;
-                                    font-family: 'Inter', sans-serif;
-                                    text-align: left;
-                                }
-                                .dts-timeline-node-wrapper .dts-node-tooltip::after {
-                                    content: '';
-                                    position: absolute;
-                                    top: 100%;
-                                    left: 50%;
-                                    transform: translateX(-50%);
-                                    border-width: 6px;
-                                    border-style: solid;
-                                    border-color: #0f172a transparent transparent transparent;
-                                }
-                                .dts-timeline-node-wrapper:first-child .dts-node-tooltip {
-                                    left: -10px;
-                                    right: auto;
-                                    transform: none;
-                                }
-                                .dts-timeline-node-wrapper:first-child .dts-node-tooltip::after {
-                                    left: 26px;
-                                    right: auto;
-                                    transform: none;
-                                }
-                                .dts-timeline-node-wrapper:last-child .dts-node-tooltip {
-                                    left: auto;
-                                    right: -10px;
-                                    transform: none;
-                                }
-                                .dts-timeline-node-wrapper:last-child .dts-node-tooltip::after {
-                                    left: auto;
-                                    right: 26px;
-                                    transform: none;
-                                }
-                                .dts-timeline-node-wrapper:only-child .dts-node-tooltip,
-                                .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip {
-                                    left: 50%;
-                                    right: auto;
-                                    transform: translateX(-50%);
-                                }
-                                .dts-timeline-node-wrapper:only-child .dts-node-tooltip::after,
-                                .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip::after {
-                                    left: 50%;
-                                    right: auto;
-                                    transform: translateX(-50%);
-                                }
-                                .dts-timeline-node-wrapper:hover .dts-node-tooltip {
-                                    opacity: 1;
-                                    visibility: visible;
-                                }
-                                .dts-timeline-node-dot {
-                                    transition: all 0.2s ease;
-                                }
-                                .dts-timeline-node-wrapper:hover .dts-timeline-node-dot {
-                                    transform: scale(1.25) !important;
-                                    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.4) !important;
-                                }
-                            </style>
+                        <!-- View 1: Copy Furnished -->
+                        @if ($showCopyFurnished)
+                            @if ($editingAll)
+                                <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center; background: #f8fafc; padding: 10px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                    <select class="receive-field-input" style="flex: 1; height: 34px; border-radius: 6px; padding: 0 10px; font-size: 12px;" wire:model="selectedCfOfficeToAdd">
+                                        <option value="">-- Select Office to Add to Copy Furnished --</option>
+                                        @foreach(DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)->whereNotIn('office_code', ['ORIGIN', '[H]'])->orderBy('office_name', 'asc')->get() as $off)
+                                            <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
+                                        @endforeach
+                                    </select>
+                                    <button type="button" class="dts-im-btn dts-im-btn-primary" wire:click="addCfOffice" style="height: 34px; font-size: 12px;">
+                                        + Add Office
+                                    </button>
+                                </div>
+                            @endif
 
-                            <!-- Horizontal Progress Line Graph (Transparent Side-Fit Box) -->
-                            <div style="width: 100%; overflow: visible; padding: 165px 60px 20px 60px; box-sizing: border-box; background: transparent; border: none; margin-top: 4px; margin-bottom: 12px; position: relative;">
+                            <div class="dts-im-table-wrap">
+                                <table class="dts-im-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 50px; text-align: center;">#</th>
+                                            <th style="width: 140px;">Office Code</th>
+                                            <th>Office Name</th>
+                                            @if ($editingAll)
+                                                <th style="width: 100px; text-align: center;">Actions</th>
+                                            @endif
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @php
+                                            $cfOfficeDetails = collect($cfSelectedOffices)->map(function($code) {
+                                                $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $code)->first();
+                                                return (object)[
+                                                    'code' => $code,
+                                                    'name' => $off ? $off->office_name : 'Unknown Office'
+                                                ];
+                                            });
+                                        @endphp
+                                        @forelse ($cfOfficeDetails as $index => $cf)
+                                            <tr>
+                                                <td style="text-align: center;">
+                                                    <span class="dts-im-step-num">{{ $index + 1 }}</span>
+                                                </td>
+                                                <td>
+                                                    <span class="dts-im-office-badge">{{ $cf->code }}</span>
+                                                </td>
+                                                <td style="font-weight: 600; color: #1e293b;">{{ $cf->name }}</td>
+                                                @if ($editingAll)
+                                                    <td style="text-align: center;">
+                                                        <button type="button" class="dts-im-btn dts-im-btn-danger" wire:click="removeCfOffice('{{ $cf->code }}')" style="padding: 4px 10px; font-size: 11px;">
+                                                            <i class="fa-solid fa-trash-can"></i> Remove
+                                                        </button>
+                                                    </td>
+                                                @endif
+                                            </tr>
+                                        @empty
+                                            <tr>
+                                                <td colspan="{{ $editingAll ? 4 : 3 }}" style="padding: 24px; color: #94a3b8; font-style: italic; text-align: center;">
+                                                    No copy furnished offices attached to this record.
+                                                </td>
+                                            </tr>
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                            </div>
+
+                        <!-- View 2: Timeline View -->
+                        @elseif ($pathViewMode === 'timeline')
+                            <div style="width: 100%; overflow-x: auto; padding: 140px 40px 20px 40px; box-sizing: border-box; background: #ffffff; border-radius: 10px; border: 1px solid #e2e8f0; position: relative;">
                                 <div style="display: flex; align-items: center; justify-content: {{ count($this->visiblePath) <= 1 ? 'center' : 'space-between' }}; width: 100%; min-width: max-content; padding: 0; position: relative;">
                                     @forelse ($this->visiblePath as $index => $step)
                                         @php
                                             $isReceived = !is_null($step->date_in) || $selectedTransaction->status === 'completed';
                                             $isForwarded = !is_null($step->date_out) || $selectedTransaction->status === 'completed';
-                                            $isCompleted = ($isReceived && $isForwarded) || $selectedTransaction->status === 'completed';
+                                            $isCompleted = ($isReceived && $isForwarded) || strtolower($selectedTransaction->status ?? '') === 'completed';
 
                                             $isCurrentOffice = $step->is_active_step && !is_null($step->date_in) && is_null($step->date_out) && $selectedTransaction->status !== 'completed';
                                             $isInTransitToThisOffice = $step->is_active_step && is_null($step->date_in) && $selectedTransaction->status !== 'completed';
@@ -2303,200 +3000,209 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                             $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $selectedTransaction->sequence || $selectedTransaction->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
 
                                             if ($isCompleted) {
-                                                $dotColor = '#10b981';
+                                                $dotBg = '#10b981';
+                                                $dotBorder = '#10b981';
                                                 $lineColor = '#10b981';
-                                                $textColor = '#059669';
+                                                $iconHtml = '<i class="fa-solid fa-check" style="font-size: 13px; color: #fff;"></i>';
+                                            } elseif ($isOnHubArea) {
+                                                $dotBg = '#3b82f6';
+                                                $dotBorder = '#60a5fa';
+                                                $lineColor = '#3b82f6';
+                                                $iconHtml = '<i class="fa-solid fa-arrows-split-up-and-left" style="font-size: 13px; color: #fff;"></i>';
                                             } elseif ($isCurrentOffice) {
-                                                $dotColor = '#2563eb';
-                                                $lineColor = '#cbd5e1';
-                                                $textColor = '#1d4ed8';
-                                            } elseif ($isInTransitToThisOffice) {
-                                                $dotColor = '#f59e0b';
-                                                $lineColor = '#cbd5e1';
-                                                $textColor = '#d97706';
-                                            } elseif ($isReceived) {
-                                                $dotColor = '#10b981';
-                                                $lineColor = '#cbd5e1';
-                                                $textColor = '#059669';
-                                            } else {
-                                                $dotColor = '#cbd5e1';
+                                                $dotBg = '#3b82f6';
+                                                $dotBorder = '#2563eb';
                                                 $lineColor = '#e2e8f0';
-                                                $textColor = '#64748b';
+                                                $iconHtml = '<div style="width: 10px; height: 10px; border-radius: 50%; background: #fff;"></div>';
+                                            } elseif ($isInTransitToThisOffice) {
+                                                $dotBg = '#f59e0b';
+                                                $dotBorder = '#d97706';
+                                                $lineColor = '#e2e8f0';
+                                                $iconHtml = '<i class="fa-solid fa-truck-fast" style="font-size: 11px; color: #fff;"></i>';
+                                            } else {
+                                                $dotBg = '#cbd5e1';
+                                                $dotBorder = '#94a3b8';
+                                                $lineColor = '#e2e8f0';
+                                                $iconHtml = '';
                                             }
                                         @endphp
 
-                                        <!-- Node Wrapper (Dot + Current Indicator + Hidden Data) -->
                                         <div class="dts-timeline-node-wrapper">
-                                            
-                                            <!-- Current Office or In-Transit Indicator Above Dot (No Brackets) -->
-                                            @if ($isCurrentOffice)
-                                                <div style="position: absolute; bottom: 42px; display: flex; flex-direction: column; align-items: center; white-space: nowrap; z-index: 5;">
-                                                    <span style="font-size: 11.5px; font-weight: 800; color: #10b981; text-transform: uppercase; letter-spacing: 0.5px; text-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                                                        Transaction Holder
-                                                    </span>
-                                                    <span style="font-size: 14px; font-weight: 900; color: #10b981; margin-top: -2px;">v</span>
-                                                </div>
-                                            @elseif ($isInTransitToThisOffice)
-                                                <div style="position: absolute; bottom: 42px; display: flex; flex-direction: column; align-items: center; white-space: nowrap; z-index: 5;">
-                                                    <span style="font-size: 11px; font-weight: 800; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.5px; text-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                                                        In Transit to {{ $step->office_code }}
-                                                    </span>
-                                                    <span style="font-size: 14px; font-weight: 900; color: #f59e0b; margin-top: -2px;">v</span>
-                                                </div>
-                                            @endif
-
-                                            <!-- Node Dot Circle -->
-                                            <div class="dts-timeline-node-dot" style="width: 32px; height: 32px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.35); transform: scale(1.15);' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.35);' : '') }}">
-                                                @if ($isHubStep)
-                                                    @if ($isForwarded && ($step->hub_forwarded_count ?? 0) >= ($step->hub_total ?: 1))
-                                                        <i class="fa-solid fa-check" style="font-size: 13px;"></i>
-                                                    @elseif ($isReceived)
-                                                        <i class="fa-solid fa-bolt" style="font-size: 13px;"></i>
-                                                    @else
-                                                        {{ $index + 1 }}
-                                                    @endif
-                                                @elseif ($isCompleted || $isReceived)
-                                                    <i class="fa-solid fa-check" style="font-size: 13px;"></i>
-                                                @else
-                                                    {{ $index + 1 }}
+                                            <!-- Dot -->
+                                            <div class="dts-timeline-node-dot" style="width: 32px; height: 32px; border-radius: 50%; background: {{ $dotBg }}; border: 3px solid {{ $dotBorder }}; display: flex; align-items: center; justify-content: center; z-index: 2; box-shadow: 0 2px 6px rgba(0,0,0,0.15); cursor: pointer; position: relative;">
+                                                {!! $iconHtml !!}
+                                                @if ($isCurrentOffice || $isOnHubArea)
+                                                    <div style="position: absolute; inset: -5px; border-radius: 50%; border: 2px solid #3b82f6; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite; opacity: 0.75; pointer-events: none;"></div>
                                                 @endif
                                             </div>
 
-                                            <!-- Office Code Below Dot -->
-                                            <span style="margin-top: 8px; font-size: 11.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
-                                                @if ($isHubStep)
-                                                    [HUB]@if($isOnHubArea && isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
-                                                @else
+                                            <!-- Label -->
+                                            <div style="margin-top: 8px; text-align: center; max-width: 90px;">
+                                                <div style="font-size: 11.5px; font-weight: 700; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                                                     {{ $step->office_code }}
-                                                @endif
-                                            </span>
-
-                                            <!-- Pure CSS Tooltip -->
-                                            <div class="dts-node-tooltip">
-                                                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 6px; margin-bottom: 6px;">
-                                                    <span style="font-weight: 700; font-size: 12px; color: #38bdf8;">Step {{ $index + 1 }}: @if ($isHubStep) [HUB] @else {{ $step->office_code }} @endif</span>
-                                                    @if ($isReceived && $isForwarded)
-                                                        <span style="background: #166534; color: #4ade80; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 12px;">✓ Forwarded</span>
-                                                    @elseif ($isReceived && !$isForwarded)
-                                                        <span style="background: #1e3a8a; color: #60a5fa; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 12px;">📍 Received / Held</span>
-                                                    @else
-                                                        <span style="background: #450a0a; color: #fca5a5; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 12px;">⏳ Pending</span>
-                                                    @endif
                                                 </div>
-                                                
-                                                <div style="font-size: 11px; font-weight: 600; color: #f1f5f9; margin-bottom: 6px; line-height: 1.3;">
-                                                    {{ $step->office_name }}
-                                                </div>
-
-                                                @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
-                                                    <div style="font-size: 10.5px; color: #93c5fd; margin-bottom: 6px; font-weight: 600;">
-                                                        Completed &amp; Forwarded: {{ $step->hub_forwarded_count ?? 0 }} / {{ $step->hub_total ?? 0 }} offices
-                                                    </div>
-                                                @endif
-
-                                                <div style="font-size: 10.5px; color: #94a3b8; display: flex; flex-direction: column; gap: 3px;">
-                                                    <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>
-                                                    @if (!empty($step->receiver_name) && $step->receiver_name !== '—')
-                                                        <div><strong style="color: #cbd5e1;">Received By:</strong> <span style="color: #38bdf8; font-weight: 600;">{{ $step->receiver_name }}</span></div>
-                                                    @endif
-                                                    <div><strong style="color: #cbd5e1;">Date Out:</strong> {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</div>
-                                                    @if (!empty($step->forwarder_name) && $step->forwarder_name !== '—')
-                                                        <div><strong style="color: #cbd5e1;">Forwarded By:</strong> <span style="color: #38bdf8; font-weight: 600;">{{ $step->forwarder_name }}</span></div>
-                                                    @endif
-                                                    @if (!empty($step->total_time_completed) && $step->total_time_completed !== '-')
-                                                        <div><strong style="color: #cbd5e1;">Total Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
-                                                    @endif
-                                                    <div><strong style="color: #cbd5e1;">Action:</strong> {{ ($selectedTransaction->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}</div>
-                                                    @if (!empty($step->note) && $step->note !== '-')
-                                                        <div style="font-style: italic; color: #e2e8f0; margin-top: 2px;">"{{ $step->note }}"</div>
-                                                    @endif
+                                                <div style="font-size: 10px; color: #64748b; font-weight: 500;">
+                                                    Step {{ $step->sequence_ranking ?? ($index + 1) }}
                                                 </div>
                                             </div>
 
+                                            <!-- Tooltip -->
+                                            <div class="dts-node-tooltip">
+                                                <div style="font-weight: 700; color: #93c5fd; margin-bottom: 2px; font-size: 11.5px;">
+                                                    {{ $step->office_code }} - {{ $step->office_name }}
+                                                </div>
+                                                <div style="color: #cbd5e1; margin-bottom: 4px; font-size: 10.5px;">
+                                                    Action: <span style="color: #fff; font-weight: 600;">{{ $step->action_needed ?: 'None' }}</span>
+                                                </div>
+                                                <div style="border-top: 1px solid rgba(255,255,255,0.15); padding-top: 4px; margin-top: 4px; font-size: 10px; color: #94a3b8;">
+                                                    <div>In: {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, g:i A') : 'Pending' }}</div>
+                                                    <div>Out: {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, g:i A') : 'Pending' }}</div>
+                                                    @if(!empty($step->receiver_name) && $step->receiver_name !== '—')
+                                                        <div style="margin-top: 2px; color: #86efac;">Recv: {{ $step->receiver_name }}</div>
+                                                    @endif
+                                                </div>
+                                            </div>
                                         </div>
 
-                                        <!-- Progress Bar Line Segment -->
                                         @if (!$loop->last)
-                                            <div style="flex: 1; height: 8px; background: {{ $lineColor }}; min-width: 60px; margin: 0 -4px; border-radius: 4px; z-index: 1; transition: all 0.3s ease;"></div>
+                                            <div style="flex: 1; height: 3px; background: {{ $lineColor }}; min-width: 40px; margin: 0 4px; align-self: flex-start; margin-top: 15px; z-index: 1;"></div>
                                         @endif
-
                                     @empty
-                                        <div style="padding: 24px; color: #888; font-style: italic; width: 100%; text-align: center;">No transaction paths listed.</div>
+                                        <div style="color: #94a3b8; font-style: italic; font-size: 13px;">No timeline stations available.</div>
                                     @endforelse
                                 </div>
                             </div>
 
-
+                        <!-- View 3: Table View -->
                         @else
-                            <!-- Table View -->
-                            <div class="receive-table-wrap">
-                                <table class="receive-table">
+                            <div class="dts-im-table-wrap">
+                                <table class="dts-im-table">
                                     <thead>
                                         <tr>
-                                            <th>#</th>
-                                            <th>Office</th>
-                                            <th>Received</th>
-                                            <th>Forwarded</th>
-                                            <th>Total Time</th>
-                                            <th style="white-space: nowrap; min-width: 140px;">Action Need</th>
-                                            <th>Notes</th>
+                                            <th style="width: 45px; text-align: center;">Seq</th>
+                                            <th style="width: 200px;">Station / Office</th>
+                                            <th style="width: 140px;">Date In / Receiver</th>
+                                            <th style="width: 140px;">Date Out / Forwarder</th>
+                                            <th style="width: 90px;">Duration</th>
+                                            <th style="width: 150px;">Action Taken</th>
+                                            <th>Notes / Remarks</th>
                                             @if ($editingAll)
-                                                <th>Actions</th>
+                                                <th style="width: 110px; text-align: center;">Actions</th>
                                             @endif
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @forelse ($this->visiblePath as $index => $step)
-                                            <tr>
-                                                <td>{{ $step->sequence_ranking ?? ($index + 1) }}</td>
-                                                <td class="office-cell">{{ $step->office_name }}</td>
+                                        @forelse ($this->fullFlowPath as $index => $step)
+                                            @php
+                                                $isCurrentStep = $step->is_active_step && !is_null($step->date_in) && is_null($step->date_out);
+                                                $isPassedStep = !is_null($step->date_out);
+                                            @endphp
+                                            <tr style="{{ $isCurrentStep ? 'background: #f0fdf4;' : '' }}">
+                                                <td style="text-align: center;">
+                                                    <span class="dts-im-step-num" style="{{ $isCurrentStep ? 'background: #22c55e; color: #ffffff;' : '' }}">
+                                                        {{ $step->sequence_ranking ?? ($index + 1) }}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                                                        <span class="dts-im-office-badge">{{ $step->office_code }}</span>
+                                                        <span style="font-weight: 600; color: #1e293b;">{{ $step->office_name }}</span>
+                                                    </div>
+                                                    @if ($isCurrentStep)
+                                                        <span style="display: inline-flex; align-items: center; gap: 4px; background: #dcfce7; color: #166534; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; margin-top: 4px;">
+                                                            <i class="fa-solid fa-arrows-spin fa-spin"></i> Active Station
+                                                        </span>
+                                                    @endif
+                                                </td>
                                                 <td style="white-space: nowrap;">
-                                                    <div style="font-weight: 500; color: #1e293b;">
-                                                        {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}
+                                                    <div style="font-weight: 600; color: #1e293b; font-size: 12px;">
+                                                        {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y · h:i A') : 'N/A' }}
                                                     </div>
                                                     @if (!empty($step->receiver_name) && $step->receiver_name !== '—')
-                                                        <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">
-                                                            <i class="fa-solid fa-user-check" style="font-size: 10.5px; color: #10b981;"></i>
+                                                        <div class="dts-im-user-badge">
+                                                            <i class="fa-solid fa-user-check" style="color: #10b981; font-size: 11px;"></i>
                                                             <span>{{ $step->receiver_name }}</span>
                                                         </div>
                                                     @endif
                                                 </td>
                                                 <td style="white-space: nowrap;">
-                                                    <div style="font-weight: 500; color: #1e293b;">
-                                                        {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}
+                                                    <div style="font-weight: 600; color: #1e293b; font-size: 12px;">
+                                                        {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y · h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}
                                                     </div>
                                                     @if (!empty($step->forwarder_name) && $step->forwarder_name !== '—')
-                                                        <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">
-                                                            <i class="fa-solid fa-paper-plane" style="font-size: 10.5px; color: #3b82f6;"></i>
+                                                        <div class="dts-im-user-badge">
+                                                            <i class="fa-solid fa-paper-plane" style="color: #3b82f6; font-size: 11px;"></i>
                                                             <span>{{ $step->forwarder_name }}</span>
                                                         </div>
                                                     @endif
                                                 </td>
-                                                <td>{{ $step->total_time_completed ?: '-' }}</td>
-                                                <td class="action-cell" style="white-space: nowrap; text-align: center;">
+                                                <td>
+                                                    @if (!empty($step->total_time_completed) && $step->total_time_completed !== '-')
+                                                        <span class="dts-im-duration-pill">
+                                                            <i class="fa-regular fa-clock" style="color: #0284c7;"></i>
+                                                            {{ $step->total_time_completed }}
+                                                        </span>
+                                                    @else
+                                                        <span style="color: #94a3b8;">-</span>
+                                                    @endif
+                                                </td>
+                                                <td>
                                                     @if ($step->is_active_step && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
-                                                        <select wire:model.live="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
+                                                        <select wire:model.live="activeAction" style="padding: 4px 8px; border: 1.5px solid #3b82f6; border-radius: 6px; font-size: 12px; font-weight: 600; background: #eff6ff; color: #1e40af;">
                                                             @foreach($this->actionOptions as $opt)
                                                                 <option value="{{ $opt }}">{{ $opt }}</option>
                                                             @endforeach
                                                         </select>
                                                         @if ($activeAction === 'To be Forwarded to')
                                                             <div style="margin-top: 6px;">
-                                                                <select wire:model="forwardToOfficeCode" style="width: 100%; padding: 4px 8px; border: 1.5px solid #3b82f6; border-radius: 6px; font-size: 12px; font-weight: 600; background: #eff6ff; color: #1e40af;">
-                                                                    <option value="">-- Select Office --</option>
-                                                                    @foreach(\App\Services\DtsRoutingService::getAvailableTargetOffices(auth()->user()?->details?->office?->office_code) as $availOff)
+                                                                <select wire:model.live="forwardToOfficeCode" style="width: 100%; padding: 4px 8px; border: 1.5px solid #3b82f6; border-radius: 6px; font-size: 11px; font-weight: 600; background: #ffffff; color: #1e40af;">
+                                                                    <option value="">-- Target Office --</option>
+                                                                    @foreach($this->availableTargetOffices as $availOff)
                                                                         <option value="{{ $availOff->office_code }}">{{ $availOff->office_code }} - {{ $availOff->office_name }}</option>
                                                                     @endforeach
                                                                 </select>
+
+                                                                @if($forwardToOfficeCode === '[HUB]')
+                                                                    <div style="margin-top: 6px; padding: 6px; background: #f8fafc; border: 1.5px dashed #3b82f6; border-radius: 6px; text-align: left;">
+                                                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                                                                            <button type="button" 
+                                                                                    wire:click="openForwardHubModal" 
+                                                                                    style="background: #2563eb; color: #ffffff; border: none; border-radius: 5px; padding: 3px 8px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                                                                <i class="fa-solid fa-plus-circle"></i> Office Hub [ {{ in_array('ALL', $forwardHubOffices) ? 'ALL' : count($forwardHubOffices) }} selected ]
+                                                                            </button>
+                                                                        </div>
+                                                                        @if(empty($forwardHubOffices))
+                                                                            <div style="font-size: 11px; color: #dc2626; font-style: italic;">
+                                                                                ⚠️ Select Hub offices
+                                                                            </div>
+                                                                        @else
+                                                                            <div style="display: flex; flex-wrap: wrap; gap: 4px; max-height: 80px; overflow-y: auto;">
+                                                                                @if(in_array('ALL', $forwardHubOffices))
+                                                                                    <span style="display: inline-flex; align-items: center; gap: 4px; background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; font-size: 10.5px; font-weight: 700;">
+                                                                                        ALL OFFICES
+                                                                                        <button type="button" wire:click="clearForwardHubOffices" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 11px; line-height: 1; padding: 0;">&times;</button>
+                                                                                    </span>
+                                                                                @else
+                                                                                    @foreach($forwardHubOffices as $idx => $fCode)
+                                                                                        <span style="display: inline-flex; align-items: center; gap: 4px; background: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600;">
+                                                                                            <strong>{{ $fCode }}</strong>
+                                                                                            <button type="button" wire:click="removeForwardHubOffice({{ $idx }})" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 11px; line-height: 1; padding: 0;">&times;</button>
+                                                                                        </span>
+                                                                                    @endforeach
+                                                                                @endif
+                                                                            </div>
+                                                                        @endif
+                                                                    </div>
+                                                                @endif
                                                             </div>
                                                         @endif
                                                     @else
                                                         @if ($selectedTransaction->status === 'completed' || !is_null($step->date_out))
-                                                            <span style="background: #dcfce7; color: #166534; border: 1px solid #86efac; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; box-sizing: border-box;">
-                                                                ✓ {{ $step->action_needed ?: 'Finished' }}
+                                                            <span style="background: #dcfce7; color: #166534; border: 1px solid #86efac; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                                                                <i class="fa-solid fa-check"></i> {{ $step->action_needed ?: 'Finished' }}
                                                             </span>
                                                         @else
-                                                            <span style="background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; box-sizing: border-box;">
+                                                            <span style="background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center;">
                                                                 {{ $step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending') }}
                                                             </span>
                                                         @endif
@@ -2504,66 +3210,66 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                                 </td>
                                                 <td>
                                                     @if ($step->is_active_step && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
-                                                        <input type="text" wire:model="activeNotes" class="active-notes-input" placeholder="Type notes here...">
+                                                        <input type="text" wire:model="activeNotes" class="receive-field-input" placeholder="Type notes here..." style="font-size: 12px; height: 30px; padding: 0 8px;">
                                                     @else
-                                                        {{ $step->note ?: '-' }}
+                                                        <span style="font-size: 12px; color: {{ $step->note ? '#334155' : '#94a3b8' }};">
+                                                            {{ $step->note ?: '-' }}
+                                                        </span>
                                                     @endif
                                                 </td>
                                                 @if ($editingAll)
                                                     <td style="text-align: center; white-space: nowrap;">
                                                         @if (!($step->is_locked ?? false))
                                                             <div style="display: inline-flex; gap: 4px;">
-                                                                <button type="button" wire:click="moveFlowOfficeUp({{ $index }})" {{ $index === 0 || ($flowOffices[$index - 1]['is_locked'] ?? false) ? 'disabled' : '' }} style="border: none; background: #f1f5f9; color: {{ $index === 0 || ($flowOffices[$index - 1]['is_locked'] ?? false) ? '#cbd5e1' : '#475569' }}; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: {{ $index === 0 || ($flowOffices[$index - 1]['is_locked'] ?? false) ? 'not-allowed' : 'pointer' }}; font-weight: bold;">
+                                                                <button type="button" wire:click="moveFlowOfficeUp({{ $index }})" {{ $index === 0 || ($flowOffices[$index - 1]['is_locked'] ?? false) ? 'disabled' : '' }} style="border: none; background: #f1f5f9; color: {{ $index === 0 || ($flowOffices[$index - 1]['is_locked'] ?? false) ? '#cbd5e1' : '#475569' }}; padding: 5px 8px; border-radius: 4px; font-size: 11px; cursor: {{ $index === 0 || ($flowOffices[$index - 1]['is_locked'] ?? false) ? 'not-allowed' : 'pointer' }}; font-weight: bold;" title="Move Up">
                                                                     <i class="fa-solid fa-arrow-up"></i>
                                                                 </button>
-                                                                <button type="button" wire:click="moveFlowOfficeDown({{ $index }})" {{ $index === count($flowOffices) - 1 || ($flowOffices[$index + 1]['is_locked'] ?? false) ? 'disabled' : '' }} style="border: none; background: #f1f5f9; color: {{ $index === count($flowOffices) - 1 || ($flowOffices[$index + 1]['is_locked'] ?? false) ? '#cbd5e1' : '#475569' }}; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: {{ $index === count($flowOffices) - 1 || ($flowOffices[$index + 1]['is_locked'] ?? false) ? 'not-allowed' : 'pointer' }}; font-weight: bold;">
+                                                                <button type="button" wire:click="moveFlowOfficeDown({{ $index }})" {{ $index === count($flowOffices) - 1 || ($flowOffices[$index + 1]['is_locked'] ?? false) ? 'disabled' : '' }} style="border: none; background: #f1f5f9; color: {{ $index === count($flowOffices) - 1 || ($flowOffices[$index + 1]['is_locked'] ?? false) ? '#cbd5e1' : '#475569' }}; padding: 5px 8px; border-radius: 4px; font-size: 11px; cursor: {{ $index === count($flowOffices) - 1 || ($flowOffices[$index + 1]['is_locked'] ?? false) ? 'not-allowed' : 'pointer' }}; font-weight: bold;" title="Move Down">
                                                                     <i class="fa-solid fa-arrow-down"></i>
                                                                 </button>
-                                                                <button type="button" wire:click="removeFlowOffice({{ $index }})" style="border: none; background: #fee2e2; color: #dc2626; padding: 6px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold;">
+                                                                <button type="button" wire:click="removeFlowOffice({{ $index }})" style="border: none; background: #fee2e2; color: #dc2626; padding: 5px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold;" title="Remove Office">
                                                                     <i class="fa-solid fa-trash-can"></i>
                                                                 </button>
                                                             </div>
                                                         @else
-                                                            <span style="font-size: 11px; color: #94a3b8; font-style: italic;"><i class="fa-solid fa-lock" style="margin-right: 4px;"></i> Locked</span>
+                                                            <span style="font-size: 11px; color: #94a3b8; font-style: italic;"><i class="fa-solid fa-lock" style="margin-right: 3px;"></i> Locked</span>
                                                         @endif
                                                     </td>
                                                 @endif
                                             </tr>
                                         @empty
                                             <tr>
-                                                <td colspan="{{ $editingAll ? 8 : 7 }}" style="padding: 24px; color: #888; font-style: italic; text-align: center;">No transaction paths listed.</td>
+                                                <td colspan="{{ $editingAll ? 8 : 7 }}" style="padding: 24px; color: #94a3b8; font-style: italic; text-align: center;">No transaction routing paths listed.</td>
                                             </tr>
                                         @endforelse
                                     </tbody>
                                 </table>
                             </div>
                         @endif
-                    @endif
+                    </div>
 
-                    <!-- Popup Action Buttons -->
-                    <div class="receive-actions">
-                        <!-- VIEW LISTED PATH / VIEW COPY FURNISHED Toggle Button -->
-                        @if (!$showCopyFurnished)
-                            <button type="button" class="receive-action-btn" wire:click="$set('showCopyFurnished', true)">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                                    <line x1="9" y1="9" x2="15" y2="9"/>
-                                    <line x1="9" y1="13" x2="15" y2="13"/>
-                                    <line x1="9" y1="17" x2="15" y2="17"/>
-                                </svg>
-                                VIEW COPY FURNISHED
-                            </button>
-                        @else
-                            <button type="button" class="receive-action-btn" wire:click="$set('showCopyFurnished', false)">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                    <circle cx="12" cy="12" r="3"/>
-                                </svg>
-                                VIEW LISTED PATH
+                </div>
+
+                <!-- ══ Docked Action Toolbar Footer ══ -->
+                <div class="dts-im-footer">
+                    <!-- Left Utility Group -->
+                    <div class="dts-im-footer-group">
+                        <button type="button" class="dts-im-btn" onclick="openQrViewModal('{{ $selectedTransaction->qr_code ?? '' }}')">
+                            <i class="fa-solid fa-qrcode" style="color: #0284c7;"></i>
+                            <span>View QR</span>
+                        </button>
+
+                        @if (!empty($selectedTransaction->doc_dir))
+                            <button type="button" class="dts-im-btn" wire:click="openPdfPreviewModal">
+                                <i class="fa-solid fa-file-pdf" style="color: #dc2626;"></i>
+                                <span>Preview Document</span>
                             </button>
                         @endif
+                    </div>
 
-                        <!-- COMPLETED / REAFFIRM / UPLOAD -->
+                    <!-- Right Controls Group -->
+                    <div class="dts-im-footer-group">
+                        <!-- Operational Forward / Complete -->
                         @php
                             $allowManualComplete = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_allow_manual_completion_button')->value('value') === 'true';
                             $effectiveCurrentOffice = ($selectedTransaction->current_office === 'ORIGIN') ? $selectedTransaction->originated_from : $selectedTransaction->current_office;
@@ -2572,56 +3278,28 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                         @if ($isUserOffice && $selectedTransaction->status !== 'completed')
                             @if ($this->isLastStep() && $activeAction !== 'To be Forwarded to')
                                 @if ($allowManualComplete)
-                                    <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                            <polyline points="20 6 9 17 4 12"/>
-                                        </svg>
-                                        Complete Transaction
+                                    <button type="button" class="dts-im-btn dts-im-btn-success" wire:click="triggerCompletionConfirm">
+                                        <i class="fa-solid fa-check"></i>
+                                        <span>Complete Transaction</span>
                                     </button>
                                 @endif
                             @else
-                                <button type="button" class="receive-action-btn" wire:click="completeTransaction" style="background-color: #2563eb;">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <line x1="22" y1="2" x2="11" y2="13"></line>
-                                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                                    </svg>
-                                    {{ $activeAction === 'To be Forwarded to' ? 'Forward to Office' : 'Forward Transaction' }}
+                                <button type="button" class="dts-im-btn dts-im-btn-primary" wire:click="completeTransaction">
+                                    <i class="fa-solid fa-paper-plane"></i>
+                                    <span>{{ $activeAction === 'To be Forwarded to' ? 'Forward to Office' : 'Forward Transaction' }}</span>
                                 </button>
                             @endif
                         @endif
 
-                        @if ($selectedTransaction->status === 'completed' || $this->isLastStep() || $showUploadModal)
-                            @if (!empty($selectedTransaction->doc_dir))
-                                <button type="button" class="receive-action-btn" wire:click="openPdfPreviewModal" style="background-color: #0891b2;" title="Directly preview attached document">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                        <circle cx="12" cy="12" r="3"/>
-                                    </svg>
-                                    VIEW FILE
-                                </button>
-                            @else
-                                <button type="button" class="receive-action-btn" wire:click="triggerUploadFileModal" style="background-color: #0284c7;">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                        <polyline points="17 8 12 3 7 8"/>
-                                        <line x1="12" y1="3" x2="12" y2="15"/>
-                                    </svg>
-                                    UPLOAD FILE
-                                </button>
-                            @endif
-                        @endif
-
+                        <!-- Restore / Reopen to Active -->
                         @if ($selectedTransaction->status === 'completed' || $selectedTransaction->current_office === 'ORIGIN')
-                            <button type="button" class="receive-action-btn" wire:click="reopenTransaction" style="background-color: #ea580c;" title="Restore this transaction back to Current Transactions">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <polyline points="1 4 1 10 7 10"/>
-                                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
-                                </svg>
-                                RESTORE TO ACTIVE
+                            <button type="button" class="dts-im-btn" wire:click="reopenTransaction" style="color: #ea580c; border-color: #fdba74;" title="Restore this record back to Active">
+                                <i class="fa-solid fa-arrow-rotate-left"></i>
+                                <span>Restore to Active</span>
                             </button>
                         @endif
 
-                        <!-- EDIT / SAVE toggle -->
+                        <!-- Edit / Save Toggle -->
                         @php
                             $perms = auth()->user()?->permissions;
                             $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
@@ -2629,53 +3307,28 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                         @endphp
                         @if ($canEditMetadata)
                             @if ($editingAll)
-                                <button type="button" class="receive-action-btn" wire:click="saveMetadataOnly" style="background-color: #16a34a;">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <polyline points="20 6 9 17 4 12"/>
-                                    </svg>
-                                    SAVE
+                                <button type="button" class="dts-im-btn dts-im-btn-success" wire:click="saveMetadataOnly">
+                                    <i class="fa-solid fa-floppy-disk"></i>
+                                    <span>Save Changes</span>
+                                </button>
+                                <button type="button" class="dts-im-btn" wire:click="toggleEditAll">
+                                    <span>Cancel</span>
                                 </button>
                             @else
-                                <button type="button" class="receive-action-btn" wire:click="toggleEditAll">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M17 3l4 4-7 7H10v-4l7-7z"/>
-                                        <path d="M4 20h16"/>
-                                    </svg>
-                                    EDIT
+                                <button type="button" class="dts-im-btn" wire:click="toggleEditAll">
+                                    <i class="fa-solid fa-pen-to-square"></i>
+                                    <span>Edit Info</span>
                                 </button>
                             @endif
                         @endif
 
-                        <!-- DELETE (Creator and non-active/revised/amended/draft states only) -->
-                        @php
-                            $isCreator = ($selectedTransaction->created_by === auth()->id());
-                            $canDeleteState = in_array($selectedTransaction->status, ['revision', 'drafted', 'completed', 'cancelled']) 
-                                           || !is_null($selectedTransaction->append_transaction);
-                        @endphp
-                        @if ($isCreator && $canDeleteState)
-                            <button type="button" class="receive-action-btn receive-action-btn--danger" wire:click="deleteTransaction">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                                    <line x1="10" y1="11" x2="10" y2="17"/>
-                                    <line x1="14" y1="11" x2="14" y2="17"/>
-                                </svg>
-                                DELETE
-                            </button>
-                        @endif
-
-
-                        <!-- VIEW QRCODE (Modal control number info) -->
-                        <button type="button" class="receive-action-btn" onclick="openQrViewModal('{{ $selectedTransaction->qr_code ?? '' }}')">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="3" y="3" width="7" height="7"></rect>
-                                <rect x="14" y="3" width="7" height="7"></rect>
-                                <rect x="14" y="14" width="7" height="7"></rect>
-                                <rect x="3" y="14" width="7" height="7"></rect>
-                            </svg>
-                            VIEW QRCODE
+                        <!-- Close Modal Button -->
+                        <button type="button" class="dts-im-btn" wire:click="closeTransaction">
+                            Close
                         </button>
                     </div>
-                </form>
+                </div>
+
             </div>
         </div>
     @endif
@@ -2953,5 +3606,19 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         :flow-count="$exportFlowCount"
         :prepared-by="$exportPreparedBy"
         :noted-by="$exportNotedBy"
+    />
+
+    <!-- Office Hub Collective Modal for Forwarding -->
+    <x-dts.hub-collective-modal 
+        :show="$showForwardHubModal" 
+        :search="$forwardHubSearch" 
+        :selected="$forwardHubTempSelected" 
+        :offices="$this->availableTargetOffices"
+        wireClose="closeForwardHubModal"
+        wireToggle="toggleForwardHubOffice"
+        wireSelectAll="selectAllForwardHubOffices"
+        wireClear="clearForwardHubOffices"
+        wireApply="applyForwardHubModal"
+        wireSearch="forwardHubSearch"
     />
 </div>

@@ -236,6 +236,81 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
         }
         return $query->pluck('option_name')->toArray();
     }
+
+    // Forward HUB Selection Modal State
+    public bool $showForwardHubModal = false;
+    public string $forwardHubSearch = '';
+    public array $forwardHubOffices = [];
+    public array $forwardHubTempSelected = [];
+
+    public function openForwardHubModal(): void
+    {
+        $this->forwardHubTempSelected = $this->forwardHubOffices;
+        $this->forwardHubSearch = '';
+        $this->showForwardHubModal = true;
+    }
+
+    public function closeForwardHubModal(): void
+    {
+        $this->showForwardHubModal = false;
+        $this->forwardHubSearch = '';
+    }
+
+    public function toggleForwardHubOffice(string $officeCode): void
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        if ($officeCode === $userOfficeCode || in_array($officeCode, ['ORIGIN', '[H]', '[HUB]'])) {
+            return;
+        }
+
+        if (in_array('ALL', $this->forwardHubTempSelected)) {
+            $allActive = collect($this->availableTargetOffices)
+                ->pluck('office_code')
+                ->filter(fn($c) => $c !== $userOfficeCode && !in_array($c, ['ORIGIN', '[H]', '[HUB]', 'ALL']))
+                ->toArray();
+            $this->forwardHubTempSelected = array_values(array_diff($allActive, [$officeCode]));
+            return;
+        }
+
+        if (in_array($officeCode, $this->forwardHubTempSelected)) {
+            $this->forwardHubTempSelected = array_values(array_diff($this->forwardHubTempSelected, [$officeCode]));
+        } else {
+            $this->forwardHubTempSelected[] = $officeCode;
+        }
+    }
+
+    public function selectAllForwardHubOffices(): void
+    {
+        $this->forwardHubTempSelected = ['ALL'];
+    }
+
+    public function clearForwardHubOffices(): void
+    {
+        $this->forwardHubTempSelected = [];
+    }
+
+    public function applyForwardHubModal(): void
+    {
+        $this->forwardHubOffices = $this->forwardHubTempSelected;
+        $this->showForwardHubModal = false;
+        $this->forwardHubSearch = '';
+    }
+
+    public function removeForwardHubOffice(int $index): void
+    {
+        if (isset($this->forwardHubOffices[$index])) {
+            array_splice($this->forwardHubOffices, $index, 1);
+        }
+    }
+
+    public function getAvailableTargetOfficesProperty()
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+        return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
+    }
     public bool $editingControl = false;
     public bool $editingFileCode = false;
     public bool $editingParticulars = false;
@@ -917,6 +992,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
         $this->emailAccess = '';
         $this->docPassword = '';
         $this->transactionFlow = '';
+        $this->forwardToOfficeCode = '';
+        $this->forwardHubOffices = [];
+        $this->forwardHubTempSelected = [];
+        $this->showForwardHubModal = false;
     }
 
     public function toggleMoreDetails(): void
@@ -927,7 +1006,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
     public function toggleEditAll(): void
     {
         $perms = auth()->user()?->permissions;
-        $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
+        $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_issuance_control_no ?? false));
         $canEditMetadata = ($this->selectedTransaction?->status !== 'completed') || $canListModify;
         if (!$canEditMetadata) {
             return;
@@ -991,7 +1070,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
     public function saveMetadataOnly(): void
     {
         $perms = auth()->user()?->permissions;
-        $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
+        $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_issuance_control_no ?? false));
         $canEditMetadata = ($this->selectedTransaction?->status !== 'completed') || $canListModify;
         if (!$canEditMetadata) {
             return;
@@ -1558,12 +1637,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                 return;
             }
 
+            if ($this->forwardToOfficeCode === '[HUB]' && empty($this->forwardHubOffices)) {
+                session()->flash('error', 'Please select at least one recipient office for Office Hub broadcast.');
+                return;
+            }
+
             try {
                 $result = \App\Services\DtsRoutingService::forwardToOtherOffice(
                     $this->selectedTransactionId,
                     $this->forwardToOfficeCode,
                     $this->activeNotes,
-                    auth()->id()
+                    auth()->id(),
+                    $this->forwardHubOffices
                 );
                 session()->flash('success', "Transaction '{$result['control_number']}' has been forwarded to {$result['target_office_name']}!");
                 $this->closeTransaction();
@@ -1756,7 +1841,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
         }
 
         $perms = auth()->user()?->permissions;
-        if ($perms && (($perms->is_sadm ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false) || ($perms->can_dts_list_modify_transaction ?? false))) {
+        if ($perms && (($perms->is_sadm ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_issuance_control_no ?? false) || ($perms->can_dts_list_modify_transaction ?? false))) {
             DB::table('dts_transaction_details')
                 ->where('id', $this->selectedTransactionId)
                 ->update([
@@ -2523,7 +2608,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                     @forelse($this->transactions as $index => $t)
                         @php
                             $isChecked = in_array((string)$t->transaction_id, $selectedIds);
-                            $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false) || (strtolower($t->status ?? '') === 'completed');
+                            $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_issuance_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false) || (strtolower($t->status ?? '') === 'completed');
                         @endphp
                         <tr style="background-color: {{ $isChecked ? '#f0f6ff' : '' }};">
                             <td style="text-align: center;">
@@ -2701,7 +2786,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
             @forelse ($this->transactions as $index => $t)
                 @php
                     $isChecked = in_array((string)$t->transaction_id, $selectedIds);
-                    $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false) || (strtolower($t->status ?? '') === 'completed');
+                    $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_issuance_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false) || (strtolower($t->status ?? '') === 'completed');
                 @endphp
                 <div class="dts-box-card {{ $isChecked ? 'selected' : '' }}">
                     
@@ -2795,7 +2880,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                     <div class="dts-im-header-main">
                         <div class="dts-im-control-wrap">
                             <span class="dts-im-control-label">Control Number</span>
-                            @if ($editingAll && ((auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false)))
+                            @if ($editingAll && ((auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_issuance_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false)))
                                 <input type="text" class="receive-field-input" wire:model="controlNumber" style="font-size: 16px; font-weight: 700; max-width: 300px; color: #0f172a;">
                             @else
                                 <div class="dts-im-control-val">
@@ -3307,13 +3392,46 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                                             @endforeach
                                                         </select>
                                                         @if ($activeAction === 'To be Forwarded to')
-                                                            <div style="margin-top: 4px;">
-                                                                <select wire:model="forwardToOfficeCode" style="width: 100%; padding: 4px 6px; border: 1.5px solid #3b82f6; border-radius: 6px; font-size: 11px; background: #ffffff;">
+                                                            <div style="margin-top: 6px;">
+                                                                <select wire:model.live="forwardToOfficeCode" style="width: 100%; padding: 4px 8px; border: 1.5px solid #3b82f6; border-radius: 6px; font-size: 11px; font-weight: 600; background: #ffffff; color: #1e40af;">
                                                                     <option value="">-- Target Office --</option>
-                                                                    @foreach(\App\Services\DtsRoutingService::getAvailableTargetOffices(auth()->user()?->details?->office?->office_code) as $availOff)
+                                                                    @foreach($this->availableTargetOffices as $availOff)
                                                                         <option value="{{ $availOff->office_code }}">{{ $availOff->office_code }} - {{ $availOff->office_name }}</option>
                                                                     @endforeach
                                                                 </select>
+
+                                                                @if($forwardToOfficeCode === '[HUB]')
+                                                                    <div style="margin-top: 6px; padding: 6px; background: #f8fafc; border: 1.5px dashed #3b82f6; border-radius: 6px; text-align: left;">
+                                                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                                                                            <button type="button" 
+                                                                                    wire:click="openForwardHubModal" 
+                                                                                    style="background: #2563eb; color: #ffffff; border: none; border-radius: 5px; padding: 3px 8px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                                                                <i class="fa-solid fa-plus-circle"></i> Office Hub [ {{ in_array('ALL', $forwardHubOffices) ? 'ALL' : count($forwardHubOffices) }} selected ]
+                                                                            </button>
+                                                                        </div>
+                                                                        @if(empty($forwardHubOffices))
+                                                                            <div style="font-size: 11px; color: #dc2626; font-style: italic;">
+                                                                                ⚠️ Select Hub offices
+                                                                            </div>
+                                                                        @else
+                                                                            <div style="display: flex; flex-wrap: wrap; gap: 4px; max-height: 80px; overflow-y: auto;">
+                                                                                @if(in_array('ALL', $forwardHubOffices))
+                                                                                    <span style="display: inline-flex; align-items: center; gap: 4px; background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; font-size: 10.5px; font-weight: 700;">
+                                                                                        ALL OFFICES
+                                                                                        <button type="button" wire:click="clearForwardHubOffices" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 11px; line-height: 1; padding: 0;">&times;</button>
+                                                                                    </span>
+                                                                                @else
+                                                                                    @foreach($forwardHubOffices as $idx => $fCode)
+                                                                                        <span style="display: inline-flex; align-items: center; gap: 4px; background: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600;">
+                                                                                            <strong>{{ $fCode }}</strong>
+                                                                                            <button type="button" wire:click="removeForwardHubOffice({{ $idx }})" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 11px; line-height: 1; padding: 0;">&times;</button>
+                                                                                        </span>
+                                                                                    @endforeach
+                                                                                @endif
+                                                                            </div>
+                                                                        @endif
+                                                                    </div>
+                                                                @endif
                                                             </div>
                                                         @endif
                                                     @else
@@ -3422,7 +3540,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                         <!-- Edit / Save Toggle -->
                         @php
                             $perms = auth()->user()?->permissions;
-                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
+                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_issuance_control_no ?? false));
                             $canEditMetadata = ($selectedTransaction->status !== 'completed') || $canListModify;
                         @endphp
                         @if ($canEditMetadata)
@@ -3632,7 +3750,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
 
                         @php
                             $perms = auth()->user()?->permissions;
-                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_control_no ?? false));
+                            $canListModify = $perms && ($perms->is_sadm || ($perms->can_dts_list_modify_transaction ?? false) || ($perms->can_dts_modify_transaction ?? false) || ($perms->can_dts_modify_issuance_control_no ?? false));
                             $canModifyFile = ($selectedTransaction->status !== 'completed') || $canListModify;
                         @endphp
 
@@ -3739,5 +3857,19 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
         :flow-count="$exportFlowCount"
         :prepared-by="$exportPreparedBy"
         :noted-by="$exportNotedBy"
+    />
+
+    <!-- Office Hub Collective Modal for Forwarding -->
+    <x-dts.hub-collective-modal 
+        :show="$showForwardHubModal" 
+        :search="$forwardHubSearch" 
+        :selected="$forwardHubTempSelected" 
+        :offices="$this->availableTargetOffices"
+        wireClose="closeForwardHubModal"
+        wireToggle="toggleForwardHubOffice"
+        wireSelectAll="selectAllForwardHubOffices"
+        wireClear="clearForwardHubOffices"
+        wireApply="applyForwardHubModal"
+        wireSearch="forwardHubSearch"
     />
 </div>

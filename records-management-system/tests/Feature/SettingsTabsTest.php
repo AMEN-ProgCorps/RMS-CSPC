@@ -40,9 +40,11 @@ class SettingsTabsTest extends TestCase
         Volt::test('pages.admin.settings.index')
             ->assertSet('settingsTab', 'general')
             ->assertSee('System & Performance Controls', false)
+            ->assertSee('Restrict Transaction Processing to Working Hours')
             ->assertSee('File Attachment Constraints')
             ->assertDontSee('Document Tracking System (DTS) Settings')
             ->assertDontSee('Session & Inactivity Security Settings', false)
+            ->assertDontSee('Google API & SSO Credential Manager', false)
             ->assertDontSee('Rate Limiting & Abuse Prevention', false)
             ->assertDontSee('Records Disposition Program (RDP) Settings');
     }
@@ -51,14 +53,16 @@ class SettingsTabsTest extends TestCase
     {
         $component = Volt::test('pages.admin.settings.index');
 
-        // DTS tab: only the DTS card
+        // DTS tab: only the DTS card (working hours is now in General)
         $component->set('settingsTab', 'dts')
             ->assertSee('Document Tracking System (DTS) Settings')
+            ->assertDontSee('Restrict Transaction Processing to Working Hours')
             ->assertDontSee('System & Performance Controls', false)
             ->assertDontSee('Rate Limiting & Abuse Prevention', false);
 
-        // Security tab: session + rate limiting + email passwords cards
+        // Security tab: Google API/SSO + session + rate limiting + email passwords cards
         $component->set('settingsTab', 'security')
+            ->assertSee('Google API & SSO Credential Manager', false)
             ->assertSee('Session & Inactivity Security Settings', false)
             ->assertSee('Rate Limiting & Abuse Prevention', false)
             ->assertSee('Security & Email Passwords', false)
@@ -74,6 +78,8 @@ class SettingsTabsTest extends TestCase
         // Back to General
         $component->set('settingsTab', 'general')
             ->assertSee('System & Performance Controls', false)
+            ->assertSee('Restrict Transaction Processing to Working Hours')
+            ->assertDontSee('Google API & SSO Credential Manager', false)
             ->assertDontSee('Server Default Record Series');
     }
 

@@ -2066,207 +2066,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             @endif
         </div>
 
-        <!-- Google SSO Credential Manager Card (Full Width Banner) -->
-        <div class="settings-card" style="border-top: 4px solid #ea4335; margin-bottom: 16px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <i class="fa-brands fa-google" style="font-size: 24px; color: #ea4335;"></i>
-                    <div>
-                        <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">Google SSO Credential Manager</h3>
-                        <span style="font-size: 12px; color: #64748b;">Manage Google Single Sign-On (OAuth 2.0) credentials for portal authentication — live changes, no restart needed</span>
-                    </div>
-                </div>
-            </div>
-
-            {{-- Dual SSO Configuration Overview: Internal Login vs Public Document Tracking --}}
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-bottom: 14px;">
-                {{-- Panel 1: Internal Staff Login SSO --}}
-                <div style="background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #e2e8f0; border-left: 4px solid #ea4335;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                        <span style="font-size: 13px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px;">
-                            <i class="fa-solid fa-building-columns" style="color: #ea4335;"></i> 1. Internal Staff Login SSO
-                        </span>
-                        <span style="font-size: 10px; background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 4px; font-weight: 700;">
-                            @cspc.edu.ph only
-                        </span>
-                    </div>
-
-                    @php
-                        $currentSsoId = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_sso_client_id')->value('value') ?: config('services.google.client_id') ?: env('GOOGLE_CLIENT_ID', '');
-                        $currentRedirect = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_sso_redirect_uri')->value('value') ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
-                        $fromDb = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_sso_client_id')->value('value');
-                    @endphp
-
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
-                        <div>
-                            <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Client ID:</span>
-                            <div style="font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                {{ $currentSsoId ? \Illuminate\Support\Str::limit($currentSsoId, 22) : 'Not Set' }}
-                            </div>
-                        </div>
-                        <div>
-                            <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Callback Route:</span>
-                            <div style="font-weight: 700; color: #ea4335; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                /auth/google/callback
-                            </div>
-                        </div>
-                    </div>
-                    <div style="margin-top: 6px; font-size: 10px; color: #059669; font-weight: 600;">
-                        Source: {{ $fromDb ? 'Database (Live Override)' : 'Environment (.env)' }}
-                    </div>
-                </div>
-
-                {{-- Panel 2: Public Document Tracking SSO --}}
-                <div style="background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #e2e8f0; border-left: 4px solid #0284c7;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                        <span style="font-size: 13px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px;">
-                            <i class="fa-solid fa-earth-americas" style="color: #0284c7;"></i> 2. Public Tracking SSO
-                        </span>
-                        <span style="font-size: 10px; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-weight: 700;">
-                            Any Google Account
-                        </span>
-                    </div>
-
-                    @php
-                        $customTrackId = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_tracking_sso_client_id')->value('value') ?: config('services.google_tracking.client_id') ?: env('GOOGLE_TRACKING_CLIENT_ID', '');
-                        $trackRedirect = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value') ?: env('GOOGLE_TRACKING_REDIRECT_URI', 'dynamic');
-                    @endphp
-
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
-                        <div>
-                            <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Client ID:</span>
-                            <div style="font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                @if (!empty($customTrackId))
-                                    {{ \Illuminate\Support\Str::limit($customTrackId, 22) }}
-                                @else
-                                    <span style="color: #0284c7;">{{ $currentSsoId ? \Illuminate\Support\Str::limit($currentSsoId, 18) . ' (Inherited)' : 'Inheriting Primary' }}</span>
-                                @endif
-                            </div>
-                        </div>
-                        <div>
-                            <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Callback Route:</span>
-                            <div style="font-weight: 700; color: #0284c7; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                /auth/google/track/callback
-                            </div>
-                        </div>
-                    </div>
-                    <div style="margin-top: 6px; font-size: 10px; color: #0284c7; font-weight: 600;">
-                        {{ !empty($customTrackId) ? 'Configured with custom tracking credentials' : 'Active (Using primary Google OAuth with public tracking callback)' }}
-                    </div>
-                </div>
-            </div>
-
-            @if ($ssoTestResult)
-                <div style="padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-bottom: 14px; background: {{ str_contains($ssoTestResult, '✅') ? '#f0fdf4' : (str_contains($ssoTestResult, '⚠️') ? '#fffbeb' : '#fef2f2') }}; color: {{ str_contains($ssoTestResult, '✅') ? '#166534' : (str_contains($ssoTestResult, '⚠️') ? '#92400e' : '#991b1b') }}; border: 1px solid {{ str_contains($ssoTestResult, '✅') ? '#bbf7d0' : (str_contains($ssoTestResult, '⚠️') ? '#fde68a' : '#fecaca') }};">
-                    {{ $ssoTestResult }}
-                </div>
-            @endif
-
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                <button type="button" wire:click="testSsoConnection" wire:loading.attr="disabled" style="background: #ea4335; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                    <i class="fa-solid fa-plug" wire:loading.remove wire:target="testSsoConnection"></i>
-                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testSsoConnection"></i>
-                    <span>Validate SSO Credentials</span>
-                </button>
-
-                <button type="button" wire:click="toggleSsoEditForm" style="background: #0284c7; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                    <i class="fa-solid fa-gear"></i>
-                    <span>{{ $showSsoEditForm ? 'Close Editor' : 'Edit SSO Credentials' }}</span>
-                </button>
-            </div>
-
-            @if ($showSsoEditForm)
-                <div style="margin-top: 16px; padding-top: 16px; border-top: 2px dashed #e2e8f0; background: #f8fafc; padding: 16px; border-radius: 8px;">
-                    <h4 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px;">
-                        <i class="fa-solid fa-key" style="color: #ea4335;"></i> Update Google SSO Credentials
-                    </h4>
-
-                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 12px; color: #1e40af; display: flex; flex-direction: column; gap: 6px;">
-                        <div style="display: flex; align-items: flex-start; gap: 8px;">
-                            <i class="fa-solid fa-circle-info" style="margin-top: 2px;"></i>
-                            <span>These credentials are from your <strong>Google Cloud Console</strong> OAuth 2.0 Client ID (Web Application type). In Google Cloud Console under <strong>"Authorized redirect URIs"</strong>, you must add:</span>
-                        </div>
-                        <div style="margin-left: 22px; display: flex; flex-direction: column; gap: 4px; font-family: monospace; font-size: 11px;">
-                            <div>
-                                <span style="color: #64748b; font-family: sans-serif; font-size: 11px; font-weight: 600;">Internal Staff Login:</span>
-                                <code style="background: #dbeafe; padding: 2px 6px; border-radius: 4px; color: #1d4ed8;">{{ url('/auth/google/callback') }}</code>
-                            </div>
-                            <div>
-                                <span style="color: #64748b; font-family: sans-serif; font-size: 11px; font-weight: 600;">Public Document Tracking:</span>
-                                <code style="background: #dbeafe; padding: 2px 6px; border-radius: 4px; color: #0369a1;">{{ url('/auth/google/track/callback') }}</code>
-                            </div>
-                        </div>
-                        <div style="margin-left: 22px; font-size: 11px; color: #3b82f6;">
-                            <em>Leaving the field below as <strong>"dynamic"</strong> tells RMS to automatically construct these URLs from your active domain/port.</em>
-                        </div>
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
-                        <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">1. Internal Login Client ID (GOOGLE_CLIENT_ID)</label>
-                            <input type="text" wire:model="ssoClientId" placeholder="e.g. 459768812355-xxx.apps.googleusercontent.com" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                        </div>
-
-                        <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Client Secret (GOOGLE_CLIENT_SECRET)</label>
-                            <input type="password" wire:model="ssoClientSecret" placeholder="e.g. GOCSPX-xxxxxxxxxxxxxx" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                        </div>
-
-                        <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Redirect URI (GOOGLE_REDIRECT_URI)</label>
-                            <input type="text" wire:model="ssoRedirectUri" placeholder="dynamic (auto-detects from APP_URL)" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                            <span style="font-size: 10px; color: #64748b; margin-top: 2px; display: block;">Callback: <code style="background:#e2e8f0;padding:1px 4px;border-radius:3px;">{{ url('/auth/google/callback') }}</code></span>
-                        </div>
-                    </div>
-
-                    {{-- Public Document Tracking SSO Settings --}}
-                    <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid #cbd5e1;">
-                        <span style="font-size: 12px; font-weight: 700; color: #0284c7; display: block; margin-bottom: 8px;">
-                            <i class="fa-solid fa-earth-americas"></i> 2. Public Document Tracking SSO (Optional Separate Key)
-                        </span>
-                        <div style="font-size: 11px; color: #64748b; margin-bottom: 10px;">
-                            If you have a separate <strong>External</strong> Google OAuth Client ID for public guest tracking, enter it below. Leave blank to fallback to the primary Google SSO credentials.
-                        </div>
-
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
-                            <div>
-                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Tracking Client ID (GOOGLE_TRACKING_CLIENT_ID)</label>
-                                <input type="text" wire:model="trackingSsoClientId" placeholder="Leave empty to use main client ID" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                            </div>
-
-                            <div>
-                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Tracking Client Secret (GOOGLE_TRACKING_CLIENT_SECRET)</label>
-                                <input type="password" wire:model="trackingSsoClientSecret" placeholder="Leave empty to use main secret" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                            </div>
-
-                            <div>
-                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Tracking Redirect URI</label>
-                                <input type="text" wire:model="trackingSsoRedirectUri" placeholder="dynamic (auto-detects from APP_URL)" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                                <span style="font-size: 10px; color: #64748b; margin-top: 2px; display: block;">Callback: <code style="background:#e2e8f0;padding:1px 4px;border-radius:3px;">{{ url('/auth/google/track/callback') }}</code></span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div style="display: flex; gap: 8px; margin-top: 14px;">
-                        <button type="button" wire:click="saveSsoCredentials" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                            <i class="fa-solid fa-floppy-disk"></i> Save All SSO Credentials
-                        </button>
-                        <button type="button" wire:click="toggleSsoEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-            @endif
-        </div>
-
-        <!-- Settings Category Tab Manager (below Google SSO — keeps each view short) -->
+        <!-- Settings Category Tab Manager -->
         @php
             $settingsTabs = [
                 'general'  => ['icon' => 'fa-solid fa-sliders', 'label' => 'General', 'count' => 2],
                 'dts'      => ['icon' => 'fa-solid fa-qrcode', 'label' => 'Document Tracking (DTS)', 'count' => 1],
                 'rdp'      => ['icon' => 'fa-solid fa-folder-tree', 'label' => 'Records (RDP)', 'count' => 1],
                 'dcs'      => ['icon' => 'fa-solid fa-file-shield', 'label' => 'Document Control (DCS)', 'count' => 1],
-                'security' => ['icon' => 'fa-solid fa-shield-halved', 'label' => 'Security', 'count' => 3],
+                'security' => ['icon' => 'fa-solid fa-shield-halved', 'label' => 'Security', 'count' => 4],
             ];
         @endphp
         <div class="settings-tabs" role="tablist" aria-label="Settings categories">
@@ -2331,6 +2138,60 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         </label>
                     </div>
 
+                    <!-- Setting: Working Hours Transaction Processing Restriction -->
+                    <div class="setting-item" style="flex-direction: column; align-items: stretch; gap: 14px; padding: 18px 0; border-top: 1px dashed #e2e8f0; margin-top: 6px;">
+                        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;">
+                            <div class="setting-details">
+                                <span class="setting-title" style="display: flex; align-items: center; gap: 8px;">
+                                    <span>Restrict Transaction Processing to Working Hours</span>
+                                    @if($dtsWorkingHoursEnabled)
+                                        <span style="font-size: 11px; font-weight: 700; background: #ecfdf5; color: #059669; padding: 2px 7px; border-radius: 5px; border: 1px solid #a7f3d0; text-transform: uppercase;">Active</span>
+                                    @else
+                                        <span style="font-size: 11px; font-weight: 700; background: #f1f5f9; color: #64748b; padding: 2px 7px; border-radius: 5px; border: 1px solid #cbd5e1; text-transform: uppercase;">Disabled (24/7)</span>
+                                    @endif
+                                </span>
+                                <span class="setting-desc">When enabled, transactions can only be received, forwarded, proceeded, and completed during active working hours. Outside of working hours, users can still view documents and draft/create transactions (which display a notification banner and are held for dispatch at the start of the next working hours window). All transaction elapsed times and durations will strictly count active working hours.</span>
+                            </div>
+                            <label class="switch" style="flex-shrink: 0;">
+                                <input type="checkbox" wire:model.live="dtsWorkingHoursEnabled">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
+                        @if($dtsWorkingHoursEnabled)
+                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 4px;">
+                            <div>
+                                <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
+                                    <i class="fa-solid fa-clock" style="color: #0284c7; margin-right: 4px;"></i> Start of Working Hours
+                                </label>
+                                <input type="time" wire:model="dtsWorkingHoursStart" style="width: 100%; height: 38px; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; color: #0f172a; background: #ffffff;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
+                                    <i class="fa-solid fa-clock" style="color: #0284c7; margin-right: 4px;"></i> End of Working Hours
+                                </label>
+                                <input type="time" wire:model="dtsWorkingHoursEnd" style="width: 100%; height: 38px; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; color: #0f172a; background: #ffffff;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
+                                    <i class="fa-solid fa-calendar-days" style="color: #0284c7; margin-right: 4px;"></i> Active Days
+                                </label>
+                                <select wire:model="dtsWorkingHoursDays" style="width: 100%; height: 38px; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; color: #0f172a; background: #ffffff;">
+                                    <option value="mon-fri">Monday – Friday (Standard Work Week)</option>
+                                    <option value="all">All Days (Monday – Sunday)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style="font-size: 12px; color: #0369a1; background: #e0f2fe; padding: 10px 14px; border-radius: 8px; border-left: 4px solid #0284c7;">
+                            <i class="fa-solid fa-circle-info" style="margin-right: 6px;"></i>
+                            Configured Window: <strong>{{ \Carbon\Carbon::createFromFormat('H:i', $dtsWorkingHoursStart ?: '06:00')->format('g:i A') }}</strong> to <strong>{{ \Carbon\Carbon::createFromFormat('H:i', $dtsWorkingHoursEnd ?: '17:00')->format('g:i A') }}</strong> ({{ $dtsWorkingHoursDays === 'all' ? 'All 7 Days' : 'Monday to Friday' }}).
+                        </div>
+                        @endif
+                    </div>
+
                     <!-- Action: Push Synchronized Refresh to Open Tabs -->
                     <div class="setting-item" style="border-top: 1px dashed #e2e8f0; padding-top: 14px; margin-top: 6px;">
                         <div class="setting-details">
@@ -2393,60 +2254,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <span class="slider"></span>
                         </label>
                     </div>
-
-                    <!-- Setting: Working Hours Transaction Processing Restriction -->
-                    <div class="setting-item" style="flex-direction: column; align-items: stretch; gap: 14px; padding: 18px 0; border-top: 1px solid #f1f5f9;">
-                        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;">
-                            <div class="setting-details">
-                                <span class="setting-title" style="display: flex; align-items: center; gap: 8px;">
-                                    <span>Restrict Transaction Processing to Working Hours</span>
-                                    @if($dtsWorkingHoursEnabled)
-                                        <span style="font-size: 11px; font-weight: 700; background: #ecfdf5; color: #059669; padding: 2px 7px; border-radius: 5px; border: 1px solid #a7f3d0; text-transform: uppercase;">Active</span>
-                                    @else
-                                        <span style="font-size: 11px; font-weight: 700; background: #f1f5f9; color: #64748b; padding: 2px 7px; border-radius: 5px; border: 1px solid #cbd5e1; text-transform: uppercase;">Disabled (24/7)</span>
-                                    @endif
-                                </span>
-                                <span class="setting-desc">When enabled, transactions can only be received, forwarded, proceeded, and completed during active working hours. Outside of working hours, users can still view documents and draft/create transactions (which display a notification banner and are held for dispatch at the start of the next working hours window). All transaction elapsed times and durations will strictly count active working hours.</span>
-                            </div>
-                            <label class="switch" style="flex-shrink: 0;">
-                                <input type="checkbox" wire:model.live="dtsWorkingHoursEnabled">
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-
-                        @if($dtsWorkingHoursEnabled)
-                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 4px;">
-                            <div>
-                                <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
-                                    <i class="fa-solid fa-clock" style="color: #0284c7; margin-right: 4px;"></i> Start of Working Hours
-                                </label>
-                                <input type="time" wire:model="dtsWorkingHoursStart" style="width: 100%; height: 38px; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; color: #0f172a; background: #ffffff;">
-                            </div>
-
-                            <div>
-                                <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
-                                    <i class="fa-solid fa-clock" style="color: #0284c7; margin-right: 4px;"></i> End of Working Hours
-                                </label>
-                                <input type="time" wire:model="dtsWorkingHoursEnd" style="width: 100%; height: 38px; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; color: #0f172a; background: #ffffff;">
-                            </div>
-
-                            <div>
-                                <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
-                                    <i class="fa-solid fa-calendar-days" style="color: #0284c7; margin-right: 4px;"></i> Active Days
-                                </label>
-                                <select wire:model="dtsWorkingHoursDays" style="width: 100%; height: 38px; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; color: #0f172a; background: #ffffff;">
-                                    <option value="mon-fri">Monday – Friday (Standard Work Week)</option>
-                                    <option value="all">All Days (Monday – Sunday)</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div style="font-size: 12px; color: #0369a1; background: #e0f2fe; padding: 10px 14px; border-radius: 8px; border-left: 4px solid #0284c7;">
-                            <i class="fa-solid fa-circle-info" style="margin-right: 6px;"></i>
-                            Configured Window: <strong>{{ \Carbon\Carbon::createFromFormat('H:i', $dtsWorkingHoursStart ?: '06:00')->format('g:i A') }}</strong> to <strong>{{ \Carbon\Carbon::createFromFormat('H:i', $dtsWorkingHoursEnd ?: '17:00')->format('g:i A') }}</strong> ({{ $dtsWorkingHoursDays === 'all' ? 'All 7 Days' : 'Monday to Friday' }}).
-                        </div>
-                        @endif
-                    </div>
                 </div>
             </div>
             @endif
@@ -2490,6 +2297,199 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             @endif
 
             @if($settingsTab === 'security')
+            <!-- Google API & SSO Credential Manager Card -->
+            <div class="settings-card" style="grid-column: 1 / -1; border-top: 4px solid #ea4335;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <i class="fa-brands fa-google" style="font-size: 24px; color: #ea4335;"></i>
+                        <div>
+                            <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">Google API & SSO Credential Manager</h3>
+                            <span style="font-size: 12px; color: #64748b;">Manage Google Single Sign-On (OAuth 2.0 API) credentials for portal authentication — live changes, no restart needed</span>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Dual SSO Configuration Overview: Internal Login vs Public Document Tracking --}}
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-bottom: 14px;">
+                    {{-- Panel 1: Internal Staff Login SSO --}}
+                    <div style="background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #e2e8f0; border-left: 4px solid #ea4335;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="font-size: 13px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-building-columns" style="color: #ea4335;"></i> 1. Internal Staff Login SSO
+                            </span>
+                            <span style="font-size: 10px; background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 4px; font-weight: 700;">
+                                @cspc.edu.ph only
+                            </span>
+                        </div>
+
+                        @php
+                            $currentSsoId = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_sso_client_id')->value('value') ?: config('services.google.client_id') ?: env('GOOGLE_CLIENT_ID', '');
+                            $currentRedirect = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_sso_redirect_uri')->value('value') ?: env('GOOGLE_REDIRECT_URI', 'dynamic');
+                            $fromDb = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_sso_client_id')->value('value');
+                        @endphp
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
+                            <div>
+                                <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Client ID:</span>
+                                <div style="font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    {{ $currentSsoId ? \Illuminate\Support\Str::limit($currentSsoId, 22) : 'Not Set' }}
+                                </div>
+                            </div>
+                            <div>
+                                <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Callback Route:</span>
+                                <div style="font-weight: 700; color: #ea4335; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    /auth/google/callback
+                                </div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 6px; font-size: 10px; color: #059669; font-weight: 600;">
+                            Source: {{ $fromDb ? 'Database (Live Override)' : 'Environment (.env)' }}
+                        </div>
+                    </div>
+
+                    {{-- Panel 2: Public Document Tracking SSO --}}
+                    <div style="background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #e2e8f0; border-left: 4px solid #0284c7;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="font-size: 13px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-earth-americas" style="color: #0284c7;"></i> 2. Public Tracking SSO
+                            </span>
+                            <span style="font-size: 10px; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-weight: 700;">
+                                Any Google Account
+                            </span>
+                        </div>
+
+                        @php
+                            $customTrackId = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_tracking_sso_client_id')->value('value') ?: config('services.google_tracking.client_id') ?: env('GOOGLE_TRACKING_CLIENT_ID', '');
+                            $trackRedirect = \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'google_tracking_sso_redirect_uri')->value('value') ?: env('GOOGLE_TRACKING_REDIRECT_URI', 'dynamic');
+                        @endphp
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
+                            <div>
+                                <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Client ID:</span>
+                                <div style="font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    @if (!empty($customTrackId))
+                                        {{ \Illuminate\Support\Str::limit($customTrackId, 22) }}
+                                    @else
+                                        <span style="color: #0284c7;">{{ $currentSsoId ? \Illuminate\Support\Str::limit($currentSsoId, 18) . ' (Inherited)' : 'Inheriting Primary' }}</span>
+                                    @endif
+                                </div>
+                            </div>
+                            <div>
+                                <span style="color: #64748b; font-weight: 600; text-transform: uppercase;">Callback Route:</span>
+                                <div style="font-weight: 700; color: #0284c7; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    /auth/google/track/callback
+                                </div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 6px; font-size: 10px; color: #0284c7; font-weight: 600;">
+                            {{ !empty($customTrackId) ? 'Configured with custom tracking credentials' : 'Active (Using primary Google OAuth with public tracking callback)' }}
+                        </div>
+                    </div>
+                </div>
+
+                @if ($ssoTestResult)
+                    <div style="padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-bottom: 14px; background: {{ str_contains($ssoTestResult, '✅') ? '#f0fdf4' : (str_contains($ssoTestResult, '⚠️') ? '#fffbeb' : '#fef2f2') }}; color: {{ str_contains($ssoTestResult, '✅') ? '#166534' : (str_contains($ssoTestResult, '⚠️') ? '#92400e' : '#991b1b') }}; border: 1px solid {{ str_contains($ssoTestResult, '✅') ? '#bbf7d0' : (str_contains($ssoTestResult, '⚠️') ? '#fde68a' : '#fecaca') }};">
+                        {{ $ssoTestResult }}
+                    </div>
+                @endif
+
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button type="button" wire:click="testSsoConnection" wire:loading.attr="disabled" style="background: #ea4335; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-plug" wire:loading.remove wire:target="testSsoConnection"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testSsoConnection"></i>
+                        <span>Validate SSO Credentials</span>
+                    </button>
+
+                    <button type="button" wire:click="toggleSsoEditForm" style="background: #0284c7; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-gear"></i>
+                        <span>{{ $showSsoEditForm ? 'Close Editor' : 'Edit SSO Credentials' }}</span>
+                    </button>
+                </div>
+
+                @if ($showSsoEditForm)
+                    <div style="margin-top: 16px; padding-top: 16px; border-top: 2px dashed #e2e8f0; background: #f8fafc; padding: 16px; border-radius: 8px;">
+                        <h4 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-key" style="color: #ea4335;"></i> Update Google SSO Credentials
+                        </h4>
+
+                        <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 12px; color: #1e40af; display: flex; flex-direction: column; gap: 6px;">
+                            <div style="display: flex; align-items: flex-start; gap: 8px;">
+                                <i class="fa-solid fa-circle-info" style="margin-top: 2px;"></i>
+                                <span>These credentials are from your <strong>Google Cloud Console</strong> OAuth 2.0 Client ID (Web Application type). In Google Cloud Console under <strong>"Authorized redirect URIs"</strong>, you must add:</span>
+                            </div>
+                            <div style="margin-left: 22px; display: flex; flex-direction: column; gap: 4px; font-family: monospace; font-size: 11px;">
+                                <div>
+                                    <span style="color: #64748b; font-family: sans-serif; font-size: 11px; font-weight: 600;">Internal Staff Login:</span>
+                                    <code style="background: #dbeafe; padding: 2px 6px; border-radius: 4px; color: #1d4ed8;">{{ url('/auth/google/callback') }}</code>
+                                </div>
+                                <div>
+                                    <span style="color: #64748b; font-family: sans-serif; font-size: 11px; font-weight: 600;">Public Document Tracking:</span>
+                                    <code style="background: #dbeafe; padding: 2px 6px; border-radius: 4px; color: #0369a1;">{{ url('/auth/google/track/callback') }}</code>
+                                </div>
+                            </div>
+                            <div style="margin-left: 22px; font-size: 11px; color: #3b82f6;">
+                                <em>Leaving the field below as <strong>"dynamic"</strong> tells RMS to automatically construct these URLs from your active domain/port.</em>
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">1. Internal Login Client ID (GOOGLE_CLIENT_ID)</label>
+                                <input type="text" wire:model="ssoClientId" placeholder="e.g. 459768812355-xxx.apps.googleusercontent.com" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Client Secret (GOOGLE_CLIENT_SECRET)</label>
+                                <input type="password" wire:model="ssoClientSecret" placeholder="e.g. GOCSPX-xxxxxxxxxxxxxx" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Redirect URI (GOOGLE_REDIRECT_URI)</label>
+                                <input type="text" wire:model="ssoRedirectUri" placeholder="dynamic (auto-detects from APP_URL)" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                                <span style="font-size: 10px; color: #64748b; margin-top: 2px; display: block;">Callback: <code style="background:#e2e8f0;padding:1px 4px;border-radius:3px;">{{ url('/auth/google/callback') }}</code></span>
+                            </div>
+                        </div>
+
+                        {{-- Public Document Tracking SSO Settings --}}
+                        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid #cbd5e1;">
+                            <span style="font-size: 12px; font-weight: 700; color: #0284c7; display: block; margin-bottom: 8px;">
+                                <i class="fa-solid fa-earth-americas"></i> 2. Public Document Tracking SSO (Optional Separate Key)
+                            </span>
+                            <div style="font-size: 11px; color: #64748b; margin-bottom: 10px;">
+                                If you have a separate <strong>External</strong> Google OAuth Client ID for public guest tracking, enter it below. Leave blank to fallback to the primary Google SSO credentials.
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                                <div>
+                                    <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Tracking Client ID (GOOGLE_TRACKING_CLIENT_ID)</label>
+                                    <input type="text" wire:model="trackingSsoClientId" placeholder="Leave empty to use main client ID" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                                </div>
+
+                                <div>
+                                    <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Tracking Client Secret (GOOGLE_TRACKING_CLIENT_SECRET)</label>
+                                    <input type="password" wire:model="trackingSsoClientSecret" placeholder="Leave empty to use main secret" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                                </div>
+
+                                <div>
+                                    <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Tracking Redirect URI</label>
+                                    <input type="text" wire:model="trackingSsoRedirectUri" placeholder="dynamic (auto-detects from APP_URL)" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                                    <span style="font-size: 10px; color: #64748b; margin-top: 2px; display: block;">Callback: <code style="background:#e2e8f0;padding:1px 4px;border-radius:3px;">{{ url('/auth/google/track/callback') }}</code></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 8px; margin-top: 14px;">
+                            <button type="button" wire:click="saveSsoCredentials" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-floppy-disk"></i> Save All SSO Credentials
+                            </button>
+                            <button type="button" wire:click="toggleSsoEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                @endif
+            </div>
+
             <!-- Card: Session & Security Settings -->
             <div class="settings-card">
                 <div>

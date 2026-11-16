@@ -31,10 +31,8 @@ require_once __DIR__ . '/bootstrap.php';
 
 header('Content-Type: application/json');
 
-$internalSecret = $_SERVER['HTTP_X_INTERNAL_SECRET'] ?? '';
-$internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
-
-if ($internalSecret === '' || !hash_equals(INTERNAL_PUSH_SECRET, $internalSecret) || $internalAccId <= 0) {
+$internalAccId = 0;
+if (!Auth::isTrustedInternalCall($internalAccId)) {
     http_response_code(403);
     echo json_encode(['ok' => false, 'error' => 'forbidden']);
     exit;

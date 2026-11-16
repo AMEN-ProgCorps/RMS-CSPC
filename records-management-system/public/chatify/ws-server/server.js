@@ -12,7 +12,7 @@ try {
 
 const PORT = process.env.PORT || 8080;
 // Fallback key matches public/messify/config/db.php CHAT_SHARED_SECRET default
-const CHAT_SHARED_SECRET = process.env.CHAT_SHARED_SECRET || '7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd';
+const CHAT_SHARED_SECRET = process.env.CHAT_SHARED_SECRET || '';
 
 // Secret PHP uses to authenticate server-to-server pushes (see handleInternalPush
 // below). Defaults to the same shared secret as client auth for convenience, but

@@ -3,34 +3,22 @@ ob_start();
 // load_dm_admin.php — Admin-only: view conversation between any two users
 require_once __DIR__ . '/bootstrap.php';
 
-$internalSecret = $_SERVER['HTTP_X_INTERNAL_SECRET'] ?? '';
-$internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
+session_start();
+Auth::require();
 
-if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret) && $internalAccId > 0) {
-    $myAccountId = $internalAccId;
-    $userOfficeId = (int) ($_SESSION['office_id'] ?? 0);
-    if ($userOfficeId <= 0) {
-        $userInfo = UserResolver::getUserInfo($myAccountId);
-        $userOfficeId = (int) ($userInfo['office_id'] ?? 0);
-    }
-} else {
-    session_start();
-    Auth::require();
-
-    if (!Auth::isAdmin()) {
-        http_response_code(403);
-        die('Forbidden');
-    }
-
-    $myAccountId = Auth::accountId();
-    $userOfficeId = (int) ($_SESSION['office_id'] ?? 0);
-    if ($userOfficeId <= 0 && $myAccountId > 0) {
-        $userInfo = UserResolver::getUserInfo($myAccountId);
-        $userOfficeId = (int) ($userInfo['office_id'] ?? 0);
-    }
-
-    session_write_close();
+if (!Auth::isAdmin()) {
+    http_response_code(403);
+    die('Forbidden');
 }
+
+$myAccountId = Auth::accountId();
+$userOfficeId = (int) ($_SESSION['office_id'] ?? 0);
+if ($userOfficeId <= 0 && $myAccountId > 0) {
+    $userInfo = UserResolver::getUserInfo($myAccountId);
+    $userOfficeId = (int) ($userInfo['office_id'] ?? 0);
+}
+
+session_write_close();
 
 $convId = preg_replace('/[^a-z0-9_]/', '', strtolower(trim($_GET['conv_id'] ?? '')));
 if (empty($convId) || !preg_match('/^(\d+_\d+|global|office_\d+|gc_\d+)$/', $convId)) {

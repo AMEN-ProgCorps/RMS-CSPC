@@ -28,6 +28,21 @@ DirectoryIndex index.php index.html
 </Files>
 
 # -------------------------------
+# Strip internal headers from untrusted clients
+# -------------------------------
+<IfModule mod_headers.c>
+    RequestHeader unset X-Internal-Secret
+    RequestHeader unset X-Internal-Account-Id
+</IfModule>
+
+<Files "mark_offline.php">
+    Require local
+    Require ip 10.0.0.0/8
+    Require ip 172.16.0.0/12
+    Require ip 192.168.0.0/16
+</Files>
+
+# -------------------------------
 # Block access to hidden files (starting with dot)
 # -------------------------------
 <FilesMatch "^\.">

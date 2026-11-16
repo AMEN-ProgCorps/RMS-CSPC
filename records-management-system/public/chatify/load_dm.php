@@ -25,12 +25,9 @@ require_once __DIR__ . '/bootstrap.php';
 
 header('Content-Type: application/json');
 
-$internalSecret = $_SERVER['HTTP_X_INTERNAL_SECRET'] ?? '';
-$internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
-
-if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret) && $internalAccId > 0) {
-    $myAccountId = $internalAccId;
-    $adminId     = 1;
+$myAccountId = 0;
+if (Auth::isTrustedInternalCall($myAccountId)) {
+    $adminId = Auth::adminAccountId();
 } else {
     session_start();
     Auth::require();

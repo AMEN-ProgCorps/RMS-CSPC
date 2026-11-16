@@ -1326,7 +1326,7 @@ Route::get('/logout', function () {
                 : 'http://127.0.0.1/messify/invalidate_chat_session.php';
             \Illuminate\Support\Facades\Http::timeout(2)->post($targetUrl, [
                 'account_id' => $user->id,
-                'secret'     => env('CHAT_SHARED_SECRET', '7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd'),
+                'secret'     => (string) env('CHAT_SHARED_SECRET', ''),
             ]);
         } catch (\Throwable $e) {
             // Non-fatal — chat session already invalidated via WsPush above

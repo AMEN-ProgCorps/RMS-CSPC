@@ -33,6 +33,83 @@ class Auth
     }
 
     /**
+     * Verify whether the incoming HTTP request is genuinely from a trusted internal service
+     * (e.g. local Node.js WebSocket daemon) rather than an external client or proxy.
+     *
+     * Strict criteria:
+     * 1. REMOTE_ADDR must be loopback (127.0.0.1, ::1) or private Docker network.
+     * 2. Must NOT contain reverse-proxy / CDN headers that indicate public ingress
+     *    (HTTP_CF_RAY, HTTP_CF_CONNECTING_IP, HTTP_TRUE_CLIENT_IP, HTTP_X_REAL_IP, HTTP_X_FORWARDED_FOR).
+     * 3. Secret must match INTERNAL_PUSH_SECRET and must not be empty or the known leaked default.
+     * 4. Account ID must be a positive integer.
+     */
+    public static function isTrustedInternalCall(?int &$accountId = null): bool
+    {
+        $internalSecret = $_SERVER['HTTP_X_INTERNAL_SECRET'] ?? '';
+        $internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
+
+        if ($internalAccId <= 0 || $internalSecret === '') {
+            return false;
+        }
+
+        // Never accept the compromised / leaked default secret
+        if (hash_equals('7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd', $internalSecret)) {
+            return false;
+        }
+
+        if (!defined('INTERNAL_PUSH_SECRET') || empty(INTERNAL_PUSH_SECRET)) {
+            return false;
+        }
+
+        if (!hash_equals(INTERNAL_PUSH_SECRET, $internalSecret)) {
+            return false;
+        }
+
+        // Reject if external proxy/CDN headers are present — internal server-to-server calls never have these
+        $externalProxyHeaders = [
+            'HTTP_CF_RAY',
+            'HTTP_CF_CONNECTING_IP',
+            'HTTP_CF_VISITOR',
+            'HTTP_TRUE_CLIENT_IP',
+            'HTTP_X_REAL_IP',
+            'HTTP_X_FORWARDED_FOR',
+            'HTTP_X_FORWARDED',
+            'HTTP_FORWARDED_FOR',
+            'HTTP_FORWARDED',
+            'HTTP_CLIENT_IP',
+        ];
+        foreach ($externalProxyHeaders as $h) {
+            if (!empty($_SERVER[$h])) {
+                return false;
+            }
+        }
+
+        // Validate REMOTE_ADDR is strictly loopback or private subnet
+        $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
+        if (empty($remoteAddr)) {
+            return false;
+        }
+
+        $isLoopback = ($remoteAddr === '127.0.0.1' || $remoteAddr === '::1');
+        $isPrivate  = false;
+        if (filter_var($remoteAddr, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            $isPrivate = filter_var($remoteAddr, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+        } elseif (filter_var($remoteAddr, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            $isPrivate = filter_var($remoteAddr, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+        }
+
+        // If it's neither loopback nor private IP, reject
+        if (!$isLoopback && !$isPrivate) {
+            return false;
+        }
+
+        if ($accountId !== null || func_num_args() > 0) {
+            $accountId = $internalAccId;
+        }
+        return true;
+    }
+
+    /**
      * Return true if the current PHP session contains a valid chat authentication.
      */
     public static function check(): bool

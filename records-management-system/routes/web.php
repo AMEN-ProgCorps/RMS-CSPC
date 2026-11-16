@@ -16,6 +16,17 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
+// Block direct access to internal Chatify backend folders, ws-server, or server.js
+Route::any('/{subsystem}/{folder}/{any?}', function () {
+    abort(403, 'Access forbidden: internal service.');
+})->where('subsystem', 'chatify|messify')
+  ->where('folder', 'ws-server|config|core|storage')
+  ->where('any', '.*');
+
+Route::any('/ws-server/{any?}', function () {
+    abort(403, 'Access forbidden: internal service.');
+})->where('any', '.*');
+
 // Login
 Volt::route('/', 'pages.portal.login')
     ->name('login');

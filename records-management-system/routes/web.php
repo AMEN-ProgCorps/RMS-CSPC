@@ -27,6 +27,10 @@ Route::any('/ws-server/{any?}', function () {
     abort(403, 'Access forbidden: internal service.');
 })->where('any', '.*');
 
+Route::any('{any}', function () {
+    abort(403, 'Access forbidden: internal service.');
+})->where('any', '.*server\.js.*');
+
 // Login
 Volt::route('/', 'pages.portal.login')
     ->name('login');

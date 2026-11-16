@@ -5,10 +5,12 @@ use Illuminate\Http\Request;
 
 define('LARAVEL_START', microtime(true));
 
-// Block direct HTTP requests to internal Chatify directories and server.js
+// Block direct HTTP requests to internal Chatify directories, ws-server, and server.js
 $requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '';
-if (preg_match('#/(?:chatify|messify)/(?:config|core|storage|ws-server)(?:/|$)#i', $requestPath) ||
-    preg_match('#/(?:ws-server|server\.js)#i', $requestPath)) {
+$normalizedPath = str_replace('\\', '/', $requestPath);
+if (preg_match('#/(?:chatify|messify)/(?:config|core|storage|ws-server)(?:/|$)#i', $normalizedPath) ||
+    preg_match('#/(?:ws-server|server\.js)#i', $normalizedPath) ||
+    preg_match('#(?:^|/)server\.js$#i', $normalizedPath)) {
     http_response_code(403);
     exit('Access forbidden: internal service.');
 }

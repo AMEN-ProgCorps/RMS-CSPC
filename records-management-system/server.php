@@ -11,9 +11,11 @@ $uri = urldecode(
     parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? ''
 );
 
-// Strictly block direct browser navigation to internal Chatify directories and ws-server
-if (preg_match('#/(?:chatify|messify)/(?:config|core|storage|ws-server)(?:/|$)#i', $uri) ||
-    preg_match('#/(?:ws-server|server\.js)#i', $uri)) {
+// Strictly block direct browser navigation to internal Chatify directories, ws-server, and server.js
+$normalizedUri = str_replace('\\', '/', $uri);
+if (preg_match('#/(?:chatify|messify)/(?:config|core|storage|ws-server)(?:/|$)#i', $normalizedUri) ||
+    preg_match('#/(?:ws-server|server\.js)#i', $normalizedUri) ||
+    preg_match('#(?:^|/)server\.js$#i', $normalizedUri)) {
     http_response_code(403);
     exit('Access forbidden: internal service.');
 }

@@ -42,11 +42,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     /** @var string Resubmit routing target: 'start' or 'requestor' */
     public string $resubmitTarget = 'requestor';
 
-    /** @var bool Continuous/Batch scanning mode */
-    public bool $continuousMode = false;
-
-    /** @var bool Auto action (Receive if incoming, Forward if received) immediately on scan */
-    public bool $autoAction = false;
+    public int $cooldownUntil = 0;
+    public bool $isManualInput = false;
 
     /** @var array Action needed options from DB */
     public array $actionOptions = [];
@@ -235,13 +232,9 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->infoMessage = '';
     }
 
-    /**
-     * Toggles the continuous mode setting or state.
-     * @return void
-     */
-    public function toggleContinuousMode(): void
+    public function loadTransactionManual(): void
     {
-        $this->continuousMode = !$this->continuousMode;
+        $this->loadTransaction(null, false);
     }
 
     /**
@@ -308,7 +301,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     {
         $this->showAvailableModal = false;
         $this->scannedCode = $code;
-        $this->loadTransaction();
+        $this->loadTransaction($code, false);
     }
 
     /**
@@ -458,7 +451,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     /**
      * Search and load transaction details by scanned QR code or Control Number.
      */
-    public function loadTransaction(?string $codeToLoad = null): void
+    public function loadTransaction(?string $codeToLoad = null, bool $isScan = false): void
     {
         $this->clearAlerts();
         $this->activeTransaction = null;
@@ -467,6 +460,19 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->forwardHubTempSelected = [];
         $this->showForwardHubModal = false;
         $this->forwardHubSearch = '';
+
+        if ($isScan) {
+            $this->isManualInput = false;
+            if ($this->cooldownUntil > time()) {
+                $waitSec = $this->cooldownUntil - time();
+                $this->errorMessage = "Scanner cooldown active ({$waitSec}s remaining). Please wait before scanning again.";
+                $this->dispatch('scanner-code-invalid');
+                $this->dispatch('scanner-audio-error');
+                return;
+            }
+        } else {
+            $this->isManualInput = true;
+        }
 
         if ($codeToLoad !== null && trim($codeToLoad) !== '') {
             $this->scannedCode = trim($codeToLoad);
@@ -686,13 +692,9 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->dispatch('scanner-audio-success');
         $this->logSessionScan($transaction->qr_code, $transaction->subject ?: 'Document Inspected', 'success');
 
-        // Auto-Action if enabled and eligible (Auto-Receive incoming OR Auto-Forward already received)
-        if ($this->autoAction && $transaction->current_office === $userOfficeCode) {
-            if (!$isReceivedAtUserOffice) {
-                $this->executeReceive();
-            } else {
-                $this->executeForward();
-            }
+        // Auto-Receive if scanned via camera or barcode gun and document is incoming to user office
+        if ($isScan && $transaction->current_office === $userOfficeCode && !$isReceivedAtUserOffice) {
+            $this->executeReceive();
         }
     }
 
@@ -841,6 +843,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             $msg = "Document '{$this->activeTransaction['control_number']}' successfully RECEIVED at {$this->activeTransaction['current_office']}!";
             $this->dispatch('scanner-audio-action');
             $this->logSessionScan($this->activeTransaction['qr_code'], 'Received', 'action');
+            $this->cooldownUntil = time() + 5;
+            $this->dispatch('scanner-cooldown-start', ['seconds' => 5]);
 
             // Reset console to ensure the same scan cannot be actioned again
             // (e.g. accidentally Forwarding right after Receive).
@@ -1287,25 +1291,21 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         {{-- Console Toolbars & Controls --}}
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-            {{-- Continuous Mode Toggle --}}
-            <button type="button" wire:click="toggleContinuousMode" 
-                    style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; border: 1px solid {{ $continuousMode ? '#38bdf8' : '#e2e8f0' }}; background: {{ $continuousMode ? '#f0f9ff' : '#f8fafc' }}; color: {{ $continuousMode ? '#0284c7' : '#475569' }};">
-                <span style="width: 8px; height: 8px; border-radius: 50%; background: {{ $continuousMode ? '#0284c7' : '#94a3b8' }};"></span>
-                <span>Batch Mode: <strong>{{ $continuousMode ? 'ON' : 'OFF' }}</strong></span>
-            </button>
-
-            {{-- Auto Action Toggle --}}
-            <label title="Automatically receives incoming documents, or forwards already received documents upon scanning" style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 12px; border-radius: 10px; cursor: pointer;">
-                <input type="checkbox" wire:model.live="autoAction" style="cursor: pointer; accent-color: #0284c7; width: 15px; height: 15px;">
-                <span>Auto-Action on Scan</span>
-            </label>
-
             {{-- Reset / Clear Button --}}
             <button type="button" wire:click="resetConsole" 
                     style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid #e2e8f0; background: #ffffff; color: #475569;">
                 <i class="fa-solid fa-arrows-rotate"></i> Reset
             </button>
         </div>
+    </div>
+
+    {{-- Scan Cooldown Banner --}}
+    <div id="full-scanner-cooldown-banner" style="display: none; align-items: center; justify-content: center; gap: 8px; background: #0284c7; color: #ffffff; padding: 10px 18px; border-radius: 12px; margin-bottom: 20px; font-size: 13.5px; font-weight: 700; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <span>Scan Cooldown Active &bull; Ready for next scan in <strong id="full-scanner-cooldown-timer-val">5</strong>s</span>
     </div>
 
     {{-- Dynamic Alerts --}}
@@ -1368,7 +1368,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     <input type="text" 
                            id="scanner-main-input" 
                            wire:model.live.debounce.250ms="scannedCode" 
-                           wire:keydown.enter="loadTransaction"
+                           wire:keydown.enter="loadTransactionManual"
                            placeholder="Scan barcode gun or enter Control / QR Code..." 
                            autofocus
                            style="width: 100%; height: 46px; border: 2px solid #0284c7; border-radius: 12px; padding: 0 44px 0 16px; font-size: 15px; font-weight: 600; color: #0f172a; outline: none; background: #f0f9ff; transition: all 0.2s;" />
@@ -1381,7 +1381,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
                     <span style="font-size: 11px; color: #64748b;">Press <kbd style="background: #e2e8f0; padding: 1px 4px; border-radius: 4px; font-family: monospace;">Enter</kbd> or trigger barcode gun</span>
-                    <button type="button" wire:click="loadTransaction" style="font-size: 12px; font-weight: 700; color: #0284c7; background: transparent; border: none; cursor: pointer;">
+                    <button type="button" wire:click="loadTransactionManual" style="font-size: 12px; font-weight: 700; color: #0284c7; background: transparent; border: none; cursor: pointer;">
                         Lookup Code &rarr;
                     </button>
                 </div>
@@ -2269,12 +2269,45 @@ if (typeof Html5Qrcode === 'undefined') {
         return null;
     }
 
+    // ------------------------------------------------------------------
+    // Scan Cooldown Manager (5-Second Breathing Gap)
+    // ------------------------------------------------------------------
+    let isPageCoolingDown = false;
+    let pageCooldownInterval = null;
+
+    const startPageCooldown = (seconds = 5) => {
+        isPageCoolingDown = true;
+        let remaining = seconds;
+        const banner = document.getElementById('full-scanner-cooldown-banner');
+        const valEl = document.getElementById('full-scanner-cooldown-timer-val');
+        if (banner) banner.style.display = 'flex';
+        if (valEl) valEl.textContent = remaining;
+
+        if (pageCooldownInterval) clearInterval(pageCooldownInterval);
+        pageCooldownInterval = setInterval(() => {
+            remaining -= 1;
+            if (valEl) valEl.textContent = remaining;
+            if (remaining <= 0) {
+                clearInterval(pageCooldownInterval);
+                pageCooldownInterval = null;
+                isPageCoolingDown = false;
+                if (banner) banner.style.display = 'none';
+            }
+        }, 1000);
+    };
+
+    window.addEventListener('scanner-cooldown-start', (e) => {
+        const sec = (e.detail && e.detail.seconds) ? e.detail.seconds : 5;
+        startPageCooldown(sec);
+    });
+
     /**
      * Calls load transaction.
      *
      * @param {*} code
+     * @param {boolean} isScan
      */
-    function callLoadTransaction(code) {
+    function callLoadTransaction(code, isScan = true) {
         let comp = getScannerComponent();
         if (!comp) {
             throw new Error('Scanner lost its connection to the page. Refresh the page (F5) and try again.');
@@ -2282,15 +2315,15 @@ if (typeof Html5Qrcode === 'undefined') {
 
         let result = null;
         if (typeof comp.call === 'function') {
-            result = comp.call('loadTransaction', code);
+            result = comp.call('loadTransaction', code, isScan);
         } else if (typeof comp.loadTransaction === 'function') {
-            result = comp.loadTransaction(code);
+            result = comp.loadTransaction(code, isScan);
         } else if (comp.$wire && typeof comp.$wire.call === 'function') {
-            result = comp.$wire.call('loadTransaction', code);
+            result = comp.$wire.call('loadTransaction', code, isScan);
         } else if (comp.$wire && typeof comp.$wire.loadTransaction === 'function') {
-            result = comp.$wire.loadTransaction(code);
+            result = comp.$wire.loadTransaction(code, isScan);
         } else if (typeof comp.$call === 'function') {
-            result = comp.$call('loadTransaction', code);
+            result = comp.$call('loadTransaction', code, isScan);
         } else {
             throw new Error('Scanner connection method not found. Refresh the page (F5) and try again.');
         }
@@ -2579,6 +2612,7 @@ if (typeof Html5Qrcode === 'undefined') {
 
         const onScanSuccess = (decodedText) => {
             if (!decodedText) return;
+            if (isPageCoolingDown) return;
             try {
                 const now = Date.now();
                 if (decodedText === lastScannedText && (now - lastScanTime) < 1500) {
@@ -2600,7 +2634,7 @@ if (typeof Html5Qrcode === 'undefined') {
                     input.value = code;
                 }
                 // Atomically load the scanned code in a single Livewire call
-                callLoadTransaction(code);
+                callLoadTransaction(code, true);
             } catch (err) {
                 // html5-qrcode swallows callback exceptions silently — surface them.
                 console.error('Scanner: failed to process scanned code:', err);

@@ -22,8 +22,8 @@ new class extends Component {
 
     // Advanced Scanner Modes & Available Directory
     public bool $isMaximized = false;
-    public bool $continuousMode = false;
-    public bool $autoAction = false;
+    public int $cooldownUntil = 0;
+    public bool $isManualInput = false;
     public bool $availableCodesEnabled = true;
     public bool $showAvailableModal = false;
     public string $availableSearch = '';
@@ -53,16 +53,9 @@ new class extends Component {
     public array $forwardHubOffices = [];
     public array $forwardHubTempSelected = [];
 
-    public function toggleContinuousMode(): void
+    public function loadTransactionManual(): void
     {
-        $this->continuousMode = !$this->continuousMode;
-        session()->put('dts_scanner_continuous', $this->continuousMode);
-    }
-
-    public function toggleAutoAction(): void
-    {
-        $this->autoAction = !$this->autoAction;
-        session()->put('dts_scanner_auto_action', $this->autoAction);
+        $this->loadTransaction(null, false);
     }
 
     public function toggleAvailableCodesModal(): void
@@ -183,8 +176,6 @@ new class extends Component {
 
         $this->actionNeeded = $this->actionOptions[0] ?? 'For Approval';
         $this->recentScans = session()->get('dts_recent_scans', []);
-        $this->continuousMode = (bool) session()->get('dts_scanner_continuous', false);
-        $this->autoAction = (bool) session()->get('dts_scanner_auto_action', false);
 
         $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
         $setting = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
@@ -341,7 +332,7 @@ new class extends Component {
     }
 
     #[On('open-scanner-modal')]
-    public function openModal(string $code = ''): void
+    public function openModal(string $code = '', bool $isScan = false): void
     {
         $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
         $setting = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
@@ -358,7 +349,7 @@ new class extends Component {
         $this->scannedCode = trim($code);
 
         if (!empty($this->scannedCode)) {
-            $this->loadTransaction($this->scannedCode);
+            $this->loadTransaction($this->scannedCode, $isScan);
         }
 
         $this->dispatch('scanner-modal-opened');
@@ -387,10 +378,23 @@ new class extends Component {
         $this->errorMessage = '';
     }
 
-    public function loadTransaction(?string $codeToLoad = null): void
+    public function loadTransaction(?string $codeToLoad = null, bool $isScan = false): void
     {
         $this->clearMessages();
         $this->activeTransaction = null;
+
+        if ($isScan) {
+            $this->isManualInput = false;
+            if ($this->cooldownUntil > time()) {
+                $waitSec = $this->cooldownUntil - time();
+                $this->errorMessage = "Scanner cooldown active ({$waitSec}s remaining). Please wait before scanning again.";
+                $this->dispatch('scanner-code-invalid');
+                $this->dispatch('scanner-audio-error');
+                return;
+            }
+        } else {
+            $this->isManualInput = true;
+        }
 
         if ($codeToLoad !== null && trim($codeToLoad) !== '') {
             $this->scannedCode = trim($codeToLoad);
@@ -545,6 +549,114 @@ new class extends Component {
             ->orderBy('id', 'desc')
             ->first();
         $isReceivedAtUserOffice = \App\Services\DtsReceiveGuardService::isReceived($lastLog);
+
+        // Auto-Receive if scanned via camera or barcode gun and document is incoming to user office
+        if ($isScan && !$isReceivedAtUserOffice) {
+            if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+                $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+                $this->dispatch('scanner-code-invalid');
+                $this->dispatch('scanner-audio-error');
+                return;
+            }
+
+            if (\App\Services\DtsReceiveGuardService::alreadyReceived((string) $transaction->transaction_id, $userOfficeCode)) {
+                $this->errorMessage = "Transaction '{$transaction->control_number}' has already been received at your office.";
+                $this->dispatch('scanner-code-invalid');
+                $this->dispatch('scanner-audio-error');
+                return;
+            }
+
+            try {
+                DB::transaction(function () use ($transaction, $userOfficeCode) {
+                    $transId = $transaction->transaction_id;
+                    \App\Services\DtsReceiveGuardService::lockTransaction((string) $transId);
+                    if (\App\Services\DtsReceiveGuardService::alreadyReceived((string) $transId, $userOfficeCode)) {
+                        return;
+                    }
+
+                    $currentLog = DB::table('dts_transaction_logs')
+                        ->where('transaction_id', $transId)
+                        ->where('office_code', $userOfficeCode)
+                        ->orderBy('id', 'desc')
+                        ->first();
+
+                    if ($currentLog) {
+                        DB::table('dts_transaction_logs')
+                            ->where('id', $currentLog->id)
+                            ->update([
+                                'type' => 'received',
+                                'date_in' => now(),
+                                'performed_by' => auth()->id(),
+                            ]);
+                    } else {
+                        DB::table('dts_transaction_logs')->insert([
+                            'transaction_id' => $transId,
+                            'office_code' => $userOfficeCode,
+                            'type' => 'received',
+                            'date_in' => now(),
+                            'notes' => 'Received via Global Scanner',
+                            'performed_by' => auth()->id(),
+                        ]);
+                    }
+
+                    if (!empty($transaction->transaction_flow)) {
+                        $flow = DB::table('dts_transaction_flow')->where('flow_code', $transaction->transaction_flow)->first();
+                        if ($flow) {
+                            $seqRanking = $transaction->sequence;
+                            $prevSeq = DB::table('dts_sequence_list')
+                                ->where('control_id', $flow->id)
+                                ->where('sequence_ranking', $seqRanking - 1)
+                                ->first();
+                            $totalTimeReceived = null;
+                            if ($prevSeq && $prevSeq->date_out) {
+                                $totalTimeReceived = \App\Services\DtsWorkingHoursService::calculateDurationString($prevSeq->date_out, now());
+                            } elseif ($seqRanking == 1) {
+                                $totalTimeReceived = '-';
+                            }
+
+                            DB::table('dts_sequence_list')
+                                ->where('control_id', $flow->id)
+                                ->where('sequence_ranking', $seqRanking)
+                                ->update([
+                                    'date_in' => now(),
+                                    'account_received' => auth()->id(),
+                                    'scanned_id' => true,
+                                    'total_time_received' => $totalTimeReceived,
+                                ]);
+                        }
+                    }
+
+                    $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+                    $userFirstName = auth()->user()?->details?->first_name 
+                        ?: DB::table($accDetailsTbl)->where('account_id', auth()->id())->value('first_name')
+                        ?: auth()->user()?->username 
+                        ?: 'User';
+
+                    $controlNumber = $transaction->control_number ?? '';
+
+                    if ($userOfficeCode) {
+                        \App\Services\DtsNotificationService::notifyReceived($userOfficeCode, $userFirstName, $controlNumber, $transId);
+                    }
+
+                    $originatedFrom = $transaction->originated_from ?? null;
+                    if ($originatedFrom && $originatedFrom !== $userOfficeCode) {
+                        \App\Services\DtsNotificationService::notifyHubOfficeReceived($originatedFrom, $userOfficeCode, $controlNumber, $transId);
+                    }
+                });
+
+                $isReceivedAtUserOffice = true;
+                $currOfficeTitle = $transaction->current_office_name ?: $transaction->current_office;
+                $this->successMessage = "Transaction '{$transaction->control_number}' received successfully at {$currOfficeTitle}!";
+                $this->cooldownUntil = time() + 5;
+                $this->dispatch('scanner-cooldown-start', ['seconds' => 5]);
+                $this->dispatch('scanner-audio-action');
+            } catch (\Exception $e) {
+                $this->errorMessage = 'Failed to auto-receive transaction: ' . $e->getMessage();
+                $this->dispatch('scanner-code-invalid');
+                $this->dispatch('scanner-audio-error');
+                return;
+            }
+        }
 
         // Get next office in sequence if flow exists
         $nextOfficeName = 'End of Flow';
@@ -728,6 +840,9 @@ new class extends Component {
                     }
 
                     $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' received successfully at {$this->activeTransaction['current_office']}!";
+                    $this->activeTransaction['is_received_here'] = true;
+                    $this->cooldownUntil = time() + 5;
+                    $this->dispatch('scanner-cooldown-start', ['seconds' => 5]);
                 } 
                 // Case 2: Forward received transaction
                 else {
@@ -1117,33 +1232,6 @@ new class extends Component {
                     </button>
                     @endif
 
-                    <!-- Batch / Continuous Intake Mode Toggle -->
-                    <button
-                        type="button"
-                        wire:click="toggleContinuousMode"
-                        class="scanner-header-pill-btn {{ $continuousMode ? 'btn-green-active' : '' }}"
-                        title="Batch Mode: Continuously scan documents without closing"
-                    >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="23 4 23 10 17 10"></polyline>
-                            <polyline points="1 20 1 14 7 14"></polyline>
-                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-                        </svg>
-                        <span>Batch: {{ $continuousMode ? 'ON' : 'OFF' }}</span>
-                    </button>
-
-                    <!-- Auto-Action Toggle -->
-                    <button
-                        type="button"
-                        wire:click="toggleAutoAction"
-                        class="scanner-header-pill-btn {{ $autoAction ? 'btn-amber-active' : '' }}"
-                        title="Auto-Action: Automatically execute Receive or Forward when scanned"
-                    >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                        </svg>
-                        <span>Auto: {{ $autoAction ? 'ON' : 'OFF' }}</span>
-                    </button>
 
                     <!-- Reset / Reload Console -->
                     <button
@@ -1520,6 +1608,15 @@ new class extends Component {
                         </div>
                     @endif
 
+                    <!-- 5-Second Scan Cooldown Indicator -->
+                    <div id="scanner-modal-cooldown-banner" style="display: none; align-items: center; justify-content: center; gap: 8px; background: #0284c7; color: #ffffff; padding: 7px 14px; border-radius: 8px; font-size: 11.5px; font-weight: 700; margin-bottom: 8px; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        <span>Scan Cooldown Active &bull; Ready for next scan in <strong id="scanner-cooldown-timer-val">5</strong>s</span>
+                    </div>
+
                     <!-- Webcam Viewport -->
                     <div wire:ignore class="dts-scanner-viewport-container" style="position: relative; height: 185px; border-radius: 10px; overflow: hidden; background: #0f172a; flex-shrink: 0;">
                         <div id="modal-qr-preview"></div>
@@ -1572,7 +1669,7 @@ new class extends Component {
                             type="text" 
                             id="global-scanner-code-input" 
                             wire:model.live.debounce.300ms="scannedCode" 
-                            wire:keydown.enter="loadTransaction" 
+                            wire:keydown.enter="loadTransactionManual" 
                             placeholder="Scan barcode gun or enter Control/QR..." 
                             style="flex: 1; min-width: 0; padding: 8px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 12.5px; outline: none; transition: border-color 0.15s; box-sizing: border-box;" 
                             onfocus="this.style.borderColor='#0284c7';" 
@@ -1580,7 +1677,7 @@ new class extends Component {
                         />
                         <button 
                             type="button" 
-                            wire:click="loadTransaction" 
+                            wire:click="loadTransactionManual" 
                             class="scanner-search-btn"
                             style="padding: 8px 14px; background: #0284c7; color: #ffffff; border: none; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; transition: background 0.15s; white-space: nowrap; flex-shrink: 0;"
                             onmouseover="this.style.background='#0369a1';" 
@@ -2194,6 +2291,38 @@ new class extends Component {
             return str;
         };
 
+        // ------------------------------------------------------------------
+        // Scan Cooldown Manager (5-Second Breathing Gap)
+        // ------------------------------------------------------------------
+        let isModalCoolingDown = false;
+        let modalCooldownInterval = null;
+
+        const startModalCooldown = (seconds = 5) => {
+            isModalCoolingDown = true;
+            let remaining = seconds;
+            const banner = document.getElementById('scanner-modal-cooldown-banner');
+            const valEl = document.getElementById('scanner-cooldown-timer-val');
+            if (banner) banner.style.display = 'flex';
+            if (valEl) valEl.textContent = remaining;
+
+            if (modalCooldownInterval) clearInterval(modalCooldownInterval);
+            modalCooldownInterval = setInterval(() => {
+                remaining -= 1;
+                if (valEl) valEl.textContent = remaining;
+                if (remaining <= 0) {
+                    clearInterval(modalCooldownInterval);
+                    modalCooldownInterval = null;
+                    isModalCoolingDown = false;
+                    if (banner) banner.style.display = 'none';
+                }
+            }, 1000);
+        };
+
+        window.addEventListener('scanner-cooldown-start', (e) => {
+            const sec = (e.detail && e.detail.seconds) ? e.detail.seconds : 5;
+            startModalCooldown(sec);
+        });
+
         // Resolve the scanner component at call time (DOM wire:id first, compiled
         // "@this" as fallback) so scans never silently no-op when the compile-time
         // component reference is stale.
@@ -2213,7 +2342,7 @@ new class extends Component {
             return null;
         };
 
-        const callModalLoadTransaction = (code) => {
+        const callModalLoadTransaction = (code, isScan = true) => {
             const comp = resolveModalComponent();
             if (!comp) {
                 throw new Error('Scanner lost its connection to the page. Refresh the page (F5) and try again.');
@@ -2221,15 +2350,15 @@ new class extends Component {
 
             let result = null;
             if (typeof comp.call === 'function') {
-                result = comp.call('loadTransaction', code);
+                result = comp.call('loadTransaction', code, isScan);
             } else if (typeof comp.loadTransaction === 'function') {
-                result = comp.loadTransaction(code);
+                result = comp.loadTransaction(code, isScan);
             } else if (comp.$wire && typeof comp.$wire.call === 'function') {
-                result = comp.$wire.call('loadTransaction', code);
+                result = comp.$wire.call('loadTransaction', code, isScan);
             } else if (comp.$wire && typeof comp.$wire.loadTransaction === 'function') {
-                result = comp.$wire.loadTransaction(code);
+                result = comp.$wire.loadTransaction(code, isScan);
             } else if (typeof comp.$call === 'function') {
-                result = comp.$call('loadTransaction', code);
+                result = comp.$call('loadTransaction', code, isScan);
             } else {
                 throw new Error('Scanner connection method not found. Refresh the page (F5) and try again.');
             }
@@ -2245,6 +2374,9 @@ new class extends Component {
 
         const onModalScanSuccess = (decodedText) => {
             if (!decodedText) return;
+            if (isModalCoolingDown) {
+                return; // Respect 5-second cooldown gap
+            }
             try {
                 const now = Date.now();
                 if (decodedText === lastModalScannedText && (now - lastModalScanTime) < 1500) {
@@ -2264,7 +2396,7 @@ new class extends Component {
                     input.value = code;
                 }
 
-                callModalLoadTransaction(code);
+                callModalLoadTransaction(code, true);
             } catch (err) {
                 // html5-qrcode swallows callback exceptions silently — surface them.
                 console.error('Scanner modal: failed to process scan:', err);
@@ -2688,10 +2820,16 @@ new class extends Component {
             if (e.key === 'Enter') {
                 if (gunBarcodeBuffer.length >= 4) {
                     e.preventDefault();
-                    if (window.Livewire) {
-                        Livewire.dispatch('open-scanner-modal', { code: gunBarcodeBuffer.trim() });
+                    if (isModalCoolingDown) {
+                        gunBarcodeBuffer = '';
+                        window.__scannerToast('Scan cooldown active (5s). Please wait before scanning again.', 'info');
+                        return;
                     }
+                    const codeToScan = gunBarcodeBuffer.trim();
                     gunBarcodeBuffer = '';
+                    if (window.Livewire) {
+                        Livewire.dispatch('open-scanner-modal', { code: codeToScan, isScan: true });
+                    }
                 }
             } else if (e.key.length === 1) {
                 gunBarcodeBuffer += e.key;

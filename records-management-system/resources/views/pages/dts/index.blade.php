@@ -1914,7 +1914,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
 
         $perms = auth()->user()?->permissions;
-        if ($perms && ($perms->is_sadm || $perms->can_dts_modify_transaction || ($perms->can_dts_modify_control_no ?? false) || ($perms->can_dts_list_modify_transaction ?? false))) {
+        $isIssuance = ($this->selectedTransaction?->trans_type ?? '') === 'issuances';
+        $canCtrlMod = $isIssuance ? ($perms?->can_dts_modify_issuance_control_no ?? false) : ($perms?->can_dts_modify_control_no ?? false);
+        if ($perms && ($perms->is_sadm || $perms->can_dts_modify_transaction || $canCtrlMod || ($perms->can_dts_list_modify_transaction ?? false))) {
             DB::table('dts_transaction_details')
                 ->where('id', $this->selectedTransactionId)
                 ->update([
@@ -1953,7 +1955,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     {
         $perms = auth()->user()?->permissions;
         $isSadm = $perms?->is_sadm ?? false;
-        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false) || ($perms?->can_dts_modify_control_no ?? false);
+        $isIssuance = ($this->selectedTransaction?->trans_type ?? '') === 'issuances';
+        $canCtrlMod = $isIssuance ? ($perms?->can_dts_modify_issuance_control_no ?? false) : ($perms?->can_dts_modify_control_no ?? false);
+        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false) || $canCtrlMod;
         $isCreator = isset($this->selectedTransaction) && ($this->selectedTransaction->created_by === auth()->id());
         $isAtOrigin = isset($this->selectedTransaction) && ($this->selectedTransaction->current_office === $this->selectedTransaction->originated_from);
         $isInitialOrRevisionState = isset($this->selectedTransaction) && ($this->selectedTransaction->sequence == 1 || $this->selectedTransaction->status === 'revision');
@@ -1987,7 +1991,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     {
         $perms = auth()->user()?->permissions;
         $isSadm = $perms?->is_sadm ?? false;
-        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false) || ($perms?->can_dts_modify_control_no ?? false);
+        $isIssuance = ($this->selectedTransaction?->trans_type ?? '') === 'issuances';
+        $canCtrlMod = $isIssuance ? ($perms?->can_dts_modify_issuance_control_no ?? false) : ($perms?->can_dts_modify_control_no ?? false);
+        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false) || $canCtrlMod;
         $isCreator = isset($this->selectedTransaction) && ($this->selectedTransaction->created_by === auth()->id());
         $isAtOrigin = isset($this->selectedTransaction) && ($this->selectedTransaction->current_office === $this->selectedTransaction->originated_from);
         $isInitialOrRevisionState = isset($this->selectedTransaction) && ($this->selectedTransaction->sequence == 1 || $this->selectedTransaction->status === 'revision');
@@ -2344,7 +2350,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     @php
         $perms = auth()->user()?->permissions;
         $isSadm = $perms?->is_sadm ?? false;
-        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false) || ($perms?->can_dts_modify_control_no ?? false);
+        $isIssuance = ($this->selectedTransaction?->trans_type ?? '') === 'issuances';
+        $canCtrlMod = $isIssuance ? ($perms?->can_dts_modify_issuance_control_no ?? false) : ($perms?->can_dts_modify_control_no ?? false);
+        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false) || $canCtrlMod;
         $isCreator = isset($selectedTransaction) && ($selectedTransaction->created_by === auth()->id());
         $isAtOrigin = isset($selectedTransaction) && ($selectedTransaction->current_office === $selectedTransaction->originated_from);
         $isInitialOrRevisionState = isset($selectedTransaction) && ($selectedTransaction->sequence == 1 || $selectedTransaction->status === 'revision');
@@ -3774,8 +3782,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         <!-- Control Number field -->
                         @php
                             $perms = auth()->user()?->permissions;
+                            $isIssuanceModal = ($selectedTransaction->trans_type ?? '') === 'issuances';
+                            $canCtrlModModal = $isIssuanceModal ? ($perms?->can_dts_modify_issuance_control_no ?? false) : ($perms?->can_dts_modify_control_no ?? false);
                             $canSeeModalCtrlNo = ($perms?->is_sadm ?? false) 
-                                || ($perms?->can_dts_modify_control_no ?? false) 
+                                || $canCtrlModModal
                                 || ($perms?->can_dts_modify_transaction ?? false)
                                 || ($perms?->can_dts_list_modify_transaction ?? false)
                                 || (strtolower($selectedTransaction->status ?? '') === 'completed');

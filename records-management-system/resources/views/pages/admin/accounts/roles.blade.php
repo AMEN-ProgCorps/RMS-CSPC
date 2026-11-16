@@ -74,6 +74,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
     public bool $canDtsForwardOtherOffice = false;
     public bool $canDtsModifyTransaction = false;
     public bool $canDtsModifyControlNo = false;
+    public bool $canDtsModifyIssuanceControlNo = false;
 
     // Admin Console Clearance flags
     public bool $canAccessActivityLogs = false;
@@ -164,6 +165,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         $this->canDtsForwardOtherOffice = false;
         $this->canDtsModifyTransaction = false;
         $this->canDtsModifyControlNo = false;
+        $this->canDtsModifyIssuanceControlNo = false;
         $this->canAccessActivityLogs = false;
         $this->canAccessSubsystems = false;
         $this->canAccessDtsAdmin = false;
@@ -242,6 +244,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                 $this->canDtsForwardOtherOffice = (bool) ($perms->can_dts_forward_to_other_office ?? false);
                 $this->canDtsModifyTransaction = (bool) $perms->can_dts_modify_transaction;
                 $this->canDtsModifyControlNo = (bool) ($perms->can_dts_modify_control_no ?? false);
+                $this->canDtsModifyIssuanceControlNo = (bool) ($perms->can_dts_modify_issuance_control_no ?? false);
 
                 // Admin Console Clearance flags
                 $this->canAccessActivityLogs = (bool) ($perms->can_access_activity_logs ?? false);
@@ -297,6 +300,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
             + ($this->canDtsForwardOtherOffice ? 1 : 0)
             + ($this->canDtsModifyTransaction ? 1 : 0)
             + ($this->canDtsModifyControlNo ? 1 : 0)
+            + ($this->canDtsModifyIssuanceControlNo ? 1 : 0)
             + ($this->canViewAllScannerCodes ? 1 : 0);
 
         // RDP (7)
@@ -330,12 +334,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
 
         return [
             'core'  => ['active' => $coreActive, 'total' => 5],
-            'dts'   => ['active' => $dtsActive, 'total' => 16],
+            'dts'   => ['active' => $dtsActive, 'total' => 17],
             'rdp'   => ['active' => $rdpActive, 'total' => 7],
             'dcs'   => ['active' => $dcsActive, 'total' => 4],
             'admin' => ['active' => $adminActive, 'total' => 10],
             'totalActive' => $totalActive,
-            'totalClearances' => 5 + 16 + 7 + 4 + 10,
+            'totalClearances' => 5 + 17 + 7 + 4 + 10,
         ];
     }
 
@@ -369,6 +373,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
             $this->canDtsUserReceived = true;
             $this->canDtsForwardOtherOffice = true;
             $this->canDtsModifyControlNo = true;
+            $this->canDtsModifyIssuanceControlNo = true;
         } elseif ($module === 'rdp') {
             $this->canAccessArchv = true;
             if ($this->isSadm || $this->isAdmin) {
@@ -426,6 +431,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
             $this->canDtsForwardOtherOffice = false;
             $this->canDtsModifyTransaction = false;
             $this->canDtsModifyControlNo = false;
+            $this->canDtsModifyIssuanceControlNo = false;
             $this->canViewAllScannerCodes = false;
         } elseif ($module === 'rdp') {
             $this->canAccessArchv = false;
@@ -646,6 +652,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         $perms->can_dts_forward_to_other_office = $this->canDtsForwardOtherOffice;
         $perms->can_dts_modify_transaction = $this->canDtsModifyTransaction;
         $perms->can_dts_modify_control_no = $this->canDtsModifyControlNo;
+        $perms->can_dts_modify_issuance_control_no = $this->canDtsModifyIssuanceControlNo;
 
         // Admin Console Clearance flags
         $perms->can_access_activity_logs = $this->canAccessActivityLogs;
@@ -819,6 +826,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         $this->canDtsForwardOtherOffice = true;
         $this->canDtsModifyTransaction = true;
         $this->canDtsModifyControlNo = true;
+        $this->canDtsModifyIssuanceControlNo = true;
         $this->canAccessActivityLogs = true;
         $this->canAccessSubsystems = true;
         $this->canAccessDtsAdmin = true;
@@ -1902,10 +1910,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                             <div class="m-permission-card">
                                 <div class="m-permission-info">
                                     <span class="m-permission-title">Modify Control Number</span>
-                                    <span class="m-permission-desc">Manually edit the control number on the create transaction form.</span>
+                                    <span class="m-permission-desc">Manually edit the control number on Communications (Internal, External, Application Letters).</span>
                                 </div>
                                 <label class="switch">
                                     <input type="checkbox" wire:model="canDtsModifyControlNo">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Modify Issuance Control Number'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Modify Issuance Control Number</span>
+                                    <span class="m-permission-desc">Manually edit the control number for Issuances (President & VP issuance functions).</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canDtsModifyIssuanceControlNo">
                                     <span class="slider"></span>
                                 </label>
                             </div>

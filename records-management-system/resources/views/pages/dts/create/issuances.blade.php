@@ -1419,7 +1419,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                                 <option value="AO">Admin Order (AO)</option>
                             </select>
 
-                            @if(auth()->user()?->permissions?->can_dts_modify_control_no)
+                            @if((auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_issuance_control_no ?? false))
                                 <div style="display: flex; align-items: center; max-width: 300px; border: 1px solid #ced4da; border-radius: 4px; overflow: hidden; background: #e9ecef; height: 32px; box-sizing: border-box;">
                                     <span style="padding: 0 10px; font-family: 'Inter', sans-serif; font-size: 13px; color: #495057; font-weight: 600; border-right: 1px solid #ced4da; user-select: none; line-height: 30px;">
                                         {{ $issuance_type }}-{{ now()->format('Y-m') }}-
@@ -1439,7 +1439,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                                 <span style="font-size: 13px; font-weight: 600; color: #4b5563; font-family: 'Inter', sans-serif;">-{{ now()->format('Y-m') }}-{{ $seq_number ?: 'Auto' }}</span>
                             @endif
                         </div>
-                        @if(auth()->user()?->permissions?->can_dts_modify_control_no)
+                        @if((auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_issuance_control_no ?? false))
                             @if($availabilityMessage)
                                 <span style="font-size: 12px; margin-top: 4px; display: block; font-weight: 600; color: {{ $isAvailable ? '#10b981' : '#dc2626' }};">
                                     {{ $availabilityMessage }}

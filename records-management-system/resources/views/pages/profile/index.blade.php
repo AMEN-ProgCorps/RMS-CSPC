@@ -89,6 +89,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
                 'can_dts_forward_to_other_office'=> 'Forward Transaction to Other office',
                 'can_dts_modify_transaction'     => 'Modify Transactions',
                 'can_dts_modify_control_no'      => 'Modify Control Number',
+                'can_dts_modify_issuance_control_no' => 'Modify Issuance Control Number',
                 'can_access_activity_logs'       => 'Access Activity Logs',
                 'can_access_subsystems'          => 'Access Subsystems',
                 'can_access_dts_admin'           => 'Access DTS Admin',
@@ -98,7 +99,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
             ];
 
             foreach ($labels as $key => $label) {
-                if ($perms->$key) {
+                if ($perms->$key ?? false) {
                     $newPermissions[] = $label;
                 }
             }

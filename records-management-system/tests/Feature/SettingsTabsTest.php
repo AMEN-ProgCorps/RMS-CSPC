@@ -45,6 +45,8 @@ class SettingsTabsTest extends TestCase
             ->assertDontSee('Document Tracking System (DTS) Settings')
             ->assertDontSee('Session & Inactivity Security Settings', false)
             ->assertDontSee('Google API & SSO Credential Manager', false)
+            ->assertDontSee('Google Drive Cloud Storage Manager', false)
+            ->assertDontSee('On-Premise NAS / S3 Storage Manager', false)
             ->assertDontSee('Rate Limiting & Abuse Prevention', false)
             ->assertDontSee('Records Disposition Program (RDP) Settings');
     }
@@ -60,9 +62,11 @@ class SettingsTabsTest extends TestCase
             ->assertDontSee('System & Performance Controls', false)
             ->assertDontSee('Rate Limiting & Abuse Prevention', false);
 
-        // Security tab: Google API/SSO + session + rate limiting + email passwords cards
+        // Security tab: Google API/SSO + Google Drive + NAS S3 + session + rate limiting + email passwords cards
         $component->set('settingsTab', 'security')
             ->assertSee('Google API & SSO Credential Manager', false)
+            ->assertSee('Google Drive Cloud Storage Manager', false)
+            ->assertSee('On-Premise NAS / S3 Storage Manager', false)
             ->assertSee('Session & Inactivity Security Settings', false)
             ->assertSee('Rate Limiting & Abuse Prevention', false)
             ->assertSee('Security & Email Passwords', false)
@@ -80,6 +84,8 @@ class SettingsTabsTest extends TestCase
             ->assertSee('System & Performance Controls', false)
             ->assertSee('Restrict Transaction Processing to Working Hours')
             ->assertDontSee('Google API & SSO Credential Manager', false)
+            ->assertDontSee('Google Drive Cloud Storage Manager', false)
+            ->assertDontSee('On-Premise NAS / S3 Storage Manager', false)
             ->assertDontSee('Server Default Record Series');
     }
 

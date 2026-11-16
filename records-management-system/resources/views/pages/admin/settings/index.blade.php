@@ -1829,243 +1829,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             </div>
         @endif
 
-        <!-- Google Drive Cloud Manager Card (Full Width Banner) -->
-        <div class="settings-card" style="border-top: 4px solid #2563eb; margin-bottom: 16px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <i class="fa-brands fa-google-drive" style="font-size: 24px; color: #2563eb;"></i>
-                    <div>
-                        <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">Google Drive Cloud Storage Manager</h3>
-                        <span style="font-size: 12px; color: #64748b;">Automated multi-tier cloud storage & database caching workflow</span>
-                    </div>
-                </div>
-            </div>
-
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 14px; border: 1px solid #e2e8f0;">
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Storage Target Folder</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
-                        {{ config('filesystems.disks.google.folder') ?: 'Root Folder' }}
-                    </div>
-                </div>
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Auth Mode</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #2563eb;">
-                        {{ config('filesystems.disks.google.refreshToken') ? 'OAuth 2.0 User Token' : 'Service Account JSON' }}
-                    </div>
-                </div>
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">SSL Certificate Verification</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #059669;">
-                        {{ config('filesystems.disks.google.verify', true) ? 'Enabled (SSL Active)' : 'Bypassed (Local Dev)' }}
-                    </div>
-                </div>
-            </div>
-
-            @if ($driveTestResult)
-                <div style="padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-bottom: 14px; background: {{ str_contains($driveTestResult, '✅') ? '#f0fdf4' : '#fef2f2' }}; color: {{ str_contains($driveTestResult, '✅') ? '#166534' : '#991b1b' }}; border: 1px solid {{ str_contains($driveTestResult, '✅') ? '#bbf7d0' : '#fecaca' }};">
-                    {{ $driveTestResult }}
-                </div>
-            @endif
-
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                <button type="button" wire:click="testDriveConnection" wire:loading.attr="disabled" style="background: #2563eb; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                    <i class="fa-solid fa-plug" wire:loading.remove wire:target="testDriveConnection"></i>
-                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testDriveConnection"></i>
-                    <span>Test Connection & Health Check</span>
-                </button>
-
-                <button type="button" wire:click="preloadOfficeFolders" wire:loading.attr="disabled" style="background: #16a34a; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                    <i class="fa-solid fa-folder-plus" wire:loading.remove wire:target="preloadOfficeFolders"></i>
-                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="preloadOfficeFolders"></i>
-                    <span>Preload Office Folders</span>
-                </button>
-
-                <button type="button" wire:click="toggleDriveEditForm" style="background: #0284c7; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                    <i class="fa-solid fa-gear"></i>
-                    <span>{{ $showDriveEditForm ? 'Close Editor' : 'Edit Credentials' }}</span>
-                </button>
-
-                <button type="button" wire:click="refreshDriveMetrics" wire:loading.attr="disabled" style="background: #475569; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                    <i class="fa-solid fa-arrows-rotate" wire:loading.remove wire:target="refreshDriveMetrics"></i>
-                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="refreshDriveMetrics"></i>
-                    <span>Sync Storage Metrics</span>
-                </button>
-            </div>
-
-            @if ($showDriveEditForm)
-                <div style="margin-top: 16px; padding-top: 16px; border-top: 2px dashed #e2e8f0; background: #f8fafc; padding: 16px; border-radius: 8px;">
-                    <h4 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px;">
-                        <i class="fa-solid fa-key" style="color: #0284c7;"></i> Update Google Drive Credentials & Configuration
-                    </h4>
-
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
-                        <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Client ID (GOOGLE_DRIVE_CLIENT_ID)</label>
-                            <input type="text" wire:model="driveClientId" placeholder="e.g. 1234567890-xxx.apps.googleusercontent.com" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                        </div>
-
-                        <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Client Secret (GOOGLE_DRIVE_CLIENT_SECRET)</label>
-                            <input type="password" wire:model="driveClientSecret" placeholder="e.g. GOCSPX-xxxxxxxxxxxxxx" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                        </div>
-
-                        <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Target Root Folder ID (GOOGLE_DRIVE_FOLDER_ID)</label>
-                            <input type="text" wire:model="driveFolderId" placeholder="e.g. 1tGkgf7DGmxzMRjwj42hjwyYwvRfhh-_F" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                        </div>
-
-                        <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Refresh Token (GOOGLE_DRIVE_REFRESH_TOKEN)</label>
-                            <input type="text" wire:model="driveRefreshToken" placeholder="e.g. 1//04xxxxxxxxxxxxxx" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                        </div>
-                    </div>
-
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 0; margin-top: 8px;">
-                        <div>
-                            <span style="font-size: 12px; font-weight: 700; color: #334155; display: block;">Verify SSL Certificates (GOOGLE_DRIVE_VERIFY_SSL)</span>
-                            <span style="font-size: 11px; color: #64748b;">Set to OFF on local Windows dev machines; set to ON for Docker & Production VM.</span>
-                        </div>
-                        <label class="switch">
-                            <input type="checkbox" wire:model="driveVerifySsl">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-
-                    <div style="display: flex; gap: 8px; margin-top: 10px;">
-                        <button type="button" wire:click="saveDriveCredentials" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                            <i class="fa-solid fa-floppy-disk"></i> Save Credentials
-                        </button>
-                        <button type="button" wire:click="toggleDriveEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-            @endif
-        </div>
-
-        <!-- On-Premise NAS / S3 Storage (Pigsty) Manager Card (Full Width Banner) -->
-        <div class="settings-card" style="border-top: 4px solid #0284c7; margin-bottom: 16px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <i class="fa-solid fa-server" style="font-size: 24px; color: #0284c7;"></i>
-                    <div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">On-Premise NAS / S3 Storage Manager</h3>
-                            <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 9999px; letter-spacing: 0.05em; border: 1px solid #bae6fd;">S3 Storage (Pigsty)</span>
-                        </div>
-                        <span style="font-size: 12px; color: #64748b;">Local network-attached storage (NAS) simulation container for high-throughput archival</span>
-                    </div>
-                </div>
-            </div>
-
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 14px; border: 1px solid #e2e8f0;">
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Active S3 Bucket</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
-                        {{ config('filesystems.disks.s3.bucket') ?: 'rms-storage' }}
-                    </div>
-                </div>
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">NAS Endpoint (S3 API)</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #0284c7; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
-                        {{ config('filesystems.disks.s3.endpoint') ?: 'http://s3_storage:9000' }}
-                    </div>
-                </div>
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Addressing Style</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #059669;">
-                        {{ config('filesystems.disks.s3.use_path_style_endpoint', true) ? 'Path-Style (S3 API Compliant)' : 'Virtual-Hosted' }}
-                    </div>
-                </div>
-                <div>
-                    <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Pigsty Silo Container</span>
-                    <div style="font-size: 12px; font-weight: 700; color: #475569;">
-                        s3_storage:9000 (API) / 9001 (Web GUI)
-                    </div>
-                </div>
-            </div>
-
-            @if ($nasTestResult)
-                <div style="padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-bottom: 14px; background: {{ str_contains($nasTestResult, '✅') ? '#f0fdf4' : '#fef2f2' }}; color: {{ str_contains($nasTestResult, '✅') ? '#166534' : '#991b1b' }}; border: 1px solid {{ str_contains($nasTestResult, '✅') ? '#bbf7d0' : '#fecaca' }};">
-                    {{ $nasTestResult }}
-                </div>
-            @endif
-
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                <button type="button" wire:click="testNasConnection" wire:loading.attr="disabled" style="background: #0284c7; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                    <i class="fa-solid fa-plug" wire:loading.remove wire:target="testNasConnection"></i>
-                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testNasConnection"></i>
-                    <span>Test Connection & Health Check</span>
-                </button>
-
-                <button type="button" wire:click="toggleNasEditForm" style="background: #475569; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                    <i class="fa-solid fa-gear"></i>
-                    <span>{{ $showNasEditForm ? 'Close Editor' : 'Edit NAS Configuration' }}</span>
-                </button>
-
-                <a href="http://localhost:{{ env('S3_CONSOLE_PORT', 9101) }}" target="_blank" rel="noopener noreferrer" style="background: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
-                    <i class="fa-solid fa-arrow-up-right-from-square" style="color: #64748b;"></i>
-                    <span>Open Pigsty S3 Console (Port {{ env('S3_CONSOLE_PORT', 9101) }})</span>
-                </a>
-            </div>
-
-            @if ($showNasEditForm)
-                <div style="margin-top: 16px; padding-top: 16px; border-top: 2px dashed #e2e8f0; background: #f8fafc; padding: 16px; border-radius: 8px;">
-                    <h4 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px;">
-                        <i class="fa-solid fa-sliders" style="color: #0284c7;"></i> Update On-Premise NAS / S3 Storage Configuration
-                    </h4>
-
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
-                        <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">S3 Endpoint URL (AWS_ENDPOINT)</label>
-                            <input type="text" wire:model="nasEndpoint" placeholder="e.g. http://s3_storage:9000 or http://localhost:9000" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                        </div>
-
-                        <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Default Bucket (AWS_BUCKET)</label>
-                            <input type="text" wire:model="nasBucket" placeholder="e.g. rms-storage" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                        </div>
-
-                        <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Access Key ID (AWS_ACCESS_KEY_ID)</label>
-                            <input type="text" wire:model="nasAccessKey" placeholder="e.g. pigsty_admin" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                        </div>
-
-                        <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Secret Access Key (AWS_SECRET_ACCESS_KEY)</label>
-                            <input type="password" wire:model="nasSecretKey" placeholder="e.g. pigsty_secret_key_123" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                        </div>
-
-                        <div>
-                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">S3 Default Region (AWS_DEFAULT_REGION)</label>
-                            <input type="text" wire:model="nasRegion" placeholder="e.g. us-east-1" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                        </div>
-                    </div>
-
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 0; margin-top: 8px;">
-                        <div>
-                            <span style="font-size: 12px; font-weight: 700; color: #334155; display: block;">Use Path-Style Endpoint (AWS_USE_PATH_STYLE_ENDPOINT)</span>
-                            <span style="font-size: 11px; color: #64748b;">Must be ON for MinIO / Pigsty Silo / Local NAS S3 servers.</span>
-                        </div>
-                        <label class="switch">
-                            <input type="checkbox" wire:model="nasUsePathStyle">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-
-                    <div style="display: flex; gap: 8px; margin-top: 10px;">
-                        <button type="button" wire:click="saveNasCredentials" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                            <i class="fa-solid fa-floppy-disk"></i> Save NAS Configuration
-                        </button>
-                        <button type="button" wire:click="toggleNasEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-            @endif
-        </div>
-
         <!-- Settings Category Tab Manager -->
         @php
             $settingsTabs = [
@@ -2073,7 +1836,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 'dts'      => ['icon' => 'fa-solid fa-qrcode', 'label' => 'Document Tracking (DTS)', 'count' => 1],
                 'rdp'      => ['icon' => 'fa-solid fa-folder-tree', 'label' => 'Records (RDP)', 'count' => 1],
                 'dcs'      => ['icon' => 'fa-solid fa-file-shield', 'label' => 'Document Control (DCS)', 'count' => 1],
-                'security' => ['icon' => 'fa-solid fa-shield-halved', 'label' => 'Security', 'count' => 4],
+                'security' => ['icon' => 'fa-solid fa-shield-halved', 'label' => 'Security', 'count' => 6],
             ];
         @endphp
         <div class="settings-tabs" role="tablist" aria-label="Settings categories">
@@ -2483,6 +2246,243 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                                 <i class="fa-solid fa-floppy-disk"></i> Save All SSO Credentials
                             </button>
                             <button type="button" wire:click="toggleSsoEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                @endif
+            </div>
+
+            <!-- Google Drive Cloud Manager Card -->
+            <div class="settings-card" style="grid-column: 1 / -1; border-top: 4px solid #2563eb;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <i class="fa-brands fa-google-drive" style="font-size: 24px; color: #2563eb;"></i>
+                        <div>
+                            <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">Google Drive Cloud Storage Manager</h3>
+                            <span style="font-size: 12px; color: #64748b;">Automated multi-tier cloud storage & database caching workflow</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 14px; border: 1px solid #e2e8f0;">
+                    <div>
+                        <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Storage Target Folder</span>
+                        <div style="font-size: 12px; font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
+                            {{ config('filesystems.disks.google.folder') ?: 'Root Folder' }}
+                        </div>
+                    </div>
+                    <div>
+                        <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Auth Mode</span>
+                        <div style="font-size: 12px; font-weight: 700; color: #2563eb;">
+                            {{ config('filesystems.disks.google.refreshToken') ? 'OAuth 2.0 User Token' : 'Service Account JSON' }}
+                        </div>
+                    </div>
+                    <div>
+                        <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">SSL Certificate Verification</span>
+                        <div style="font-size: 12px; font-weight: 700; color: #059669;">
+                            {{ config('filesystems.disks.google.verify', true) ? 'Enabled (SSL Active)' : 'Bypassed (Local Dev)' }}
+                        </div>
+                    </div>
+                </div>
+
+                @if ($driveTestResult)
+                    <div style="padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-bottom: 14px; background: {{ str_contains($driveTestResult, '✅') ? '#f0fdf4' : '#fef2f2' }}; color: {{ str_contains($driveTestResult, '✅') ? '#166534' : '#991b1b' }}; border: 1px solid {{ str_contains($driveTestResult, '✅') ? '#bbf7d0' : '#fecaca' }};">
+                        {{ $driveTestResult }}
+                    </div>
+                @endif
+
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button type="button" wire:click="testDriveConnection" wire:loading.attr="disabled" style="background: #2563eb; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-plug" wire:loading.remove wire:target="testDriveConnection"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testDriveConnection"></i>
+                        <span>Test Connection & Health Check</span>
+                    </button>
+
+                    <button type="button" wire:click="preloadOfficeFolders" wire:loading.attr="disabled" style="background: #16a34a; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-folder-plus" wire:loading.remove wire:target="preloadOfficeFolders"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="preloadOfficeFolders"></i>
+                        <span>Preload Office Folders</span>
+                    </button>
+
+                    <button type="button" wire:click="toggleDriveEditForm" style="background: #0284c7; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-gear"></i>
+                        <span>{{ $showDriveEditForm ? 'Close Editor' : 'Edit Credentials' }}</span>
+                    </button>
+
+                    <button type="button" wire:click="refreshDriveMetrics" wire:loading.attr="disabled" style="background: #475569; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-arrows-rotate" wire:loading.remove wire:target="refreshDriveMetrics"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="refreshDriveMetrics"></i>
+                        <span>Sync Storage Metrics</span>
+                    </button>
+                </div>
+
+                @if ($showDriveEditForm)
+                    <div style="margin-top: 16px; padding-top: 16px; border-top: 2px dashed #e2e8f0; background: #f8fafc; padding: 16px; border-radius: 8px;">
+                        <h4 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-key" style="color: #0284c7;"></i> Update Google Drive Credentials & Configuration
+                        </h4>
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Client ID (GOOGLE_DRIVE_CLIENT_ID)</label>
+                                <input type="text" wire:model="driveClientId" placeholder="e.g. 1234567890-xxx.apps.googleusercontent.com" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Client Secret (GOOGLE_DRIVE_CLIENT_SECRET)</label>
+                                <input type="password" wire:model="driveClientSecret" placeholder="e.g. GOCSPX-xxxxxxxxxxxxxx" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Target Root Folder ID (GOOGLE_DRIVE_FOLDER_ID)</label>
+                                <input type="text" wire:model="driveFolderId" placeholder="e.g. 1tGkgf7DGmxzMRjwj42hjwyYwvRfhh-_F" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Refresh Token (GOOGLE_DRIVE_REFRESH_TOKEN)</label>
+                                <input type="text" wire:model="driveRefreshToken" placeholder="e.g. 1//04xxxxxxxxxxxxxx" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+                        </div>
+
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 0; margin-top: 8px;">
+                            <div>
+                                <span style="font-size: 12px; font-weight: 700; color: #334155; display: block;">Verify SSL Certificates (GOOGLE_DRIVE_VERIFY_SSL)</span>
+                                <span style="font-size: 11px; color: #64748b;">Set to OFF on local Windows dev machines; set to ON for Docker & Production VM.</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" wire:model="driveVerifySsl">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; gap: 8px; margin-top: 10px;">
+                            <button type="button" wire:click="saveDriveCredentials" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-floppy-disk"></i> Save Credentials
+                            </button>
+                            <button type="button" wire:click="toggleDriveEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                @endif
+            </div>
+
+            <!-- On-Premise NAS / S3 Storage (Pigsty) Manager Card -->
+            <div class="settings-card" style="grid-column: 1 / -1; border-top: 4px solid #0284c7;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <i class="fa-solid fa-server" style="font-size: 24px; color: #0284c7;"></i>
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <h3 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0;">On-Premise NAS / S3 Storage Manager</h3>
+                                <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 9999px; letter-spacing: 0.05em; border: 1px solid #bae6fd;">S3 Storage (Pigsty)</span>
+                            </div>
+                            <span style="font-size: 12px; color: #64748b;">Local network-attached storage (NAS) simulation container for high-throughput archival</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 14px; border: 1px solid #e2e8f0;">
+                    <div>
+                        <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Active S3 Bucket</span>
+                        <div style="font-size: 12px; font-weight: 700; color: #0f172a; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
+                            {{ config('filesystems.disks.s3.bucket') ?: 'rms-storage' }}
+                        </div>
+                    </div>
+                    <div>
+                        <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">NAS Endpoint (S3 API)</span>
+                        <div style="font-size: 12px; font-weight: 700; color: #0284c7; font-family: monospace; overflow: hidden; text-overflow: ellipsis;">
+                            {{ config('filesystems.disks.s3.endpoint') ?: 'http://s3_storage:9000' }}
+                        </div>
+                    </div>
+                    <div>
+                        <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Addressing Style</span>
+                        <div style="font-size: 12px; font-weight: 700; color: #059669;">
+                            {{ config('filesystems.disks.s3.use_path_style_endpoint', true) ? 'Path-Style (S3 API Compliant)' : 'Virtual-Hosted' }}
+                        </div>
+                    </div>
+                    <div>
+                        <span style="font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase;">Pigsty Silo Container</span>
+                        <div style="font-size: 12px; font-weight: 700; color: #475569;">
+                            s3_storage:9000 (API) / 9001 (Web GUI)
+                        </div>
+                    </div>
+                </div>
+
+                @if ($nasTestResult)
+                    <div style="padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-bottom: 14px; background: {{ str_contains($nasTestResult, '✅') ? '#f0fdf4' : '#fef2f2' }}; color: {{ str_contains($nasTestResult, '✅') ? '#166534' : '#991b1b' }}; border: 1px solid {{ str_contains($nasTestResult, '✅') ? '#bbf7d0' : '#fecaca' }};">
+                        {{ $nasTestResult }}
+                    </div>
+                @endif
+
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button type="button" wire:click="testNasConnection" wire:loading.attr="disabled" style="background: #0284c7; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-plug" wire:loading.remove wire:target="testNasConnection"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testNasConnection"></i>
+                        <span>Test Connection & Health Check</span>
+                    </button>
+
+                    <button type="button" wire:click="toggleNasEditForm" style="background: #475569; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-gear"></i>
+                        <span>{{ $showNasEditForm ? 'Close Editor' : 'Edit NAS Configuration' }}</span>
+                    </button>
+
+                    <a href="http://localhost:{{ env('S3_CONSOLE_PORT', 9101) }}" target="_blank" rel="noopener noreferrer" style="background: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-arrow-up-right-from-square" style="color: #64748b;"></i>
+                        <span>Open Pigsty S3 Console (Port {{ env('S3_CONSOLE_PORT', 9101) }})</span>
+                    </a>
+                </div>
+
+                @if ($showNasEditForm)
+                    <div style="margin-top: 16px; padding-top: 16px; border-top: 2px dashed #e2e8f0; background: #f8fafc; padding: 16px; border-radius: 8px;">
+                        <h4 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-sliders" style="color: #0284c7;"></i> Update On-Premise NAS / S3 Storage Configuration
+                        </h4>
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">S3 Endpoint URL (AWS_ENDPOINT)</label>
+                                <input type="text" wire:model="nasEndpoint" placeholder="e.g. http://s3_storage:9000 or http://localhost:9000" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Default Bucket (AWS_BUCKET)</label>
+                                <input type="text" wire:model="nasBucket" placeholder="e.g. rms-storage" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Access Key ID (AWS_ACCESS_KEY_ID)</label>
+                                <input type="text" wire:model="nasAccessKey" placeholder="e.g. pigsty_admin" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Secret Access Key (AWS_SECRET_ACCESS_KEY)</label>
+                                <input type="password" wire:model="nasSecretKey" placeholder="e.g. pigsty_secret_key_123" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">S3 Default Region (AWS_DEFAULT_REGION)</label>
+                                <input type="text" wire:model="nasRegion" placeholder="e.g. us-east-1" style="width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                            </div>
+                        </div>
+
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 0; margin-top: 8px;">
+                            <div>
+                                <span style="font-size: 12px; font-weight: 700; color: #334155; display: block;">Use Path-Style Endpoint (AWS_USE_PATH_STYLE_ENDPOINT)</span>
+                                <span style="font-size: 11px; color: #64748b;">Must be ON for MinIO / Pigsty Silo / Local NAS S3 servers.</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" wire:model="nasUsePathStyle">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; gap: 8px; margin-top: 10px;">
+                            <button type="button" wire:click="saveNasCredentials" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-floppy-disk"></i> Save NAS Configuration
+                            </button>
+                            <button type="button" wire:click="toggleNasEditForm" style="background: #e2e8f0; color: #475569; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer;">
                                 Cancel
                             </button>
                         </div>

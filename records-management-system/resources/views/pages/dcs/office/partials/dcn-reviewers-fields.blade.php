@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (dcn-reviewers-fields.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/dcn-reviewers-fields.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Repeatable reviewer name rows on the office DCN.
 --}}
 @php

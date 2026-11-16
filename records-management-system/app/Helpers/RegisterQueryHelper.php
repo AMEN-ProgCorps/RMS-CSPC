@@ -11,50 +11,25 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * Register/Update/Edit/History reads. PK is always `id`.
- * DCS file: RegisterQueryHelper in app/ so Composer autoloads it.
- * Reads for Register, Edit, History, the database list, and revision lookup. Primary key on these tables is id.
- * Do not move this class back under resources/views.
- * Public methods:
- * applySelectableOfficesFilter, recycleBinExpiresAt, scanUrl, pgBool, findDocumentRequest,
- * findTrashedDocumentRequest, supportsSoftDelete, supportsRevisionStatus,
- * supportsArchivedRevisionStatus, supportsRevisedFromDocNo, applyLatestRevisionStatus,
- * applyLiveRevisionStatuses, isSyllabiLikeName, searchTokens, looseSearchScore,
- * inventoryStackKey, foldOrphanStatusCopies, familyGroupsMatch, syllabiStackByRequest,
- * applyLooseColumnSearch, typeAllowsRevision, effectiveTypeAllowsRevision,
- * supportsAllowsRevisionColumn, parentTypeIdMap, requestIdsWithSameDocType, formatDate,
- * formatSmartDate, formatTime, formatDisplayDate, formatDisplayTime, parentDocTypes,
- * isLatestRevisionStatus, intIds, joinLatestByRequest, applyNotDeleted,
- * canViewAllDocuments, currentOfficeCode, rfioOfficeCodes, isRfioOffice,
- * rfioNotificationOfficeCode, dcsModuleColumns, dcsAdminModuleColumns, hasDcsAdminAccess,
- * hasAnyDcsModuleFlag, canAccessOfficeIntake, isFullDcsUser, isLimitedDcsUser,
- * isDcsPathPending, canAccessDcsModule, isAllowedNotificationForLimitedDcs,
- * officeIntakeFormOwnerId, limitedUserOwnsOfficeIntakeNotice,
- * isOfficeIntakeSubmitterSuccessNotice, isEditRequestHeadNotice,
- * isEditRequestDecisionNotice, filterBellNotifications, bellNotificationsBaseQuery,
- * countVisibleUnreadNotifications, countVisibleUnreadNotificationsBySubsystem,
- * latestVisibleUnreadNotification, scopeBellSubsystemsForRequest, assertFullDcsUser,
- * isDocumentControlHead, canPermanentlyDeleteDcsDocuments, isDraftDocument,
- * canEditDocument, assertCanEditDocument, canBrowseAllOfficeIntake,
- * normalizedOriginatorName, visibleOriginatorRequestIds, masterlistOriginatorNameSql,
- * attachOriginatorNames, attachMasterlistKeywords, applyMasterlistOriginatorFilter,
- * resolveOriginatorAccountIdForName, originatorMatchesCurrentUser,
- * assertCanAccessScanPath, currentUserDisplayName, currentOfficeName, currentOfficeId,
- * applyOfficeScope, isOfficeIntakeRequestId, applyExcludeOfficeIntakeRequests,
- * applyExcludeOfficeIntakeDrf, applyExcludeOfficeIntakeDcn, applyRegisteredDocumentScope,
- * consolidatedDrfYears, consolidatedDcnYears, monitoringReportYears, supportsDrafts,
- * applyExcludeDrafts, draftRequestIds, findExistingDraftRequestId, userCanAccessRequest,
- * assertCanAccessRequest, bumpDocumentListCache, documentListCacheVersion,
- * visibleRequestIds, latestEditableRequestIds, documentSearchParams,
- * buildLineageMergeEdges, revisionFamilyDocNos, mergeUpdateListLineageGroups,
- * promoteLatestForLineageGroups, updateList, draftList, recycleBinList, reviewList,
- * history, editHistoryPage, reviewCompare, searchDocuments, documentRevisions,
- * checklistPresenceForRequests, docNosForRevisionLookup, primaryDcnRevisionDocNo,
- * dcnReferencedDocNosForRequest, healRevisedFromFromDcnForActiveFamily,
- * expandRenumberFamily, familyReviseNumbers, familyRevisionScans,
- * documentChecklistPreview, checkDocNo, checkRevNo, checkSyllabiContext, editPayload,
- * recurPreviousDocuments, priorRetrievedOfficesForDocNo, hydrateRequests,
- * hydrateMasterlists, jsCatalog, checkDrfNo.
+ * Document Registration READS — Register / Update / Edit / History / Inventory / search.
+ *
+ * LOCATION: app/Helpers/RegisterQueryHelper.php (Composer-autoloaded). Do not move under resources/views.
+ * PK on these tables is always `id`. Soft-delete + revision_status drive Update list and Recycle Bin.
+ *
+ * DEBUG MAP (symptom → start here):
+ *   403 / cannot open Register module      → canAccessDcsModule, isFullDcsUser, assertFullDcsUser
+ *   Office user sees wrong campus docs     → applyOfficeScope, canViewAllDocuments, visibleRequestIds
+ *   Office Intake missing from nav         → canAccessOfficeIntake, isLimitedDcsUser
+ *   Update list groups wrong / merged      → updateList, mergeUpdateListLineageGroups, buildLineageMergeEdges
+ *   Search miss / wrong hit                → searchDocuments, applyLooseColumnSearch, hydrate*
+ *   Originator blank on list/show          → attachOriginatorNames, masterlistOriginatorNameSql
+ *   Bell notices wrong for limited user    → filterBellNotifications, isAllowedNotificationForLimitedDcs
+ *   Recycle Bin / restore issues           → recycleBinList, supportsSoftDelete, recycleBinExpiresAt
+ *   Doc-no / revise-no validation          → checkDocNo, checkRevNo, checkSyllabiContext
+ *   Edit form empty / wrong prefill        → editPayload, hydrateRequests, hydrateMasterlists
+ *
+ * Related writers: RegisterPersistHelper::persist, RegisterUpdateHelper::update/destroy.
+ * Office forms: OfficeIntakeHelper (separate tables; excluded via applyExcludeOfficeIntake*).
 */
 class RegisterQueryHelper
 {
@@ -67,24 +42,38 @@ class RegisterQueryHelper
     /**
      * Keep only real offices (same set Admin shows in Offices management).
      *
+     * DEBUG: wrong rows visible → check this scope/filter.
      * @param  \Illuminate\Database\Query\Builder|\Illuminate\Database\Eloquent\Builder  $query
      * @return \Illuminate\Database\Query\Builder|\Illuminate\Database\Eloquent\Builder
      */
+    // =====================================================================
+    // SECTION: OFFICES & SOFT-DELETE BASICS
+    // =====================================================================
+    
     public static function applySelectableOfficesFilter($query, string $officeCodeColumn = 'office_code')
     {
         return $query->whereNotIn($officeCodeColumn, self::SYSTEM_OFFICE_CODES);
     }
 
+    /**
+     * Helper used for recycle bin expires at.
+     */
     public static function recycleBinExpiresAt(\DateTimeInterface|string $deletedAt): Carbon
     {
         return Carbon::parse($deletedAt)->addYears(self::RECYCLE_BIN_RETENTION_YEARS);
     }
 
+    /**
+     * Helper used for scan url.
+     */
     public static function scanUrl(?string $path, bool $verifyExists = true): ?string
     {
         return DocumentStorageService::dcsScanUrl($path, 60, $verifyExists);
     }
 
+    /**
+     * Helper used for pg bool.
+     */
     public static function pgBool(mixed $val): bool
     {
         if (is_bool($val)) {
@@ -97,6 +86,9 @@ class RegisterQueryHelper
         return in_array(strtolower(trim((string) $val)), ['1', 't', 'true', 'yes', 'on'], true);
     }
 
+    /**
+     * Loads or finds data for find document request.
+     */
     public static function findDocumentRequest(int $id): ?object
     {
         $query = DB::table('dcs_document_requests')->where('id', $id);
@@ -107,6 +99,9 @@ class RegisterQueryHelper
         return $query->first();
     }
 
+    /**
+     * Loads or finds data for find trashed document request.
+     */
     public static function findTrashedDocumentRequest(int $id): ?object
     {
         if (!Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
@@ -116,11 +111,17 @@ class RegisterQueryHelper
         return DB::table('dcs_document_requests')->where('id', $id)->whereNotNull('deleted_at')->first();
     }
 
+    /**
+     * Helper used for supports soft delete.
+     */
     public static function supportsSoftDelete(): bool
     {
         return Schema::hasColumn('dcs_document_requests', 'deleted_at');
     }
 
+    /**
+     * Helper used for supports revision status.
+     */
     public static function supportsRevisionStatus(): bool
     {
         return Schema::hasColumn('dcs_masterlist_registration', 'revision_status');
@@ -129,7 +130,6 @@ class RegisterQueryHelper
     /**
      * Legacy DCS code sometimes "heals" rows where revision_status = 'archived'
      * (then recomputes latest/obsolete).
-     *
      * On Postgres when revision_status is an ENUM type that does NOT include the
      * label 'archived', the SQL comparison `revision_status = 'archived'`
      * throws an invalid-enum-label error even if there are zero archived rows.
@@ -183,6 +183,9 @@ class RegisterQueryHelper
         return $exists !== null;
     }
 
+    /**
+     * Helper used for supports revised from doc no.
+     */
     public static function supportsRevisedFromDocNo(): bool
     {
         return Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no');
@@ -191,6 +194,8 @@ class RegisterQueryHelper
     /**
      * Prefer non-obsolete masterlist rows (latest / null / empty).
      * No-op when revision_status column is missing (treat all as latest).
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
      */
     public static function applyLatestRevisionStatus($query, string $alias = 'ml')
     {
@@ -205,7 +210,11 @@ class RegisterQueryHelper
         });
     }
 
-    /** Keep latest + obsolete (exclude soft-deleted docs via applyNotDeleted separately). */
+    /**
+     * Applies a query filter/scope: apply live revision statuses.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     public static function applyLiveRevisionStatuses($query, string $alias = 'ml')
     {
         if (! self::supportsRevisionStatus()) {
@@ -215,6 +224,11 @@ class RegisterQueryHelper
         return $query->whereIn("{$alias}.revision_status", ['latest', 'obsolete', 'superseded']);
     }
 
+    /**
+     * Tells whether is syllabi like name — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function isSyllabiLikeName(?string $name): bool
     {
         if ($name === null) {
@@ -225,7 +239,9 @@ class RegisterQueryHelper
         return str_contains($n, 'syllab') || str_contains($n, 'tos') || str_contains($n, 'rubric');
     }
 
-    /** @return list<string> */
+    /**
+     * Helper used for search tokens.
+     */
     public static function searchTokens(string $search): array
     {
         $parts = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower(trim($search))) ?: [];
@@ -241,8 +257,7 @@ class RegisterQueryHelper
     }
 
     /**
-     * Match a phrase or the same words in any order.
-     * Higher score = closer to the typed query (phrase, then word order, then tightness).
+     * Helper used for loose search score.
      */
     public static function looseSearchScore(string $search, string $haystack): int
     {
@@ -292,9 +307,7 @@ class RegisterQueryHelper
     }
 
     /**
-     * Inventory stack key.
-     * Syllabi stack only within the same college + program + course type.
-     * Other non-revisable rows that merely share a document number stay separate.
+     * Helper used for inventory stack key.
      */
     public static function inventoryStackKey(array $row): string
     {
@@ -334,7 +347,6 @@ class RegisterQueryHelper
      * An obsolete or superseded copy with no stack still belongs to the family
      * that already has the same document number and title. A different latest
      * that only shares the number stays its own group.
-     *
      * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $groups
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
@@ -385,6 +397,9 @@ class RegisterQueryHelper
         return collect($families)->concat($kept)->values();
     }
 
+    /**
+     * Helper used for family groups match.
+     */
     public static function familyGroupsMatch(array $left, array $right): bool
     {
         $leftStack = self::firstStack($left);
@@ -403,7 +418,6 @@ class RegisterQueryHelper
     /**
      * Recur/Revise may change the number. Unrelated documents that only share a type
      * or a missing revision gap must not join the family.
-     *
      * @param  array<string, array<string, true>>  $edges
      * @param  array<string, array<string, mixed>>  $groupsByKey
      * @return array<string, array<string, true>>
@@ -429,6 +443,9 @@ class RegisterQueryHelper
         return $edges;
     }
 
+    /**
+     * Helper used for first stack.
+     */
     private static function firstStack(array $group): string
     {
         foreach (array_merge([$group['parent'] ?? []], $group['children'] ?? []) as $row) {
@@ -441,6 +458,9 @@ class RegisterQueryHelper
         return '';
     }
 
+    /**
+     * Helper used for group has latest.
+     */
     private static function groupHasLatest(array $group): bool
     {
         foreach (array_merge([$group['parent'] ?? []], $group['children'] ?? []) as $row) {
@@ -453,6 +473,9 @@ class RegisterQueryHelper
         return false;
     }
 
+    /**
+     * Helper used for group is closed history.
+     */
     private static function groupIsClosedHistory(array $group): bool
     {
         $rows = array_merge([$group['parent'] ?? []], $group['children'] ?? []);
@@ -469,7 +492,9 @@ class RegisterQueryHelper
         return true;
     }
 
-    /** Update list parents are live copies. Obsolete-only families belong in history, not as a top row. */
+    /**
+     * Updates existing data for update group is closed history.
+     */
     private static function updateGroupIsClosedHistory(array $group): bool
     {
         $rows = array_merge([$group['parent'] ?? []], $group['children'] ?? []);
@@ -496,6 +521,9 @@ class RegisterQueryHelper
         return $sawClosed && ! $sawLive;
     }
 
+    /**
+     * Helper used for groups share title.
+     */
     private static function groupsShareTitle(array $family, array $orphan): bool
     {
         $familyNo = strtolower(trim((string) ($family['doc_no'] ?? $family['parent']['doc_no'] ?? '')));
@@ -520,6 +548,9 @@ class RegisterQueryHelper
         return false;
     }
 
+    /**
+     * Helper used for groups share revised from.
+     */
     private static function groupsShareRevisedFrom(array $left, array $right): bool
     {
         $leftNos = self::groupDocNos($left);
@@ -542,7 +573,9 @@ class RegisterQueryHelper
         return false;
     }
 
-    /** @return array<string, true> */
+    /**
+     * Helper used for group doc nos.
+     */
     private static function groupDocNos(array $group): array
     {
         $nos = [];
@@ -560,7 +593,9 @@ class RegisterQueryHelper
         return $nos;
     }
 
-    /** @return list<string> */
+    /**
+     * Helper used for group revised from nos.
+     */
     private static function groupRevisedFromNos(array $group): array
     {
         $froms = [];
@@ -576,7 +611,6 @@ class RegisterQueryHelper
 
     /**
      * college|program|course type for each syllabi registration.
-     *
      * @param  list<int>  $requestIds
      * @return array<int, string>
      */
@@ -616,6 +650,7 @@ class RegisterQueryHelper
     /**
      * Phrase match, or every word present in any order across the given columns.
      *
+     * DEBUG: wrong rows visible → check this scope/filter.
      * @param  list<string>  $columns
      */
     public static function applyLooseColumnSearch($query, string $search, array $columns): void
@@ -650,7 +685,9 @@ class RegisterQueryHelper
         });
     }
 
-    /** Whether a doc-type/subtype row allows New→Revised / DCN lineage. */
+    /**
+     * Helper used for type allows revision.
+     */
     public static function typeAllowsRevision(?object $typeRow): bool
     {
         if (! $typeRow) {
@@ -679,6 +716,9 @@ class RegisterQueryHelper
         return self::typeAllowsRevision($row);
     }
 
+    /**
+     * Helper used for supports allows revision column.
+     */
     public static function supportsAllowsRevisionColumn(): bool
     {
         static $ok = null;
@@ -689,7 +729,9 @@ class RegisterQueryHelper
         return $ok = \Illuminate\Support\Facades\Schema::hasColumn('dcs_masterlist_registration', 'allows_revision');
     }
 
-    /** Parent doc-type IDs keyed by report/dashboard tab. */
+    /**
+     * Helper used for parent type id map.
+     */
     public static function parentTypeIdMap(): array
     {
         static $map = null;
@@ -713,6 +755,9 @@ class RegisterQueryHelper
         return $map;
     }
 
+    /**
+     * Helper used for request ids with same doc type.
+     */
     public static function requestIdsWithSameDocType(object $docRequest): array
     {
         $query = DB::table('dcs_document_requests')
@@ -727,6 +772,9 @@ class RegisterQueryHelper
         return $query->pluck('id')->all();
     }
 
+    /**
+     * Builds or formats data for format date.
+     */
     public static function formatDate(mixed $val): string
     {
         if (!$val) {
@@ -762,12 +810,17 @@ class RegisterQueryHelper
         return $date->format('M j, Y');
     }
 
-    /** RDP / office-intake period display (Jan 2025 · Feb 23, 2026). */
+    /**
+     * Builds or formats data for format rdp period date.
+     */
     public static function formatRdpPeriodDate(mixed $val, string $empty = '—'): string
     {
         return self::formatSmartDate($val, $empty, true);
     }
 
+    /**
+     * Builds or formats data for format time.
+     */
     public static function formatTime(mixed $val): string
     {
         if (!$val) {
@@ -777,13 +830,17 @@ class RegisterQueryHelper
         return Carbon::parse($val)->format('H:i');
     }
 
-    /** Display dates as MM-DD-YYYY (e.g. 10-22-2026). */
+    /**
+     * Builds or formats data for format display date.
+     */
     public static function formatDisplayDate(mixed $val, string $empty = ''): string
     {
         return self::formatSmartDate($val, $empty);
     }
 
-    /** Display times with AM/PM (e.g. 8:36 AM). */
+    /**
+     * Builds or formats data for format display time.
+     */
     public static function formatDisplayTime(mixed $val, string $empty = ''): string
     {
         if (! $val) {
@@ -797,6 +854,9 @@ class RegisterQueryHelper
         }
     }
 
+    /**
+     * Helper used for parent doc types.
+     */
     public static function parentDocTypes()
     {
         return DB::table('dcs_doc_types')
@@ -805,12 +865,19 @@ class RegisterQueryHelper
             ->get(['id', 'doc_type_name']);
     }
 
+    /**
+     * Tells whether is latest revision status — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function isLatestRevisionStatus(?string $status): bool
     {
         return strtolower(trim((string) $status)) !== 'obsolete';
     }
 
-    /** Cast mixed ID lists (Postgres bigint strings) to unique ints. */
+    /**
+     * Helper used for int ids.
+     */
     public static function intIds($ids): array
     {
         return collect($ids)->map(fn ($id) => (int) $id)->filter()->unique()->values()->all();
@@ -819,7 +886,6 @@ class RegisterQueryHelper
     /**
      * One child row per request (highest id). Avoids join fan-out when a request
      * has more than one masterlist, DRF, DCN, or distribution row.
-     *
      * @param  \Illuminate\Database\Query\Builder  $query
      */
     public static function joinLatestByRequest($query, string $table, string $alias, string $parentAlias = 'dr', string $parentKey = 'id', ?array $columns = null)
@@ -847,7 +913,11 @@ class RegisterQueryHelper
         return $query->leftJoin(DB::raw($derived), "{$alias}.request_id", '=', "{$parentAlias}.{$parentKey}");
     }
 
-    /** Exclude soft-deleted document requests when the column exists. */
+    /**
+     * Applies a query filter/scope: apply not deleted.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     public static function applyNotDeleted($query, string $alias = 'dr')
     {
         if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
@@ -860,12 +930,21 @@ class RegisterQueryHelper
     /**
      * Inventory / campus-wide DCS scope: Super Admin or Admin DCS clearance
      * (role-based; office assignment does not matter).
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      */
+    // =====================================================================
+    // SECTION: ACCESS CONTROL — full vs limited DCS, RFIO, office intake, modules
+    // =====================================================================
+    
     public static function canViewAllDocuments(): bool
     {
         return self::isFullDcsUser();
     }
 
+    /**
+     * Helper used for current office code.
+     */
     public static function currentOfficeCode(): ?string
     {
         $code = auth()->user()?->details?->office?->office_code ?? null;
@@ -935,6 +1014,7 @@ class RegisterQueryHelper
     }
 
     /**
+     * Parses or normalizes values used by resolve sys office codes.
      * @param  list<string|null>  $codes
      * @return list<string>
      */
@@ -958,12 +1038,19 @@ class RegisterQueryHelper
         return $out;
     }
 
-    /** Canonical / alias codes for the Records & FOI unit (seed used RFIO; live data often uses RFOIU). */
+    /**
+     * Helper used for rfio office codes.
+     */
     public static function rfioOfficeCodes(): array
     {
         return ['RFIO', 'RFOIU'];
     }
 
+    /**
+     * Tells whether is rfio office — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function isRfioOffice(): bool
     {
         $code = self::currentOfficeCode();
@@ -991,7 +1078,9 @@ class RegisterQueryHelper
         return $resolved = 'RFOIU';
     }
 
-    /** @return array<string, string> module route tag => condition_details column */
+    /**
+     * Helper used for dcs module columns.
+     */
     public static function dcsModuleColumns(): array
     {
         return [
@@ -1008,7 +1097,9 @@ class RegisterQueryHelper
         ];
     }
 
-    /** Admin DCS pages — every module except Recycle Bin. */
+    /**
+     * Helper used for dcs admin module columns.
+     */
     public static function dcsAdminModuleColumns(): array
     {
         $columns = self::dcsModuleColumns();
@@ -1017,6 +1108,11 @@ class RegisterQueryHelper
         return $columns;
     }
 
+    /**
+     * Tells whether has dcs admin access — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function hasDcsAdminAccess(?object $perms = null): bool
     {
         $perms ??= auth()->user()?->permissions;
@@ -1032,11 +1128,21 @@ class RegisterQueryHelper
         return false;
     }
 
+    /**
+     * Tells whether has any dcs module flag — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function hasAnyDcsModuleFlag(?object $perms = null): bool
     {
         return self::hasDcsAdminAccess($perms);
     }
 
+    /**
+     * Tells whether the user may open Office Intake modules.
+     *
+     * DEBUG: office nav missing → role flags checked here.
+     */
     public static function canAccessOfficeIntake(): bool
     {
         $perms = auth()->user()?->permissions;
@@ -1058,12 +1164,9 @@ class RegisterQueryHelper
     }
 
     /**
-     * Full / Admin DCS operator (role clearances only — office does not gate):
-     * - Super Admin, or
-     * - Access DCS + Document Controller (Admin DCS) clearances
+     * Tells whether the user is a full Admin DCS user (not office-only).
      *
-     * Office Intake is mutually exclusive and never grants full access.
-     * Recycle Bin is Head Admin only (separate flag).
+     * DEBUG: wrongly treated as office-only → isLimitedDcsUser vs this.
      */
     public static function isFullDcsUser(): bool
     {
@@ -1085,7 +1188,11 @@ class RegisterQueryHelper
         return self::hasDcsAdminAccess($perms);
     }
 
-    /** Non-full DCS user with DCS access: office pages only when Office Intake is on. */
+    /**
+     * Tells whether the user is office-intake-only (allowlist applies).
+     *
+     * DEBUG: Admin DCS blocked for staff → this returning true unexpectedly.
+     */
     public static function isLimitedDcsUser(): bool
     {
         $perms = auth()->user()?->permissions;
@@ -1105,6 +1212,8 @@ class RegisterQueryHelper
     /**
      * Access DCS is on, but neither Office Intake nor Document Controller (Admin DCS)
      * clearances were granted — user can open DCS shell only.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      */
     public static function isDcsPathPending(): bool
     {
@@ -1120,8 +1229,9 @@ class RegisterQueryHelper
     }
 
     /**
-     * Admin DCS (Access DCS + Admin DCS clearances, or Super Admin) gets every admin page.
-     * Recycle Bin stays Head Admin only (dcs_can_recycle_bin) and is not Super Admin identity.
+     * Tells whether the user’s role may open a DCS module (register, review, etc.).
+     *
+     * DEBUG: module 403 → RequireDcsModule + this flag check.
      */
     public static function canAccessDcsModule(string $module): bool
     {
@@ -1154,6 +1264,8 @@ class RegisterQueryHelper
      * Intake-only DCS users may see their own office DRF/DCN links (and plain /dcs).
      * RFIO processing notices (/dcs/register/requests/…, /dcs/requests/…) stay
      * Document Controller only — even when both roles share the RFOIU office.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      */
     public static function isAllowedNotificationForLimitedDcs(?string $redirectUrl): bool
     {
@@ -1225,7 +1337,11 @@ class RegisterQueryHelper
         return $ownerId === $userId;
     }
 
-    /** True for "Your DRF/DCN was registered" links (`?registered=1`). */
+    /**
+     * Tells whether is office intake registered success notice — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function isOfficeIntakeRegisteredSuccessNotice(?string $redirectUrl): bool
     {
         $url = trim((string) $redirectUrl);
@@ -1247,6 +1363,8 @@ class RegisterQueryHelper
     /**
      * Client-office intake notices (print/sign, correction return, registered success).
      * Document Controllers in the same RFOIU office must not see these.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      */
     public static function isOfficeIntakeSubmitterSuccessNotice(?string $redirectUrl, ?string $content = null): bool
     {
@@ -1288,6 +1406,8 @@ class RegisterQueryHelper
     /**
      * HEAD-only notice: Document Controllers in RFOIU must not see edit-request
      * queue alerts they themselves (or peers) triggered for HEAD Admin review.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      */
     public static function isEditRequestHeadNotice(?string $redirectUrl): bool
     {
@@ -1299,6 +1419,8 @@ class RegisterQueryHelper
     /**
      * Approve/deny notices are for the requesting Document Controller only
      * (office-wide RFOIU would otherwise show them to HEAD Admin too).
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      */
     public static function isEditRequestDecisionNotice(?string $redirectUrl, ?string $content = null): bool
     {
@@ -1319,12 +1441,16 @@ class RegisterQueryHelper
     }
 
     /**
-     * Apply the same visibility rules as the header notification dropdown
-     * (limited-DCS allowlist + hide registered office-intake notices).
+     * Filters bell notifications so limited/office users only see what they should.
      *
+     * DEBUG: wrong notices for office user → this filter.
      * @param  \Illuminate\Support\Collection<int, object>  $rows
      * @return \Illuminate\Support\Collection<int, object>
      */
+    // =====================================================================
+    // SECTION: NOTIFICATION BELL — visibility filters for limited / office users
+    // =====================================================================
+    
     public static function filterBellNotifications($rows)
     {
         $rows = collect($rows);
@@ -1388,7 +1514,6 @@ class RegisterQueryHelper
     /**
      * Shared visibility for the header bell and /chat/unread-count.
      * Excludes removed / dismissed notices so the red dot matches an empty inbox.
-     *
      * @param  list<string>  $allowedSubsystems
      * @return \Illuminate\Database\Query\Builder
      */
@@ -1454,7 +1579,9 @@ class RegisterQueryHelper
         return $query;
     }
 
-    /** Unread system notices that still appear in the bell (after the same filters). */
+    /**
+     * Helper used for count visible unread notifications.
+     */
     public static function countVisibleUnreadNotifications(int $userId, string $officeCode, array $allowedSubsystems, bool $excludeMuted = false): int
     {
         $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
@@ -1492,8 +1619,7 @@ class RegisterQueryHelper
     }
 
     /**
-     * Unread system notices grouped by subsystem name.
-     *
+     * Helper used for count visible unread notifications by subsystem.
      * @param  array<int, string>  $allowedSubsystems
      * @return array<string, int>
      */
@@ -1540,7 +1666,6 @@ class RegisterQueryHelper
 
     /**
      * Latest unread system notice formatted for the popout notification overlay.
-     *
      * @param  array<int, string>  $allowedSubsystems
      * @return array<string, mixed>|null
      */
@@ -1594,7 +1719,6 @@ class RegisterQueryHelper
     /**
      * When browsing DCS, the bell only lists Document Control System notices
      * (same behavior as the Livewire notification component).
-     *
      * @param  array<int, string>  $allowedSubsystems
      * @return array<int, string>
      */
@@ -1620,6 +1744,11 @@ class RegisterQueryHelper
         return $allowedSubsystems;
     }
 
+    /**
+     * Stops the request if a required condition fails (assert full dcs user).
+     *
+     * DEBUG: unexpected 403 / abort → check this guard.
+     */
     public static function assertFullDcsUser(?string $module = null): void
     {
         if ($module !== null) {
@@ -1638,6 +1767,8 @@ class RegisterQueryHelper
     /**
      * HEAD Admin of DCS — Recycle Bin clearance (dcs_can_recycle_bin).
      * Not Super Admin: Super Admin is system-wide (users, etc.) and does not own this role by default.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      */
     public static function isDocumentControlHead(): bool
     {
@@ -1647,17 +1778,29 @@ class RegisterQueryHelper
     /**
      * Permanent delete from Recycle Bin — HEAD Admin of DCS only (Recycle Bin clearance).
      * Regular DCS admins soft-delete with a reason; they cannot destroy forever.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      */
     public static function canPermanentlyDeleteDcsDocuments(): bool
     {
         return self::isDocumentControlHead();
     }
 
+    /**
+     * Tells whether is draft document — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function isDraftDocument(?object $docRequest): bool
     {
         return self::supportsDrafts() && ! empty($docRequest?->is_draft);
     }
 
+    /**
+     * Tells whether  edit document — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function canEditDocument(int $requestId, ?object $docRequest = null): bool
     {
         $docRequest ??= self::findDocumentRequest($requestId);
@@ -1671,6 +1814,11 @@ class RegisterQueryHelper
         return self::isFullDcsUser();
     }
 
+    /**
+     * Stops the request if a required condition fails (assert can edit document).
+     *
+     * DEBUG: unexpected 403 / abort → check this guard.
+     */
     public static function assertCanEditDocument(int $requestId, ?object $docRequest = null): void
     {
         abort_unless(
@@ -1681,8 +1829,9 @@ class RegisterQueryHelper
     }
 
     /**
-     * Global Request queue / open any office intake by ID.
-     * Super Admin or RFIO Document Controllers only — campus Admin DCS stays on My DRF/DCN.
+     * Tells whether RFIO/Admin may browse all offices’ intake forms.
+     *
+     * DEBUG: RFIO only sees own office → this should be true for RFIO.
      */
     public static function canBrowseAllOfficeIntake(): bool
     {
@@ -1694,6 +1843,13 @@ class RegisterQueryHelper
         return self::isFullDcsUser() && self::isRfioOffice();
     }
 
+    // =====================================================================
+    // SECTION: ORIGINATORS — attach names, filter, match current user
+    // =====================================================================
+    
+    /**
+     * Parses or normalizes values used by normalized originator name.
+     */
     public static function normalizedOriginatorName(?string $name = null): string
     {
         $name ??= self::currentUserDisplayName();
@@ -1701,7 +1857,9 @@ class RegisterQueryHelper
         return mb_strtolower(trim((string) $name));
     }
 
-    /** Limited DCS: documents where the user is the registered originator account (name fallback for legacy rows). */
+    /**
+     * Helper used for visible originator request ids.
+     */
     public static function visibleOriginatorRequestIds(): array
     {
         $userId = (int) auth()->id();
@@ -1733,7 +1891,9 @@ class RegisterQueryHelper
         return self::intIds($query->pluck('ml.request_id'));
     }
 
-    /** Postgres string_agg of atomic originator names for a masterlist alias. */
+    /**
+     * Helper used for masterlist originator name sql.
+     */
     public static function masterlistOriginatorNameSql(string $mlAlias = 'ml'): string
     {
         $alias = preg_replace('/[^A-Za-z0-9_]/', '', $mlAlias) ?: 'ml';
@@ -1758,7 +1918,9 @@ class RegisterQueryHelper
         return 'NULL';
     }
 
-    /** Postgres string_agg of keyword rows, or the legacy column. */
+    /**
+     * Helper used for masterlist keywords sql.
+     */
     public static function masterlistKeywordsSql(string $mlAlias = 'ml'): string
     {
         $alias = preg_replace('/[^A-Za-z0-9_]/', '', $mlAlias) ?: 'ml';
@@ -1774,6 +1936,11 @@ class RegisterQueryHelper
         return 'NULL';
     }
 
+    /**
+     * Applies a query filter/scope: apply masterlist originator filter.
+     *
+     * DEBUG: blank/missing originator or Undefined property → check here.
+     */
     public static function applyMasterlistOriginatorFilter(
         $query,
         string $mlAlias,
@@ -1824,7 +1991,11 @@ class RegisterQueryHelper
         $query->{$cmp}($column, 'ilike', $value);
     }
 
-    /** Copy joined originator names from the junction (fallback: legacy columns). */
+    /**
+     * Adds originator display names onto masterlist/request rows for the UI.
+     *
+     * DEBUG: blank originator on Register lists → this + junction tables.
+     */
     public static function attachOriginatorNames(iterable $rows): void
     {
         $list = $rows instanceof Collection ? $rows : collect($rows);
@@ -1889,7 +2060,11 @@ class RegisterQueryHelper
         }
     }
 
-    /** Copy joined keywords from the child table onto masterlist rows. */
+    /**
+     * Fills extra fields onto rows for the UI (attach masterlist keywords).
+     *
+     * DEBUG: blank/missing fields on list/show → check this hydrator.
+     */
     public static function attachMasterlistKeywords(iterable $rows): void
     {
         $list = $rows instanceof Collection ? $rows : collect($rows);
@@ -1926,6 +2101,9 @@ class RegisterQueryHelper
         }
     }
 
+    /**
+     * Helper used for masterlist id of.
+     */
     private static function masterlistIdOf(object $row): int
     {
         if (property_exists($row, 'masterlist_id') && (int) $row->masterlist_id > 0) {
@@ -1935,6 +2113,9 @@ class RegisterQueryHelper
         return (int) ($row->id ?? 0);
     }
 
+    /**
+     * Helper used for constrain originator value.
+     */
     private static function constrainOriginatorValue($query, string $value, bool $exact, bool $caseInsensitive): void
     {
         if ($exact && $caseInsensitive) {
@@ -1950,6 +2131,11 @@ class RegisterQueryHelper
         $query->where('og.originator_name', 'ilike', $value);
     }
 
+    /**
+     * Applies a query filter/scope: apply masterlist keyword search.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     private static function applyMasterlistKeywordSearch($query, string $search): void
     {
         if (Schema::hasColumn('dcs_masterlist_registration', 'keywords') || ! Schema::hasTable('dcs_masterlist_keywords')) {
@@ -1974,6 +2160,9 @@ class RegisterQueryHelper
         });
     }
 
+    /**
+     * Parses or normalizes values used by resolve originator account id for name.
+     */
     public static function resolveOriginatorAccountIdForName(?string $originatorName): ?int
     {
         if (self::originatorMatchesCurrentUser($originatorName)) {
@@ -1985,6 +2174,9 @@ class RegisterQueryHelper
         return null;
     }
 
+    /**
+     * Helper used for originator matches current user.
+     */
     public static function originatorMatchesCurrentUser(?string $originatorName, ?int $originatorAccountId = null): bool
     {
         $userId = (int) auth()->id();
@@ -1998,6 +2190,11 @@ class RegisterQueryHelper
         return $a !== '' && $b !== '' && $b !== '—' && $a === $b;
     }
 
+    /**
+     * Stops the request if a required condition fails (assert can access scan path).
+     *
+     * DEBUG: missing/wrong scan path → check upload/naming here.
+     */
     public static function assertCanAccessScanPath(string $path): void
     {
         self::assertFullDcsUser();
@@ -2019,6 +2216,9 @@ class RegisterQueryHelper
         );
     }
 
+    /**
+     * Helper used for user can access generated report path.
+     */
     private static function userCanAccessGeneratedReportPath(string $path): bool
     {
         if (! Schema::hasTable('dcs_generated_reports')) {
@@ -2043,7 +2243,9 @@ class RegisterQueryHelper
         return (int) ($report->generated_by ?? 0) === (int) auth()->id();
     }
 
-    /** @param  array<string, mixed>  $row */
+    /**
+     * Helper used for map search result for audience.
+     */
     private static function mapSearchResultForAudience(array $row): array
     {
         if (! self::isLimitedDcsUser()) {
@@ -2067,7 +2269,9 @@ class RegisterQueryHelper
         return $row;
     }
 
-    /** @param  array<string, mixed>  $row */
+    /**
+     * Helper used for map revision result for audience.
+     */
     private static function mapRevisionResultForAudience(array $row): array
     {
         if (! self::isLimitedDcsUser()) {
@@ -2079,6 +2283,9 @@ class RegisterQueryHelper
         return $row;
     }
 
+    /**
+     * Helper used for current user display name.
+     */
     public static function currentUserDisplayName(): string
     {
         $d = auth()->user()?->details;
@@ -2094,11 +2301,17 @@ class RegisterQueryHelper
         return $parts !== [] ? implode(' ', $parts) : (auth()->user()?->username ?? 'User');
     }
 
+    /**
+     * Helper used for current office name.
+     */
     public static function currentOfficeName(): string
     {
         return trim((string) (auth()->user()?->details?->office?->office_name ?? '')) ?: '—';
     }
 
+    /**
+     * Helper used for current office id.
+     */
     public static function currentOfficeId(): ?int
     {
         $id = auth()->user()?->details?->office_id ?? auth()->user()?->details?->office?->id ?? null;
@@ -2107,10 +2320,14 @@ class RegisterQueryHelper
     }
 
     /**
-     * Limit a query on dcs_document_requests (alias) to docs linked to the user’s office
-     * unless they can view all. Linkage = source / DRF / distribution / retrieval office,
-     * or the creator’s office.
+     * Limits document queries to the current office unless the user sees campus-wide.
+     *
+     * DEBUG: office sees campus docs (or empty) → this scope.
      */
+    // =====================================================================
+    // SECTION: OFFICE SCOPE & REQUEST VISIBILITY — who sees which request ids
+    // =====================================================================
+    
     public static function applyOfficeScope($query, string $drAlias = 'dr')
     {
         if (self::canViewAllDocuments()) {
@@ -2164,6 +2381,8 @@ class RegisterQueryHelper
      * Office intake DRF/DCN are pre-registration forms only — never part of RFIO inventory.
      * Once RFIO has registered them (rfio_registered_at set), they must NOT hide the
      * controlled dcs_document_requests row from Update / Database.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      */
     public static function isOfficeIntakeRequestId(int $requestId): bool
     {
@@ -2198,7 +2417,11 @@ class RegisterQueryHelper
         return false;
     }
 
-    /** Exclude office-intake-only rows from registered-document queries on dcs_document_requests. */
+    /**
+     * Applies a query filter/scope: apply exclude office intake requests.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     public static function applyExcludeOfficeIntakeRequests($query, string $drAlias = 'dr'): void
     {
         if (! Schema::hasColumn('dcs_document_request_form', 'is_office_intake')
@@ -2232,6 +2455,11 @@ class RegisterQueryHelper
         });
     }
 
+    /**
+     * Applies a query filter/scope: apply exclude office intake drf.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     public static function applyExcludeOfficeIntakeDrf($query, string $drfAlias = 'drf'): void
     {
         if (! Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
@@ -2244,6 +2472,11 @@ class RegisterQueryHelper
         });
     }
 
+    /**
+     * Applies a query filter/scope: apply exclude office intake dcn.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     public static function applyExcludeOfficeIntakeDcn($query, string $dcnAlias = 'dcn'): void
     {
         if (! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
@@ -2256,7 +2489,11 @@ class RegisterQueryHelper
         });
     }
 
-    /** Registered DCS inventory: office scope plus no office-intake placeholders; exclude drafts. */
+    /**
+     * Applies a query filter/scope: apply registered document scope.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     public static function applyRegisteredDocumentScope($query, string $drAlias = 'dr'): void
     {
         self::applyOfficeScope($query, $drAlias);
@@ -2264,7 +2501,9 @@ class RegisterQueryHelper
         self::applyExcludeDrafts($query, $drAlias);
     }
 
-    /** @return list<string> */
+    /**
+     * Helper used for consolidated drf years.
+     */
     public static function consolidatedDrfYears(): array
     {
         if (! Schema::hasTable('dcs_document_request_form') || ! Schema::hasTable('dcs_document_requests')) {
@@ -2281,7 +2520,9 @@ class RegisterQueryHelper
         return self::distinctYears($query, 'drf.drf_date');
     }
 
-    /** @return list<string> */
+    /**
+     * Helper used for consolidated dcn years.
+     */
     public static function consolidatedDcnYears(): array
     {
         if (! Schema::hasTable('dcs_document_change_notice') || ! Schema::hasTable('dcs_document_requests')) {
@@ -2300,7 +2541,6 @@ class RegisterQueryHelper
 
     /**
      * Calendar years available for a monitoring tab (form date / registration date).
-     *
      * @return list<string>
      */
     public static function monitoringReportYears(string $sub): array
@@ -2339,7 +2579,9 @@ class RegisterQueryHelper
         return self::distinctYears($query, 'drf.drf_date');
     }
 
-    /** Distinct calendar years in SQL so report filters do not load every date. */
+    /**
+     * Helper used for distinct years.
+     */
     private static function distinctYears($query, string $column): array
     {
         if (! preg_match('/^[a-z0-9_]+\.[a-z0-9_]+$/i', $column)) {
@@ -2357,7 +2599,9 @@ class RegisterQueryHelper
             ->all();
     }
 
-    /** @param \Illuminate\Support\Collection<int, mixed> $dates */
+    /**
+     * Helper used for years from dates.
+     */
     private static function yearsFromDates($dates): array
     {
         return $dates
@@ -2374,11 +2618,19 @@ class RegisterQueryHelper
             ->all();
     }
 
+    /**
+     * Helper used for supports drafts.
+     */
     public static function supportsDrafts(): bool
     {
         return Schema::hasColumn('dcs_document_requests', 'is_draft');
     }
 
+    /**
+     * Applies a query filter/scope: apply exclude drafts.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     public static function applyExcludeDrafts($query, string $drAlias = 'dr'): void
     {
         if (! self::supportsDrafts()) {
@@ -2390,7 +2642,9 @@ class RegisterQueryHelper
         });
     }
 
-    /** Draft request IDs visible to the current user (for Update list resume). */
+    /**
+     * Helper used for draft request ids.
+     */
     public static function draftRequestIds(): array
     {
         if (! self::supportsDrafts()) {
@@ -2407,7 +2661,6 @@ class RegisterQueryHelper
     /**
      * Newest open draft for this document number, type, subtype, and syllabi context.
      * Syllabi drafts that differ by college, program, course type, semester, or school year stay separate.
-     *
      * @param  array{college_id?: int, program_id?: int, semester_id?: int, school_year_id?: int, course_type?: string}|null  $syllabiContext
      */
     public static function findExistingDraftRequestId(
@@ -2483,6 +2736,9 @@ class RegisterQueryHelper
         return $id ? (int) $id : null;
     }
 
+    /**
+     * Helper used for user can access request.
+     */
     public static function userCanAccessRequest(int $requestId): bool
     {
         if (self::isOfficeIntakeRequestId($requestId)) {
@@ -2499,12 +2755,19 @@ class RegisterQueryHelper
         return $q->exists();
     }
 
+    /**
+     * Stops the request if a required condition fails (assert can access request).
+     *
+     * DEBUG: unexpected 403 / abort → check this guard.
+     */
     public static function assertCanAccessRequest(int $requestId): void
     {
         abort_unless(self::userCanAccessRequest($requestId), 403, 'You do not have access to this document.');
     }
 
-    /** Drop cached Update/Draft groupings after a registration is saved, edited, or removed. */
+    /**
+     * Helper used for bump document list cache.
+     */
     public static function bumpDocumentListCache(): void
     {
         try {
@@ -2515,6 +2778,9 @@ class RegisterQueryHelper
         }
     }
 
+    /**
+     * Helper used for document list cache version.
+     */
     public static function documentListCacheVersion(): int
     {
         try {
@@ -2524,7 +2790,9 @@ class RegisterQueryHelper
         }
     }
 
-    /** Search/stamp/preview: latest (including null/empty status), numbered obsolete, and empty-doc-no rows. */
+    /**
+     * Helper used for visible request ids.
+     */
     public static function visibleRequestIds(): array
     {
         $mlIds = DB::table('dcs_masterlist_registration as ml')
@@ -2543,7 +2811,9 @@ class RegisterQueryHelper
         return self::intIds($mlIds->merge($noMlIds));
     }
 
-    /** Update list: only latest (null/empty treated as latest) plus incomplete registrations. */
+    /**
+     * Helper used for latest editable request ids.
+     */
     public static function latestEditableRequestIds(): array
     {
         $latestIds = DB::table('dcs_masterlist_registration as ml')
@@ -2567,7 +2837,9 @@ class RegisterQueryHelper
         return self::intIds($latestIds->merge($noMlIds));
     }
 
-    /** Query params that still target a document when doc_no is blank. */
+    /**
+     * Helper used for document search params.
+     */
     public static function documentSearchParams(object $row): array
     {
         $docNo = trim((string) ($row->doc_no ?? ''));
@@ -2582,7 +2854,9 @@ class RegisterQueryHelper
         return $params;
     }
 
-    /** Group key for doc_no + type + sub_type (Update list / Database lineage). */
+    /**
+     * Helper used for doc family group key.
+     */
     private static function docFamilyGroupKey(string $docNo, int $docTypeId, int $subTypeId): string
     {
         return strtolower(trim($docNo)) . '||' . $docTypeId . '||' . $subTypeId;
@@ -2590,7 +2864,6 @@ class RegisterQueryHelper
 
     /**
      * Score tip rows for lineage merge (higher revise_no wins; request_id breaks ties).
-     *
      * @return array<string, array{doc_no: string, doc_type_id: int, sub_type_id: int, rev_no: int, request_id: int, revised_from: string, score: int}>
      */
     private static function lineageGroupTipsFromParents(array $parentsByKey): array
@@ -2618,14 +2891,15 @@ class RegisterQueryHelper
     }
 
     /**
-     * Decide which doc-no families fold under which tip.
-     * Holder at prior doc no competes with renumbered revisions so delete → renumber → restore
-     * still keeps one aligned family (e.g. Rev 2 at MSTR-…-11 absorbs Rev 1 at MSTR-…-12).
-     *
+     * Builds or formats data for build lineage merge edges.
      * @param array<string, array{doc_no: string, doc_type_id: int, sub_type_id: int, rev_no: int, request_id: int, revised_from: string, score: int}> $groupTips
      * @param list<int> $visibleIds
      * @return array<string, array<string, true>> winnerKey => absorbed group keys
      */
+    // =====================================================================
+    // SECTION: REVISION LINEAGE — merge edges for Update list family groups
+    // =====================================================================
+    
     public static function buildLineageMergeEdges(array $groupTips, array $visibleIds = []): array
     {
         if ($groupTips === []) {
@@ -2764,6 +3038,7 @@ class RegisterQueryHelper
     /**
      * Fold lower-rev groups referenced in the winner's DCN "Documents for Revision" rows.
      *
+     * DEBUG: wrong rows visible → check this scope/filter.
      * @param array<string, array{doc_no: string, doc_type_id: int, sub_type_id: int, rev_no: int, request_id: int, revised_from: string, score: int, is_active?: bool}> $groupTips
      * @param array<string, array<string, true>> $edges
      */
@@ -2805,6 +3080,7 @@ class RegisterQueryHelper
     /**
      * Fold every lower-rev doc-no group in the same revision family under the family tip.
      *
+     * DEBUG: wrong rows visible → check this scope/filter.
      * @param array<string, array{doc_no: string, doc_type_id: int, sub_type_id: int, rev_no: int, request_id: int, revised_from: string, score: int}> $groupTips
      * @param array<string, array<string, true>> $edges
      * @param list<int> $visibleIds
@@ -2860,6 +3136,9 @@ class RegisterQueryHelper
     }
 
     /**
+     * Tells whether is revision family tip — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      * @param array<string, array{doc_no: string, doc_type_id: int, sub_type_id: int, rev_no: int, request_id: int, revised_from: string, score: int}> $groupTips
      * @param list<string> $familyNos
      */
@@ -2906,7 +3185,9 @@ class RegisterQueryHelper
         return true;
     }
 
-    /** @return list<int> */
+    /**
+     * Helper used for revise nos present for doc nos.
+     */
     private static function reviseNosPresentForDocNos(
         array $docNos,
         int $docTypeId,
@@ -2942,7 +3223,6 @@ class RegisterQueryHelper
 
     /**
      * All doc numbers in a revision family (renumber chain + gap-filled renumbered revisions).
-     *
      * @return list<string>
      */
     public static function revisionFamilyDocNos(
@@ -3061,7 +3341,9 @@ class RegisterQueryHelper
         return $memo[$memoKey] = array_values($seen);
     }
 
-    /** @param list<string> $candidates @param list<string> $familyNos @param list<int> $requestIds */
+    /**
+     * Helper used for pick gap fill doc no.
+     */
     private static function pickGapFillDocNo(
         array $candidates,
         array $familyNos,
@@ -3129,7 +3411,6 @@ class RegisterQueryHelper
      * Fold prior doc-no families under one tip via revised_from_doc_no.
      * Each prior family is absorbed at most once (prevents duplicate obsolete rows
      * under unrelated documents after delete → renumber → restore).
-     *
      * @param \Illuminate\Support\Collection<int, array<string, mixed>> $groups
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
@@ -3298,7 +3579,6 @@ class RegisterQueryHelper
     /**
      * A merged Update row may only keep older copies of the same document.
      * Related docs, other logbooks, or a coincidental revision number stay their own families.
-     *
      * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $groups
      * @return \Illuminate\Support\Collection<int, array<string, mixed>>
      */
@@ -3356,7 +3636,6 @@ class RegisterQueryHelper
     /**
      * Promote the active tip for each revision family at most once.
      * Prevents dual "Latest" rows when renumbered families were not folded yet.
-     *
      * @param \Illuminate\Support\Collection<int, array<string, mixed>> $groups
      * @param list<int> $visibleIds
      */
@@ -3481,6 +3760,15 @@ class RegisterQueryHelper
         }
     }
 
+    // =====================================================================
+    // SECTION: LIST PAGES — Update / Drafts / Recycle Bin / Review / History
+    // =====================================================================
+    
+    /**
+     * Builds the Update module’s document family groups for the current user.
+     *
+     * DEBUG: wrong grouping/merging on Update → lineage helpers + this method.
+     */
     public static function updateList(string $search, string $docTypeId, int $page, int $perPage = 15): array
     {
         $empty = [
@@ -3565,7 +3853,9 @@ class RegisterQueryHelper
         return $groups;
     }
 
-    /** @return list<int> */
+    /**
+     * Updates existing data for update list search ids.
+     */
     private static function updateListSearchIds(string $search, string $docTypeId): array
     {
         $query = self::updateListBaseQuery($docTypeId);
@@ -3600,6 +3890,9 @@ class RegisterQueryHelper
         return $query->pluck('dr.id')->map(fn ($id) => (int) $id)->all();
     }
 
+    /**
+     * Updates existing data for update list base query.
+     */
     private static function updateListBaseQuery(string $docTypeId)
     {
         $query = DB::table('dcs_document_requests as dr')
@@ -3664,7 +3957,9 @@ class RegisterQueryHelper
         return $query;
     }
 
-    /** @return \Illuminate\Support\Collection<int, array<string, mixed>> */
+    /**
+     * Builds or formats data for build update list groups.
+     */
     private static function buildUpdateListGroups(string $docTypeId): \Illuminate\Support\Collection
     {
         $query = self::updateListBaseQuery($docTypeId);
@@ -3766,7 +4061,6 @@ class RegisterQueryHelper
     /** Draft registrations only — for Document Registration → Drafts. */
     /**
      * Recent registration drafts for the admin DCS dashboard (lean, no search UI extras).
-     *
      * @return array{total: int, items: list<array{title: string, doc_no: string, doc_type: string, href: string, updated_at: ?string}>}
      */
     public static function dashboardRecentDrafts(int $limit = 5): array
@@ -3821,6 +4115,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Lists draft registrations visible to the current user.
+     */
     public static function draftList(string $search, string $docTypeId, int $page, int $perPage = 15): array
     {
         $empty = [
@@ -3947,6 +4244,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Lists soft-deleted documents in the Recycle Bin.
+     */
     public static function recycleBinList(string $search, int $page, int $perPage = 15): array
     {
         if (!Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
@@ -4072,6 +4372,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Lists documents available in the Review module.
+     */
     public static function reviewList(string $search, string $docTypeId, int $page, int $perPage = 15): array
     {
         $empty = [
@@ -4217,6 +4520,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Lists documents for the History module.
+     */
     public static function history(string $docNo): array
     {
         $docNo = trim($docNo);
@@ -4415,6 +4721,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for review compare.
+     */
     public static function reviewCompare(string $docNo, ?int $leftId = null, ?int $rightId = null, ?string $extractTab = null): array
     {
         $empty = [
@@ -4597,7 +4906,6 @@ class RegisterQueryHelper
     /**
      * Resolve any two revisions for compare. Prefers the requested IDs (auto-swaps
      * so left is older), then nearest neighbor, then the tip consecutive pair.
-     *
      * @param  list<array<string,mixed>>  $asc  Revisions ascending by revise_no
      * @param  array<int,array<string,mixed>>  $byId
      * @param  list<array{left_id:int,right_id:int,left_rev:int,right_rev:int,label:string,key:string}>  $pairOptions
@@ -4687,6 +4995,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for review rev is older.
+     */
     private static function reviewRevIsOlder(array $left, array $right): bool
     {
         $leftRev = (int) ($left['revise_no'] ?? 0);
@@ -4698,6 +5009,9 @@ class RegisterQueryHelper
         return strcmp((string) ($left['created_at'] ?? ''), (string) ($right['created_at'] ?? '')) <= 0;
     }
 
+    /**
+     * Helper used for review pair section.
+     */
     private static function reviewPairSection(?array $left, ?array $right, string $key): array
     {
         $leftSection = self::reviewSectionByKey($left, $key);
@@ -4797,6 +5111,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for review section by key.
+     */
     private static function reviewSectionByKey(?array $rev, string $key): ?array
     {
         if (!$rev) {
@@ -4811,6 +5128,9 @@ class RegisterQueryHelper
         return null;
     }
 
+    /**
+     * Helper used for review row map.
+     */
     private static function reviewRowMap(?array $section): array
     {
         $map = [];
@@ -4821,6 +5141,9 @@ class RegisterQueryHelper
         return $map;
     }
 
+    /**
+     * Helper used for review office pair.
+     */
     private static function reviewOfficePair(?array $left, ?array $right): array
     {
         $leftMap = self::reviewOfficeItemMap($left);
@@ -4899,6 +5222,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for review office item map.
+     */
     private static function reviewOfficeItemMap(?array $row): array
     {
         if (!$row) {
@@ -4952,6 +5278,7 @@ class RegisterQueryHelper
      * Use this revision's PDF. When the latest row has no file, use the superseded
      * copy of the same revision number that still has one.
      *
+     * DEBUG: missing/wrong scan path → check upload/naming here.
      * @param  list<array<string, mixed>>  $revisions
      */
     private static function reviewScanOrFamily(array $scan, array $rev, array $revisions): array
@@ -4986,6 +5313,9 @@ class RegisterQueryHelper
         return $scan;
     }
 
+    /**
+     * Helper used for review scan payload.
+     */
     private static function reviewScanPayload(?array $section): array
     {
         $path = $section['scan_path'] ?? null;
@@ -5002,6 +5332,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for review scan diff.
+     */
     private static function reviewScanDiff(array $leftScan, array $rightScan): array
     {
         $leftHas = (bool) ($leftScan['url'] ?? null);
@@ -5045,6 +5378,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for review line diff.
+     */
     private static function reviewLineDiff(string $old, string $new): array
     {
         $oldLines = preg_split("/\r\n|\r|\n/", $old) ?: [];
@@ -5091,6 +5427,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for review inline diff.
+     */
     private static function reviewInlineDiff(string $old, string $new): array
     {
         $oldPlain = $old === '—' ? '' : $old;
@@ -5139,6 +5478,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for review token diff html.
+     */
     private static function reviewTokenDiffHtml(string $old, string $new): array
     {
         $a = self::reviewTokens($old);
@@ -5164,6 +5506,9 @@ class RegisterQueryHelper
         return [trim($left), trim($right)];
     }
 
+    /**
+     * Helper used for review tokens.
+     */
     private static function reviewTokens(string $text): array
     {
         $parts = preg_split('/(\s+)/u', $text, -1, PREG_SPLIT_DELIM_CAPTURE);
@@ -5171,6 +5516,9 @@ class RegisterQueryHelper
         return array_values(array_filter($parts === false ? [] : $parts, fn ($part) => $part !== ''));
     }
 
+    /**
+     * Helper used for review lcs ops.
+     */
     private static function reviewLcsOps(array $a, array $b): array
     {
         $n = count($a);
@@ -5204,6 +5552,9 @@ class RegisterQueryHelper
         return array_reverse($ops);
     }
 
+    /**
+     * Helper used for hst row.
+     */
     private static function hstRow(string $key, string $label, mixed $value, array $extra = []): array
     {
         $text = trim((string) ($value ?? ''));
@@ -5219,26 +5570,41 @@ class RegisterQueryHelper
         ], $extra);
     }
 
+    /**
+     * Helper used for hst date.
+     */
     private static function hstDate(mixed $val): string
     {
         return self::formatSmartDate($val, '—');
     }
 
+    /**
+     * Helper used for hst date time.
+     */
     private static function hstDateTime(mixed $val): string
     {
         return $val ? Carbon::parse($val)->format('M d, Y · h:i A') : '—';
     }
 
+    /**
+     * Helper used for hst time.
+     */
     private static function hstTime(mixed $val): string
     {
         return $val ? Carbon::parse($val)->format('h:i A') : '—';
     }
 
+    /**
+     * Helper used for hst file.
+     */
     private static function hstFile(mixed $path): string
     {
         return $path ? basename((string) $path) : '—';
     }
 
+    /**
+     * Helper used for hst office items.
+     */
     private static function hstOfficeItems($rows, bool $withCopies = false): array
     {
         if (!$rows || (method_exists($rows, 'isEmpty') && $rows->isEmpty())) {
@@ -5261,6 +5627,9 @@ class RegisterQueryHelper
         return array_values($items);
     }
 
+    /**
+     * Helper used for hst office row.
+     */
     private static function hstOfficeRow(string $key, string $label, $rows, bool $withCopies = false): array
     {
         $items = self::hstOfficeItems($rows, $withCopies);
@@ -5277,6 +5646,9 @@ class RegisterQueryHelper
         ]);
     }
 
+    /**
+     * Helper used for hst filled rows.
+     */
     private static function hstFilledRows(array $rows): array
     {
         return array_values(array_filter($rows, function ($row) {
@@ -5286,6 +5658,9 @@ class RegisterQueryHelper
         }));
     }
 
+    /**
+     * Helper used for hst scan meta.
+     */
     private static function hstScanMeta(?string $path): array
     {
         $path = $path ? trim($path) : '';
@@ -5299,6 +5674,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for hst push section.
+     */
     private static function hstPushSection(array &$sections, string $key, string $title, array $rows, array $extra = []): void
     {
         $rows = self::hstFilledRows($rows);
@@ -5315,6 +5693,9 @@ class RegisterQueryHelper
         ], $extra);
     }
 
+    /**
+     * Builds or formats data for build history revision.
+     */
     private static function buildHistoryRevision(object $ml, ?object $doc, array $lookups, bool $isLatestFlag): array
     {
         $isLatest = ($ml->revision_status ?? '') === 'latest'
@@ -5545,7 +5926,6 @@ class RegisterQueryHelper
 
     /**
      * Field-level edit history for a registration without a usable document number.
-     *
      * @return array{docNo:string,docTitle:string,lineageDocNos:list<string>,latestRequestId:?int,canEdit:bool,entries:list<array<string,mixed>>}
      */
     public static function editHistoryPageByRequest(int $requestId): array
@@ -5602,7 +5982,6 @@ class RegisterQueryHelper
 
     /**
      * Field-level edit history page for a document number (lineage-aware).
-     *
      * @return array{docNo:string,docTitle:string,lineageDocNos:list<string>,latestRequestId:?int,canEdit:bool,entries:list<array<string,mixed>>}
      */
     public static function editHistoryPage(string $docNo): array
@@ -5721,7 +6100,6 @@ class RegisterQueryHelper
     /**
      * Keep only real document field edits (action=update). Registration/draft
      * baselines and other revisions stay out of the Edit History page.
-     *
      * @param  list<array<string, mixed>>  $entries
      * @param  array<int, array{revise_no:int, doc_no:string}>|null  $byRequest
      * @return list<array<string, mixed>>
@@ -5753,6 +6131,9 @@ class RegisterQueryHelper
         return $out;
     }
 
+    /**
+     * Helper used for hst syllabi table from rows.
+     */
     private static function hstSyllabiTableFromRows(array $rows): array
     {
         $byKey = [];
@@ -5791,6 +6172,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for hst pick rows.
+     */
     private static function hstPickRows(array $sections, array $keys): array
     {
         $found = [];
@@ -5810,6 +6194,15 @@ class RegisterQueryHelper
         return $picked;
     }
 
+    // =====================================================================
+    // SECTION: SEARCH & REVISION STACK — dashboard search + documentRevisions
+    // =====================================================================
+    
+    /**
+     * Runs Dashboard / Register document search.
+     *
+     * DEBUG: search miss / wrong hit → loose search + hydrate path here.
+     */
     public static function searchDocuments(Request $request)
     {
         $q = trim($request->input('q', ''));
@@ -6200,9 +6593,7 @@ class RegisterQueryHelper
     }
 
     /**
-     * Dashboard search hit resolution:
-     * - Keyword matches stay on the revision that owns those keywords (obsolete or latest).
-     * - Title / doc-no matches still resolve to the current lineage tip.
+     * Parses or normalizes values used by resolve dashboard search hits.
      */
     private static function resolveDashboardSearchHits(Collection $rows, array $visibleIds, bool $hasKeywords, string $q): Collection
     {
@@ -6257,6 +6648,9 @@ class RegisterQueryHelper
         return $out->values();
     }
 
+    /**
+     * Helper used for search hit matched on keywords.
+     */
     private static function searchHitMatchedOnKeywords(object $hit, string $q, bool $hasKeywords): bool
     {
         if (!$hasKeywords || $q === '') {
@@ -6271,6 +6665,7 @@ class RegisterQueryHelper
     }
 
     /**
+     * Parses or normalizes values used by resolve search hits to lineage tips.
      * @deprecated Kept for callers; dashboard search uses resolveDashboardSearchHits().
      */
     private static function resolveSearchHitsToLineageTips(Collection $rows, array $visibleIds, bool $hasKeywords): Collection
@@ -6278,6 +6673,9 @@ class RegisterQueryHelper
         return self::resolveDashboardSearchHits($rows, $visibleIds, $hasKeywords, '');
     }
 
+    /**
+     * Parses or normalizes values used by resolve lineage tip masterlist.
+     */
     private static function resolveLineageTipMasterlist(object $hit, array $visibleIds): ?object
     {
         $docTypeId = (int) ($hit->doc_type_id ?? 0);
@@ -6330,6 +6728,9 @@ class RegisterQueryHelper
             || $row->allows_revision === 'f';
     }
 
+    /**
+     * Helper used for revision search identity.
+     */
     private static function revisionSearchIdentity(object $row): string
     {
         $docNo = strtolower(trim((string) ($row->doc_no ?? '')));
@@ -6360,7 +6761,6 @@ class RegisterQueryHelper
     /**
      * Recur and Revised previous-documents include every copy that shares the
      * picked document's stack, including older numbers in that chain.
-     *
      * @param  list<array<string, mixed>>  $merged
      * @param  list<int>  $visibleIds
      * @return list<array<string, mixed>>
@@ -6423,6 +6823,9 @@ class RegisterQueryHelper
         return $unique;
     }
 
+    /**
+     * Helper used for filter revisions to anchor document.
+     */
     private static function filterRevisionsToAnchorDocument(array $merged, array $anchor): array
     {
         $anchorRequestId = (int) ($anchor['request_id'] ?? 0);
@@ -6495,6 +6898,9 @@ class RegisterQueryHelper
         return $out->values();
     }
 
+    /**
+     * Loads or finds data for load search document row.
+     */
     private static function loadSearchDocumentRow(int $masterlistId, bool $hasKeywords): ?object
     {
         $select = [
@@ -6529,6 +6935,9 @@ class RegisterQueryHelper
             ->first();
     }
 
+    /**
+     * Loads the revision stack for one document family.
+     */
     public static function documentRevisions(Request $request): array
     {
         $requestId = (int) $request->input('request_id');
@@ -6657,10 +7066,13 @@ class RegisterQueryHelper
 
     /**
      * Which checklist sections actually exist for each request (only checked/saved ones).
-     *
      * @param  list<int>  $requestIds
      * @return array<int, array{drf: bool, dcn: bool, masterlist: bool, approval: bool, distribution: bool, retrieval: bool}>
      */
+    // =====================================================================
+    // SECTION: CHECKLIST / DOC-NO FAMILY / RENUMBER HEALS
+    // =====================================================================
+    
     public static function checklistPresenceForRequests(array $requestIds): array
     {
         $requestIds = array_values(array_unique(array_filter(array_map('intval', $requestIds))));
@@ -6711,6 +7123,9 @@ class RegisterQueryHelper
     }
 
     /**
+     * Fills extra fields onto rows for the UI (attach checklist presence to revisions).
+     *
+     * DEBUG: blank/missing fields on list/show → check this hydrator.
      * @param  list<array<string, mixed>>  $revisions
      * @return list<array<string, mixed>>
      */
@@ -6740,7 +7155,6 @@ class RegisterQueryHelper
     /**
      * Doc nos to load revision rows for: backward renumber chain plus forward renames
      * (older revision renumbered while a higher revision kept the original number).
-     *
      * @return list<string>
      */
     public static function docNosForRevisionLookup(
@@ -6783,7 +7197,9 @@ class RegisterQueryHelper
         return self::expandDocNosWithDcnReferences($all, $docTypeId, $subTypeId, $requestIds);
     }
 
-    /** Primary doc no from DCN "Documents for Revision" (lowest revision_no row). */
+    /**
+     * Helper used for primary dcn revision doc no.
+     */
     public static function primaryDcnRevisionDocNo(int $requestId): ?string
     {
         if ($requestId < 1 || !Schema::hasTable('dcs_doc_revision')) {
@@ -6812,7 +7228,6 @@ class RegisterQueryHelper
 
     /**
      * Doc numbers listed on this registration's DCN revision table.
-     *
      * @return list<string>
      */
     public static function dcnReferencedDocNosForRequest(int $requestId): array
@@ -6910,7 +7325,6 @@ class RegisterQueryHelper
 
     /**
      * Include DCN "Documents for Revision" picks in a renumber/revision family.
-     *
      * @param list<string> $seed
      * @param list<int> $requestIds
      * @return list<string>
@@ -6971,7 +7385,6 @@ class RegisterQueryHelper
 
     /**
      * DCN revision links for a document type, loaded once instead of once per request.
-     *
      * @param  list<int>  $requestIds
      * @return array{refs: array<int, list<string>>, by_ref: array<string, list<int>>, doc_nos: array<int, array<string, string>>, latest_doc_no: array<int, string>}
      */
@@ -7052,7 +7465,6 @@ class RegisterQueryHelper
 
     /**
      * Distinct non-empty revised_from values on registrations for these doc numbers.
-     *
      * @param  list<string>  $docNos
      * @return list<string>
      */
@@ -7098,7 +7510,6 @@ class RegisterQueryHelper
 
     /**
      * Doc numbers whose tip row shares the same lineage root (revised_from).
-     *
      * @return list<string>
      */
     private static function peerDocNosWithLineageRoot(
@@ -7149,7 +7560,6 @@ class RegisterQueryHelper
 
     /**
      * Doc numbers an older revision moved to after masterlist renumber (not new higher revisions).
-     *
      * @return list<string>
      */
     private static function forwardRenumberDocNos(
@@ -7207,7 +7617,9 @@ class RegisterQueryHelper
             ->all();
     }
 
-    /** @return list<string> Current doc no first, then each prior renumbered doc no. */
+    /**
+     * Builds or formats data for build renumber chain.
+     */
     private static function buildRenumberChain(string $docNo, int $docTypeId, ?int $subTypeId, array $requestIds, bool $includeTrashed = false): array
     {
         $docNo = trim($docNo);
@@ -7260,7 +7672,9 @@ class RegisterQueryHelper
         return $chain;
     }
 
-    /** Whether two document numbers belong to the same renumber / revised_from family. */
+    /**
+     * Helper used for doc nos share lineage.
+     */
     private static function docNosShareLineage(string $docNoA, string $docNoB, int $docTypeId, ?int $subTypeId): bool
     {
         $a = trim($docNoA);
@@ -7280,7 +7694,6 @@ class RegisterQueryHelper
 
     /**
      * All doc nos in a renumber family (walk revised_from backward and forward).
-     *
      * @return list<string>
      */
     public static function expandRenumberFamily(string $docNo, int $docTypeId, ?int $subTypeId, array $visibleIds): array
@@ -7338,7 +7751,6 @@ class RegisterQueryHelper
 
     /**
      * Active revise_no values across the whole renumber family for a doc no.
-     *
      * @return list<int>
      */
     public static function familyReviseNumbers(
@@ -7390,6 +7802,7 @@ class RegisterQueryHelper
     /**
      * Family revisions with scanned masterlist URLs (for DRR: previous vs new upload).
      *
+     * DEBUG: missing/wrong scan path → check upload/naming here.
      * @return list<array{revise_no:int,doc_no:string,scanned_copy_url:?string}>
      */
     public static function familyRevisionScans(
@@ -7444,6 +7857,9 @@ class RegisterQueryHelper
             ->all();
     }
 
+    /**
+     * Helper used for latest masterlist for doc no.
+     */
     private static function latestMasterlistForDocNo(
         string $docNo,
         int $docTypeId,
@@ -7474,7 +7890,9 @@ class RegisterQueryHelper
             ->first();
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * Helper used for masterlist revisions for doc no.
+     */
     private static function masterlistRevisionsForDocNo(
         string $docNo,
         int $docTypeId,
@@ -7551,7 +7969,9 @@ class RegisterQueryHelper
             ->all();
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Helper used for map document revision row.
+     */
     private static function mapDocumentRevisionRow(object $row): array
     {
         return [
@@ -7580,6 +8000,13 @@ class RegisterQueryHelper
         ];
     }
 
+    // =====================================================================
+    // SECTION: PREVIEW PAYLOADS — checklist / edit history / checksum
+    // =====================================================================
+    
+    /**
+     * Helper used for document checklist preview.
+     */
     public static function documentChecklistPreview(int $requestId, string $type): array
     {
         self::assertFullDcsUser();
@@ -7611,7 +8038,6 @@ class RegisterQueryHelper
 
     /**
      * Field-level edit history for a registration (newest first).
-     *
      * @return array{title:string,type:string,entries:list<array<string,mixed>>,fields:list<array{label:string,value:string}>,sections:list<mixed>}
      */
     public static function documentEditHistory(int $requestId, bool $assertAccess = true): array
@@ -7651,7 +8077,6 @@ class RegisterQueryHelper
 
     /**
      * Re-hash the masterlist scan for a registration and compare to the stored checksum.
-     *
      * @return array{ok: bool, match: bool|null, checksum: string|null, stored: string|null, message: string}
      */
     public static function verifyMasterlistChecksum(int $requestId): array
@@ -7679,6 +8104,9 @@ class RegisterQueryHelper
         return DocumentStorageService::verifyScanChecksum($path, $stored, $algo);
     }
 
+    /**
+     * Helper used for preview type fields.
+     */
     private static function previewTypeFields(int $requestId): array
     {
         $row = DB::table('dcs_document_requests as dr')
@@ -7698,6 +8126,9 @@ class RegisterQueryHelper
         return $fields;
     }
 
+    /**
+     * Helper used for preview field.
+     */
     private static function previewField(string $label, mixed $value): array
     {
         if ($value === null || $value === '') {
@@ -7708,6 +8139,7 @@ class RegisterQueryHelper
     }
 
     /**
+     * Helper used for preview office rows.
      * @param  iterable<object|array>  $rows  each with office_name and optional copies
      * @return list<array{office:string,copies:?int}>
      */
@@ -7734,6 +8166,7 @@ class RegisterQueryHelper
     }
 
     /**
+     * Helper used for preview offices section.
      * @param  list<array{office:string,copies:?int}>  $offices
      * @return array{heading:string,offices:list<array{office:string,copies:?int}>,with_copies:bool}|null
      */
@@ -7750,6 +8183,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Builds the print/preview data for an office DRF without saving.
+     */
     private static function previewDrf(int $requestId): array
     {
         $drf = DB::table('dcs_document_request_form')->where('request_id', $requestId)->first();
@@ -7782,6 +8218,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Builds the print/preview data for an office DCN without saving.
+     */
     private static function previewDcn(int $requestId): array
     {
         $dcn = DB::table('dcs_document_change_notice')->where('request_id', $requestId)->first();
@@ -7827,6 +8266,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for preview masterlist.
+     */
     private static function previewMasterlist(int $requestId): array
     {
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
@@ -7867,6 +8309,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for preview file.
+     */
     private static function previewFile(int $requestId): array
     {
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
@@ -7984,6 +8429,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Builds or formats data for format file size.
+     */
     private static function formatFileSize(int $bytes): string
     {
         if ($bytes < 1024) {
@@ -7996,6 +8444,9 @@ class RegisterQueryHelper
         return round($bytes / 1048576, 2) . ' MB';
     }
 
+    /**
+     * Helper used for preview approval.
+     */
     private static function previewApproval(int $requestId): array
     {
         $doc = DB::table('dcs_document_requests')->where('id', $requestId)->first();
@@ -8022,6 +8473,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for preview distribution.
+     */
     private static function previewDistribution(int $requestId): array
     {
         $dist = DB::table('dcs_document_distribution')->where('request_id', $requestId)->first();
@@ -8057,6 +8511,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for preview retrieval.
+     */
     private static function previewRetrieval(int $requestId): array
     {
         $ret = DB::table('dcs_document_retrieval')->where('request_id', $requestId)->first();
@@ -8085,6 +8542,15 @@ class RegisterQueryHelper
         ];
     }
 
+    // =====================================================================
+    // SECTION: LIVE VALIDATION — checkDocNo / checkRevNo / checkSyllabiContext / checkDrfNo
+    // =====================================================================
+    
+    /**
+     * Checks whether a document number is free or conflicts with existing docs.
+     *
+     * DEBUG: doc-no validation wrong → DocumentNumberSeriesHelper + this.
+     */
     public static function checkDocNo(Request $request)
     {
         $docNo = trim((string) $request->input('doc_no'));
@@ -8683,6 +9149,15 @@ class RegisterQueryHelper
         ];
     }
 
+    // =====================================================================
+    // SECTION: EDIT / RECUR PREFILL — editPayload + previous documents
+    // =====================================================================
+    
+    /**
+     * Builds the full Edit form data for an existing registration.
+     *
+     * DEBUG: edit form empty/wrong → hydrateRequests + this payload.
+     */
     public static function editPayload(int $id): array
     {
         $docRequest = self::findDocumentRequest($id);
@@ -8982,7 +9457,6 @@ class RegisterQueryHelper
 
     /**
      * Copies this saved Recur replaced. The open registration stays out of the list.
-     *
      * @return list<array<string, mixed>>
      */
     public static function recurPreviousDocuments(?object $ml, ?object $docRequest): array
@@ -9128,7 +9602,6 @@ class RegisterQueryHelper
     /**
      * Offices marked retrieved on lower revise_no rows of the same doc family.
      * Used when editing a higher obsolete revision or starting a new revised registration.
-     *
      * @return list<array{office_id:int,office_name:string,copies:int,retrieval_status:string}>
      */
     public static function priorRetrievedOfficesForDocNo(
@@ -9201,6 +9674,11 @@ class RegisterQueryHelper
         return array_values($byOffice);
     }
 
+    /**
+     * Fills extra fields onto rows for the UI (hydrate distribution receipt names).
+     *
+     * DEBUG: blank/missing originator or Undefined property → check here.
+     */
     private static function hydrateDistributionReceiptNames(Collection $distributionOffices): Collection
     {
         if ($distributionOffices->isEmpty() || ! Schema::hasColumn('dcs_distribution_offices', 'office_received_by')) {
@@ -9279,12 +9757,15 @@ class RegisterQueryHelper
     }
 
     /**
-     * Attach related rows in bulk.
-     * Pass $only to skip relations a screen does not render (stamp list, reports).
-     * Null loads the full graph.
+     * Attaches child rows (DRF/DCN/offices/etc.) onto request objects for the UI.
      *
+     * DEBUG: blank/missing originator or Undefined property → check here.
      * @param  list<string>|null  $only
      */
+    // =====================================================================
+    // SECTION: HYDRATE — attach child rows for list/show (requests & masterlists)
+    // =====================================================================
+    
     public static function hydrateRequests(Collection $docs, ?array $only = null): Collection
     {
         if ($docs->isEmpty()) {
@@ -9467,6 +9948,11 @@ class RegisterQueryHelper
         return $docs;
     }
 
+    /**
+     * Attaches related data onto masterlist objects for the UI.
+     *
+     * DEBUG: blank/missing originator or Undefined property → check here.
+     */
     public static function hydrateMasterlists(Collection $records, ?array $only = null): Collection
     {
         if ($records->isEmpty()) {
@@ -9515,7 +10001,9 @@ class RegisterQueryHelper
         return $records;
     }
 
-    /** JSON-shaped catalog matching the Register Alpine/UI keys. */
+    /**
+     * Helper used for js catalog.
+     */
     public static function jsCatalog(): array
     {
         static $cache = null;
@@ -9720,6 +10208,9 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Helper used for check drf no.
+     */
     public static function checkDrfNo(Request $request): array
     {
         $drfNo = RegisterPersistHelper::normalizeDrfNo($request->input('drf_no'));

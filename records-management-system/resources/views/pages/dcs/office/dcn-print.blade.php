@@ -1,4 +1,9 @@
 {{--
+  DCS PAGE: Office print DCN
+  FILE: resources/views/pages/dcs/office/dcn-print.blade.php
+  DEBUG: officeMayPrintIntake
+--}}
+{{--
 DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, comma-separated, at the form's normal size.
 --}}
 <!DOCTYPE html>

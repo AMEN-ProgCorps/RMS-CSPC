@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Register partial (scan-name-preview.blade.php)
+  FILE: resources/views/pages/dcs/register/partials/scan-name-preview.blade.php
+  DEBUG: RegisterPersistHelper / RegisterQueryHelper; register.css
+--}}
+{{--
 DCS file: Preview of the scan filename the register form will store.
 --}}
 {{-- Shared styles for scan filename convention preview (also in register.css / edit.css). --}}

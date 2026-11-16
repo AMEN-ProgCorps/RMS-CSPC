@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: DCS dashboard page interactions
+ * FILE: resources/js/dcs/dashboard-page.js
+ * DEBUG: dashboard.css / RegisterQueryHelper dashboard payloads
+ */
+
 /** DCS dashboard Alpine components (clock, search, calendar, admin attention). */
 (() => {
     const register = () => {

@@ -12,6 +12,17 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
+/**
+ * DCS (and shared) document file storage — local private disk and/or Google Drive.
+ *
+ * Scan categories: DCS_CATEGORIES. Paths written by RegisterPersistHelper::storeDcsScanUpload.
+ *
+ * DEBUG MAP:
+ *   Scan saved but not viewable       → store path + signed URL / view-document route
+ *   Drive folder missing              → driveFolderIds / office folder create
+ *   Checksum/size empty after upload  → lastScanMetaByPath populated in storeDcsScan*
+ *   Legacy public/scans leftover      → artisan dcs:migrate-legacy-scans
+ */
 class DocumentStorageService
 {
     /** @var array<string, string> */
@@ -24,7 +35,9 @@ class DocumentStorageService
      */
     private static array $lastScanMetaByPath = [];
 
-    /** Local disk ({@see config/filesystems.php}) is rooted at storage/app/private — cache lives under uploads/. */
+    /**
+     * Helper used for local uploads path.
+     */
     public static function localUploadsPath(string $relativePath): string
     {
         return 'uploads/' . ltrim(str_replace(['\\'], '/', $relativePath), '/');
@@ -82,7 +95,9 @@ class DocumentStorageService
         'logbooks' => 'LOGBOOKS',
     ];
 
-    /** Static DCC folders created on preload / first write (no year or office nesting). */
+    /**
+     * Helper used for dcc static folders.
+     */
     public static function dccStaticFolders(): array
     {
         $folders = [
@@ -113,7 +128,9 @@ class DocumentStorageService
         return $folders;
     }
 
-    /** Canonical lifecycle leaf token written to Drive. */
+    /**
+     * Parses or normalizes values used by normalize lifecycle.
+     */
     public static function normalizeLifecycle(mixed $lifecycle, ?bool $latestAlias = null): string
     {
         $raw = strtolower(trim((string) $lifecycle));
@@ -131,6 +148,9 @@ class DocumentStorageService
         return $latestAlias ? 'latest' : 'obsolete';
     }
 
+    /**
+     * Helper used for lifecycle from revision status.
+     */
     public static function lifecycleFromRevisionStatus(?string $status): string
     {
         $status = strtolower(trim((string) $status));
@@ -147,6 +167,9 @@ class DocumentStorageService
         return 'latest';
     }
 
+    /**
+     * Helper used for docinfo lifecycle leaf token.
+     */
     public static function docinfoLifecycleLeafToken(string $lifecycle, string $prefix): string
     {
         $lifecycle = self::normalizeLifecycle($lifecycle);
@@ -159,7 +182,9 @@ class DocumentStorageService
         return "{$token}_{$prefix}_DOCINFO_ECOPY";
     }
 
-    /** True if path already sits under the write-canonical leaf for this lifecycle (OBSELETE counts as obsolete source only). */
+    /**
+     * Helper used for path matches lifecycle.
+     */
     public static function pathMatchesLifecycle(?string $path, string $lifecycle): bool
     {
         $path = ltrim(str_replace(['\\'], '/', (string) $path), '/');
@@ -182,6 +207,9 @@ class DocumentStorageService
         };
     }
 
+    /**
+     * Helper used for infer form scan lifecycle from path.
+     */
     public static function inferFormScanLifecycleFromPath(?string $path): string
     {
         $path = ltrim(str_replace(['\\'], '/', (string) $path), '/');
@@ -195,11 +223,17 @@ class DocumentStorageService
         return 'latest';
     }
 
+    /**
+     * Tells whether is legacy obsolete leaf — used for access and UI decisions.
+     */
     public static function isLegacyObsoleteLeaf(?string $path): bool
     {
         return (bool) preg_match('#/OBSELETE_[^/]+_DOCINFO_ECOPY/#', ltrim(str_replace(['\\'], '/', (string) $path), '/'));
     }
 
+    /**
+     * Tells whether is dcc storage path — used for access and UI decisions.
+     */
     public static function isDccStoragePath(?string $path): bool
     {
         $path = ltrim(str_replace(['\\'], '/', (string) $path), '/');
@@ -207,6 +241,9 @@ class DocumentStorageService
         return (bool) preg_match('#^DCS/DCC_#i', $path);
     }
 
+    /**
+     * Helper used for dcc group key from doc type id.
+     */
     public static function dccGroupKeyFromDocTypeId(mixed $docTypeId): string
     {
         $id = (int) $docTypeId;
@@ -242,6 +279,9 @@ class DocumentStorageService
         return 'internal_docs';
     }
 
+    /**
+     * Parses or normalizes values used by normalize dcc group key.
+     */
     public static function normalizeDccGroupKey(?string $group): string
     {
         $group = strtolower(trim((string) $group));
@@ -261,6 +301,9 @@ class DocumentStorageService
         return $aliases[$group] ?? (isset(self::DCC_DOCINFO_GROUPS[$group]) ? $group : '');
     }
 
+    /**
+     * Helper used for dcc folder label.
+     */
     public static function dccFolderLabel(?string $name, string $fallback): string
     {
         $name = trim(preg_replace('/[\/\\\\]+/', ' ', (string) $name) ?? '');
@@ -269,6 +312,9 @@ class DocumentStorageService
         return $name !== '' ? $name : $fallback;
     }
 
+    /**
+     * Helper used for dcc year from value.
+     */
     public static function dccYearFromValue(mixed $value): string
     {
         $raw = trim((string) $value);
@@ -283,16 +329,8 @@ class DocumentStorageService
     }
 
     /**
+     * Builds or formats data for build dcc relative path.
      * @param  array{
-     *     group?: string,
-     *     latest?: bool,
-     *     lifecycle?: string,
-     *     year?: int|string,
-     *     date?: string,
-     *     cluster?: string,
-     *     office_name?: string,
-     *     kind?: string
-     * }  $context
      */
     public static function buildDccRelativePath(string $category, string $filename, array $context = []): string
     {
@@ -367,7 +405,9 @@ class DocumentStorageService
         return "{$root}/{$yearFolder}/{$filename}";
     }
 
-    /** @return array{group: string, latest: bool, lifecycle: string, cluster: string, office_name: string} */
+    /**
+     * Helper used for infer dcc context from path.
+     */
     public static function inferDccContextFromPath(?string $path): array
     {
         $defaults = [
@@ -412,6 +452,9 @@ class DocumentStorageService
         return $defaults;
     }
 
+    /**
+     * Helper used for ensure dcc skeleton.
+     */
     public static function ensureDccSkeleton(): void
     {
         foreach (self::dccStaticFolders() as $folder) {
@@ -452,6 +495,9 @@ class DocumentStorageService
         }
     }
 
+    /**
+     * Helper used for ensure dcs directory.
+     */
     public static function ensureDcsDirectory(string $relativeDir): void
     {
         $relativeDir = trim(str_replace('\\', '/', $relativeDir), '/');
@@ -546,6 +592,9 @@ class DocumentStorageService
         }
     }
 
+    /**
+     * Helper used for google drive adapter.
+     */
     private static function googleDriveAdapter(): ?\Masbug\Flysystem\GoogleDriveAdapter
     {
         try {
@@ -557,6 +606,9 @@ class DocumentStorageService
         return $adapter instanceof \Masbug\Flysystem\GoogleDriveAdapter ? $adapter : null;
     }
 
+    /**
+     * Loads or finds data for find drive child folder id.
+     */
     private static function findDriveChildFolderId(object $service, string $parentId, string $name): ?string
     {
         $escapedParent = str_replace("'", "\\'", $parentId);
@@ -586,6 +638,9 @@ class DocumentStorageService
         return null;
     }
 
+    /**
+     * Helper used for ensure random check inventory folders.
+     */
     public static function ensureRandomCheckInventoryFolders(?string $cluster, ?string $officeName): void
     {
         $cluster = self::dccFolderLabel($cluster, 'UNASSIGNED CLUSTER');
@@ -593,12 +648,18 @@ class DocumentStorageService
         self::ensureDcsDirectory("DCS/DCC_RANDOM_CHECKING/INVENTORY_RANDOM_CHECKING/{$cluster}/{$officeName}");
     }
 
+    /**
+     * Helper used for ensure random check result year.
+     */
     public static function ensureRandomCheckResultYear(mixed $year): void
     {
         $year = self::dccYearFromValue($year);
         self::ensureDcsDirectory("DCS/DCC_RANDOM_CHECKING/RESULT_RANDOM_CHECKING/{$year}_RESULT_RANDOM_CHECKING");
     }
 
+    /**
+     * Helper used for move dcs file.
+     */
     public static function moveDcsFile(string $from, string $to): string
     {
         $from = ltrim(str_replace(['\\'], '/', $from), '/');
@@ -638,6 +699,7 @@ class DocumentStorageService
     }
 
     /**
+     * Helper used for relocate docinfo to lifecycle.
      * @param  array<string, mixed>  $context
      */
     public static function relocateDocinfoToLifecycle(?string $relativePath, string $lifecycle, array $context = []): ?string
@@ -678,6 +740,7 @@ class DocumentStorageService
     }
 
     /**
+     * Helper used for relocate docinfo to obsolete.
      * @param  array<string, mixed>  $context
      */
     public static function relocateDocinfoToObsolete(?string $relativePath, array $context = []): ?string
@@ -747,6 +810,8 @@ class DocumentStorageService
 
     /**
      * Move DRF / DCN / D&R scans for a request into year/SUPERSEDED or year/OBSOLETE (latest → bare year).
+     *
+     * DEBUG: missing/wrong scan file path → check upload/naming here.
      */
     public static function moveLinkedFormScansForRequest(int $requestId, string $lifecycle): void
     {
@@ -803,6 +868,7 @@ class DocumentStorageService
     }
 
     /**
+     * Helper used for move obsolete docinfo files for family.
      * @param  list<string>  $familyNos
      * @param  list<int>  $requestIds
      */
@@ -823,7 +889,9 @@ class DocumentStorageService
         }
     }
 
-    /** @return array{cluster: string, office_name: string} */
+    /**
+     * Helper used for source cluster office for masterlist.
+     */
     public static function sourceClusterOfficeForMasterlist(int $masterlistId): array
     {
         $empty = ['cluster' => '', 'office_name' => ''];
@@ -866,6 +934,8 @@ class DocumentStorageService
     /**
      * Move a saved masterlist scan into the folder for its current source unit.
      * Logbooks and Forms use {cluster}/{office}. An empty source stays under Unassigned.
+     *
+     * DEBUG: missing/wrong scan file path → check upload/naming here.
      */
     public static function relocateMasterlistScanToSource(int $masterlistId): ?string
     {
@@ -924,7 +994,9 @@ class DocumentStorageService
         return $moved;
     }
 
-    /** @return array{cluster: string, office_name: string} */
+    /**
+     * Helper used for source cluster office for office id.
+     */
     public static function sourceClusterOfficeForOfficeId(int $officeId): array
     {
         $empty = ['cluster' => '', 'office_name' => ''];
@@ -961,6 +1033,7 @@ class DocumentStorageService
     /**
      * Store an uploaded file organized by Office and Subsystem (DTS or RDP).
      *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
      * @param UploadedFile|string|resource $file
      * @param string $subsystem 'DTS' or 'RDP'
      * @param User|null $user
@@ -1079,7 +1152,6 @@ class DocumentStorageService
 
     /**
      * Delete/Purge a document from Google Drive, Local Storage cache, and sys_document_data database.
-     *
      * @param string|null $relativePath Relative storage path e.g. "DEV/DTS/DOC-1234_filename.pdf"
      */
     public static function deleteDocument(?string $relativePath): void
@@ -1194,7 +1266,7 @@ class DocumentStorageService
     }
 
     /**
-     * Resolve the office code for a user.
+     * Parses or normalizes values used by resolve office code.
      */
     public static function resolveOfficeCode(?User $user = null): string
     {
@@ -1419,6 +1491,11 @@ class DocumentStorageService
         return null;
     }
 
+    /**
+     * Tells whether is legacy public scan path — used for access and UI decisions.
+     *
+     * DEBUG: missing/wrong scan file path → check upload/naming here.
+     */
     public static function isLegacyPublicScanPath(?string $path): bool
     {
         if (! is_string($path) || trim($path) === '') {
@@ -1433,6 +1510,7 @@ class DocumentStorageService
     /**
      * Store a DCS scanned PDF under the DCC_* Drive tree (+ local cache).
      *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
      * @param  array<string, mixed>  $dccContext
      */
     public static function storeDcsScan(
@@ -1526,6 +1604,7 @@ class DocumentStorageService
     }
 
     /**
+     * Helper used for consume scan meta.
      * @return array{file_checksum?: string, file_checksum_algo?: string, file_size?: int, file_mime?: string}
      */
     public static function consumeScanMeta(?string $path): array
@@ -1543,6 +1622,7 @@ class DocumentStorageService
     /**
      * Re-hash a stored DCS scan and compare to the expected checksum.
      *
+     * DEBUG: missing/wrong scan file path → check upload/naming here.
      * @return array{ok: bool, match: bool|null, checksum: string|null, stored: string|null, message: string}
      */
     public static function verifyScanChecksum(?string $relativePath, ?string $expectedChecksum, string $algo = 'sha256'): array
@@ -1629,6 +1709,8 @@ class DocumentStorageService
 
     /**
      * Keep Y-m-d, form tokens (incl. D&R), underscores; strip path separators / unsafe chars.
+     *
+     * DEBUG: missing/wrong scan file path → check upload/naming here.
      */
     public static function sanitizeDcsScanBasename(string $basename): string
     {
@@ -1643,6 +1725,8 @@ class DocumentStorageService
     /**
      * Rename an existing DCS scan file to a new convention basename (same folder + extension).
      * Returns the new relative path, or the original path if rename is skipped/fails.
+     *
+     * DEBUG: missing/wrong scan file path → check upload/naming here.
      */
     public static function renameDcsScanToBasename(?string $relativePath, string $conventionBasename): ?string
     {
@@ -1722,6 +1806,9 @@ class DocumentStorageService
         return $newRelative;
     }
 
+    /**
+     * Helper used for remember document data path.
+     */
     private static function rememberDocumentDataPath(string $from, string $to): void
     {
         if ($from === '' || $to === '' || $from === $to || ! Schema::hasTable('sys_document_data')) {
@@ -1764,6 +1851,9 @@ class DocumentStorageService
         }
     }
 
+    /**
+     * Helper used for google exists safe.
+     */
     protected static function googleExistsSafe(string $relativePath): bool
     {
         try {
@@ -1775,6 +1865,8 @@ class DocumentStorageService
 
     /**
      * Write a file to dcs/{OFFICE}/... on local cache + Google Drive (no document_data row).
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
      */
     public static function storeDcsFileAtPath(
         string $relativePath,
@@ -1819,6 +1911,8 @@ class DocumentStorageService
 
     /**
      * Move a legacy public/scans/... file to Google Drive and return the new path.
+     *
+     * DEBUG: missing/wrong scan file path → check upload/naming here.
      */
     public static function migrateLegacyScanToDrive(
         string $legacyPath,
@@ -1869,6 +1963,9 @@ class DocumentStorageService
         return $relativePath;
     }
 
+    /**
+     * Helper used for dcs file mime type.
+     */
     public static function dcsFileMimeType(string $path): string
     {
         return match (strtolower(pathinfo($path, PATHINFO_EXTENSION))) {
@@ -1881,6 +1978,9 @@ class DocumentStorageService
         };
     }
 
+    /**
+     * Helper used for dcs document id from path.
+     */
     public static function dcsDocumentIdFromPath(?string $relativePath): ?string
     {
         if (! is_string($relativePath) || trim($relativePath) === '') {
@@ -1894,6 +1994,7 @@ class DocumentStorageService
      * Scan path fields for DCS registration inserts/updates.
      * Masterlist rows also pick up checksum/size/mime from the just-stored upload.
      *
+     * DEBUG: missing/wrong scan file path → check upload/naming here.
      * @return array<string, mixed>
      */
     public static function dcsScanFields(string $table, string $pathColumn, ?string $path): array
@@ -1917,6 +2018,9 @@ class DocumentStorageService
         return $fields;
     }
 
+    /**
+     * Helper used for extract dcs document id.
+     */
     protected static function extractDcsDocumentId(string $relativePath): string
     {
         $base = basename($relativePath);
@@ -1928,6 +2032,7 @@ class DocumentStorageService
     }
 
     /**
+     * Helper used for collect dcs scan entries.
      * @return \Illuminate\Support\Collection<int, object>
      */
     public static function collectDcsScanEntries(): \Illuminate\Support\Collection
@@ -1968,7 +2073,6 @@ class DocumentStorageService
 
     /**
      * Scan files grouped by document request (registration bundle).
-     *
      * @return \Illuminate\Support\Collection<int, object>
      */
     public static function collectDcsRequestFileGroups(): \Illuminate\Support\Collection
@@ -2087,8 +2191,7 @@ class DocumentStorageService
     }
 
     /**
-     * Saved generated reports (PDF/CSV exports).
-     *
+     * Helper used for collect dcs generated report entries.
      * @return \Illuminate\Support\Collection<int, object>
      */
     public static function collectDcsGeneratedReportEntries(): \Illuminate\Support\Collection
@@ -2145,6 +2248,7 @@ class DocumentStorageService
      * Archive a generated DCS report to Google Drive + history table.
      * Identical exports (same office + fingerprint) reuse the existing Manage Files entry.
      *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
      * @param  array<string, mixed>  $meta
      * @return array{id: int, report_token: string, file_path: string, file_name: string, reused?: bool}|null
      */
@@ -2251,6 +2355,9 @@ class DocumentStorageService
     }
 
     /**
+     * Saves data for store generated report filters.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
      * @param  array<string, mixed>  $filters
      */
     private static function storeGeneratedReportFilters(int $reportId, array $filters): void
@@ -2272,6 +2379,7 @@ class DocumentStorageService
     }
 
     /**
+     * Helper used for flatten scalar rows.
      * @param  array<string, mixed>  $payload
      * @param  list<array{key: string, sort: int, value: string}>  $rows
      */
@@ -2311,6 +2419,7 @@ class DocumentStorageService
     /**
      * Stable identity for an export so re-generates can reuse Manage Files storage.
      *
+     * DEBUG: print locked/unlocked wrongly → check rfio_print_notified_at logic here.
      * @param  array<string, mixed>  $meta
      */
     public static function generatedReportFingerprint(string $fileContent, string $format, array $meta): string
@@ -2337,6 +2446,9 @@ class DocumentStorageService
         ]));
     }
 
+    /**
+     * Parses or normalizes values used by normalize fingerprint value.
+     */
     private static function normalizeFingerprintValue(mixed $value): mixed
     {
         if (! is_array($value)) {
@@ -2356,6 +2468,9 @@ class DocumentStorageService
     }
 
     /**
+     * Protected helper: collect dcs scan rows.
+     *
+     * DEBUG: missing/wrong scan file path → check upload/naming here.
      * @return \Illuminate\Support\LazyCollection<int, object>
      */
     protected static function collectDcsScanRows(): \Illuminate\Support\LazyCollection
@@ -2416,6 +2531,9 @@ class DocumentStorageService
         });
     }
 
+    /**
+     * Helper used for dcs path file size.
+     */
     public static function dcsPathFileSize(string $path): int
     {
         $path = ltrim(str_replace('\\', '/', $path), '/');
@@ -2439,6 +2557,9 @@ class DocumentStorageService
         return 0;
     }
 
+    /**
+     * Helper used for sum dcs bytes for office.
+     */
     public static function sumDcsBytesForOffice(string $officeCode): int
     {
         $officeCode = strtoupper(trim($officeCode));
@@ -2457,6 +2578,9 @@ class DocumentStorageService
         return $total;
     }
 
+    /**
+     * Parses or normalizes values used by normalize dcs category.
+     */
     public static function normalizeDcsCategory(string $category): string
     {
         $category = strtolower(trim(str_replace('\\', '/', $category)));
@@ -2509,6 +2633,9 @@ class DocumentStorageService
         return in_array($category, self::DCS_CATEGORIES, true) ? $category : 'masterlist';
     }
 
+    /**
+     * Parses or normalizes values used by resolve dcs category from path.
+     */
     public static function resolveDcsCategoryFromPath(?string $path): string
     {
         if (! is_string($path) || trim($path) === '') {
@@ -2574,6 +2701,9 @@ class DocumentStorageService
         Storage::disk($disk)->writeStream($targetPath, $stream);
     }
 
+    /**
+     * Helper used for ensure dcs category folder.
+     */
     protected static function ensureDcsCategoryFolder(string $officeName, string $category): void
     {
         $category = self::normalizeDcsCategory($category);
@@ -2592,6 +2722,9 @@ class DocumentStorageService
         }
     }
 
+    /**
+     * Helper used for ensure dcs path directory.
+     */
     protected static function ensureDcsPathDirectory(string $relativePath): void
     {
         $dir = dirname(str_replace('\\', '/', $relativePath));
@@ -2612,6 +2745,9 @@ class DocumentStorageService
         }
     }
 
+    /**
+     * Parses or normalizes values used by normalize dcs scan path.
+     */
     public static function normalizeDcsScanPath(?string $path): ?string
     {
         if (! is_string($path) || trim($path) === '') {
@@ -2626,7 +2762,9 @@ class DocumentStorageService
         return $path;
     }
 
-    /** Resolve a stored scan path to its DCS document request id, if known. */
+    /**
+     * Parses or normalizes values used by resolve request id for scan path.
+     */
     public static function resolveRequestIdForScanPath(string $path): ?int
     {
         $path = self::normalizeDcsScanPath($path);
@@ -2672,6 +2810,11 @@ class DocumentStorageService
         return null;
     }
 
+    /**
+     * Load/lookup: get dcs scan content.
+     *
+     * DEBUG: missing/wrong scan file path → check upload/naming here.
+     */
     public static function getDcsScanContent(?string $path): ?string
     {
         $path = self::normalizeDcsScanPath($path);
@@ -2688,6 +2831,9 @@ class DocumentStorageService
         return self::getFileContent($path, true);
     }
 
+    /**
+     * Helper used for dcs scan exists.
+     */
     public static function dcsScanExists(?string $path): bool
     {
         $path = self::normalizeDcsScanPath($path);
@@ -2713,6 +2859,9 @@ class DocumentStorageService
         return $cache[$path] = Storage::disk('google')->exists($path);
     }
 
+    /**
+     * Helper used for dcs download filename.
+     */
     public static function dcsDownloadFilename(?string $requested, string $path): string
     {
         $candidate = basename(str_replace('\\', '/', (string) $requested));
@@ -2731,6 +2880,9 @@ class DocumentStorageService
         return $candidate;
     }
 
+    /**
+     * Helper used for dcs inline disposition.
+     */
     public static function dcsInlineDisposition(string $filename): string
     {
         $ascii = preg_replace('/[^\x20-\x7E]/', '_', $filename) ?: 'document.pdf';
@@ -2738,6 +2890,9 @@ class DocumentStorageService
         return 'inline; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($filename);
     }
 
+    /**
+     * Helper used for dcs scan url.
+     */
     public static function dcsScanUrl(?string $path, int $ttlMinutes = 60, bool $verifyExists = true): ?string
     {
         $normalized = self::normalizeDcsScanPath($path);
@@ -2761,7 +2916,9 @@ class DocumentStorageService
         );
     }
 
-    /** Legacy public/scans/ or {OFFICE}/DCS/{category}/... paths belong to DCS. */
+    /**
+     * Tells whether is dcs storage path — used for access and UI decisions.
+     */
     public static function isDcsStoragePath(?string $path): bool
     {
         $path = self::normalizeDcsScanPath($path);
@@ -2780,6 +2937,9 @@ class DocumentStorageService
         return (bool) preg_match('#(^|/)dcs/#i', $path);
     }
 
+    /**
+     * Helper used for duplicate dcs scan.
+     */
     public static function duplicateDcsScan(string $sourcePath, ?User $user = null): ?string
     {
         $content = self::getDcsScanContent($sourcePath);
@@ -2803,7 +2963,9 @@ class DocumentStorageService
         );
     }
 
-    /** True when any registration still stores this scan path. */
+    /**
+     * Helper used for scan path is referenced.
+     */
     public static function scanPathIsReferenced(string $path): bool
     {
         $path = ltrim(str_replace(['\\', '../', '..\\'], '/', $path), '/');
@@ -2830,6 +2992,11 @@ class DocumentStorageService
         return false;
     }
 
+    /**
+     * Removes or clears data for delete dcs scan.
+     *
+     * DEBUG: missing/wrong scan file path → check upload/naming here.
+     */
     public static function deleteDcsScan(?string $path): void
     {
         if (! is_string($path) || trim($path) === '') {

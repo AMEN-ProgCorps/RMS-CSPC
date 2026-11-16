@@ -8,12 +8,24 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Throwable;
 
+/**
+ * Persists auto-captured and user-reported errors into sys_error_tickets.
+ *
+ * DEBUG MAP:
+ *   Ticket not created after crash     → recordAuto(); check Schema::hasTable(sys_error_tickets)
+ *   Duplicate tickets flooding         → fingerprint() + DEDUPE_HOURS; consolidateHistoricalDuplicates()
+ *   Wrong subsystem on ticket          → detectSubsystem($url)
+ *   Circuit-breaker / muted errors     → getActiveGuards(); clearGuardsCache() after status change
+ *   Slow-internet notices vs real 500  → isSlowInternet()
+ *
+ * Callers: App exception handler / rms-error.js → recordAuto; Admin Tickets UI → recordUser.
+ */
 class ErrorTicketRecorder
 {
     private const DEDUPE_HOURS = 6;
 
     /**
-     * Persist an auto-captured server error. Never throws to the caller.
+     * Creates or bumps an auto-captured server error ticket.
      */
     public static function recordAuto(array $payload): ?ErrorTicket
     {
@@ -89,9 +101,7 @@ class ErrorTicketRecorder
     }
 
     /**
-     * Persist a user-submitted problem report.
-     * Merges with existing auto tickets into 'user_auto' (User Added | Auto) when matched.
-     *
+     * Creates a user-submitted error ticket (may merge with an auto ticket).
      * @throws \Illuminate\Validation\ValidationException|\RuntimeException
      */
     public static function recordUser(array $payload): ErrorTicket
@@ -224,6 +234,9 @@ class ErrorTicketRecorder
         ]);
     }
 
+    /**
+     * Tells whether is slow internet — used for access and UI decisions.
+     */
     public static function isSlowInternet(array $payload): bool
     {
         $title = strtolower((string) ($payload['title'] ?? ''));
@@ -250,6 +263,9 @@ class ErrorTicketRecorder
         return false;
     }
 
+    /**
+     * Helper used for detect subsystem.
+     */
     public static function detectSubsystem(?string $url): ?string
     {
         if (! is_string($url) || $url === '') {
@@ -270,6 +286,9 @@ class ErrorTicketRecorder
         };
     }
 
+    /**
+     * Helper used for bump.
+     */
     private static function bump(ErrorTicket $ticket, array $payload, bool $isAuto = false): ErrorTicket
     {
         $ticket->occurrence_count = (int) $ticket->occurrence_count + 1;
@@ -313,11 +332,17 @@ class ErrorTicketRecorder
         return $ticket;
     }
 
+    /**
+     * Helper used for fingerprint.
+     */
     private static function fingerprint(string $class, string $file, int $line, string $message): string
     {
         return hash('sha256', strtolower($class).'|'.strtolower($file).'|'.$line.'|'.md5(strtolower(trim($message))));
     }
 
+    /**
+     * Removes or clears data for clear guards cache.
+     */
     public static function clearGuardsCache(): void
     {
         try {
@@ -329,6 +354,8 @@ class ErrorTicketRecorder
     /**
      * Consolidate historical open/in-progress tickets for the same page/fingerprint into unified threads.
      * Preserves total occurrences, updates last_seen_at, and retains historical reference codes.
+     *
+     * DEBUG: blocked as duplicate or duplicate slipped through → check here.
      */
     public static function consolidateHistoricalDuplicates(): int
     {
@@ -403,6 +430,9 @@ class ErrorTicketRecorder
         }
     }
 
+    /**
+     * Loads or finds data for get active guards.
+     */
     public static function getActiveGuards(): array
     {
         try {
@@ -470,11 +500,17 @@ class ErrorTicketRecorder
         }
     }
 
+    /**
+     * Helper used for next ticket number.
+     */
     private static function nextTicketNumber(string $prefix): string
     {
         return strtoupper($prefix).'-'.strtoupper(Str::random(6));
     }
 
+    /**
+     * Helper used for priority from status.
+     */
     private static function priorityFromStatus(int $status): string
     {
         if ($status >= 500) {

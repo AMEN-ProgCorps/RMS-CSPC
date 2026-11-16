@@ -10,8 +10,21 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\Process\Process;
 
+/**
+ * OCR extract for Register scan uploads (fills form fields from PDF).
+ *
+ * Rate-limited + per-user lock. Uses Paddle/OCR pipeline under the hood.
+ *
+ * DEBUG MAP:
+ *   rate_limited / ocr_busy           → RateLimiterService + Cache::lock in extract()
+ *   extracted=false empty fields      → extractLocked(); OCR runner / PDF render
+ *   Wrong mapped fields               → field mapping after OCR text
+ */
 class RegisterScanService
 {
+    /**
+     * Helper used for extract.
+     */
     public static function extract(Request $request)
     {
         $rateCheck = RateLimiterService::check('dcs_ocr');
@@ -43,6 +56,9 @@ class RegisterScanService
         }
     }
 
+    /**
+     * Helper used for extract locked.
+     */
     private static function extractLocked(Request $request)
     {
         try {
@@ -159,7 +175,9 @@ class RegisterScanService
         }
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Helper used for empty fields.
+     */
     private static function emptyFields(): array
     {
         return [
@@ -177,12 +195,17 @@ class RegisterScanService
         ];
     }
 
+    /**
+     * Tells whether has parsed value — used for access and UI decisions.
+     */
     private static function hasParsedValue(array $fields): bool
     {
         return (bool) ($fields['drfNo'] || $fields['drfDate'] || $fields['drfTitle'] || $fields['sourceUnit'] || $fields['sourceOfficeId'] || ! empty($fields['sourceOffices']) || ! empty($fields['distributionOffices']));
     }
 
-    /** Extract embedded text from the first pages (pdftotext / poppler). */
+    /**
+     * Helper used for extract pdf text.
+     */
     private static function extractPdfText(string $pdfPath, int $lastPage = 2): string
     {
         $bin = self::pdftotextBinary();
@@ -269,6 +292,9 @@ class RegisterScanService
         return trim($joined);
     }
 
+    /**
+     * Helper used for pdftotext binary.
+     */
     private static function pdftotextBinary(): ?string
     {
         foreach (['/usr/bin/pdftotext', '/usr/local/bin/pdftotext', 'pdftotext'] as $bin) {
@@ -294,6 +320,7 @@ class RegisterScanService
     }
 
     /**
+     * Helper used for ocr pdf pages detailed.
      * @return array{text: string, error: ?string, diagnostics: array<string, mixed>}
      */
     private static function ocrPdfPagesDetailed(string $pdfPath, int $pageCap = 2, bool $stopWhenParsed = true): array
@@ -366,8 +393,7 @@ class RegisterScanService
     }
 
     /**
-     * Render + OCR a single DRF page with DPI fallbacks.
-     *
+     * Helper used for ocr one drf page.
      * @return array{text: string, error: ?string}
      */
     private static function ocrOneDrfPage(string $pdfPath, int $page): array
@@ -401,11 +427,17 @@ class RegisterScanService
         ];
     }
 
+    /**
+     * Helper used for ocr pdf pages.
+     */
     private static function ocrPdfPages(string $pdfPath): string
     {
         return self::ocrPdfPagesDetailed($pdfPath)['text'];
     }
 
+    /**
+     * Parses or normalizes values used by parse drf fields.
+     */
     private static function parseDrfFields(string $text): array
     {
         $text = self::normalizeOcrText($text);
@@ -439,7 +471,6 @@ class RegisterScanService
 
     /**
      * Department column of an uploaded distribution list (full office names).
-     *
      * @return array<string, mixed>
      */
     private static function parseDistributionList(string $text): array
@@ -451,7 +482,9 @@ class RegisterScanService
         return $fields;
     }
 
-    /** The DRF grid says to use the attached list instead of naming offices. */
+    /**
+     * Tells whether is attached list placeholder — used for access and UI decisions.
+     */
     private static function isAttachedListPlaceholder(string $block): bool
     {
         $compact = strtolower((string) preg_replace('/[^a-z]+/', '', $block));
@@ -467,7 +500,6 @@ class RegisterScanService
 
     /**
      * Office codes written in "Distribute document to", before Prepared by.
-     *
      * @return list<array{id: int, office_name: string, office_code: string}>
      */
     private static function officesFromDistributionCodes(string $block): array
@@ -487,7 +519,6 @@ class RegisterScanService
 
     /**
      * Read the Department column. Names may wrap onto the next line.
-     *
      * @return list<array{id: int, office_name: string, office_code: string}>
      */
     private static function matchOfficesInDistributionList(string $text): array
@@ -527,6 +558,9 @@ class RegisterScanService
         return $found;
     }
 
+    /**
+     * Tells whether is distribution noise line — used for access and UI decisions.
+     */
     private static function isDistributionNoiseLine(string $line): bool
     {
         if (! preg_match('/[a-z]/i', $line)) {
@@ -543,6 +577,7 @@ class RegisterScanService
     }
 
     /**
+     * Helper used for best office for window.
      * @param  \Illuminate\Support\Collection<int, object>  $offices
      * @param  array<int, true>  $seen
      * @return array{id: int, office_name: string, office_code: string}|null
@@ -584,6 +619,7 @@ class RegisterScanService
     }
 
     /**
+     * Helper used for office match tokens.
      * @return list<string>
      */
     private static function officeMatchTokens(string $name): array
@@ -611,6 +647,7 @@ class RegisterScanService
     }
 
     /**
+     * Helper used for office tokens match.
      * @param  list<string>  $need
      * @param  list<string>  $have
      */
@@ -636,7 +673,9 @@ class RegisterScanService
         return true;
     }
 
-    /** Fix common OCR glues: "DRF No:CSPC", "August7,2026", "Titletesting". */
+    /**
+     * Parses or normalizes values used by normalize ocr text.
+     */
     private static function normalizeOcrText(string $text): string
     {
         $text = str_replace(["\r\n", "\r"], "\n", $text);
@@ -654,6 +693,9 @@ class RegisterScanService
         return $text;
     }
 
+    /**
+     * Helper used for value for labels.
+     */
     private static function valueForLabels(array $lines, array $labels): ?string
     {
         foreach ($labels as $label) {
@@ -675,6 +717,9 @@ class RegisterScanService
         return null;
     }
 
+    /**
+     * Helper used for looks like label.
+     */
     private static function looksLikeLabel(string $line): bool
     {
         return (bool) preg_match(
@@ -686,7 +731,6 @@ class RegisterScanService
     /**
      * DRF date is the Date beside Request #, above the signature table.
      * Effectivity Date and the signature-row Date are ignored.
-     *
      * @param  list<string>  $lines
      */
     private static function formDateFromLines(array $lines): ?string
@@ -737,8 +781,7 @@ class RegisterScanService
     }
 
     /**
-     * Title is the value written on the Document Title line.
-     *
+     * Helper used for document title from lines.
      * @param  list<string>  $lines
      */
     private static function documentTitleFromLines(array $lines): ?string
@@ -785,6 +828,9 @@ class RegisterScanService
         return $fixed ?? $title;
     }
 
+    /**
+     * Helper used for correct ocr word.
+     */
     private static function correctOcrWord(string $word): string
     {
         $lower = strtolower($word);
@@ -805,7 +851,9 @@ class RegisterScanService
         return self::matchWordCase($word, (string) array_key_first($hits));
     }
 
-    /** @return list<string> */
+    /**
+     * Helper used for ocr confusion candidates.
+     */
     private static function ocrConfusionCandidates(string $word): array
     {
         $map = [
@@ -842,6 +890,9 @@ class RegisterScanService
         return array_values(array_unique($out));
     }
 
+    /**
+     * Helper used for match word case.
+     */
     private static function matchWordCase(string $original, string $fixed): string
     {
         if (strtoupper($original) === $original) {
@@ -854,6 +905,9 @@ class RegisterScanService
         return $fixed;
     }
 
+    /**
+     * Tells whether is english word — used for access and UI decisions.
+     */
     private static function isEnglishWord(string $word): bool
     {
         $word = strtolower($word);
@@ -865,7 +919,9 @@ class RegisterScanService
         return isset($dict[$word]);
     }
 
-    /** @return array<string, true> */
+    /**
+     * Helper used for english words.
+     */
     private static function englishWords(): array
     {
         static $words = null;
@@ -887,7 +943,9 @@ class RegisterScanService
         return $words;
     }
 
-    /** Offices written under "Distribute document to (department/position):". */
+    /**
+     * Helper used for distribution block.
+     */
     private static function distributionBlock(string $text): string
     {
         if (! preg_match(
@@ -904,6 +962,9 @@ class RegisterScanService
         return trim($block);
     }
 
+    /**
+     * Helper used for line has label.
+     */
     private static function lineHasLabel(string $line, string $label): bool
     {
         $compactLine = preg_replace('/[^a-z0-9]+/i', '', strtolower($line)) ?? '';
@@ -912,6 +973,9 @@ class RegisterScanService
         return $compactLabel !== '' && str_contains($compactLine, $compactLabel);
     }
 
+    /**
+     * Helper used for value after flexible label.
+     */
     private static function valueAfterFlexibleLabel(string $line, string $label): string
     {
         $pattern = preg_replace('/\s+/', '\\s*', preg_quote($label, '/')) ?? preg_quote($label, '/');
@@ -923,6 +987,9 @@ class RegisterScanService
         return trim($parts[1], " \t:-");
     }
 
+    /**
+     * Tells whether is drf field boundary — used for access and UI decisions.
+     */
     private static function isDrfFieldBoundary(string $line): bool
     {
         return (bool) preg_match(
@@ -931,6 +998,9 @@ class RegisterScanService
         );
     }
 
+    /**
+     * Helper used for cut at next drf field.
+     */
     private static function cutAtNextDrfField(string $value): string
     {
         $value = preg_replace(
@@ -942,6 +1012,9 @@ class RegisterScanService
         return trim($value, " \t:-|");
     }
 
+    /**
+     * Parses or normalizes values used by normalize date.
+     */
     private static function normalizeDate(?string $raw): ?string
     {
         if ($raw === null || trim($raw) === '') {
@@ -991,6 +1064,9 @@ class RegisterScanService
         return null;
     }
 
+    /**
+     * Helper used for expand year.
+     */
     private static function expandYear(string $year): string
     {
         if (strlen($year) === 2) {
@@ -1002,7 +1078,9 @@ class RegisterScanService
         return $year;
     }
 
-    /** First Month Day, Year in the text, including OCR spellings such as Januarv. */
+    /**
+     * Helper used for first named date.
+     */
     private static function firstNamedDate(string $raw): ?string
     {
         $year = '(\d{4}|\d{2}(?!\d))';
@@ -1058,6 +1136,9 @@ class RegisterScanService
         return null;
     }
 
+    /**
+     * Helper used for month number fuzzy.
+     */
     private static function monthNumberFuzzy(string $name): int
     {
         $exact = self::monthNumber($name);
@@ -1090,6 +1171,9 @@ class RegisterScanService
         return $bestDist <= 2 ? $best : 0;
     }
 
+    /**
+     * Helper used for month number.
+     */
     private static function monthNumber(string $name): int
     {
         $key = strtolower(rtrim($name, '.'));
@@ -1111,6 +1195,9 @@ class RegisterScanService
         return $map[$key] ?? 0;
     }
 
+    /**
+     * Builds or formats data for build date.
+     */
     private static function buildDate(int $year, int $month, int $day): ?string
     {
         if ($year < 1900 || $year > 2100 || ! checkdate($month, $day, $year)) {
@@ -1122,7 +1209,6 @@ class RegisterScanService
 
     /**
      * Resolve every source office mentioned on the scan (codes / names).
-     *
      * @param  list<string>  $lines
      * @return array{offices: list<array{id: int, office_name: string, office_code: string}>, unmatched: list<string>}
      */
@@ -1215,6 +1301,7 @@ class RegisterScanService
     }
 
     /**
+     * Helper used for match all source offices.
      * @return list<array{id: int, office_name: string, office_code: string}>
      */
     private static function matchAllSourceOffices(string $raw): array
@@ -1265,7 +1352,6 @@ class RegisterScanService
 
     /**
      * Match department names written inside the distribution block, longest name first.
-     *
      * @return list<array{id: int, office_name: string, office_code: string}>
      */
     private static function matchOfficeNamesContained(string $text): array
@@ -1299,6 +1385,7 @@ class RegisterScanService
     }
 
     /**
+     * Helper used for match all office codes in text.
      * @param  list<string>  $lines
      * @return list<array{id: int, office_name: string, office_code: string}>
      */
@@ -1342,7 +1429,9 @@ class RegisterScanService
         return $found;
     }
 
-    /** @param  list<string>  $lines */
+    /**
+     * Helper used for code is standalone line.
+     */
     private static function codeIsStandaloneLine(array $lines, string $code): bool
     {
         foreach ($lines as $line) {
@@ -1357,6 +1446,9 @@ class RegisterScanService
         return false;
     }
 
+    /**
+     * Helper used for code near source label.
+     */
     private static function codeNearSourceLabel(string $text, string $code): bool
     {
         return (bool) preg_match(
@@ -1367,6 +1459,9 @@ class RegisterScanService
         );
     }
 
+    /**
+     * Parses or normalizes values used by normalize office token.
+     */
     private static function normalizeOfficeToken(string $raw): string
     {
         $raw = strtolower(trim($raw));
@@ -1376,6 +1471,9 @@ class RegisterScanService
         return $raw;
     }
 
+    /**
+     * Helper used for active offices.
+     */
     private static function activeOffices()
     {
         return self::officesForScanMatch()
@@ -1383,6 +1481,9 @@ class RegisterScanService
             ->values();
     }
 
+    /**
+     * Helper used for office is active.
+     */
     private static function officeIsActive(object $office): bool
     {
         $raw = $office->is_active ?? false;
@@ -1397,7 +1498,9 @@ class RegisterScanService
         return in_array($s, ['1', 'true', 't', 'yes', 'y'], true);
     }
 
-    /** Office catalog used for DRF scan matching. */
+    /**
+     * Helper used for offices for scan match.
+     */
     private static function officesForScanMatch()
     {
         static $cache = null;
@@ -1412,6 +1515,7 @@ class RegisterScanService
     }
 
     /**
+     * Helper used for office payload.
      * @param  object{id: mixed, office_name: mixed, office_code: mixed}  $office
      * @return array{id: int, office_name: string, office_code: string}
      */

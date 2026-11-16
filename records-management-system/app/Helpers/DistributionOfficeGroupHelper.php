@@ -12,15 +12,31 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 
+/**
+ * Named sets of distribution offices saved from the Register form toolbar.
+ *
+ * Tables: dcs_distribution_office_groups + dcs_distribution_office_group_items
+ * UI: register/partials/dist-office-*
+ *
+ * DEBUG MAP:
+ *   Saved groups empty in picker      → tablesReady(), listForCatalog()
+ *   Group apply wrong offices/copies  → items join on office_id; check inactive offices filter
+ *   Save/delete fails                 → Schema tables + Auth on mutating methods
+ */
 class DistributionOfficeGroupHelper
 {
+    /**
+     * Helper used for tables ready.
+     */
     public static function tablesReady(): bool
     {
         return Schema::hasTable('dcs_distribution_office_groups')
             && Schema::hasTable('dcs_distribution_office_group_items');
     }
 
-    /** @return list<array{id:int,name:string,offices:list<array{office_id:int,office_name:string,copies:int}>}> */
+    /**
+     * Lists or paginates data for list for catalog.
+     */
     public static function listForCatalog(): array
     {
         if (! self::tablesReady()) {
@@ -71,7 +87,11 @@ class DistributionOfficeGroupHelper
         })->values()->all();
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Saves data for store.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     public static function store(Request $request): array
     {
         if (! self::tablesReady()) {
@@ -153,7 +173,11 @@ class DistributionOfficeGroupHelper
         ];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Soft-deletes a registration into the Recycle Bin.
+     *
+     * DEBUG: deleted doc not in bin → supportsSoftDelete + recycleBinList.
+     */
     public static function destroy(int $id): array
     {
         if (! self::tablesReady()) {

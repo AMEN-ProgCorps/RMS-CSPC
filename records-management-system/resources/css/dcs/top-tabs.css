@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: DCS top tab bar
+ * FILE: resources/css/dcs/top-tabs.css
+ * DEBUG: Prefer [data-theme="dark"] rules in dark.css for theme bugs; page-specific FOUC/layout here.
+ */
+
 /* DCS file: DCS section tabs. */
 /* Top Navigation Tabs host for DCS (mirrors DTS/RDP enable_top_tabs preference). */
 

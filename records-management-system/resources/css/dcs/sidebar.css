@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: DCS sidebar nav
+ * FILE: resources/css/dcs/sidebar.css
+ * DEBUG: Prefer [data-theme="dark"] rules in dark.css for theme bugs; page-specific FOUC/layout here.
+ */
+
 /* DCS file: DCS sidebar navigation. */
 /* sidebar.css */
 * {

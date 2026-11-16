@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Recycle Bin
+  FILE: resources/views/pages/dcs/recycle-bin/index.blade.php
+  DEBUG: RegisterUpdateHelper destroy/restore; RegisterQueryHelper::recycleBinList
+--}}
 <?php
 
 /**

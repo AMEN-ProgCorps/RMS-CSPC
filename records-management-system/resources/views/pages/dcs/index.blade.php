@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: DCS dashboard home
+  FILE: resources/views/pages/dcs/index.blade.php
+  DEBUG: RegisterQueryHelper dashboard helpers; DcsNotificationService
+--}}
 <?php
 
 /**

@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Stamping UI
+  FILE: resources/views/pages/dcs/stamping/index.blade.php
+  DEBUG: StampService; StampBackupService
+--}}
 <?php
 
 /**

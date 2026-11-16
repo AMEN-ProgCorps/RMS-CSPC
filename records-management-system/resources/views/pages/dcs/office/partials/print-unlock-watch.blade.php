@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (print-unlock-watch.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/print-unlock-watch.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Polls dcs.api.office-intake.print-ready and replaces the locked Print control.
 Pauses while the tab is hidden. The route must stay on EnforceDcsIntakeAllowlist.
 --}}

@@ -1,7 +1,12 @@
 <?php
 
 /**
- * DCS file: Blocks a DCS screen when the account's module permission does not include it.
+ * Per-module DCS gate (route middleware parameter = module key, e.g. register, update).
+ *
+ * Uses RegisterQueryHelper::canAccessDcsModule($module). Failures are logged with
+ * RegisterPersistHelper::logDcsBlockedAccess() then 403 / redirect to dcs dashboard.
+ *
+ * DEBUG: user reaches DCS home but not a subpage → check role module flags + this middleware param.
  */
 
 namespace App\Http\Middleware;
@@ -14,6 +19,9 @@ use Symfony\Component\HttpFoundation\Response;
 
 class RequireDcsModule
 {
+    /**
+     * Allows the request only when the user’s role has the required DCS module permission (e.g. register, review).
+     */
     public function handle(Request $request, Closure $next, string $module): Response
     {
         if (RegisterQueryHelper::canAccessDcsModule($module)) {
@@ -31,6 +39,11 @@ class RequireDcsModule
             ->with('error', 'You do not have clearance for that Document Control System page.');
     }
 
+    /**
+     * Tells whether the client wants a JSON error instead of an HTML redirect.
+     *
+     * DEBUG: browser got a redirect JSON error page → this returned false; API got HTML → true path wrong.
+     */
     private function expectsJsonResponse(Request $request): bool
     {
         if ($request->expectsJson() || $request->ajax() || $request->wantsJson()) {

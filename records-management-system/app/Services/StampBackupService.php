@@ -6,35 +6,55 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Manages unstamped PDF backups used when applying document stamps.
- * When a scanned file is replaced in edit, backups and stamp records must reset.
+ * Unstamped PDF backups used when applying / re-applying document stamps.
+ *
+ * When a scanned file is replaced in Edit, backups and stamp records must reset (invalidate).
+ *
+ * DEBUG MAP:
+ *   Restored wrong original           → backupPath/metaPath under stamp_backups/{requestId}
+ *   Stamp after replace uses old PDF  → invalidate() not called on scan replace
+ *   Unknown file key                  → FILE_KEYS + syllabi_drf_N pattern
  */
 class StampBackupService
 {
     public const FILE_KEYS = ['masterlist', 'drf', 'dcn', 'distribution', 'retrieval'];
 
+    /**
+     * Tells whether is allowed file key — used for access and UI decisions.
+     */
     public static function isAllowedFileKey(string $fileKey): bool
     {
         return in_array($fileKey, self::FILE_KEYS, true)
             || (bool) preg_match('/^syllabi_drf_\d+$/', $fileKey);
     }
 
+    /**
+     * Helper used for backup dir.
+     */
     public static function backupDir(int $requestId): string
     {
         return storage_path('app/private/stamp_backups/' . $requestId);
     }
 
+    /**
+     * Helper used for backup path.
+     */
     public static function backupPath(int $requestId, string $fileKey): string
     {
         return self::backupDir($requestId) . '/' . $fileKey . '_original.pdf';
     }
 
+    /**
+     * Helper used for meta path.
+     */
     public static function metaPath(int $requestId, string $fileKey): string
     {
         return self::backupDir($requestId) . '/' . $fileKey . '_meta.json';
     }
 
-    /** Clear backup, metadata, and stamp DB row for a file slot. */
+    /**
+     * Helper used for invalidate.
+     */
     public static function invalidate(int $requestId, string $fileKey): void
     {
         if (!self::isAllowedFileKey($fileKey)) {
@@ -63,8 +83,7 @@ class StampBackupService
     }
 
     /**
-     * Resolve the unstamped PDF to stamp from.
-     * Uses backup when re-stamping; refreshes backup when the live file was replaced.
+     * Parses or normalizes values used by resolve source.
      */
     public static function resolveSource(int $requestId, string $fileKey, string $absolutePath, string $relativePath): string
     {
@@ -147,7 +166,9 @@ class StampBackupService
         return self::createBackup($requestId, $fileKey, $absolutePath, $relativePath);
     }
 
-    /** After a successful stamp, remember the stamped file hash for re-stamp detection. */
+    /**
+     * Helper used for record stamped.
+     */
     public static function recordStamped(int $requestId, string $fileKey, string $absolutePath, string $relativePath): void
     {
         if (!is_readable($absolutePath)) {
@@ -167,6 +188,9 @@ class StampBackupService
         file_put_contents(self::metaPath($requestId, $fileKey), json_encode($meta));
     }
 
+    /**
+     * Helper used for restore to.
+     */
     public static function restoreTo(int $requestId, string $fileKey, string $targetAbsolutePath): bool
     {
         $backupPath = self::backupPath($requestId, $fileKey);
@@ -179,6 +203,9 @@ class StampBackupService
         return copy($backupPath, $targetAbsolutePath);
     }
 
+    /**
+     * Helper used for create backup.
+     */
     private static function createBackup(int $requestId, string $fileKey, string $absolutePath, string $relativePath): string
     {
         $backupPath = self::backupPath($requestId, $fileKey);
@@ -216,7 +243,9 @@ class StampBackupService
         return realpath($backupPath) ?: $backupPath;
     }
 
-    /** @return array<string, mixed>|null */
+    /**
+     * Helper used for read meta.
+     */
     private static function readMeta(int $requestId, string $fileKey): ?array
     {
         $metaPath = self::metaPath($requestId, $fileKey);
@@ -229,7 +258,9 @@ class StampBackupService
         return is_array($data) ? $data : null;
     }
 
-    /** Drop backup folders whose document request no longer exists. */
+    /**
+     * Helper used for prune orphans.
+     */
     public static function pruneOrphans(): void
     {
         $root = storage_path('app/private/stamp_backups');
@@ -256,6 +287,9 @@ class StampBackupService
         }
     }
 
+    /**
+     * Removes or clears data for delete directory.
+     */
     private static function deleteDirectory(string $dir): void
     {
         $items = @scandir($dir) ?: [];

@@ -983,7 +983,17 @@ Route::middleware(['auth'])
         })->name('dts.view-document');
     });
 
-    // DCS — Document Control System (requires can_access_dcs or is_sadm)
+    // =====================================================================
+    // DCS ROUTE GROUP — Document Control System
+    // Middleware aliases (bootstrap/app.php):
+    //   can.access.dcs      → CanAccessDcs (desktop + can_access_dcs / Super Admin)
+    //   dcs.intake.allowlist → EnforceDcsIntakeAllowlist (limited office users)
+    //   dcs.full            → RequireFullDcs (block office users from Admin DCS)
+    //   dcs.module:{key}    → RequireDcsModule (register, review, reports, …)
+    // Pages: resources/views/pages/dcs/* (Livewire Volt)
+    // DEBUG: portal bounce → CanAccessDcs; office 403 on new API → allowlist;
+    //        module 403 → role flag + dcs.module param; logic → app/Helpers/*DCS*.
+    // =====================================================================
     Route::middleware(['can.access.dcs', 'dcs.intake.allowlist'])->group(function () {
         Volt::route('/dcs', 'pages.dcs.index')->name('dcs');
 

@@ -9,6 +9,15 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
+/**
+ * Artisan: dcs:migrate-legacy-scans — move public/scans/... into Drive/private DCS layout.
+ *
+ * Options: --dry-run, --delete-public, --office=
+ *
+ * DEBUG MAP:
+ *   Path not collected                → SCAN_SOURCES / DocumentStorageService::DCS_SCAN_SOURCES
+ *   Migrate fails mid-way             → handle() per-path try; check Drive credentials
+ */
 class MigrateDcsLegacyScans extends Command
 {
     protected $signature = 'dcs:migrate-legacy-scans
@@ -21,6 +30,11 @@ class MigrateDcsLegacyScans extends Command
     /** @var list<array{table: string, column: string, category: string}> */
     private const SCAN_SOURCES = DocumentStorageService::DCS_SCAN_SOURCES;
 
+    /**
+     * Public helper: handle.
+     *
+     * DEBUG: related bugs for "handle" start in this function.
+     */
     public function handle(): int
     {
         $dryRun = (bool) $this->option('dry-run');
@@ -85,7 +99,9 @@ class MigrateDcsLegacyScans extends Command
         return $failed > 0 ? Command::FAILURE : Command::SUCCESS;
     }
 
-    /** @return array<string, string> legacyPath => category */
+    /**
+     * Supports DCS maintainability for: collect legacy paths.
+     */
     private function collectLegacyPaths(): array
     {
         $paths = [];
@@ -112,6 +128,9 @@ class MigrateDcsLegacyScans extends Command
         return $paths;
     }
 
+    /**
+     * Supports DCS maintainability for: replace path references.
+     */
     private function replacePathReferences(string $legacyPath, string $newPath): int
     {
         $updated = 0;

@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: RFIO review one office intake
+  FILE: resources/views/pages/dcs/register/requests/show.blade.php
+  DEBUG: OfficeIntakeHelper::requestReviewPayload / beginRegister
+--}}
 <?php
 
 /**

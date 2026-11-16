@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Syllabi/TOS monitoring
+  FILE: resources/views/pages/dcs/monitoring/syllabi-tos.blade.php
+  DEBUG: SyllabiMonitoringHelper::build/saveStatus
+--}}
 <?php
 
 /**

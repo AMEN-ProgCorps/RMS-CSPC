@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Drafts list
+  FILE: resources/views/pages/dcs/register/drafts.blade.php
+  DEBUG: RegisterQueryHelper::draftList
+--}}
 <?php
 
 /**

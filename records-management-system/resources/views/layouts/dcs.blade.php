@@ -1,3 +1,9 @@
+{{--
+  DCS LAYOUT: Document Control System shell (sidebar, top tabs, Vite CSS/JS).
+  FILE: resources/views/layouts/dcs.blade.php
+  DEBUG: Wrong CSS loaded → @vite branches by route; dark bugs → css/dcs/dark.css;
+         access bounce → CanAccessDcs / RequireDcsModule / EnforceDcsIntakeAllowlist.
+--}}
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>

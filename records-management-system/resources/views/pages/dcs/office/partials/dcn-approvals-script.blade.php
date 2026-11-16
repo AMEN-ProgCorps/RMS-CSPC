@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (dcn-approvals-script.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/dcn-approvals-script.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Adds and removes approver rows on the office DCN.
 --}}
 <script>

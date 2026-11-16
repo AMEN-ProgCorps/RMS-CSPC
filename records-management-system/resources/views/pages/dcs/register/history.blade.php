@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: History module
+  FILE: resources/views/pages/dcs/register/history.blade.php
+  DEBUG: RegisterQueryHelper::history
+--}}
 <?php
 
 /**

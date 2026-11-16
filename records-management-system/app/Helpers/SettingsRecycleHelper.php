@@ -9,18 +9,26 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Unique;
 
 /**
- * Soft-delete / restore / purge for DCS Settings reference data in the DCS Recycle Bin.
- * DCS file: SettingsRecycleHelper in app/ so Composer autoloads it.
- * Soft-delete filter for settings catalogs (originators, document types, faculties).
- * Do not move this class back under resources/views.
- * Public methods:
- * entities, supports, applyNotDeleted, uniqueRule, softDelete, restore, permanentDestroy,
- * recycleBinList, purgeExpired.
-*/
+ * Soft-delete / restore catalog rows in DCS Settings (types, originators, faculty, etc.).
+ *
+ * UI: pages/dcs/settings/index.blade.php
+ *
+ * DEBUG MAP:
+ *   Deleted setting still in pickers  → recycle helpers + RegisterQueryHelper selectable filters
+ *   Cannot restore                    → restore methods + soft-delete columns on catalog tables
+ *   Wrong entity map                  → entities() table/label map
+ */
 class SettingsRecycleHelper
 {
     /**
      * @return array<string, array{table: string, label: string, name: string, type_label: string}>
+     */
+    // =====================================================================
+    // SECTION: SETTINGS RECYCLE — entity map, soft-delete, restore
+    // =====================================================================
+
+    /**
+     * Lists catalog entity types that Settings Recycle Bin can soft-delete/restore.
      */
     public static function entities(): array
     {
@@ -76,12 +84,19 @@ class SettingsRecycleHelper
         ];
     }
 
+    /**
+     * Helper used for supports.
+     */
     public static function supports(string $table): bool
     {
         return Schema::hasTable($table) && Schema::hasColumn($table, 'deleted_at');
     }
 
-    /** Scope active (non-trashed) rows when soft-delete is available. */
+    /**
+     * Apply query/scope constraint: apply not deleted.
+     *
+     * DEBUG: wrong rows visible for office/user → check this scope.
+     */
     public static function applyNotDeleted($query, string $table, ?string $alias = null)
     {
         if (! self::supports($table)) {
@@ -93,7 +108,9 @@ class SettingsRecycleHelper
         return $query->whereNull($col);
     }
 
-    /** Unique rule that ignores soft-deleted rows when the table supports recycle bin. */
+    /**
+     * Helper used for unique rule.
+     */
     public static function uniqueRule(string $table, string $column, ?int $ignoreId = null): Unique
     {
         $rule = Rule::unique($table, $column);
@@ -107,6 +124,9 @@ class SettingsRecycleHelper
         return $rule;
     }
 
+    /**
+     * Helper used for soft delete.
+     */
     public static function softDelete(string $kind, int $id): bool
     {
         $meta = self::entities()[$kind] ?? null;
@@ -123,6 +143,9 @@ class SettingsRecycleHelper
     }
 
     /**
+     * Restores a soft-deleted registration from the Recycle Bin.
+     *
+     * DEBUG: restore fails / wrong status → this method.
      * @return array{ok: bool, message?: string}
      */
     public static function restore(string $kind, int $id): array
@@ -187,6 +210,11 @@ class SettingsRecycleHelper
             : ['ok' => false, 'message' => 'Restore failed.'];
     }
 
+    /**
+     * Permanently deletes a recycled registration and its related files/rows.
+     *
+     * DEBUG: permanent delete blocked → canPermanentlyDeleteDcsDocuments.
+     */
     public static function permanentDestroy(string $kind, int $id): bool
     {
         $meta = self::entities()[$kind] ?? null;
@@ -208,6 +236,7 @@ class SettingsRecycleHelper
     }
 
     /**
+     * Lists soft-deleted documents in the Recycle Bin.
      * @return array{rows: list<array<string, mixed>>, total: int, current_page: int, last_page: int, per_page: int, retention_years: int}
      */
     public static function recycleBinList(string $search, int $page, int $perPage = 15): array
@@ -300,6 +329,9 @@ class SettingsRecycleHelper
         ];
     }
 
+    /**
+     * Removes or clears data for purge expired.
+     */
     public static function purgeExpired(): int
     {
         $cutoff = now()->subYears(RegisterQueryHelper::RECYCLE_BIN_RETENTION_YEARS);

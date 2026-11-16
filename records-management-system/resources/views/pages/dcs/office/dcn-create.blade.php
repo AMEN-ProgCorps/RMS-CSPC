@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Office create DCN
+  FILE: resources/views/pages/dcs/office/dcn-create.blade.php
+  DEBUG: OfficeIntakeHelper::storeDcn
+--}}
 <?php
 
 /**

@@ -1,7 +1,13 @@
 <?php
 
 /**
- * DCS file: DCS gate. Desktop only, and the account must be allowed into Document Control System.
+ * DCS gate middleware (route group).
+ *
+ * Checks: not mobile → authenticated → role can_access_dcs (or Super Admin) → subsystem active.
+ * On deny: JSON 401/403 for APIs, abort for PDF iframe, else redirect to portal.
+ * Successful entry is logged via RegisterPersistHelper::logDcsAccess().
+ *
+ * DEBUG: portal bounce on DCS URL → inspect deny reason (mobile_blocked / no_dcs_access / dcs_inactive).
  */
 
 namespace App\Http\Middleware;
@@ -14,6 +20,11 @@ use Symfony\Component\HttpFoundation\Response;
 
 class CanAccessDcs
 {
+    /**
+     * Main DCS entry gate: requires desktop, sign-in, Access DCS (or Super Admin), and an active DCS subsystem.
+     *
+     * DEBUG: /dcs redirects to portal → read deny() reason in the JSON body or activity log
+     */
     public function handle(Request $request, Closure $next): Response
     {
         if (\App\Helpers\MobileHelper::isMobile($request)) {
@@ -49,6 +60,11 @@ class CanAccessDcs
         return $this->toResponse($next($request));
     }
 
+    /**
+     * Rejects DCS access with JSON, abort (PDF iframe), or portal redirect.
+     *
+     * DEBUG: blank iframe on view-document → should abort here, not portal-redirect.
+     */
     private function deny(Request $request, string $reason, string $message): Response
     {
         if ($this->expectsJsonResponse($request)) {
@@ -68,6 +84,11 @@ class CanAccessDcs
         return new RedirectResponse(route('portal', absolute: false));
     }
 
+    /**
+     * Converts a Livewire redirector into a normal HTTP response.
+     *
+     * DEBUG: "Unexpected middleware response type" 500 → $next returned something unexpected.
+     */
     private function toResponse(mixed $response): Response
     {
         if ($response instanceof Response) {
@@ -81,6 +102,11 @@ class CanAccessDcs
         abort(500, 'Unexpected middleware response type.');
     }
 
+    /**
+     * Tells whether the client wants a JSON error instead of an HTML redirect.
+     *
+     * DEBUG: API got HTML portal page → this returned false for that request.
+     */
     private function expectsJsonResponse(Request $request): bool
     {
         if ($request->expectsJson() || $request->ajax() || $request->wantsJson()) {

@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: DCS Inventory / Database list
+  FILE: resources/views/pages/dcs/database/index.blade.php
+  DEBUG: DcsDatabaseColumns; RegisterQueryHelper inventory; database.css
+--}}
 <?php
 
 /**

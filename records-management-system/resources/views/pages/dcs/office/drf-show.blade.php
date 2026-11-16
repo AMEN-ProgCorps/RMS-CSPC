@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Office view DRF
+  FILE: resources/views/pages/dcs/office/drf-show.blade.php
+  DEBUG: OfficeIntakeHelper::findOfficeDrf
+--}}
 <?php
 
 /**

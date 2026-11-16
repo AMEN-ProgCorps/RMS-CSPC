@@ -11,34 +11,49 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * DCS Random Check — yearly June / December office visits.
- * Check results are stored on the visit. Document number, title, and type come from the masterlist.
- * DCS file: RandomCheckHelper in app/ so Composer autoloads it.
- * Random Check visits in June and December. The visit stores the result. Document number, title, and type come from the masterlist.
- * Do not move this class back under resources/views.
- * Public methods:
- * assertCanAccess, cycles, cycleLabel, cycleWindow, normalizeCycle, defaultCycle,
- * noticeLeadDays, yearSummaries, cycleSummary, officesByCluster, officeStatusMap,
- * pickRandomOffice, officeLabel, officeMeta, searchOffices, scheduleVisit,
- * generateSnapshot, listCheckRows, saveCheck, loadCheck, previousCheckForOffice,
- * shareWithOffice, reportPayload, officeInbox, officeCanViewCheck, defaultDocTypeKey,
- * normalizeDocTypeKey, docTypeLabel, documentTypeGroups, recentChecks.
-*/
+ *
+ * Visit stores results; document number/title/type come from the masterlist.
+ * UI: pages/dcs/random-check/* and office/random-checks*
+ * LOCATION: app/Helpers — do not move under resources/views.
+ *
+ * DEBUG MAP:
+ *   403 on Random Check               → assertCanAccess() / canAccessDcsModule(random_check)
+ *   Wrong cycle window / notices      → cycleWindow, noticeLeadDays, defaultCycle
+ *   Office not in pool / pick fail    → officesByCluster, pickRandomOffice, officeStatusMap
+ *   Snapshot / checklist empty        → generateSnapshot, listCheckRows, saveCheck/loadCheck
+ *   Office cannot open shared check   → shareWithOffice, officeCanViewCheck, officeInbox
+ */
 class RandomCheckHelper
 {
     public const CYCLE_JUNE = 'june';
 
     public const CYCLE_DECEMBER = 'december';
 
+    // =====================================================================
+    // SECTION: ACCESS & CYCLES — June/December windows
+    // =====================================================================
+    
+    /**
+     * Stops with 403 if the user cannot open Admin Random Check.
+     *
+     * DEBUG: unexpected 403 / access denied → check this guard.
+     */
     public static function assertCanAccess(): void
     {
         RegisterQueryHelper::assertFullDcsUser('random_check');
     }
 
+    /**
+     * Returns the supported Random Check cycle keys (June and December).
+     */
     public static function cycles(): array
     {
         return [self::CYCLE_JUNE, self::CYCLE_DECEMBER];
     }
 
+    /**
+     * Returns a human-readable label for a Random Check cycle.
+     */
     public static function cycleLabel(string $cycle): string
     {
         return self::normalizeCycle($cycle) === self::CYCLE_DECEMBER
@@ -46,6 +61,9 @@ class RandomCheckHelper
             : 'June Random Check';
     }
 
+    /**
+     * Returns the start/end dates for a Random Check cycle in a given year.
+     */
     public static function cycleWindow(int $year, string $cycle): string
     {
         return self::normalizeCycle($cycle) === self::CYCLE_DECEMBER
@@ -53,6 +71,9 @@ class RandomCheckHelper
             : "January 1 – June 30, {$year} · target month: June";
     }
 
+    /**
+     * Normalizes user input to a valid cycle key (`june` or `december`).
+     */
     public static function normalizeCycle(?string $cycle): string
     {
         $cycle = strtolower(trim((string) $cycle));
@@ -60,6 +81,9 @@ class RandomCheckHelper
         return $cycle === self::CYCLE_DECEMBER ? self::CYCLE_DECEMBER : self::CYCLE_JUNE;
     }
 
+    /**
+     * Picks the default cycle based on today’s date.
+     */
     public static function defaultCycle(?int $year = null): string
     {
         $year = $year ?: (int) now()->format('Y');
@@ -70,6 +94,9 @@ class RandomCheckHelper
         return (int) now()->format('n') <= 6 ? self::CYCLE_JUNE : self::CYCLE_DECEMBER;
     }
 
+    /**
+     * Returns how many days before a cycle to send lead notices.
+     */
     public static function noticeLeadDays(): int
     {
         return 7;
@@ -77,6 +104,13 @@ class RandomCheckHelper
 
     /**
      * @return list<array{year:int,label:string,june:array,december:array}>
+     */
+    // =====================================================================
+    // SECTION: SUMMARIES & OFFICE POOL — status maps, pick random office
+    // =====================================================================
+    
+    /**
+     * Builds year summary cards for the Random Check index page.
      */
     public static function yearSummaries(): array
     {
@@ -124,6 +158,7 @@ class RandomCheckHelper
     }
 
     /**
+     * Builds status counts for one year and cycle.
      * @return array{scheduled:int,drafts:int,finalized:int,offices:int}
      */
     public static function cycleSummary(int $year, string $cycle): array
@@ -195,8 +230,7 @@ class RandomCheckHelper
     }
 
     /**
-     * Distribution offices grouped by cluster, with optional year/cycle status.
-     *
+     * Lists selectable offices grouped by cluster for visit scheduling.
      * @return list<array{cluster_id:int|null,cluster_name:string,offices:list<array<string,mixed>>}>
      */
     public static function officesByCluster(int $year = 0, string $cycle = '', bool $onlyVisited = false): array
@@ -250,6 +284,7 @@ class RandomCheckHelper
     }
 
     /**
+     * Maps each office to its visit status for a cycle.
      * @return array<int, array{status:string,scheduled_date:?string,check_id:?int,is_draft:bool,document_count:int}>
      */
     public static function officeStatusMap(int $year, string $cycle): array
@@ -306,6 +341,9 @@ class RandomCheckHelper
         return $map;
     }
 
+    /**
+     * Chooses a random eligible office for a Random Check visit.
+     */
     public static function pickRandomOffice(int $year, string $cycle): ?array
     {
         $groups = self::officesByCluster($year, $cycle, false);
@@ -324,6 +362,9 @@ class RandomCheckHelper
         return $open[array_rand($open)];
     }
 
+    /**
+     * Helper used for office label.
+     */
     public static function officeLabel(int $officeId): string
     {
         $meta = self::officeMeta($officeId);
@@ -332,6 +373,7 @@ class RandomCheckHelper
     }
 
     /**
+     * Helper used for office meta.
      * @return array{office_id:int,office_name:string,office_code:string,cluster:mixed,label:string}
      */
     public static function officeMeta(int $officeId): array
@@ -363,6 +405,9 @@ class RandomCheckHelper
         ];
     }
 
+    /**
+     * Helper used for search offices.
+     */
     public static function searchOffices(string $query = '', int $limit = 25): array
     {
         $needle = mb_strtolower(trim($query));
@@ -387,6 +432,13 @@ class RandomCheckHelper
 
     /**
      * @return array{ok:bool,message:string,schedule_id?:int,check_id?:int,short_notice?:bool}
+     */
+    // =====================================================================
+    // SECTION: VISIT LIFECYCLE — schedule, snapshot, save/load checks
+    // =====================================================================
+    
+    /**
+     * Creates or schedules a Random Check visit.
      */
     public static function scheduleVisit(
         int $officeId,
@@ -512,8 +564,7 @@ class RandomCheckHelper
     }
 
     /**
-     * Snapshot every distributed document for this office into a draft check.
-     *
+     * Copies current masterlist documents into the visit checklist.
      * @return array{ok:bool,id?:int,message:string,pool?:int}
      */
     public static function generateSnapshot(
@@ -556,8 +607,7 @@ class RandomCheckHelper
     }
 
     /**
-     * Load all distributed documents for an office into editable check rows.
-     *
+     * Loads checklist rows for a visit.
      * @return array{pool:int,rows:list<array<string,mixed>>}
      */
     public static function listCheckRows(int $officeId, string $groupKey = 'all'): array
@@ -592,6 +642,7 @@ class RandomCheckHelper
     }
 
     /**
+     * Saves Random Check results for a visit.
      * @param  list<array<string,mixed>>  $rows
      * @return array{ok:bool,id?:int,message:string}
      */
@@ -792,6 +843,7 @@ class RandomCheckHelper
     }
 
     /**
+     * Loads a visit and its checklist for the UI.
      * @return array<string,mixed>|null
      */
     public static function loadCheck(int $checkId): ?array
@@ -897,7 +949,6 @@ class RandomCheckHelper
 
     /**
      * Previous-year (or earlier cycle) result for the same office.
-     *
      * @return array<string,mixed>|null
      */
     public static function previousCheckForOffice(int $officeId, int $year, string $cycle): ?array
@@ -941,6 +992,13 @@ class RandomCheckHelper
      * @param  'all'|'actions'|'not_complied'  $filter
      * @return array{ok:bool,message:string,download?:\Symfony\Component\HttpFoundation\Response}
      */
+    // =====================================================================
+    // SECTION: SHARE / OFFICE INBOX — office view of shared random checks
+    // =====================================================================
+    
+    /**
+     * Shares visit results with the office inbox / notification.
+     */
     public static function shareWithOffice(int $checkId, string $filter = 'all'): array
     {
         self::assertCanAccess();
@@ -971,7 +1029,6 @@ class RandomCheckHelper
 
     /**
      * Formal PDF export of random-check rows for the active filter (for Gmail / print).
-     *
      * @param  'all'|'actions'|'not_complied'  $filter
      */
     public static function pdfDownload(int $checkId, string $filter = 'all'): ?\Symfony\Component\HttpFoundation\Response
@@ -1029,7 +1086,6 @@ class RandomCheckHelper
 
     /**
      * Excel (.xls) export of random-check rows for the active filter.
-     *
      * @param  'all'|'actions'|'not_complied'  $filter
      */
     public static function excelDownload(int $checkId, string $filter = 'all'): ?\Symfony\Component\HttpFoundation\Response
@@ -1098,6 +1154,13 @@ class RandomCheckHelper
      * @param  'all'|'actions'|'not_complied'  $filter
      * @return array<string,mixed>
      */
+    // =====================================================================
+    // SECTION: REPORT / DOC-TYPE HELPERS
+    // =====================================================================
+    
+    /**
+     * Builds data for Random Check report/export.
+     */
     public static function reportPayload(int $checkId, string $filter = 'all'): array
     {
         $check = self::loadCheck($checkId);
@@ -1132,8 +1195,7 @@ class RandomCheckHelper
     }
 
     /**
-     * Office-facing: upcoming schedules + finalized results for the signed-in office.
-     *
+     * Lists Random Check visits visible to the office user.
      * @return array{upcoming:list<array<string,mixed>>,results:list<array<string,mixed>>}
      */
     public static function officeInbox(?int $officeId = null): array
@@ -1192,6 +1254,9 @@ class RandomCheckHelper
         return ['upcoming' => $upcoming, 'results' => $results];
     }
 
+    /**
+     * Tells whether the office user may open this visit.
+     */
     public static function officeCanViewCheck(int $checkId, ?int $officeId = null): bool
     {
         $officeId = $officeId ?: (int) (RegisterQueryHelper::currentOfficeId() ?? 0);
@@ -1206,11 +1271,17 @@ class RandomCheckHelper
         return ! self::rowIsDraft($check);
     }
 
+    /**
+     * Helper used for default doc type key.
+     */
     public static function defaultDocTypeKey(): string
     {
         return 'all';
     }
 
+    /**
+     * Parses or normalizes values used by normalize doc type key.
+     */
     public static function normalizeDocTypeKey(string $groupKey): string
     {
         $key = trim($groupKey);
@@ -1218,6 +1289,9 @@ class RandomCheckHelper
         return $key === '' ? 'all' : $key;
     }
 
+    /**
+     * Helper used for doc type label.
+     */
     public static function docTypeLabel(string $groupKey): string
     {
         $key = self::normalizeDocTypeKey($groupKey);
@@ -1228,6 +1302,9 @@ class RandomCheckHelper
         return OfficeIntakeHelper::documentGroupLabel($key);
     }
 
+    /**
+     * Helper used for document type groups.
+     */
     public static function documentTypeGroups(int $officeId): array
     {
         return OfficeIntakeHelper::officeDocumentGroupsForCheck(
@@ -1237,6 +1314,7 @@ class RandomCheckHelper
     }
 
     /**
+     * Helper used for recent checks.
      * @return list<array{id:int,checked_at:string,sample_size:int,pool_size:int,checked_by_name:string,doc_type_key:string,doc_type_label:string}>
      */
     public static function recentChecks(int $officeId, int $limit = 10, ?string $groupKey = null): array
@@ -1267,6 +1345,11 @@ class RandomCheckHelper
         return $out;
     }
 
+    /**
+     * Notification: notify office scheduled.
+     *
+     * DEBUG: missing/wrong bell notice → check here.
+     */
     protected static function notifyOfficeScheduled(int $officeId, int $year, string $cycle, string $date): bool
     {
         $meta = self::officeMeta($officeId);
@@ -1284,6 +1367,9 @@ class RandomCheckHelper
         );
     }
 
+    /**
+     * Loads or finds data for find check row.
+     */
     protected static function findCheckRow(int $officeId, int $year, string $cycle): ?object
     {
         if (! Schema::hasTable('dcs_random_checks')) {
@@ -1297,6 +1383,9 @@ class RandomCheckHelper
         return $query->orderByDesc('id')->first();
     }
 
+    /**
+     * Helper used for row is draft.
+     */
     protected static function rowIsDraft(object $row): bool
     {
         // A visit is locked only after Finalize. Scheduling a snapshot must stay editable.
@@ -1319,13 +1408,18 @@ class RandomCheckHelper
         return in_array($text, ['1', 't', 'true', 'yes'], true);
     }
 
+    /**
+     * Tells whether has year column — used for access and UI decisions.
+     */
     protected static function hasYearColumn(): bool
     {
         return Schema::hasTable('dcs_random_checks')
             && Schema::hasColumn('dcs_random_checks', 'check_year');
     }
 
-    /** @return array<int,true> */
+    /**
+     * Helper used for distribution office id set.
+     */
     protected static function distributionOfficeIdSet(): array
     {
         if (! Schema::hasTable('dcs_distribution_offices')) {
@@ -1343,6 +1437,9 @@ class RandomCheckHelper
             ->all();
     }
 
+    /**
+     * Builds or formats data for format office label.
+     */
     protected static function formatOfficeLabel(string $name, string $code): string
     {
         $name = trim($name) !== '' ? $name : 'Unknown';
@@ -1351,6 +1448,9 @@ class RandomCheckHelper
         return $code !== '' ? "{$name} ({$code})" : $name;
     }
 
+    /**
+     * Parses or normalizes values used by normalize date.
+     */
     protected static function normalizeDate(mixed $value): ?string
     {
         if ($value === null || $value === '') {

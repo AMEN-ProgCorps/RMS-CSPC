@@ -1,7 +1,17 @@
 <?php
 
 /**
- * DCS file: DCS bell notices. Office intake print-and-sign and received-copy notices are created here. Received-copy opens Distribution and Retrieval with ?doc=.
+ * DCS bell notices (office broadcast + targeted).
+ *
+ * Creates rows in the notifications tables for Document Control System.
+ * Office Intake print-and-sign and received-copy notices are created here.
+ * Received-copy deep-links open Distribution/Retrieval with ?doc=.
+ *
+ * DEBUG MAP:
+ *   Office never got print unlock notice → notifyReadyForPrintSign (OfficeIntakeHelper) → this service
+ *   Wrong office got the bell            → resolveOfficeCode() / RFIO_OFFICE_CODE vs live RFOIU
+ *   Notice missing for limited user      → RegisterQueryHelper::filterBellNotifications
+ *   Realtime toast missing               → RealtimePushHelper after insert
  */
 
 namespace App\Services;
@@ -33,6 +43,7 @@ class DcsNotificationService
     /**
      * Dispatch a notification to the notification tables for a given office code.
      *
+     * DEBUG: missing/wrong bell notice → check here.
      * @param string $officeCode The target office code receiving the notification
      * @param string $message The notification text message
      * @param string|null $redirectUrl Optional URL link when user clicks notification
@@ -153,6 +164,11 @@ class DcsNotificationService
         return is_string($ci) && $ci !== '' ? $ci : null;
     }
 
+    /**
+     * Notification: notify document registered.
+     *
+     * DEBUG: register handoff / claim / intake link issues → check here.
+     */
     public static function notifyDocumentRegistered(
         string $officeCode,
         string $registrarName,
@@ -171,6 +187,8 @@ class DcsNotificationService
     /**
      * Notify an office that appears on Document Distribution — not the submitter.
      * Limited DCS users only see /dcs/office/* notification links.
+     *
+     * DEBUG: missing/wrong bell notice → check here.
      */
     public static function notifyDocumentDistributed(
         string $officeCode,
@@ -206,6 +224,11 @@ class DcsNotificationService
         static::createNotification($officeCode, $message, $url);
     }
 
+    /**
+     * Notification: notify appraisal still waiting.
+     *
+     * DEBUG: missing/wrong bell notice → check here.
+     */
     public static function notifyAppraisalStillWaiting(string $officeCode, string $docNo, ?string $docTitle = null): void
     {
         $docNo = trim($docNo);
@@ -219,6 +242,11 @@ class DcsNotificationService
         static::createNotification($officeCode, $message, $url);
     }
 
+    /**
+     * Notification: notify office document received.
+     *
+     * DEBUG: missing/wrong bell notice → check here.
+     */
     public static function notifyOfficeDocumentReceived(
         string $officeCode,
         string $receiverName,
@@ -247,6 +275,8 @@ class DcsNotificationService
 
     /**
      * Tell Document Controllers / RFIO that a distribution office received a controlled document.
+     *
+     * DEBUG: missing/wrong bell notice → check here.
      */
     public static function notifyAdminOfficeReceivedDocument(
         string $receivingOfficeName,
@@ -284,6 +314,11 @@ class DcsNotificationService
         static::createNotification($adminOffice, $message, $url);
     }
 
+    /**
+     * Notification: notify office drf submitted.
+     *
+     * DEBUG: missing/wrong bell notice → check here.
+     */
     public static function notifyOfficeDrfSubmitted(
         string $targetOfficeCode,
         string $submitterName,
@@ -300,6 +335,11 @@ class DcsNotificationService
         static::createNotification($targetOfficeCode, $message, $url);
     }
 
+    /**
+     * Notification: notify office dcn submitted.
+     *
+     * DEBUG: missing/wrong bell notice → check here.
+     */
     public static function notifyOfficeDcnSubmitted(
         string $targetOfficeCode,
         string $submitterName,
@@ -319,6 +359,8 @@ class DcsNotificationService
     /**
      * One notice for a DCN that was saved together with its DRF.
      * The link opens the DCN review, which also shows the linked DRF.
+     *
+     * DEBUG: missing/wrong bell notice → check here.
      */
     public static function notifyOfficeDcnWithDrfSubmitted(
         string $targetOfficeCode,
@@ -336,7 +378,11 @@ class DcsNotificationService
         static::createNotification($targetOfficeCode, $message, $url);
     }
 
-    /** Office corrected an existing intake form — notify RFIO without implying a brand-new form. */
+    /**
+     * Notification: notify office intake resubmitted.
+     *
+     * DEBUG: register handoff / claim / intake link issues → check here.
+     */
     public static function notifyOfficeIntakeResubmitted(
         string $targetOfficeCode,
         string $submitterName,
@@ -356,6 +402,8 @@ class DcsNotificationService
 
     /**
      * RFIO approved the electronic submission — tell the office to print, sign, and bring the hard copy.
+     *
+     * DEBUG: print locked/unlocked wrongly → check rfio_print_notified_at logic here.
      */
     public static function notifyOfficeIntakeReadyForPrintSign(
         string $targetOfficeCode,
@@ -375,6 +423,8 @@ class DcsNotificationService
 
     /**
      * One print-and-sign notice when a paired DCN and DRF are both confirmed.
+     *
+     * DEBUG: print locked/unlocked wrongly → check rfio_print_notified_at logic here.
      */
     public static function notifyOfficeIntakePairReadyForPrintSign(
         string $targetOfficeCode,
@@ -395,6 +445,8 @@ class DcsNotificationService
     /**
      * Remove RFIO office-intake submit notifications for a DRF/DCN once it is registered
      * or returned/resubmitted. Keeps ?registered=1 success notices.
+     *
+     * DEBUG: register handoff / claim / intake link issues → check here.
      */
     public static function dismissOfficeIntakeNotifications(string $type, int $id): void
     {
@@ -469,6 +521,11 @@ class DcsNotificationService
         }
     }
 
+    /**
+     * Notification: notify document stamped.
+     *
+     * DEBUG: missing/wrong bell notice → check here.
+     */
     public static function notifyDocumentStamped(
         string $officeCode,
         string $stamperName,
@@ -484,7 +541,8 @@ class DcsNotificationService
         static::createNotification($officeCode, $message, $url);
     }
 
-    /** @param  array<int|string|null>  $officeIds
+    /**
+     * Helper used for office codes from ids.
      * @return list<string>
      */
     public static function officeCodesFromIds(array $officeIds): array
@@ -506,6 +564,9 @@ class DcsNotificationService
             ->all();
     }
 
+    /**
+     * Helper used for display name.
+     */
     protected static function displayName(?string $name): string
     {
         $name = trim((string) $name);

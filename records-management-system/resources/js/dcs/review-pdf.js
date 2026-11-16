@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: Review module PDF compare wiring
+ * FILE: resources/js/dcs/review-pdf.js
+ * DEBUG: RegisterQueryHelper::reviewCompare
+ */
+
 import { runPdfCompare, buildCompareCacheKey } from './pdf-compare.js';
 import { hashFile, hashString } from './pdf-compare-cache.js';
 

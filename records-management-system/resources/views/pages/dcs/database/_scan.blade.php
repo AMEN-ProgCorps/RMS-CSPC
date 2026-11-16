@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Inventory scan cell partial
+  FILE: resources/views/pages/dcs/database/_scan.blade.php
+  DEBUG: scanUrl / DocumentStorageService
+--}}
+{{--
 DCS file: Scan link cell for the database table.
 --}}
 @if(!empty($url))

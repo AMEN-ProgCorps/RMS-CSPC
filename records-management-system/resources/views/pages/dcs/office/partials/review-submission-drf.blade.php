@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (review-submission-drf.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/review-submission-drf.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Read-only DRF summary on the admin request screen. Comma-separated originators render on separate lines.
 --}}
 @php

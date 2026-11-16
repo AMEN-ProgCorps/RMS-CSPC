@@ -1,4 +1,9 @@
 {{--
+  DCS PAGE: Report export download
+  FILE: resources/views/pages/dcs/reports/export.blade.php
+  DEBUG: ReportHelper::export
+--}}
+{{--
 DCS file: Print shell for a generated report. Masterlist rows are rendered by export-masterlist-internal.blade.php.
 --}}
 <!DOCTYPE html>

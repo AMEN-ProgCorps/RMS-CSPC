@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: DCS Settings catalogs
+  FILE: resources/views/pages/dcs/settings/index.blade.php
+  DEBUG: SettingsRecycleHelper; DocumentNumberSeriesHelper
+--}}
 <?php
 
 /**

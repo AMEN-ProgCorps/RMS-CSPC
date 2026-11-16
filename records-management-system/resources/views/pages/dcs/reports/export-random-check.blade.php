@@ -1,4 +1,9 @@
 {{--
+  DCS PAGE: Random check export
+  FILE: resources/views/pages/dcs/reports/export-random-check.blade.php
+  DEBUG: RandomCheckHelper::reportPayload
+--}}
+{{--
 DCS file: Print layout for a Random Check report.
 --}}
 <!DOCTYPE html>

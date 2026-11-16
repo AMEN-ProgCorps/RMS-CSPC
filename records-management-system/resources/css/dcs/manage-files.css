@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: Manage Files browser
+ * FILE: resources/css/dcs/manage-files.css
+ * DEBUG: Prefer [data-theme="dark"] rules in dark.css for theme bugs; page-specific FOUC/layout here.
+ */
+
 /* DCS file: Manage Files table. */
 @import './tokens.css';
 

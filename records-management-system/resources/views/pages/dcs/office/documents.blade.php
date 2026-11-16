@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Office document inventory
+  FILE: resources/views/pages/dcs/office/documents.blade.php
+  DEBUG: OfficeIntakeHelper::officeDocument*
+--}}
 <?php
 
 /**

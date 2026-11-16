@@ -5,15 +5,18 @@ namespace App\Helpers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-/** Printed Distribution and Retrieval sheet used from Document Registration.
- * DCS file: ReportTemplateHelper in app/ so Composer autoloads it.
- * Printable Distribution and Retrieval sheet opened from Document Registration.
- * Do not move this class back under resources/views.
- * Public methods:
- * render.
-*/
+/**
+ * Saved report column/filter templates for Generate Report.
+ *
+ * DEBUG MAP:
+ *   Template missing after save       → Schema template tables; list/save methods
+ *   Applied template wrong columns    → template payload keys vs ReportHelper columns
+ */
 class ReportTemplateHelper
 {
+    /**
+     * Helper used for render.
+     */
     public static function render(Request $request)
     {
         $rawOffices = $request->input('offices', []);

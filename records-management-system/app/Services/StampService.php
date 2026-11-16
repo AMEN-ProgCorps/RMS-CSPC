@@ -9,6 +9,17 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use setasign\Fpdi\Fpdi;
 
+/**
+ * Apply PDF stamps (Reference, and historical Controlled/Obsolete/etc. labels).
+ *
+ * UI: pages/dcs/stamping/index.blade.php
+ * Backups: StampBackupService (unstamped originals under storage/app/private/stamp_backups)
+ *
+ * DEBUG MAP:
+ *   Stamp misplaced / wrong page      → auto placement cache + FPDI coordinates
+ *   Cannot restamp after replace scan → StampBackupService::invalidate on edit upload
+ *   Only Reference allowed going fwd  → STAMPS vs STAMP_LABELS
+ */
 class StampService
 {
     public const MAX_STAMP_PAGES = 100;
@@ -47,6 +58,9 @@ class StampService
     // SHARED VALIDATION
     // ──────────────────────────────────────────
 
+    /**
+     * Validates request input for validate stamp payload.
+     */
     private function validateStampPayload(Request $request): array
     {
         $validated = $request->validate([
@@ -403,6 +417,9 @@ class StampService
         }
     }
 
+    /**
+     * Parses or normalizes values used by resolve stamp position.
+     */
     private function resolveStampPosition(string $pdfPath, int $pageNum, string $position, float $pageWmm, float $pageHmm, float $stampWmm, float $stampHmm): array
     {
         if ($position === 'auto') {
@@ -424,6 +441,9 @@ class StampService
         return $this->calcPosition($position, $pageWmm, $pageHmm, $stampWmm, $stampHmm);
     }
 
+    /**
+     * Loads or finds data for get pdf page size.
+     */
     private function getPdfPageSize(string $pdfPath, int $pageNum = 1): array
     {
         $pdfPath = $this->preparePdfForFpdi($pdfPath);
@@ -441,7 +461,11 @@ class StampService
         ];
     }
 
-    /** Reject oversized or encrypted PDFs before Imagick/FPDI work. */
+    /**
+     * Stops the request if a required condition fails (assert stampable pdf).
+     *
+     * DEBUG: unexpected 403 / access denied → check this guard.
+     */
     private function assertStampablePdf(string $pdfPath): ?\Illuminate\Http\JsonResponse
     {
         try {
@@ -478,6 +502,9 @@ class StampService
     // BACKUP MANAGEMENT (via StampBackupService)
     // ──────────────────────────────────────────
 
+    /**
+     * Parses or normalizes values used by resolve stamp source.
+     */
     private function resolveStampSource(int $requestId, string $fileKey, string $fullPath, string $relativePath): string
     {
         return StampBackupService::resolveSource($requestId, $fileKey, $fullPath, $relativePath);
@@ -487,6 +514,9 @@ class StampService
     // PREVIEW — detect empty area and return coordinates
     // ──────────────────────────────────────────
 
+    /**
+     * Helper used for preview.
+     */
     public function preview(Request $request)
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
@@ -566,6 +596,11 @@ class StampService
     // APPLY STAMP
     // ──────────────────────────────────────────
 
+    /**
+     * Apply query/scope constraint: apply.
+     *
+     * DEBUG: wrong rows visible for office/user → check this scope.
+     */
     public function apply(Request $request)
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
@@ -766,6 +801,9 @@ class StampService
     // REMOVE STAMP — restores original file
     // ──────────────────────────────────────────
 
+    /**
+     * Helper used for remove.
+     */
     public function remove(Request $request)
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
@@ -839,6 +877,9 @@ class StampService
     // DOWNLOAD STAMPED COPY (no overwrite)
     // ──────────────────────────────────────────
 
+    /**
+     * Helper used for download.
+     */
     public function download(Request $request)
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
@@ -901,6 +942,9 @@ class StampService
     // CHECK STAMP
     // ──────────────────────────────────────────
 
+    /**
+     * Helper used for check stamp.
+     */
     public function checkStamp(Request $request)
     {
         $request->validate([
@@ -939,6 +983,9 @@ class StampService
     // FILE PATH RESOLUTION
     // ──────────────────────────────────────────
 
+    /**
+     * Parses or normalizes values used by resolve file path.
+     */
     private function resolveFilePath(string $path): ?string
     {
         $path = ltrim($path, '/');
@@ -1003,6 +1050,9 @@ class StampService
         return null;
     }
 
+    /**
+     * Helper used for persist stamped file.
+     */
     private function persistStampedFile(string $relativePath, string $resolvedAbsolutePath, string $stampedOutputPath): void
     {
         if (!is_file($stampedOutputPath) || filesize($stampedOutputPath) === 0) {
@@ -1039,6 +1089,9 @@ class StampService
         }
     }
 
+    /**
+     * Helper used for restore original file.
+     */
     private function restoreOriginalFile(int $requestId, string $fileKey, string $relativePath, string $resolvedAbsolutePath): bool
     {
         $backupPath = StampBackupService::backupPath($requestId, $fileKey);
@@ -1065,6 +1118,9 @@ class StampService
         return StampBackupService::restoreTo($requestId, $fileKey, $resolvedAbsolutePath);
     }
 
+    /**
+     * Tells whether is valid pdf file — used for access and UI decisions.
+     */
     private function isValidPdfFile(string $absolutePath): bool
     {
         if (!is_readable($absolutePath) || filesize($absolutePath) < 5) {
@@ -1076,6 +1132,11 @@ class StampService
         return $head === '%PDF-';
     }
 
+    /**
+     * Saves data for stored scan relative path.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     private function storedScanRelativePath(int $requestId, string $fileKey): ?string
     {
         $normalize = static function ($path): ?string {
@@ -1104,6 +1165,9 @@ class StampService
         return $normalize($value);
     }
 
+    /**
+     * Parses or normalizes values used by resolve owned file path.
+     */
     private function resolveOwnedFilePath(int $requestId, string $fileKey): ?string
     {
         $relative = $this->storedScanRelativePath($requestId, $fileKey);
@@ -1118,6 +1182,9 @@ class StampService
     // PDF STAMPING ENGINE
     // ──────────────────────────────────────────
 
+    /**
+     * Helper used for stamp pdf.
+     */
     private function stampPdf(string $inputPath, string $stampType, string $position, array $options): string
     {
         if (!file_exists($inputPath)) {
@@ -1212,6 +1279,9 @@ class StampService
         return $this->flattenPdfForFpdi($inputPath);
     }
 
+    /**
+     * Helper used for flatten pdf for fpdi.
+     */
     private function flattenPdfForFpdi(string $inputPath): string
     {
         $gs = $this->ghostscriptBinary();
@@ -1294,6 +1364,9 @@ class StampService
         return $finalPath;
     }
 
+    /**
+     * Helper used for writable stamp cache dir.
+     */
     private function writableStampCacheDir(): string
     {
         $candidates = [
@@ -1314,6 +1387,9 @@ class StampService
         throw new \RuntimeException('No writable directory available for stamp PDF conversion cache.');
     }
 
+    /**
+     * Helper used for ghostscript binary.
+     */
     private function ghostscriptBinary(): ?string
     {
         foreach (['gs', '/usr/bin/gs', '/usr/local/bin/gs'] as $candidate) {
@@ -1332,6 +1408,9 @@ class StampService
         return null;
     }
 
+    /**
+     * Helper used for cleanup temp files.
+     */
     private function cleanupTempFiles(): void
     {
         foreach ($this->tempFiles as $path) {
@@ -1342,6 +1421,9 @@ class StampService
         $this->tempFiles = [];
     }
 
+    /**
+     * Helper used for render stamp.
+     */
     private function renderStamp($pdf, string $type, string $position, float $pageW, float $pageH, array $options, string $pdfPath, int $pageNum): void
     {
         $config = self::STAMPS[$type] ?? null;
@@ -1353,6 +1435,9 @@ class StampService
         $this->drawStandard($pdf, $pos['x'], $pos['y'], $config);
     }
 
+    /**
+     * Helper used for calc position.
+     */
     private function calcPosition(string $position, float $pageW, float $pageH, float $stampW, float $stampH): array
     {
         $m = 15;
@@ -1371,6 +1456,9 @@ class StampService
     // NEW: hard safety clamp — guarantees the stamp box (and everything drawn
     // inside it, including trailing text lines) always stays fully within the
     // physical page bounds, regardless of which placement strategy picked the spot.
+    /**
+     * Helper used for clamp to page.
+     */
     private function clampToPage(array $pos, float $pageW, float $pageH, float $stampW, float $stampH): array
     {
         $pos['x'] = max(0, min($pos['x'], $pageW - $stampW));
@@ -1378,6 +1466,9 @@ class StampService
         return $pos;
     }
 
+    /**
+     * Helper used for draw standard.
+     */
     private function drawStandard($pdf, float $x, float $y, array $cfg): void
     {
         $w = $cfg['width'];

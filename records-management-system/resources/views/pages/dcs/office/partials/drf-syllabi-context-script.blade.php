@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (drf-syllabi-context-script.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/drf-syllabi-context-script.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Office DRF syllabi context cascade + auto title.
 --}}
 <script>

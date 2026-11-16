@@ -12,10 +12,27 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
 
+/**
+ * Parse and issue DCS document numbers; family stacking when a number changes.
+ *
+ * Used by Register checkDocNo / revision family logic and number-series settings.
+ *
+ * DEBUG MAP:
+ *   Doc no parse wrong (suffix/width) → parseDocNo()
+ *   Next number wrong / gap           → issue / peek methods using series+width
+ *   Family not stacking after renumber→ callers in RegisterQueryHelper lineage helpers
+ */
 class DocumentNumberSeriesHelper
 {
     /**
      * @return array{series: string, number: int, width: int, suffix: string}|null
+     */
+    // =====================================================================
+    // SECTION: DOC NO PARSE / ISSUE
+    // =====================================================================
+
+    /**
+     * Splits a document number into series, number, width, and suffix.
      */
     public static function parseDocNo(string $docNo): ?array
     {
@@ -51,15 +68,16 @@ class DocumentNumberSeriesHelper
         ];
     }
 
+    /**
+     * Helper used for series key.
+     */
     public static function seriesKey(string $series): string
     {
         return mb_strtolower(rtrim($series, '-'));
     }
 
     /**
-     * Group key for related sequential document numbers.
-     * Uses the stem before the last hyphen segment so CSPC-F-ACCTG-17B2 / 17C1 / 18A
-     * stay together, while CSPC-LB-CCS-* stays separate from CSPC-LB-CTHBM-*.
+     * Helper used for prefix group key.
      */
     public static function prefixGroupKey(string $docNo): string
     {
@@ -82,7 +100,9 @@ class DocumentNumberSeriesHelper
         return self::seriesKey($series);
     }
 
-    /** Human-readable series label for band rows (keeps trailing dash when present). */
+    /**
+     * Helper used for prefix group label.
+     */
     public static function prefixGroupLabel(string $docNo): string
     {
         $docNo = trim($docNo);
@@ -101,6 +121,9 @@ class DocumentNumberSeriesHelper
         return $series !== '' ? $series : $docNo;
     }
 
+    /**
+     * Builds or formats data for format doc no.
+     */
     public static function formatDocNo(string $series, int $number, int $width, string $suffix = ''): string
     {
         $pad = $width > 0 ? max($width, strlen((string) $number)) : 0;
@@ -111,6 +134,9 @@ class DocumentNumberSeriesHelper
         return $series.$digits.$suffix;
     }
 
+    /**
+     * Helper used for slot key.
+     */
     public static function slotKey(?array $parsed): ?string
     {
         if (! $parsed || $parsed['number'] === null) {
@@ -123,6 +149,7 @@ class DocumentNumberSeriesHelper
     }
 
     /**
+     * Helper used for live doc nos.
      * @return list<string>
      */
     public static function liveDocNos(int $docTypeId, ?int $subTypeId, int $excludeRequestId = 0): array
@@ -167,6 +194,7 @@ class DocumentNumberSeriesHelper
     }
 
     /**
+     * Helper used for members in series.
      * @param  list<string>  $docNos
      * @return list<array{doc_no: string, series: string, number: int, width: int, suffix: string}>
      */
@@ -199,6 +227,9 @@ class DocumentNumberSeriesHelper
         return $rows;
     }
 
+    /**
+     * Helper used for next in series.
+     */
     public static function nextInSeries(string $typed, int $docTypeId, ?int $subTypeId, int $excludeRequestId = 0): ?string
     {
         $typed = trim($typed);
@@ -243,6 +274,9 @@ class DocumentNumberSeriesHelper
         return self::formatDocNo($seriesOut, $max + 1, $width);
     }
 
+    /**
+     * Suggests the next document number for the Register form.
+     */
     public static function suggestDocNo(Request $request): array
     {
         $docNo = trim((string) $request->input('doc_no', ''));
@@ -260,6 +294,9 @@ class DocumentNumberSeriesHelper
         ];
     }
 
+    /**
+     * Helper used for suggest form no.
+     */
     public static function suggestFormNo(Request $request): array
     {
         $kind = strtolower(trim((string) $request->input('kind', 'drf')));
@@ -306,8 +343,7 @@ class DocumentNumberSeriesHelper
     }
 
     /**
-     * DRF: YYYY-001, YYYY-002, … Only official YYYY-NNN values count (not dates or doc nos).
-     *
+     * Suggests the next DRF number.
      * @param  list<string>  $labels
      */
     public static function nextDrfNo(array $labels, int $year): string
@@ -323,8 +359,7 @@ class DocumentNumberSeriesHelper
     }
 
     /**
-     * DCN: YYYY-MM-046. Month is the form date; last part is the year-wide DCN count.
-     *
+     * Suggests the next DCN number.
      * @param  list<string>  $labels
      */
     public static function nextDcnNo(array $labels, int $year, int $month): string
@@ -342,6 +377,7 @@ class DocumentNumberSeriesHelper
     }
 
     /**
+     * Helper used for preview insert shift.
      * @return list<array{from: string, to: string, title: ?string}>
      */
     public static function previewInsertShift(Request $request): array
@@ -368,6 +404,9 @@ class DocumentNumberSeriesHelper
     }
 
     /**
+     * Apply query/scope constraint: apply insert shift.
+     *
+     * DEBUG: wrong rows visible for office/user → check this scope.
      * @return array{ok: bool, error?: string, mappings?: list<array{from: string, to: string}>}
      */
     public static function applyInsertShift(Request $request): array
@@ -470,7 +509,6 @@ class DocumentNumberSeriesHelper
      * A shifted registration is a different document from whatever now holds its old number.
      * Move its revision references with it, and give it a stack of its own when the old
      * stack is still used by a row that stayed behind.
-     *
      * @param  list<array{from?: string, to?: string}>  $mappings
      * @param  list<int>  $movedIds
      */
@@ -575,6 +613,7 @@ class DocumentNumberSeriesHelper
     }
 
     /**
+     * Builds or formats data for build shift plan.
      * @return array<string, mixed>
      */
     private static function buildShiftPlan(Request $request): array
@@ -678,6 +717,7 @@ class DocumentNumberSeriesHelper
     }
 
     /**
+     * Helper used for titles for doc nos.
      * @param  list<string>  $docNos
      * @return array<string, string>
      */
@@ -708,6 +748,9 @@ class DocumentNumberSeriesHelper
         return $map;
     }
 
+    /**
+     * Helper used for ensure shift table.
+     */
     private static function ensureShiftTable(): void
     {
         if (Schema::hasTable('dcs_doc_no_shifts')) {
@@ -737,6 +780,9 @@ class DocumentNumberSeriesHelper
     }
 
     /**
+     * Saves data for store shift lines.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
      * @param  list<array{from?: string, to?: string}>  $mappings
      */
     private static function storeShiftLines(int $shiftId, array $mappings): void
@@ -762,6 +808,7 @@ class DocumentNumberSeriesHelper
     }
 
     /**
+     * Helper used for form numbers for year.
      * @return list<string>
      */
     private static function formNumbersForYear(string $kind, int $year, int $excludeRequestId): array
@@ -799,6 +846,9 @@ class DocumentNumberSeriesHelper
         return $query->pluck('drf_no')->filter()->values()->all();
     }
 
+    /**
+     * Helper used for form number taken.
+     */
     private static function formNumberTaken(string $kind, string $value, int $excludeRequestId): bool
     {
         $value = trim($value);
@@ -821,6 +871,7 @@ class DocumentNumberSeriesHelper
     }
 
     /**
+     * Helper used for next label from existing.
      * @param  list<string>  $labels
      */
     public static function nextLabelFromExisting(array $labels, string $defaultPrefix): string
@@ -857,6 +908,7 @@ class DocumentNumberSeriesHelper
     }
 
     /**
+     * Parses or normalizes values used by parse trailing number.
      * @return array{prefix: string, number: int, width: int}|null
      */
     public static function parseTrailingNumber(string $label): ?array

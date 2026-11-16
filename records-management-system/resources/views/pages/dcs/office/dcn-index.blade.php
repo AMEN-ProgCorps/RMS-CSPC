@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Office My DCN list
+  FILE: resources/views/pages/dcs/office/dcn-index.blade.php
+  DEBUG: OfficeIntakeHelper::listMyDcn; hydrateIntakeOriginators
+--}}
 <?php
 
 /**
@@ -74,7 +79,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
             @if(! $hasRows)
                 <div class="ofi-doc-empty ofi-list-empty" role="status">
-                    <i class="fa-regular fa-file-pen" aria-hidden="true"></i>
+                    {{-- Empty-state icon: use solid (fa-file-pen is not in FA Free Regular). --}}
+                    <i class="fa-solid fa-file-pen" aria-hidden="true"></i>
                     <strong>{{ ($isReviewer ?? false) ? 'No office DCN submissions yet' : 'No Document Change Notices yet' }}</strong>
                     @unless($isReviewer ?? false)
                         <p>Start a DCN for a registered document. You can also create the matching DRF right after save.</p>

@@ -13,43 +13,27 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Non-RFIO office DRF/DCN intake: create once, then view/print only.
- * Fields mirror Document Registration sections 1 (DRF) and 2 (DCN).
- * DCS file: OfficeIntakeHelper in app/ so Composer autoloads it.
- * Office DRF and DCN intake. The office creates the form once. Print stays locked until RFIO sets rfio_print_notified_at. A registration notifies that office only when the saved document matches the intake.
- * Do not move this class back under resources/views.
- * Public methods:
- * intakeTable, canAccessIntake, assertCanAccessIntake, assertOfficeIntakePrintAllowed,
- * officeMayPrintIntake, officeIntakePrintReadyIds, assertOwnsDrf, assertOwnsDcn,
- * rejectMutation, listMyDrf, listMyDcn, listPendingOfficeRequests, requestReviewPayload,
- * registrationTarget, registerContinueUrl, isIntakeClaimedPending, rfioOpenIntakeUrl,
- * findOfficeDrf, findOfficeDcn, drfSourceOffices, dcnSourceOffices, dcnRevisions,
- * findLatestRevisableRegistration, assertRegisteredRevisableDocNo,
- * searchRevisableDocuments, findRevisableRegistrationMatch, resolveOfficeDcnDocument,
- * resolveOfficeDrfRecurDocument, pendingOfficeRequestCounts, drfPrefillFromDcn, latestRegistrationForDocNo,
- * distributionOfficeIdsForRequest, linkedDrfIdsForOfficeDcns, findLinkedDrfIdForOfficeDcn,
- * findSourceDcnIdForOfficeDrf, officeDcnHasLinkedDrf, officeDcnAllowsLaterDrf,
- * assertOfficeDcnCanCreateDrf, findOpenDuplicateDcn, duplicateDcnMessage,
- * findOpenDuplicateRecurringDrf, duplicateRecurringDrfMessage,
- * assertNoOpenDuplicateDcn, assertNoOpenDuplicateRecurringDrf,
- * assertNoOpenDuplicateDrf, currentUserOfficeForDcn,
- * originatorMatchesUser, storeDrf, previewDrf, previewDcn, storeDcn, updateDrf, updateDcn,
- * reviewersPayloadFromRequest, loadDcnReviewers, syncDcnReviewers, loadDcnApprovals,
- * syncDcnApprovals, decodeDcnApprovals, approvalsPayloadFromRequest,
- * departmentDateForPrint, parseDepartmentDate, parseIntakeNotificationUrl,
- * isIntakeRegistered, syncRegisteredIntakeLink, canOfficeEditIntake, intakeEditState,
- * beginRegister, pendingRegisterIntake, explicitRegisterIntake,
- * reconcileClaimedIntakesWithRegistrations, registrationMatchesIntake,
- * closePendingIntakeForRegistration, clearPendingRegisterIntake, markIntakeRegistered,
- * intakeSubmitterOfficeCodes, unlockForEdit, notifyReadyForPrintSign,
- * intakePrintNotifiedState, intakeSubmissionMeta, officeLabelForUser, displayNameForUser,
- * modalPayload, distributeOfficeIds, syncDistributeOffices, drfDistributeOffices,
- * mergeDistributeOfficeBackup, intakeReceivedState, markReceived, clearReceived, registerPrefillForDrf,
- * registerPrefillForDcn, documentGroupDefs, documentGroupScope, documentGroupKeysForScope,
- * documentGroupLabel, docTypeIdsForGroup, dcnDocumentGroupKeys, officeDocumentTotal,
- * officeDocumentGroups, listOfficeDocuments, paginateOfficeDocuments,
- * paginateOfficeIncomingDocuments, markOfficeDocumentReceived,
- * listDocumentsForCheck, officeDocumentGroupsForCheck, listDistributedDocumentsForCheck.
+ * Office Intake (non-RFIO DRF / DCN) — create once, then view / print / register handoff.
+ *
+ * LOCATION: app/Helpers/OfficeIntakeHelper.php (Composer-autoloaded). Do not move under resources/views.
+ * UI callers: resources/views/pages/dcs/office-intake/* and Admin Request review pages.
+ * Tables: dcs_office_intake_drf / dcs_office_intake_dcn (+ offices, originators, reviewers, approvals).
+ * Permission gate: RegisterQueryHelper::canAccessOfficeIntake() / canBrowseAllOfficeIntake().
+ *
+ * FLOW (happy path):
+ *   storeDrf|storeDcn → RFIO listPendingOfficeRequests → beginRegister → RegisterPersistHelper::persist
+ *   → markIntakeRegistered / notifyReadyForPrintSign → officeMayPrintIntake.
+ *
+ * DEBUG MAP (symptom → start here):
+ *   My DCN/DRF crash / blank originator     → hydrateIntakeOriginators, findOfficeDcn/Drf, listMy*
+ *   403 on office form                      → userCanAccessOfficeIntakeRecord, applyOwnOfficeIntakeScope
+ *   Print locked for office                 → officeMayPrintIntake, rfio_print_notified_at, notifyReadyForPrintSign
+ *   Proceed to Register disabled / wrong URL→ beginRegister, isIntakeClaimedPending, registerContinueUrl
+ *   Duplicate DCN/DRF blocked               → findOpenDuplicate*, assertNoOpenDuplicate*
+ *   Wrong register prefill                  → registerPrefillForDrf/Dcn, resolveOfficeDcnDocument
+ *   Inventory / incoming counts wrong       → officeDocument*, applyOffice*Scope, bumpOfficeInventoryCache
+ *
+ * Related helpers: RegisterPersistHelper (writes), RegisterQueryHelper (access + masterlist reads).
 */
 class OfficeIntakeHelper
 {
@@ -67,28 +51,55 @@ class OfficeIntakeHelper
 
     public const APPROVALS_TABLE = 'dcs_office_dcn_approvals';
 
+    // =====================================================================
+    // SECTION: ACCESS & OWNERSHIP — who may open / print office intake forms
+    // =====================================================================
+    
+    /**
+     * Returns the office-intake table name for a form type (`drf` or `dcn`).
+     *
+     * DEBUG: wrong table/type mixups on My DRF vs My DCN → check the type argument here.
+     */
     public static function intakeTable(string $type): string
     {
         return $type === 'dcn' ? self::DCN_TABLE : self::DRF_TABLE;
     }
 
+    /**
+     * Tells whether the signed-in user is allowed to use Office Intake (My DRF / My DCN).
+     *
+     * DEBUG: Office Intake missing from nav / 403 on office pages → canAccessOfficeIntake().
+     */
     public static function canAccessIntake(): bool
     {
         return RegisterQueryHelper::canAccessOfficeIntake();
     }
 
+    /**
+     * Stops the request with 403 if the user cannot use Office Intake.
+     *
+     * DEBUG: unexpected 403 on create/show → this guard or canAccessIntake().
+     */
     public static function assertCanAccessIntake(): void
     {
         abort_unless(self::canAccessIntake(), 403, 'You do not have access to office DRF/DCN intake.');
     }
 
-    /** Print/view form: submitting office always; RFIO reviewers may open for review. */
+    /**
+     * Allows print/view for office creators and RFIO reviewers of an intake form.
+     *
+     * DEBUG: print/view 403 → officeMayPrintIntake() and ownership asserts.
+     */
     public static function assertOfficeIntakePrintAllowed(): void
     {
         // Allowed for office creators and RFIO review_intake operators.
     }
 
-    /** Office users print only after RFIO sends the print-and-sign notice. */
+    /**
+     * Tells whether an office user may print this form (only after RFIO unlocks print).
+     *
+     * DEBUG: Print button locked after RFIO notice → rfio_print_notified_at + this method.
+     */
     public static function officeMayPrintIntake(?object $record): bool
     {
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
@@ -99,8 +110,9 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Ids the current office user may print, for a live unlock on an open form.
+     * Returns which intake form ids are unlocked for printing (used by live print-unlock polling).
      *
+     * DEBUG: print-unlock polling never unlocks → print-ready API + this method.
      * @param  list<int>  $ids
      * @return array{ready: list<int>}
      */
@@ -146,8 +158,9 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Limit My DRF/DCN to forms linked to the current office, or forms the user created
-     * that have no source-office links yet. RFIO browse-all skips this.
+     * Limits My DRF/DCN queries to the current office (or the user’s own unlinked drafts).
+     *
+     * DEBUG: wrong office sees another office forms (or empty list) → this scope.
      */
     public static function applyOwnOfficeIntakeScope($query, string $alias, string $type): void
     {
@@ -190,6 +203,11 @@ class OfficeIntakeHelper
         });
     }
 
+    /**
+     * Tells whether the user may open a specific office DRF/DCN record.
+     *
+     * DEBUG: 403 on show/edit for own office form → linked offices / created_by here.
+     */
     public static function userCanAccessOfficeIntakeRecord(object $record, string $type): bool
     {
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
@@ -230,6 +248,11 @@ class OfficeIntakeHelper
         return DB::table($linkTable)->where($linkFk, $recordId)->where('office_id', $officeId)->exists();
     }
 
+    /**
+     * Stops with 403 if the user may not view this office DRF.
+     *
+     * DEBUG: DRF show 403 → userCanAccessOfficeIntakeRecord(drf).
+     */
     public static function assertOwnsDrf(object $drf): void
     {
         abort_unless(
@@ -239,6 +262,11 @@ class OfficeIntakeHelper
         );
     }
 
+    /**
+     * Stops with 403 if the user may not view this office DCN.
+     *
+     * DEBUG: DCN show 403 → userCanAccessOfficeIntakeRecord(dcn).
+     */
     public static function assertOwnsDcn(object $dcn): void
     {
         abort_unless(
@@ -248,21 +276,36 @@ class OfficeIntakeHelper
         );
     }
 
+    /**
+     * Redirects back when the intake form is locked and must not be edited.
+     *
+     * DEBUG: unexpected edit blocked → canOfficeEditIntake / isIntakeRegistered.
+     */
     public static function rejectMutation(): RedirectResponse
     {
         return redirect()->back()->with('error', self::IMMUTABLE_MESSAGE);
     }
 
     /**
+     * Loads the current office’s Document Request Forms for My DRF.
+     *
+     * DEBUG: My DRF empty or wrong rows → loadMyIntakeRows + applyOwnOfficeIntakeScope.
      * @param  array{limit?: int|null, with_submission?: bool, action_only?: bool}  $options
      * @return \Illuminate\Support\Collection<int, object>
      */
+    // =====================================================================
+    // SECTION: MY DRF / MY DCN LISTS — office dashboard tables & pipeline chips
+    // =====================================================================
+    
     public static function listMyDrf(array $options = [])
     {
         return self::loadMyIntakeRows('drf', $options);
     }
 
     /**
+     * Loads the current office’s Document Change Notices for My DCN.
+     *
+     * DEBUG: My DCN crash on originator → hydrateIntakeOriginators; empty list → scope.
      * @param  array{limit?: int|null, with_submission?: bool, action_only?: bool}  $options
      * @return \Illuminate\Support\Collection<int, object>
      */
@@ -271,13 +314,21 @@ class OfficeIntakeHelper
         return self::loadMyIntakeRows('dcn', $options);
     }
 
-    /** @return \Illuminate\Contracts\Pagination\LengthAwarePaginator */
+    /**
+     * Paginates My DRF for the office index page.
+     *
+     * DEBUG: pagination/filter issues on My DRF → paginateMyIntakeRows.
+     */
     public static function paginateMyDrf(int $perPage = 25, bool $withSubmissionMeta = false)
     {
         return self::paginateMyIntakeRows('drf', $perPage, $withSubmissionMeta);
     }
 
-    /** @return \Illuminate\Contracts\Pagination\LengthAwarePaginator */
+    /**
+     * Paginates My DCN for the office index page.
+     *
+     * DEBUG: My DCN index issues → paginateMyIntakeRows + hydrateIntakeOriginators.
+     */
     public static function paginateMyDcn(int $perPage = 25, bool $withSubmissionMeta = false)
     {
         return self::paginateMyIntakeRows('dcn', $perPage, $withSubmissionMeta);
@@ -285,7 +336,6 @@ class OfficeIntakeHelper
 
     /**
      * Dashboard pipeline chips without loading full list UIs.
-     *
      * @return array{total: int, registered: int, correction: int, print_ready: int, printed: int, submitted: int}
      */
     public static function officeIntakePipelineCounts(string $type): array
@@ -381,6 +431,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Loads or finds data for load my intake rows.
      * @param  array{limit?: int|null, with_submission?: bool, action_only?: bool}  $options
      * @return \Illuminate\Support\Collection<int, object>
      */
@@ -414,7 +465,9 @@ class OfficeIntakeHelper
         );
     }
 
-    /** @return \Illuminate\Contracts\Pagination\LengthAwarePaginator */
+    /**
+     * Lists or paginates data for paginate my intake rows.
+     */
     private static function paginateMyIntakeRows(string $type, int $perPage = 25, bool $withSubmissionMeta = false)
     {
         $type = strtolower($type) === 'dcn' ? 'dcn' : 'drf';
@@ -438,7 +491,9 @@ class OfficeIntakeHelper
         return $paginator;
     }
 
-    /** @return list<string> */
+    /**
+     * Helper used for intake list columns.
+     */
     private static function intakeListColumns(string $type): array
     {
         $type = strtolower($type) === 'dcn' ? 'dcn' : 'drf';
@@ -489,6 +544,11 @@ class OfficeIntakeHelper
         return $cols;
     }
 
+    /**
+     * Applies a query filter/scope: apply intake action only filter.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     private static function applyIntakeActionOnlyFilter($query, string $alias, string $table, bool $actionOnly): void
     {
         if (! $actionOnly) {
@@ -525,6 +585,7 @@ class OfficeIntakeHelper
     /**
      * Batch-enrich intake list rows (registration + optional submission meta).
      *
+     * DEBUG: blank/missing fields on list/show → check this hydrator.
      * @param  \Illuminate\Support\Collection<int, object>  $rows
      * @return \Illuminate\Support\Collection<int, object>
      */
@@ -643,8 +704,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Office-dashboard pipeline chip for an intake row.
-     * registered > correction > print_ready > printed > submitted
+     * Helper used for intake pipeline status.
      */
     public static function intakePipelineStatus(?object $row): string
     {
@@ -668,6 +728,7 @@ class OfficeIntakeHelper
      * Mark that the submitting office has printed this unlocked form.
      * Clears the dashboard "Ready to print" action item.
      *
+     * DEBUG: print locked/unlocked wrongly → rfio_print_notified_at logic here.
      * @return array{ok: bool, type: string, id: int, printed_at: string|null}
      */
     public static function markOfficeIntakePrinted(string $type, int $id): array
@@ -730,7 +791,9 @@ class OfficeIntakeHelper
         ];
     }
 
-    /** Ensure print-tracking columns exist when migrate was not run yet. */
+    /**
+     * Helper used for ensure office printed columns.
+     */
     private static function ensureOfficePrintedColumns(string $table): void
     {
         if (! Schema::hasTable($table)) {
@@ -756,21 +819,20 @@ class OfficeIntakeHelper
 
     /**
      * Office dashboard "Needs your action" payload (shared by page + polling API).
-     *
+     * total: int,
+     * incoming_total: int,
+     * items: list<array{
+     * kind: string,
+     * type: string,
+     * title: string,
+     * meta: string,
+     * meta_label: ?string,
+     * href: string
+     * }>
+     * }
      * @param  \Illuminate\Support\Collection<int, object>|null  $drfRows
      * @param  \Illuminate\Support\Collection<int, object>|null  $dcnRows
      * @return array{
-     *   total: int,
-     *   incoming_total: int,
-     *   items: list<array{
-     *     kind: string,
-     *     type: string,
-     *     title: string,
-     *     meta: string,
-     *     meta_label: ?string,
-     *     href: string
-     *   }>
-     * }
      */
     public static function officeDashboardAttentionPayload($drfRows = null, $dcnRows = null): array
     {
@@ -806,6 +868,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Builds or formats data for build office dashboard attention payload.
      * @param  \Illuminate\Support\Collection<int, object>  $drfRows
      * @param  \Illuminate\Support\Collection<int, object>  $dcnRows
      * @return array{total: int, incoming_total: int, items: list<array<string, mixed>>}
@@ -912,10 +975,13 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Pending office-intake DRF + DCN for RFIO Request module (excludes registered).
-     *
+     * Lists office intakes waiting in the Admin Request queue for RFIO.
      * @return \Illuminate\Support\Collection<int, object>
      */
+    // =====================================================================
+    // SECTION: RFIO REQUEST QUEUE — pending office forms awaiting registration
+    // =====================================================================
+    
     public static function listPendingOfficeRequests(?string $typeFilter = null)
     {
         abort_unless(RegisterQueryHelper::canBrowseAllOfficeIntake(), 403);
@@ -939,7 +1005,6 @@ class OfficeIntakeHelper
     /**
      * Pending office DRF or DCN rows still waiting in the Request queue.
      * One query for the rows, one for offices, one for submitters.
-     *
      * @return \Illuminate\Support\Collection<int, object>
      */
     private static function pendingIntakeQueue(string $type)
@@ -1043,7 +1108,9 @@ class OfficeIntakeHelper
         })->values();
     }
 
-    /** Review payload for Request module show page. */
+    /**
+     * Helper used for request review payload.
+     */
     public static function requestReviewPayload(string $type, int $id): ?array
     {
         abort_unless(RegisterQueryHelper::canBrowseAllOfficeIntake(), 403);
@@ -1065,7 +1132,6 @@ class OfficeIntakeHelper
     /**
      * A DCN, including one that also has a DRF, registers as a revision of the
      * document the office selected. A DRF with no DCN registers as a new document.
-     *
      * @return array{registerType: string, intakeType: string, intakeId: int, registerUrl: string}
      */
     public static function registrationTarget(string $type, int $id): array
@@ -1104,13 +1170,19 @@ class OfficeIntakeHelper
         ];
     }
 
-    /** Register URL for office intake Proceed / resume after claim. */
+    /**
+     * Builds the Register URL used after Proceed / resume claim.
+     */
     public static function registerContinueUrl(string $type, int $id): string
     {
         return self::registrationTarget($type, $id)['registerUrl'];
     }
 
-    /** True when RFIO started registration (Proceed) but has not finished registering. */
+    /**
+     * Tells whether RFIO started registration but has not finished yet.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function isIntakeClaimedPending(string $type, int $id): bool
     {
         $type = strtolower($type);
@@ -1149,7 +1221,9 @@ class OfficeIntakeHelper
         return route('dcs.requests.show', ['type' => $type, 'id' => $id], absolute: false);
     }
 
-    /** @return array{is_registered: bool, doc_no: string, doc_title: string} */
+    /**
+     * Helper used for intake registration meta.
+     */
     private static function intakeRegistrationMeta(string $type, object $row): array
     {
         $empty = ['is_registered' => false, 'doc_no' => '', 'doc_title' => ''];
@@ -1196,6 +1270,15 @@ class OfficeIntakeHelper
         ];
     }
 
+    // =====================================================================
+    // SECTION: LOAD / HYDRATE RECORDS — single-form fetch + 3NF originator fill
+    // =====================================================================
+    
+    /**
+     * Loads one office DRF and fills originator / previous-document fields for the show page.
+     *
+     * DEBUG: blank originator or missing previous title on DRF show → hydrate* here.
+     */
     public static function findOfficeDrf(int $id): ?object
     {
         if (! Schema::hasTable('dcs_office_intake_drf')) {
@@ -1213,6 +1296,11 @@ class OfficeIntakeHelper
         return $row;
     }
 
+    /**
+     * Loads one office DCN and fills originator fields for the show page.
+     *
+     * DEBUG: Undefined property originator_name / blank originator → hydrateIntakeOriginators.
+     */
     public static function findOfficeDcn(int $id): ?object
     {
         if (! Schema::hasTable('dcs_office_intake_dcn')) {
@@ -1229,6 +1317,11 @@ class OfficeIntakeHelper
         return $row;
     }
 
+    /**
+     * Saves data for sync intake originators.
+     *
+     * DEBUG: blank/missing originator or Undefined property → check here.
+     */
     private static function syncIntakeOriginators(string $junction, string $ownerColumn, int $ownerId, mixed $raw): void
     {
         if ($ownerId < 1 || ! Schema::hasTable($junction)) {
@@ -1246,6 +1339,9 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Fills `originator_name` on intake rows from junction tables so list/show never crash on a missing property.
+     *
+     * DEBUG: blank/missing originator or Undefined property on My DCN/DRF → this method + junction tables.
      * @param  iterable<mixed>  $rows
      */
     private static function hydrateIntakeOriginators(string $type, iterable $rows): void
@@ -1309,6 +1405,11 @@ class OfficeIntakeHelper
         }
     }
 
+    /**
+     * Fills extra fields onto rows for the UI (hydrate drf previous copies).
+     *
+     * DEBUG: blank/missing originator or Undefined property → check here.
+     */
     private static function hydrateDrfPreviousCopies(object $drf): void
     {
         $masterlistId = (int) ($drf->previous_masterlist_id ?? 0);
@@ -1333,7 +1434,9 @@ class OfficeIntakeHelper
         }
     }
 
-    /** @return \Illuminate\Support\Collection<int, object> */
+    /**
+     * Helper used for drf source offices.
+     */
     public static function drfSourceOffices(int $drfId)
     {
         return DB::table('dcs_office_drf_offices as d')
@@ -1343,7 +1446,9 @@ class OfficeIntakeHelper
             ->get(['d.office_id', 'o.office_name', 'o.office_code']);
     }
 
-    /** @return \Illuminate\Support\Collection<int, object> */
+    /**
+     * Helper used for dcn source offices.
+     */
     public static function dcnSourceOffices(int $dcnId)
     {
         return DB::table('dcs_office_dcn_offices as d')
@@ -1353,7 +1458,9 @@ class OfficeIntakeHelper
             ->get(['d.office_id', 'o.office_name', 'o.office_code']);
     }
 
-    /** @return \Illuminate\Support\Collection<int, object> */
+    /**
+     * Helper used for dcn revisions.
+     */
     public static function dcnRevisions(int $dcnId)
     {
         $dcn = self::findOfficeDcn($dcnId);
@@ -1374,6 +1481,10 @@ class OfficeIntakeHelper
     /**
      * Latest registered masterlist row for a document no. that allows revision.
      */
+    // =====================================================================
+    // SECTION: REVISION LOOKUP — match registered docs for DCN revise / DRF recur
+    // =====================================================================
+    
     public static function findLatestRevisableRegistration(string $docNo): ?object
     {
         $docNo = trim($docNo);
@@ -1405,8 +1516,10 @@ class OfficeIntakeHelper
     }
 
     /**
-     * @return object Latest revisable registration
+     * Stops the request if a required condition fails (assert registered revisable doc no).
      *
+     * DEBUG: unexpected 403 / abort → check this guard.
+     * @return object Latest revisable registration
      * @throws \Illuminate\Validation\ValidationException
      */
     public static function assertRegisteredRevisableDocNo(string $docNo): object
@@ -1422,10 +1535,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Finder results for office DCN / recurring DRF.
-     * Always returns a selectable list (exact match first, then related on the same number).
-     * The client must not auto-select — the user picks from the list.
-     *
+     * Helper used for search revisable documents.
      * @return array{found: bool, matches: list<array<string, mixed>>, suggestions: list<array<string, mixed>>}
      */
     public static function searchRevisableDocuments(\Illuminate\Http\Request $request): array
@@ -1458,7 +1568,9 @@ class OfficeIntakeHelper
         ];
     }
 
-    /** @return 'dcn'|'recur' */
+    /**
+     * Helper used for revisable search purpose.
+     */
     private static function revisableSearchPurpose(\Illuminate\Http\Request $request): string
     {
         $raw = strtolower(trim((string) $request->input(
@@ -1472,6 +1584,9 @@ class OfficeIntakeHelper
         return 'dcn';
     }
 
+    /**
+     * Loads or finds data for find revisable registration match.
+     */
     public static function findRevisableRegistrationMatch(string $docNo, string $title, string $originator): ?object
     {
         $docNo = trim($docNo);
@@ -1515,7 +1630,9 @@ class OfficeIntakeHelper
         return $query->orderByDesc('ml.revise_no')->orderByDesc('ml.id')->first($select);
     }
 
-    /** Office DCN revises the latest row only. */
+    /**
+     * Helper used for exclude obsolete revisions.
+     */
     private static function excludeObsoleteRevisions($query): void
     {
         if (! RegisterQueryHelper::supportsRevisionStatus()) {
@@ -1527,7 +1644,6 @@ class OfficeIntakeHelper
 
     /**
      * Same document number, with a title or originator close to what was typed.
-     *
      * @return list<array<string, mixed>>
      */
     private static function nearRevisableMatches(
@@ -1609,6 +1725,9 @@ class OfficeIntakeHelper
         return $suggestions;
     }
 
+    /**
+     * Helper used for text near.
+     */
     private static function textNear(string $typed, string $stored): bool
     {
         $typed = mb_strtolower(trim($typed));
@@ -1626,7 +1745,6 @@ class OfficeIntakeHelper
 
     /**
      * Whole name words only. "Carlo" counts. "e" and "Carl" do not.
-     *
      * @return list<string>
      */
     private static function completedNameWords(string $typed): array
@@ -1636,7 +1754,9 @@ class OfficeIntakeHelper
         return array_values(array_filter($parts, fn ($word) => mb_strlen($word) >= 2));
     }
 
-    /** @param  list<string>  $words */
+    /**
+     * Helper used for name words match.
+     */
     private static function nameWordsMatch(array $words, string $stored): bool
     {
         if ($words === []) {
@@ -1652,6 +1772,9 @@ class OfficeIntakeHelper
         return true;
     }
 
+    /**
+     * Helper used for row allows dcn revision.
+     */
     private static function rowAllowsDcnRevision(object $row): bool
     {
         return RegisterQueryHelper::supportsAllowsRevisionColumn()
@@ -1661,7 +1784,9 @@ class OfficeIntakeHelper
             : RegisterQueryHelper::effectiveTypeAllowsRevision($row->doc_type_id ?? null, $row->sub_type_id ?? null);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Helper used for revisable match payload.
+     */
     private static function revisableMatchPayload(
         object $row,
         bool $found,
@@ -1738,15 +1863,14 @@ class OfficeIntakeHelper
 
     /**
      * Signatories saved on the registered DRF for this document request (recurring DRF prefill).
-     *
-     * @return array{
-     *     prepared_by_name: string,
-     *     prepared_by_designation: string,
-     *     reviewed_by_name: string,
-     *     reviewed_by_designation: string,
-     *     approved_by_name: string,
-     *     approved_by_designation: string
+     * prepared_by_name: string,
+     * prepared_by_designation: string,
+     * reviewed_by_name: string,
+     * reviewed_by_designation: string,
+     * approved_by_name: string,
+     * approved_by_designation: string
      * }|null
+     * @return array{
      */
     private static function signatoriesForRegisteredRequest(int $requestId): ?array
     {
@@ -1793,7 +1917,9 @@ class OfficeIntakeHelper
         return $hasAny ? $payload : null;
     }
 
-    /** @return list<array{position: string, name: string}> */
+    /**
+     * Helper used for approvals for registered request.
+     */
     private static function approvalsForRegisteredRequest(int $requestId): array
     {
         if ($requestId < 1 || ! Schema::hasTable('dcs_document_change_notice') || ! Schema::hasTable('dcs_dcn_approvals')) {
@@ -1819,6 +1945,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Parses or normalizes values used by resolve office dcn document.
      * @return array{document_no: string, document_title: string, previous_document_no: string}
      */
     public static function resolveOfficeDcnDocument(Request $request): array
@@ -1859,16 +1986,15 @@ class OfficeIntakeHelper
      * Resolve the registered document a recurring office DRF is based on.
      * Match is number + title + originator. Prefer an explicit masterlist id when
      * the finder list selection sent one (same doc_no can belong to other titles).
-     *
-     * @return array{
-     *   previous_document_no: string,
-     *   matched_title: string,
-     *   matched_originator: string,
-     *   masterlist_id: int,
-     *   request_id: int,
-     *   doc_type_kind: string,
-     *   distribute_office_ids: list<int>
+     * previous_document_no: string,
+     * matched_title: string,
+     * matched_originator: string,
+     * masterlist_id: int,
+     * request_id: int,
+     * doc_type_kind: string,
+     * distribute_office_ids: list<int>
      * }
+     * @return array{
      */
     public static function resolveOfficeDrfRecurDocument(Request $request): array
     {
@@ -1943,6 +2069,9 @@ class OfficeIntakeHelper
         ];
     }
 
+    /**
+     * Loads or finds data for find revisable registration by masterlist id.
+     */
     public static function findRevisableRegistrationByMasterlistId(int $masterlistId): ?object
     {
         if ($masterlistId < 1 || ! Schema::hasTable('dcs_masterlist_registration')) {
@@ -1979,10 +2108,13 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Office DRF and DCN still waiting in the Request queue.
-     *
+     * Helper used for pending office request counts.
      * @return array{drf: int, dcn: int}
      */
+    // =====================================================================
+    // SECTION: DASHBOARD COUNTS & DCN→DRF PREFILL
+    // =====================================================================
+    
     public static function pendingOfficeRequestCounts(): array
     {
         return [
@@ -1991,7 +2123,9 @@ class OfficeIntakeHelper
         ];
     }
 
-    /** Total open office DRF + DCN waiting in Admin Request. */
+    /**
+     * Helper used for pending office request total.
+     */
     public static function pendingOfficeRequestTotal(): int
     {
         $counts = self::pendingOfficeRequestCounts();
@@ -2001,7 +2135,6 @@ class OfficeIntakeHelper
 
     /**
      * Compact Request-queue items for the admin DCS dashboard.
-     *
      * @return list<array{kind: string, type: string, title: string, meta: string, href: string}>
      */
     public static function dashboardRequestAttentionItems(int $limit = 6): array
@@ -2033,6 +2166,9 @@ class OfficeIntakeHelper
             ->all();
     }
 
+    /**
+     * Helper used for count open intake.
+     */
     private static function countOpenIntake(string $table): int
     {
         if (! Schema::hasTable($table)) {
@@ -2058,7 +2194,6 @@ class OfficeIntakeHelper
     /**
      * Prefill values for DRF create from an owned office DCN.
      * Description/reason is left blank — office fills it manually.
-     *
      * @return array{drfTitle: string, originatorName: string, descriptionReason: string, from_dcn: int}
      */
     public static function drfPrefillFromDcn(int $dcnId): array
@@ -2109,6 +2244,9 @@ class OfficeIntakeHelper
         ];
     }
 
+    /**
+     * Helper used for latest registration for doc no.
+     */
     public static function latestRegistrationForDocNo(string $docNo, ?string $title = null): ?object
     {
         $docNo = trim($docNo);
@@ -2143,7 +2281,9 @@ class OfficeIntakeHelper
         ]);
     }
 
-    /** @return list<int> */
+    /**
+     * Helper used for distribution office ids for request.
+     */
     public static function distributionOfficeIdsForRequest(int $requestId): array
     {
         if ($requestId < 1 || ! Schema::hasTable('dcs_document_distribution') || ! Schema::hasTable('dcs_distribution_offices')) {
@@ -2166,6 +2306,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for linked drf ids for office dcns.
      * @param  list<int>  $dcnIds
      * @return array<int, int>
      */
@@ -2191,7 +2332,9 @@ class OfficeIntakeHelper
         return $out;
     }
 
-    /** Linked office DRF id for this office DCN, if any. */
+    /**
+     * Loads or finds data for find linked drf id for office dcn.
+     */
     public static function findLinkedDrfIdForOfficeDcn(int $dcnId): ?int
     {
         if ($dcnId < 1 || ! Schema::hasColumn('dcs_office_intake_drf', 'source_office_dcn_id')) {
@@ -2206,7 +2349,9 @@ class OfficeIntakeHelper
         return $id ? (int) $id : null;
     }
 
-    /** Source office DCN id for this office DRF, if linked. */
+    /**
+     * Loads or finds data for find source dcn id for office drf.
+     */
     public static function findSourceDcnIdForOfficeDrf(int $drfId): ?int
     {
         if ($drfId < 1 || ! Schema::hasColumn('dcs_office_intake_drf', 'source_office_dcn_id')) {
@@ -2220,12 +2365,16 @@ class OfficeIntakeHelper
         return $dcnId > 0 ? $dcnId : null;
     }
 
+    /**
+     * Helper used for office dcn has linked drf.
+     */
     public static function officeDcnHasLinkedDrf(int $dcnId): bool
     {
         return self::findLinkedDrfIdForOfficeDcn($dcnId) !== null;
     }
 
     /**
+     * Helper used for office dcn allows later drf.
      * @throws \Illuminate\Validation\ValidationException
      */
     public static function officeDcnAllowsLaterDrf(int $dcnId): bool
@@ -2237,6 +2386,11 @@ class OfficeIntakeHelper
         return (bool) DB::table('dcs_office_intake_dcn')->where('id', $dcnId)->value('expects_drf');
     }
 
+    /**
+     * Stops the request if a required condition fails (assert office dcn can create drf).
+     *
+     * DEBUG: unexpected 403 / abort → check this guard.
+     */
     public static function assertOfficeDcnCanCreateDrf(int $dcnId): void
     {
         if (! self::officeDcnAllowsLaterDrf($dcnId)) {
@@ -2260,8 +2414,13 @@ class OfficeIntakeHelper
     /**
      * Another office DCN for this registered document that RFIO has not registered yet.
      *
+     * DEBUG: duplicate blocked or slipped through → check here.
      * @param  list<string>  $originators
      */
+    // =====================================================================
+    // SECTION: DUPLICATE GUARDS — block second open form for same title/originator
+    // =====================================================================
+    
     public static function findOpenDuplicateDcn(
         string $docNo,
         string $currentTitle,
@@ -2320,6 +2479,9 @@ class OfficeIntakeHelper
         return null;
     }
 
+    /**
+     * Helper used for duplicate dcn message.
+     */
     public static function duplicateDcnMessage(object $row): string
     {
         $no = trim((string) ($row->document_no ?? ''));
@@ -2330,6 +2492,11 @@ class OfficeIntakeHelper
             .' is already submitted and still waiting to be registered. Open DCN #'.(int) $row->id.'.';
     }
 
+    /**
+     * Loads or finds data for find open duplicate recurring drf.
+     *
+     * DEBUG: duplicate blocked or slipped through → check here.
+     */
     public static function findOpenDuplicateRecurringDrf(
         string $docNo,
         string $title = '',
@@ -2387,6 +2554,9 @@ class OfficeIntakeHelper
         return $candidates->first();
     }
 
+    /**
+     * Helper used for duplicate recurring drf message.
+     */
     public static function duplicateRecurringDrfMessage(object $row): string
     {
         $no = trim((string) ($row->previous_document_no ?? ''));
@@ -2401,6 +2571,9 @@ class OfficeIntakeHelper
             .' is already submitted and still waiting to be registered.';
     }
 
+    /**
+     * Helper used for duplicate dcn blocks recurring message.
+     */
     public static function duplicateDcnBlocksRecurringMessage(object $row): string
     {
         $no = trim((string) ($row->document_no ?? ''));
@@ -2411,6 +2584,11 @@ class OfficeIntakeHelper
             .' is already submitted and still waiting to be registered. Finish or cancel that DCN before starting a Recurring DRF.';
     }
 
+    /**
+     * Stops the request if a required condition fails (assert no open duplicate dcn).
+     *
+     * DEBUG: duplicate blocked or slipped through → check here.
+     */
     public static function assertNoOpenDuplicateDcn(
         string $docNo,
         string $currentTitle,
@@ -2428,6 +2606,11 @@ class OfficeIntakeHelper
         ]);
     }
 
+    /**
+     * Stops the request if a required condition fails (assert no open duplicate recurring drf).
+     *
+     * DEBUG: duplicate blocked or slipped through → check here.
+     */
     public static function assertNoOpenDuplicateRecurringDrf(
         string $docNo,
         string $title = '',
@@ -2443,6 +2626,11 @@ class OfficeIntakeHelper
         ]);
     }
 
+    /**
+     * Stops the request if a required condition fails (assert no open duplicate drf).
+     *
+     * DEBUG: duplicate blocked or slipped through → check here.
+     */
     public static function assertNoOpenDuplicateDrf(string $title, string $originator, ?int $exceptId = null): void
     {
         if (! Schema::hasTable('dcs_office_intake_drf')) {
@@ -2482,6 +2670,9 @@ class OfficeIntakeHelper
         ]);
     }
 
+    /**
+     * Helper used for open intake scope.
+     */
     private static function openIntakeScope(string $table)
     {
         $query = DB::table($table);
@@ -2497,7 +2688,9 @@ class OfficeIntakeHelper
         return $query;
     }
 
-    /** @return array{id: int|null, code: string, name: string, label: string} */
+    /**
+     * Helper used for current user office for dcn.
+     */
     public static function currentUserOfficeForDcn(): array
     {
         $id = RegisterQueryHelper::currentOfficeId();
@@ -2521,6 +2714,9 @@ class OfficeIntakeHelper
         ];
     }
 
+    /**
+     * Helper used for locked department office id.
+     */
     private static function lockedDepartmentOfficeId(): int
     {
         $id = RegisterQueryHelper::currentOfficeId();
@@ -2533,11 +2729,17 @@ class OfficeIntakeHelper
         return $id;
     }
 
+    /**
+     * Helper used for originator matches user.
+     */
     public static function originatorMatchesUser(?string $originatorName, ?int $originatorAccountId = null): bool
     {
         return RegisterQueryHelper::originatorMatchesCurrentUser($originatorName, $originatorAccountId);
     }
 
+    /**
+     * Helper used for merge joined originator.
+     */
     private static function mergeJoinedOriginator(Request $request): void
     {
         $request->merge([
@@ -2545,6 +2747,9 @@ class OfficeIntakeHelper
         ]);
     }
 
+    /**
+     * Helper used for bump office inventory cache.
+     */
     public static function bumpOfficeInventoryCache(): void
     {
         try {
@@ -2554,6 +2759,9 @@ class OfficeIntakeHelper
         }
     }
 
+    /**
+     * Helper used for office inventory cache version.
+     */
     private static function officeInventoryCacheVersion(): int
     {
         try {
@@ -2590,6 +2798,15 @@ class OfficeIntakeHelper
         return $value;
     }
 
+    // =====================================================================
+    // SECTION: CREATE / UPDATE / PREVIEW — office submits DRF or DCN
+    // =====================================================================
+    
+    /**
+     * Creates a new office Document Request Form from the Create DRF screen.
+     *
+     * DEBUG: DRF create fails / duplicate blocked → validation + assertNoOpenDuplicate*.
+     */
     public static function storeDrf(Request $request): RedirectResponse
     {
         self::assertCanAccessIntake();
@@ -2876,6 +3093,9 @@ class OfficeIntakeHelper
             ->with('locked', true);
     }
 
+    /**
+     * Builds the print/preview data for an office DRF without saving.
+     */
     public static function previewDrf(Request $request)
     {
         self::assertCanAccessIntake();
@@ -2903,6 +3123,9 @@ class OfficeIntakeHelper
         return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices', 'viewerMode', 'allowPrint'));
     }
 
+    /**
+     * Builds the print/preview data for an office DCN without saving.
+     */
     public static function previewDcn(Request $request)
     {
         self::assertCanAccessIntake();
@@ -2951,8 +3174,9 @@ class OfficeIntakeHelper
         return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint'));
     }
 
-    /** @param  list<int>  $ids
-     *  @return list<array{office_id: int, code: string, name: string}>
+    /**
+     * Helper used for offices for preview.
+     * @return list<array{office_id: int, code: string, name: string}>
      */
     private static function officesForPreview(array $ids): array
     {
@@ -2978,6 +3202,9 @@ class OfficeIntakeHelper
         return $offices;
     }
 
+    /**
+     * Helper used for print logo src.
+     */
     private static function printLogoSrc(): string
     {
         $logoPath = public_path('images/logo.png');
@@ -2985,6 +3212,11 @@ class OfficeIntakeHelper
         return file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode((string) file_get_contents($logoPath))) : '';
     }
 
+    /**
+     * Creates a new office Document Change Notice from the Create DCN screen.
+     *
+     * DEBUG: DCN create fails / duplicate blocked → validation + findOpenDuplicateDcn.
+     */
     public static function storeDcn(Request $request): RedirectResponse
     {
         self::assertCanAccessIntake();
@@ -3129,6 +3361,11 @@ class OfficeIntakeHelper
             ->with('locked', true);
     }
 
+    /**
+     * Saves changes to an office DRF while editing is still allowed.
+     *
+     * DEBUG: cannot save edits → canOfficeEditIntake / isIntakeRegistered.
+     */
     public static function updateDrf(Request $request, int $id): RedirectResponse
     {
         self::assertCanAccessIntake();
@@ -3301,6 +3538,11 @@ class OfficeIntakeHelper
             ->with('locked', true);
     }
 
+    /**
+     * Saves changes to an office DCN while editing is still allowed.
+     *
+     * DEBUG: cannot save DCN edits → canOfficeEditIntake / lock state.
+     */
     public static function updateDcn(Request $request, int $id): RedirectResponse
     {
         self::assertCanAccessIntake();
@@ -3441,7 +3683,9 @@ class OfficeIntakeHelper
     }
 
 
-    /** Format Reviewed by display: name only (dates are left blank for wet-ink). */
+    /**
+     * Builds or formats data for format reviewed by label.
+     */
     private static function formatReviewedByLabel(?string $name, ?string $date = null): ?string
     {
         $name = trim((string) $name);
@@ -3450,9 +3694,14 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for reviewers payload from request.
      * @param  array<string, mixed>  $data
      * @return list<array{name: string, date: string|null}>
      */
+    // =====================================================================
+    // SECTION: SIGNATORIES & APPROVALS — DCN reviewers / approval rows
+    // =====================================================================
+    
     public static function reviewersPayloadFromRequest(array $data): array
     {
         $names = $data['reviewedByName'] ?? [];
@@ -3487,6 +3736,9 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Saves data for sync signatory template fields.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
      * @param  array<string, mixed>  $payload
      */
     private static function syncSignatoryTemplateFields(int $templateId, array $payload): void
@@ -3506,6 +3758,9 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Fills extra fields onto rows for the UI (attach signatory payloads).
+     *
+     * DEBUG: blank/missing fields on list/show → check this hydrator.
      * @param  iterable<int, object>  $rows
      */
     private static function attachSignatoryPayloads(iterable $rows): void
@@ -3546,6 +3801,9 @@ class OfficeIntakeHelper
         }
     }
 
+    /**
+     * Helper used for signatory payload for row.
+     */
     private static function signatoryPayloadForRow(object $row): ?array
     {
         $templateId = (int) ($row->id ?? 0);
@@ -3559,6 +3817,9 @@ class OfficeIntakeHelper
         return self::decodeSignatoryPayload($row->payload ?? null);
     }
 
+    /**
+     * Helper used for decode signatory payload.
+     */
     private static function decodeSignatoryPayload(mixed $payload): ?array
     {
         if (is_array($payload)) {
@@ -3573,6 +3834,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for payload from field rows.
      * @param  list<object>  $fields
      * @return array<string, mixed>
      */
@@ -3614,6 +3876,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for signatory field rows.
      * @param  array<string, mixed>  $payload
      * @return list<array{role_key: string, name: ?string, designation: ?string}>
      */
@@ -3671,7 +3934,6 @@ class OfficeIntakeHelper
      * Active campus signatory assignment for a form + catalog type/subtype
      * (sub-type → parent whole type). For Syllabi/TOS, optional college_id scopes
      * the row (college-specific first, then college_id NULL default).
-     *
      * @return array<string, mixed>|null
      */
     public static function signatoryTemplate(
@@ -3802,6 +4064,7 @@ class OfficeIntakeHelper
      * Create a dated assignment window. Closes any open overlapping assignment for the same scope
      * (form_kind + doc_type_id + college_id).
      *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
      * @param  array<string, mixed>  $payload
      */
     public static function saveSignatoryTemplate(
@@ -3890,6 +4153,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Lists or paginates data for list signatory assignments.
      * @return \Illuminate\Support\Collection<int, object>
      */
     public static function listSignatoryAssignments(string $formKind = 'drf'): \Illuminate\Support\Collection
@@ -3961,7 +4225,9 @@ class OfficeIntakeHelper
         return ($from !== '' ? $from : '—').' – '.($until !== '' ? $until : '—');
     }
 
-    /** Single date as "Jan 5, 2025". */
+    /**
+     * Builds or formats data for format signatory date.
+     */
     public static function formatSignatoryDate(mixed $raw): string
     {
         if ($raw === null || $raw === '') {
@@ -3975,6 +4241,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for signatory assignment status counts.
      * @return array{active: int, scheduled: int, ended: int, total: int}
      */
     public static function signatoryAssignmentStatusCounts(string $formKind = 'drf'): array
@@ -3992,7 +4259,6 @@ class OfficeIntakeHelper
 
     /**
      * Nest assignments by catalog parent → subtype (or Kind fallback) for Settings history.
-     *
      * @param  string|null  $parentKeyFilter  e.g. parent:12, kind, or null/all for every type
      * @return list<array{key: string, label: string, children: list<array{key: string, label: string, items: \Illuminate\Support\Collection<int, object>}>}>
      */
@@ -4105,7 +4371,6 @@ class OfficeIntakeHelper
 
     /**
      * Document-type tabs for Settings recent signatories (catalog parents + kind fallback if used).
-     *
      * @param  \Illuminate\Support\Collection<int, object>|iterable<int, object>  $docTypeParents
      * @return list<array{key: string, label: string, count: int}>
      */
@@ -4163,6 +4428,8 @@ class OfficeIntakeHelper
     /**
      * Whether an open (active) assignment already exists for this exact form + catalog + college scope
      * (no parent / kind inheritance — used by Settings editor banners).
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      */
     public static function hasActiveSignatoryAssignment(
         string $formKind,
@@ -4229,7 +4496,9 @@ class OfficeIntakeHelper
         return null;
     }
 
-    /** Catalog parent id whose name matches Internal / External (for office intake lookup). */
+    /**
+     * Helper used for catalog parent id for kind.
+     */
     public static function catalogParentIdForKind(string $kind): ?int
     {
         $kind = strtolower(trim($kind));
@@ -4246,6 +4515,8 @@ class OfficeIntakeHelper
     /**
      * Default-excluded DRF parents (Forms / Logbooks) until admin enables them
      * under Settings → Signatories (Enable for office DRF).
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      */
     public static function isDefaultExcludedDrfParent(string $name): bool
     {
@@ -4254,7 +4525,9 @@ class OfficeIntakeHelper
         return in_array($n, ['forms', 'logbooks', 'logbook'], true);
     }
 
-    /** @return 'forms'|'logbooks'|null */
+    /**
+     * Helper used for office drf parent slug.
+     */
     public static function officeDrfParentSlug(string $name): ?string
     {
         $n = mb_strtolower(trim($name));
@@ -4268,6 +4541,9 @@ class OfficeIntakeHelper
         return null;
     }
 
+    /**
+     * Helper used for office drf enable setting key.
+     */
     public static function officeDrfEnableSettingKey(string $name): ?string
     {
         $slug = self::officeDrfParentSlug($name);
@@ -4275,6 +4551,9 @@ class OfficeIntakeHelper
         return $slug !== null ? 'dcs_office_drf_'.$slug.'_enabled' : null;
     }
 
+    /**
+     * Helper used for system settings table.
+     */
     private static function systemSettingsTable(): ?string
     {
         if (Schema::hasTable('sys_system_settings')) {
@@ -4287,6 +4566,11 @@ class OfficeIntakeHelper
         return null;
     }
 
+    /**
+     * Tells whether is office drf parent enabled — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function isOfficeDrfParentEnabled(string $name): bool
     {
         $key = self::officeDrfEnableSettingKey($name);
@@ -4298,6 +4582,9 @@ class OfficeIntakeHelper
         return DB::table($table)->where('key', $key)->value('value') === 'true';
     }
 
+    /**
+     * Helper used for set office drf parent enabled.
+     */
     public static function setOfficeDrfParentEnabled(string $name, bool $enabled): bool
     {
         $key = self::officeDrfEnableSettingKey($name);
@@ -4325,6 +4612,8 @@ class OfficeIntakeHelper
     /**
      * Shown for DRF intake / Settings DRF catalog: normal parents, plus Forms/Logbooks
      * only after admin enables them in Admin Console → System Settings.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
      */
     public static function isDrfEligibleDocTypeParent(string $name, ?int $parentId = null): bool
     {
@@ -4362,7 +4651,6 @@ class OfficeIntakeHelper
 
     /**
      * Enabled Forms / Logbooks options for office DRF “Type of document” radios.
-     *
      * @return list<array{slug: string, label: string, id: int}>
      */
     public static function enabledOfficeDrfTypeRadios(): array
@@ -4392,7 +4680,6 @@ class OfficeIntakeHelper
 
     /**
      * Normalize posted Type of document: forms/logbooks → parent id + keep kind slug.
-     *
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
@@ -4423,7 +4710,6 @@ class OfficeIntakeHelper
 
     /**
      * Active Document Types tree for office intake / Settings DRF catalog pickers.
-     *
      * @param  'all'|'internal'|'external'|null  $kindFilter  When set, only parents matching that kind.
      * @return array{parents: list<object>, childrenByParent: array<string, list<object>>, parentKind: array<string, string>}
      */
@@ -4491,7 +4777,6 @@ class OfficeIntakeHelper
 
     /**
      * Resolve kind + normalized parent/sub ids from catalog selection.
-     *
      * @return array{doc_type_id: ?int, sub_type_id: ?int, doc_type_kind: string}
      */
     public static function resolveIntakeCatalogSelection(?int $docTypeId, ?int $subTypeId): array
@@ -4535,6 +4820,11 @@ class OfficeIntakeHelper
         ];
     }
 
+    /**
+     * Tells whether is office drf syllabi like — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function isOfficeDrfSyllabiLike(?int $subTypeId): bool
     {
         if (! $subTypeId || $subTypeId < 1 || ! Schema::hasTable('dcs_doc_types')) {
@@ -4561,7 +4851,6 @@ class OfficeIntakeHelper
      * - controlled row with Syllabi Availability on for that sub-type, or
      * - another open office DRF for the same course + school year + sub-type.
      * Key: "{college_id}:{program_id}:{semester_id}:{course_id}:{sub_type_id}" → list of school_year_id.
-     *
      * @return array<string, list<int>>
      */
     public static function officeDrfSyllabiTakenSchoolYearsByCourse(?int $exceptDrfId = null): array
@@ -4660,6 +4949,9 @@ class OfficeIntakeHelper
         return $taken;
     }
 
+    /**
+     * Helper used for office drf syllabi catalog.
+     */
     public static function officeDrfSyllabiCatalog(?int $exceptDrfId = null): array
     {
         $full = RegisterQueryHelper::jsCatalog();
@@ -4715,6 +5007,9 @@ class OfficeIntakeHelper
         return in_array($schoolYearId, $taken[$key] ?? [], true);
     }
 
+    /**
+     * Helper used for office drf syllabi connector.
+     */
     public static function officeDrfSyllabiConnector(?int $subTypeId): string
     {
         if (! $subTypeId || $subTypeId < 1 || ! Schema::hasTable('dcs_doc_types')) {
@@ -4729,8 +5024,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Office intake syllabi title:
-     * {Department} Syllabus, {Semester} S/Y {School Year} for {Program} in {Course Name}
+     * Builds or formats data for build office drf syllabi title.
      */
     public static function buildOfficeDrfSyllabiTitle(
         string $college,
@@ -4755,10 +5049,10 @@ class OfficeIntakeHelper
     }
 
     /**
+     * college_id:?int,program_id:?int,course_id:?int,semester_id:?int,school_year_id:?int,is_syllabi:bool
+     * }
      * @param  array<string, mixed>  $data
      * @return array{
-     *     college_id:?int,program_id:?int,course_id:?int,semester_id:?int,school_year_id:?int,is_syllabi:bool
-     * }
      */
     public static function resolveOfficeDrfSyllabiContext(array $data, ?int $subTypeId, ?int $exceptDrfId = null): array
     {
@@ -4847,6 +5141,9 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Applies a query filter/scope: apply office drf syllabi columns.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
      * @param  array<string, mixed>  $row
      * @param  array{college_id:?int,program_id:?int,course_id:?int,semester_id:?int,school_year_id:?int}  $ctx
      */
@@ -4860,12 +5157,8 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for office drf syllabi context from row.
      * @return array{
-     *     is_syllabi:bool,
-     *     college:?string,program:?string,course:?string,semester:?string,school_year:?string,
-     *     college_id:?int,program_id:?int,course_id:?int,semester_id:?int,school_year_id:?int,
-     *     course_type:?string,year_level:?string,connector:string
-     * }
      */
     public static function officeDrfSyllabiContextFromRow(?object $drf): array
     {
@@ -4920,7 +5213,6 @@ class OfficeIntakeHelper
 
     /**
      * DRF signatory payload from Settings for a catalog selection only (no personal fallback).
-     *
      * @return array<string, string>|null
      */
     public static function drfSignatoryPrefill(
@@ -4968,14 +5260,13 @@ class OfficeIntakeHelper
 
     /**
      * Compact map for office DRF create JS autofill (no extra round-trips).
-     *
-     * @return array{
-     *     byDocTypeId: array<string, array<string, string>>,
-     *     byDocTypeCollege: array<string, array<string, array<string, string>>>,
-     *     syllabiLikeDocTypeIds: list<string>,
-     *     parentKind: array<string, string>,
-     *     externalParentId: ?int
+     * byDocTypeId: array<string, array<string, string>>,
+     * byDocTypeCollege: array<string, array<string, array<string, string>>>,
+     * syllabiLikeDocTypeIds: list<string>,
+     * parentKind: array<string, string>,
+     * externalParentId: ?int
      * }
+     * @return array{
      */
     public static function drfSignatoryTemplateMap(): array
     {
@@ -5061,6 +5352,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Parses or normalizes values used by normalize drf signatory payload.
      * @param  array<string, mixed>  $payload
      * @return array<string, string>|null
      */
@@ -5089,15 +5381,14 @@ class OfficeIntakeHelper
 
     /**
      * Last DRF signatories for the current office / creator (for create-form suggestions).
-     *
-     * @return array{
-     *     prepared_by_name: string,
-     *     prepared_by_designation: string,
-     *     reviewed_by_name: string,
-     *     reviewed_by_designation: string,
-     *     approved_by_name: string,
-     *     approved_by_designation: string
+     * prepared_by_name: string,
+     * prepared_by_designation: string,
+     * reviewed_by_name: string,
+     * reviewed_by_designation: string,
+     * approved_by_name: string,
+     * approved_by_designation: string
      * }|null
+     * @return array{
      */
     public static function previousDrfSignatories(): ?array
     {
@@ -5141,7 +5432,6 @@ class OfficeIntakeHelper
 
     /**
      * Last DCN reviewers + approvals for the current office / creator.
-     *
      * @return array{reviewers: list<array{name: string, date: string|null}>, approvals: list<array{position: string, name: string, date: string|null}>}
      */
     public static function previousDcnSignatories(): array
@@ -5192,6 +5482,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Loads or finds data for load dcn reviewers.
      * @return list<array{name: string, date: string|null, label: string}>
      */
     public static function loadDcnReviewers(int $dcnId, ?object $dcn = null): array
@@ -5224,6 +5515,9 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Saves data for sync dcn reviewers.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
      * @param  list<array{name: string, date: string|null}>  $rows
      */
     public static function syncDcnReviewers(int $dcnId, array $rows): void
@@ -5257,7 +5551,6 @@ class OfficeIntakeHelper
 
     /**
      * Office DCN Approvals: Position / Name / Date rows in dcs_office_dcn_approvals.
-     *
      * @return list<array{position: string, name: string, date: string|null}>
      */
     public static function loadDcnApprovals(int $dcnId, mixed $legacyJson = null): array
@@ -5285,6 +5578,9 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Saves data for sync dcn approvals.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
      * @param  list<array{position: string, name: string, date: string|null}>  $rows
      */
     public static function syncDcnApprovals(int $dcnId, array $rows): void
@@ -5322,6 +5618,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for decode dcn approvals.
      * @return list<array{position: string, name: string, date: string|null}>
      */
     public static function decodeDcnApprovals(mixed $raw): array
@@ -5371,6 +5668,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for approvals payload from request.
      * @param  array<string, mixed>  $data
      * @return list<array{position: string, name: string, date: string|null}>
      */
@@ -5409,6 +5707,8 @@ class OfficeIntakeHelper
     /**
      * An added approval card must have both a position and a name.
      * The first card may stay blank when no approval is used.
+     *
+     * DEBUG: unexpected 403 / abort → check this guard.
      */
     private static function assertApprovalRowsComplete(Request $request): void
     {
@@ -5442,7 +5742,9 @@ class OfficeIntakeHelper
         }
     }
 
-    /** Office code plus the department date, joined for the printed DCN line. */
+    /**
+     * Helper used for department date for print.
+     */
     public static function departmentDateForPrint(object $dcn): string
     {
         $parts = self::parseDepartmentDate($dcn);
@@ -5460,7 +5762,6 @@ class OfficeIntakeHelper
 
     /**
      * Department from the submitting office and the date stored on the DCN.
-     *
      * @return array{department: string, department_code: string, department_label: string, date_label: string, date_iso: string}
      */
     public static function parseDepartmentDate(object $dcn): array
@@ -5524,6 +5825,9 @@ class OfficeIntakeHelper
         ];
     }
 
+    /**
+     * Parses or normalizes values used by normalize time.
+     */
     private static function normalizeTime(?string $time): ?string
     {
         $time = trim((string) $time);
@@ -5537,7 +5841,9 @@ class OfficeIntakeHelper
         return null;
     }
 
-    /** @return array{type: string, id: int}|null */
+    /**
+     * Parses or normalizes values used by parse intake notification url.
+     */
     public static function parseIntakeNotificationUrl(?string $url): ?array
     {
         if ($url === null || trim($url) === '') {
@@ -5576,6 +5882,15 @@ class OfficeIntakeHelper
         return null;
     }
 
+    // =====================================================================
+    // SECTION: REGISTER HANDOFF — claim, match, mark registered, unlock print
+    // =====================================================================
+    
+    /**
+     * Tells whether this intake is already linked to a finished registration.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function isIntakeRegistered(string $type, int $id): bool
     {
         $type = strtolower($type);
@@ -5622,6 +5937,8 @@ class OfficeIntakeHelper
     /**
      * If this intake was registered without writing request_id / rfio_registered_at,
      * link it quietly so Proceed to Registration stays hidden.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
      */
     public static function syncRegisteredIntakeLink(string $type, int $id): void
     {
@@ -5696,6 +6013,11 @@ class OfficeIntakeHelper
         return (int) ($query->value('request_id') ?? 0);
     }
 
+    /**
+     * Tells whether the office may still edit this intake form.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function canOfficeEditIntake(string $type, int $id): bool
     {
         $type = strtolower($type);
@@ -5718,6 +6040,9 @@ class OfficeIntakeHelper
         return ! empty($record->edit_unlocked_at);
     }
 
+    /**
+     * Returns edit/lock flags used by the intake form UI.
+     */
     public static function intakeEditState(object $record): array
     {
         $unlocked = ! empty($record->edit_unlocked_at);
@@ -5732,8 +6057,9 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Remember which office intake is being registered (survives form remorph / missing hiddens).
-     * Claims the Request-queue item so it leaves the RFIO Request list immediately.
+     * Starts RFIO “Proceed to Register”: claims the intake and returns the Register URL.
+     *
+     * DEBUG: Proceed disabled / wrong register URL → isIntakeClaimedPending + registerContinueUrl.
      */
     public static function beginRegister(string $type, int $id): array
     {
@@ -5827,6 +6153,9 @@ class OfficeIntakeHelper
         ];
     }
 
+    /**
+     * Helper used for claim office intake.
+     */
     private static function claimOfficeIntake(string $type, int $id): void
     {
         $type = strtolower($type);
@@ -5841,7 +6170,9 @@ class OfficeIntakeHelper
         ]);
     }
 
-    /** @return array{type: string, id: int}|null */
+    /**
+     * Helper used for pending register intake.
+     */
     public static function pendingRegisterIntake(?\Illuminate\Http\Request $request = null): ?array
     {
         $type = strtolower(trim((string) ($request?->input('office_intake_type') ?? '')));
@@ -5868,11 +6199,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * The office intake this save is actually registering.
-     * A DRF/DCN source unit on a document the admin created is not enough —
-     * the form must be the one posted from Proceed to Registration, which is
-     * the row in My DRF / My DCN.
-     *
+     * Helper used for explicit register intake.
      * @return array{type: string, id: int}|null
      */
     public static function explicitRegisterIntake(?\Illuminate\Http\Request $request = null): ?array
@@ -5952,7 +6279,9 @@ class OfficeIntakeHelper
         }
     }
 
-    /** @return list<int> */
+    /**
+     * Helper used for intake registration request ids.
+     */
     private static function intakeRegistrationRequestIds(): array
     {
         $ids = [];
@@ -5972,6 +6301,9 @@ class OfficeIntakeHelper
         return array_values(array_unique($ids));
     }
 
+    /**
+     * Helper used for claimed unregistered rows.
+     */
     private static function claimedUnregisteredRows(string $table)
     {
         $query = DB::table($table)->whereNotNull('rfio_claimed_at');
@@ -5987,7 +6319,9 @@ class OfficeIntakeHelper
         return $query->get();
     }
 
-    /** @param  list<string>  $docNos */
+    /**
+     * Helper used for registration request id after claim.
+     */
     private static function registrationRequestIdAfterClaim(object $row, array $docNos, ?string $title): int
     {
         $claimedAt = $row->rfio_claimed_at ?? null;
@@ -6030,7 +6364,9 @@ class OfficeIntakeHelper
         return (int) ($query->orderBy('ml.id')->value('ml.request_id') ?? 0);
     }
 
-    /** @return array{0: string, 1: ?string} */
+    /**
+     * Helper used for masterlist identity.
+     */
     private static function masterlistIdentity(int $requestId): array
     {
         $ml = DB::table('dcs_masterlist_registration')
@@ -6048,7 +6384,6 @@ class OfficeIntakeHelper
     /**
      * Document numbers and titles the office put on this DCN/DRF.
      * A DRF created from a DCN uses that DCN's document as well.
-     *
      * @return array{numbers: list<string>, titles: list<string>}
      */
     private static function intakeIdentity(string $type, object $record): array
@@ -6087,8 +6422,9 @@ class OfficeIntakeHelper
     }
 
     /**
-     * The saved registration is this office's DCN/DRF only when its document
-     * number (or the document it revises) or its title is the one they submitted.
+     * Checks whether a finished registration matches the office intake so it can be closed/linked.
+     *
+     * DEBUG: office not notified after register → match failed here / closePendingIntake*.
      */
     public static function registrationMatchesIntake(
         string $type,
@@ -6119,7 +6455,6 @@ class OfficeIntakeHelper
     /**
      * Close the pending office DCN/DRF after registration only when this document
      * is the one that office created. A different document must not notify them.
-     *
      * @return list<string> submitting offices that were notified
      */
     public static function closePendingIntakeForRegistration(
@@ -6184,13 +6519,18 @@ class OfficeIntakeHelper
             ->all();
     }
 
+    /**
+     * Removes or clears data for clear pending register intake.
+     */
     public static function clearPendingRegisterIntake(): void
     {
         session()->forget('dcs_office_intake_pending');
         cookie()->queue(cookie()->forget('dcs_office_intake_pending'));
     }
 
-    /** Return a claimed intake to the RFIO queue when this registration is not its document. */
+    /**
+     * Helper used for release unregistered claim.
+     */
     private static function releaseUnregisteredClaim(string $type, int $id): void
     {
         $type = strtolower($type);
@@ -6248,9 +6588,9 @@ class OfficeIntakeHelper
     }
 
     /**
-     * After RFIO registers a document from office intake: link the intake row,
-     * remove RFIO submit notifications, and notify only the submitting office
-     * ("Your DCN/DRF…"). Distribution offices are notified separately.
+     * Marks an office intake as registered and links it to the controlled document request.
+     *
+     * DEBUG: still pending after register → linkIntakeToRegistrationRequest + this method.
      */
     public static function markIntakeRegistered(
         string $type,
@@ -6334,6 +6674,8 @@ class OfficeIntakeHelper
     /**
      * After RDP appraisal finishes for a DCS registration that came from office intake,
      * notify the office that created the DRF/DCN (deferred from register time).
+     *
+     * DEBUG: missing/wrong bell notice → check here.
      */
     public static function notifyPendingIntakeRegistrationAfterAppraisal(int $requestId): void
     {
@@ -6367,6 +6709,11 @@ class OfficeIntakeHelper
         }
     }
 
+    /**
+     * Sends a notification for send intake registered notification.
+     *
+     * DEBUG: missing/wrong bell notice → check here.
+     */
     private static function sendIntakeRegisteredNotification(
         string $type,
         int $intakeId,
@@ -6397,7 +6744,6 @@ class OfficeIntakeHelper
     /**
      * Submitter office codes for a registration that came from office DRF/DCN intake.
      * Used so Incoming-distribution notices never go to the office that filed the request.
-     *
      * @return list<string>
      */
     public static function submitterOfficeCodesForRequest(int $requestId, ?Request $request = null): array
@@ -6446,7 +6792,6 @@ class OfficeIntakeHelper
 
     /**
      * Office code(s) for the account that created the office intake form.
-     *
      * @return list<string>
      */
     public static function intakeSubmitterOfficeCodes(object $record): array
@@ -6559,7 +6904,6 @@ class OfficeIntakeHelper
 
     /**
      * RFIO returns an incorrect office intake so the submitting office can edit it.
-     *
      * @return array<string, mixed>
      */
     public static function unlockForEdit(string $type, int $id, string $reason): array
@@ -6617,8 +6961,9 @@ class OfficeIntakeHelper
     }
 
     /**
-     * RFIO confirms the electronic submission is correct — notify the office to print, sign, and bring the hard copy.
+     * Unlocks print for the office and sends the print-and-sign notification.
      *
+     * DEBUG: office never got print unlock → DcsNotificationService + this method.
      * @return array<string, mixed>
      */
     public static function notifyReadyForPrintSign(string $type, int $id): array
@@ -6737,7 +7082,9 @@ class OfficeIntakeHelper
         ], self::intakePrintNotifiedState($record));
     }
 
-    /** @return array{type: string, id: int, record: object}|null */
+    /**
+     * Helper used for linked intake peer.
+     */
     private static function linkedIntakePeer(string $type, int $id): ?array
     {
         $type = strtolower($type);
@@ -6761,6 +7108,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for intake print notified state.
      * @return array{printNotified: bool, printNotifiedAt: string|null, printNotifiedBy: string|null}
      */
     public static function intakePrintNotifiedState(object $record): array
@@ -6778,7 +7126,9 @@ class OfficeIntakeHelper
         ];
     }
 
-    /** @return list<string> */
+    /**
+     * Helper used for intake office codes.
+     */
     private static function intakeOfficeCodes(string $type, int $id, object $record): array
     {
         $officeCodes = [];
@@ -6849,7 +7199,9 @@ class OfficeIntakeHelper
         return $withoutRfio->isNotEmpty() ? $withoutRfio->all() : $codes->all();
     }
 
-    /** @return array{office: string, submitter: string, submittedAt: string} */
+    /**
+     * Helper used for intake submission meta.
+     */
     public static function intakeSubmissionMeta(object $record, string $type, int $id): array
     {
         $offices = $type === 'dcn' ? self::dcnSourceOffices($id) : self::drfSourceOffices($id);
@@ -6875,6 +7227,9 @@ class OfficeIntakeHelper
         ];
     }
 
+    /**
+     * Helper used for office label for user.
+     */
     public static function officeLabelForUser(int $userId): string
     {
         if ($userId <= 0) {
@@ -6899,6 +7254,9 @@ class OfficeIntakeHelper
         return $name !== '' ? $name : trim((string) ($row->office_code ?? ''));
     }
 
+    /**
+     * Helper used for display name for user.
+     */
     public static function displayNameForUser(int $userId): string
     {
         if ($userId <= 0) {
@@ -6918,7 +7276,13 @@ class OfficeIntakeHelper
         return trim(trim((string) ($row->first_name ?? '')) . ' ' . trim((string) ($row->last_name ?? '')));
     }
 
-    /** @return array<string, mixed>|null */
+    /**
+     * Helper used for modal payload.
+     */
+    // =====================================================================
+    // SECTION: MODALS, DISTRIBUTE OFFICES, RECEIVED STATE
+    // =====================================================================
+    
     public static function modalPayload(string $type, int $id): ?array
     {
         return match (strtolower($type)) {
@@ -6956,7 +7320,9 @@ class OfficeIntakeHelper
         }
     }
 
-    /** @return list<int> */
+    /**
+     * Helper used for distribute office ids.
+     */
     public static function distributeOfficeIds(int $drfId): array
     {
         if ($drfId <= 0 || ! Schema::hasTable('dcs_office_drf_distribute_offices')) {
@@ -6974,7 +7340,11 @@ class OfficeIntakeHelper
             ->all();
     }
 
-    /** @param  array<int|string|null>  $officeIds */
+    /**
+     * Saves data for sync distribute offices.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     public static function syncDistributeOffices(int $drfId, array $officeIds): void
     {
         if ($drfId <= 0 || ! Schema::hasTable('dcs_office_drf_distribute_offices')) {
@@ -7009,7 +7379,9 @@ class OfficeIntakeHelper
         }
     }
 
-    /** @return array<int, array{office_id: int, code: string, name: string}> */
+    /**
+     * Helper used for drf distribute offices.
+     */
     public static function drfDistributeOffices(object $drf): array
     {
         if (isset($drf->preview_distribute_offices) && is_array($drf->preview_distribute_offices)) {
@@ -7048,7 +7420,9 @@ class OfficeIntakeHelper
         return $offices;
     }
 
-    /** @return array<string, mixed>|null */
+    /**
+     * Helper used for dcn modal payload.
+     */
     private static function dcnModalPayload(int $id): ?array
     {
         $dcn = self::findOfficeDcn($id);
@@ -7091,7 +7465,9 @@ class OfficeIntakeHelper
         ], self::intakeHandoffMeta('dcn', $id, $received, $canManage, $canRegister, $registered, $editState, $printState));
     }
 
-    /** @return array<string, mixed>|null */
+    /**
+     * Helper used for drf modal payload.
+     */
     private static function drfModalPayload(int $id): ?array
     {
         $drf = self::findOfficeDrf($id);
@@ -7130,6 +7506,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for intake received state.
      * @return array{received: bool, receivedAt: string|null, receivedBy: string|null}
      */
     public static function intakeReceivedState(object $record): array
@@ -7148,6 +7525,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for intake handoff meta.
      * @param  array{received: bool, receivedAt: string|null, receivedBy: string|null}  $received
      * @param  array{editUnlocked: bool, editUnlockReason: string|null, editUnlockedAt: string|null}  $editState
      * @param  array{printNotified: bool, printNotifiedAt: string|null, printNotifiedBy: string|null}  $printState
@@ -7190,8 +7568,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * RFIO admin marks physical document as received.
-     *
+     * Helper used for mark received.
      * @return array<string, mixed>
      */
     public static function markReceived(string $type, int $id): array
@@ -7252,7 +7629,6 @@ class OfficeIntakeHelper
 
     /**
      * Undo "I have received the signed printed form…" so RFIO can return it for correction instead.
-     *
      * @return array<string, mixed>
      */
     public static function clearReceived(string $type, int $id): array
@@ -7300,7 +7676,15 @@ class OfficeIntakeHelper
         ]);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Maps an office DRF into the Document Registration form fields (prefill).
+     *
+     * DEBUG: wrong fields after Proceed from DRF → this prefill mapper.
+     */
+    // =====================================================================
+    // SECTION: REGISTER PREFILL — map office intake → Document Registration form
+    // =====================================================================
+    
     public static function registerPrefillForDrf(object $drf, int $id): array
     {
         self::hydrateIntakeOriginators('drf', [$drf]);
@@ -7471,7 +7855,11 @@ class OfficeIntakeHelper
         return $prefill;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Maps an office DCN into the Document Registration form fields (prefill).
+     *
+     * DEBUG: wrong fields after Proceed from DCN → this prefill mapper.
+     */
     public static function registerPrefillForDcn(object $dcn, int $id, string $docNo, string $docTitle): array
     {
         self::hydrateIntakeOriginators('dcn', [$dcn]);
@@ -7560,7 +7948,13 @@ class OfficeIntakeHelper
         return $prefill;
     }
 
-    /** Parent doc-type groups shown in office document inventory. */
+    /**
+     * Helper used for document group defs.
+     */
+    // =====================================================================
+    // SECTION: OFFICE INVENTORY — grouped documents, incoming, random-check feeds
+    // =====================================================================
+    
     public static function documentGroupDefs(): array
     {
         return [
@@ -7573,15 +7967,16 @@ class OfficeIntakeHelper
     }
 
     /**
-     * How an office sees documents in each parent type.
-     * All groups (including Forms / Logbooks) use Document Distribution recipients.
+     * Helper used for document group scope.
      */
     public static function documentGroupScope(string $groupKey): string
     {
         return 'distribution';
     }
 
-    /** @return list<string> */
+    /**
+     * Helper used for document group keys for scope.
+     */
     public static function documentGroupKeysForScope(string $scope): array
     {
         $keys = [];
@@ -7594,12 +7989,17 @@ class OfficeIntakeHelper
         return $keys;
     }
 
+    /**
+     * Helper used for document group label.
+     */
     public static function documentGroupLabel(string $groupKey): string
     {
         return self::documentGroupDefs()[$groupKey] ?? 'Documents';
     }
 
-    /** @return list<int> */
+    /**
+     * Helper used for doc type ids for group.
+     */
     public static function docTypeIdsForGroup(string $groupKey): array
     {
         $parentId = RegisterQueryHelper::parentTypeIdMap()[$groupKey] ?? null;
@@ -7618,7 +8018,11 @@ class OfficeIntakeHelper
             ->all();
     }
 
-    /** Restrict masterlist rows to offices listed on Document Distribution. */
+    /**
+     * Applies a query filter/scope: apply office distribution scope.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     protected static function applyOfficeDistributionScope($query, int $officeId)
     {
         return $query->whereExists(function ($q) use ($officeId) {
@@ -7631,7 +8035,11 @@ class OfficeIntakeHelper
         });
     }
 
-    /** Restrict masterlist rows to offices listed as Source Unit. */
+    /**
+     * Applies a query filter/scope: apply office source scope.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     protected static function applyOfficeSourceScope($query, int $officeId)
     {
         return $query->whereExists(function ($q) use ($officeId) {
@@ -7646,6 +8054,8 @@ class OfficeIntakeHelper
     /**
      * Hide documents this office itself submitted via office intake (DRF/DCN).
      * Applied for all distribution-scoped inventory groups (including Forms / Logbooks).
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
      */
     protected static function applyExcludeOwnOfficeIntake($query, int $officeId)
     {
@@ -7676,6 +8086,11 @@ class OfficeIntakeHelper
         return $query;
     }
 
+    /**
+     * Applies a query filter/scope: apply office inventory common filters.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     protected static function applyOfficeInventoryCommonFilters($query)
     {
         $query->whereExists(function ($q) {
@@ -7692,7 +8107,6 @@ class OfficeIntakeHelper
 
     /**
      * Base masterlist query for documents distributed to the current office.
-     *
      * @param  'distribution'|'source'|null  $scope  null = combined (All / total)
      */
     protected static function officeMasterlistQuery(?int $officeId = null, ?string $scope = 'distribution')
@@ -7752,12 +8166,19 @@ class OfficeIntakeHelper
         return self::applyOfficeInventoryCommonFilters($query);
     }
 
-    /** Office DCN Document No. lookup is Internal and External only. */
+    /**
+     * Helper used for dcn document group keys.
+     */
     public static function dcnDocumentGroupKeys(): array
     {
         return ['internal_docs', 'external_docs'];
     }
 
+    /**
+     * Applies a query filter/scope: apply dcn document type filter.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     protected static function applyDcnDocumentTypeFilter($query)
     {
         return $query->where(function ($outer) {
@@ -7772,6 +8193,8 @@ class OfficeIntakeHelper
     /**
      * Filter by parent document type the same way Inventory type tabs do
      * (dcs_document_requests.doc_type_id = parent type id).
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
      */
     protected static function applyMasterlistGroupFilter($query, string $groupKey)
     {
@@ -7806,7 +8229,9 @@ class OfficeIntakeHelper
         });
     }
 
-    /** @return int */
+    /**
+     * Helper used for office document total.
+     */
     public static function officeDocumentTotal(?int $officeId = null, string $receiptFilter = 'all'): int
     {
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
@@ -7824,8 +8249,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Incoming attention split for the office dashboard.
-     *
+     * Helper used for office incoming attention breakdown.
      * @return array{pending: int, appraisable: int, total: int}
      */
     public static function officeIncomingAttentionBreakdown(?int $officeId = null, bool $forceFresh = false): array
@@ -7857,12 +8281,17 @@ class OfficeIntakeHelper
         );
     }
 
+    /**
+     * Helper used for office incoming attention total.
+     */
     public static function officeIncomingAttentionTotal(?int $officeId = null, bool $forceFresh = false): int
     {
         return (int) (self::officeIncomingAttentionBreakdown($officeId, $forceFresh)['total'] ?? 0);
     }
 
-    /** True when this registration was created from an office DRF/DCN request. */
+    /**
+     * Helper used for request is linked to office intake.
+     */
     public static function requestIsLinkedToOfficeIntake(int $requestId): bool
     {
         if ($requestId < 1) {
@@ -7874,7 +8303,6 @@ class OfficeIntakeHelper
 
     /**
      * Link claimed (not yet finalized) intakes to draft requests by title / doc no.
-     *
      * @param  list<array{request_id:int,title:string,doc_no:string}>  $drafts
      */
     public static function backfillDraftIntakeLinks(array $drafts): void
@@ -7932,6 +8360,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for request ids linked to office intake.
      * @param  list<int>  $requestIds
      * @return array<int, true>
      */
@@ -7955,6 +8384,11 @@ class OfficeIntakeHelper
         return $linked;
     }
 
+    /**
+     * Tells whether is incoming notice url — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function isIncomingNoticeUrl(?string $url): bool
     {
         if ($url === null || trim($url) === '') {
@@ -7966,6 +8400,9 @@ class OfficeIntakeHelper
         return str_contains($path, '/dcs/office/incoming');
     }
 
+    /**
+     * Helper used for incoming document code from url.
+     */
     public static function incomingDocumentCodeFromUrl(?string $url): ?string
     {
         if (! self::isIncomingNoticeUrl($url)) {
@@ -7983,6 +8420,9 @@ class OfficeIntakeHelper
         return $doc !== '' ? $doc : null;
     }
 
+    /**
+     * Helper used for incoming notice still open.
+     */
     public static function incomingNoticeStillOpen(?string $url): bool
     {
         if (! self::isIncomingNoticeUrl($url)) {
@@ -8032,9 +8472,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Groups for office document inventory.
-     * When $onlyWithDocuments is false, every parent type is returned (count may be 0).
-     *
+     * Helper used for office document groups.
      * @param  'all'|'received'|'pending'  $receiptFilter
      * @return list<array{key: string, label: string, count: int}>
      */
@@ -8055,6 +8493,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Builds or formats data for build office document groups.
      * @return list<array{key: string, label: string, count: int}>
      */
     private static function buildOfficeDocumentGroups(
@@ -8084,6 +8523,7 @@ class OfficeIntakeHelper
     /**
      * Filter distributed docs by physical receipt status for the office.
      *
+     * DEBUG: wrong rows visible → check this scope/filter.
      * @param  'all'|'received'|'pending'  $receiptFilter
      */
     protected static function applyOfficeReceiptFilter($query, int $officeId, string $receiptFilter): void
@@ -8230,6 +8670,9 @@ class OfficeIntakeHelper
         });
     }
 
+    /**
+     * Helper used for office code for appraisal filter.
+     */
     protected static function officeCodeForAppraisalFilter(int $officeId): ?string
     {
         if ($officeId < 1 || ! Schema::hasTable('rdp_received_documents')) {
@@ -8245,6 +8688,11 @@ class OfficeIntakeHelper
         return trim($officeCode);
     }
 
+    /**
+     * Applies a query filter/scope: apply pending appraisal exists.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     protected static function applyPendingAppraisalExists($q, string $officeCode): void
     {
         $q->select(DB::raw(1))
@@ -8262,9 +8710,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * One present copy per document this office holds.
-     * Same number with a different title stays separate.
-     * Only latest (current) copies are kept — obsolete and superseded are dropped.
+     * Helper used for keep latest distributed documents.
      */
     protected static function keepLatestDistributedDocuments($records)
     {
@@ -8299,7 +8745,9 @@ class OfficeIntakeHelper
         }, SORT_NATURAL | SORT_FLAG_CASE)->values();
     }
 
-    /** @param  array{current: int, rev: int, id: int}  $candidate */
+    /**
+     * Helper used for distributed copy is current.
+     */
     protected static function distributedCopyIsCurrent(array $candidate, array $current): bool
     {
         if ($candidate['current'] !== $current['current']) {
@@ -8313,19 +8761,9 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Lists or paginates data for list office documents.
      * @param  'all'|'received'|'pending'|'received_for_appraisal'  $receiptFilter
      * @return list<array{
-     *     item_no: int,
-     *     request_id: int,
-     *     doc_no: string,
-     *     rev_no: int,
-     *     doc_title: string,
-     *     pages: string,
-     *     effectivity_date: string|null,
-     *     can_receive: bool,
-     *     received_at: string|null,
-     *     received_by_name: string
-     * }>
      */
     public static function listOfficeDocuments(
         string $groupKey,
@@ -8353,7 +8791,6 @@ class OfficeIntakeHelper
 
     /**
      * DB-paged office document list (distinct current copy per doc no + title).
-     *
      * @param  'all'|'received'|'pending'|'received_for_appraisal'  $receiptFilter
      */
     public static function paginateOfficeDocuments(
@@ -8415,14 +8852,13 @@ class OfficeIntakeHelper
 
     /**
      * Incoming queue: pending receipts first, then received-awaiting-appraisal — DB-paged.
-     *
-     * @return array{
-     *     rows: \Illuminate\Pagination\LengthAwarePaginator,
-     *     total: int,
-     *     pending_total: int,
-     *     appraisal_total: int,
-     *     active_count: int
+     * rows: \Illuminate\Pagination\LengthAwarePaginator,
+     * total: int,
+     * pending_total: int,
+     * appraisal_total: int,
+     * active_count: int
      * }
+     * @return array{
      */
     public static function paginateOfficeIncomingDocuments(
         string $groupKey,
@@ -8620,6 +9056,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Builds or formats data for build office document rows.
      * @return list<array<string, mixed>>
      */
     private static function buildOfficeDocumentRows(
@@ -8647,6 +9084,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for map office document rows.
      * @param  iterable<int, object>  $records
      * @return list<array<string, mixed>>
      */
@@ -8689,6 +9127,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for office distribution receipts.
      * @param  list<int>  $requestIds
      * @return array<int, array{received_at: string|null, received_by_name: string}>
      */
@@ -8744,6 +9183,7 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Helper used for mark office document received.
      * @return array{ok: bool, already?: bool, message: string}
      */
     public static function markOfficeDocumentReceived(int $requestId): array
@@ -8839,19 +9279,18 @@ class OfficeIntakeHelper
 
     /**
      * Documents for Random Check (by office + optional parent type group).
-     *
-     * @param  bool  $distributionOnly  When true, always scope by Document Distribution
-     *                                  (used by Random Check office audits).
-     * @return list<array{
-     *     masterlist_id: int,
-     *     doc_no: string,
-     *     rev_no: int,
-     *     doc_title: string,
-     *     effectivity_date: string|null,
-     *     effectivity_date_raw: string|null,
-     *     doc_type_key: string,
-     *     doc_type_label: string
+     * (used by Random Check office audits).
+     * masterlist_id: int,
+     * doc_no: string,
+     * rev_no: int,
+     * doc_title: string,
+     * effectivity_date: string|null,
+     * effectivity_date_raw: string|null,
+     * doc_type_key: string,
+     * doc_type_label: string
      * }>
+     * @param  bool  $distributionOnly  When true, always scope by Document Distribution
+     * @return list<array{
      */
     public static function listDocumentsForCheck(
         ?int $officeId = null,
@@ -8943,7 +9382,6 @@ class OfficeIntakeHelper
 
     /**
      * Type counts for an office (distribution recipients when $distributionOnly).
-     *
      * @return list<array{key: string, label: string, count: int}>
      */
     public static function officeDocumentGroupsForCheck(?int $officeId = null, bool $distributionOnly = true): array
@@ -8965,16 +9403,8 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Lists or paginates data for list documents for check group.
      * @return list<array{
-     *     masterlist_id: int,
-     *     doc_no: string,
-     *     rev_no: int,
-     *     doc_title: string,
-     *     effectivity_date: string|null,
-     *     effectivity_date_raw: string|null,
-     *     doc_type_key: string,
-     *     doc_type_label: string
-     * }>
      */
     protected static function listDocumentsForCheckGroup(
         int $officeId,
@@ -9031,7 +9461,9 @@ class OfficeIntakeHelper
         return $rows;
     }
 
-    /** @deprecated Use listDocumentsForCheck() */
+    /**
+     * Lists or paginates data for list distributed documents for check.
+     */
     public static function listDistributedDocumentsForCheck(?int $officeId = null): array
     {
         return self::listDocumentsForCheck($officeId, 'all', true);

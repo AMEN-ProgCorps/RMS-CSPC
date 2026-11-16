@@ -1,4 +1,9 @@
 {{--
+  DCS PAGE: Office print DRF
+  FILE: resources/views/pages/dcs/office/drf-print.blade.php
+  DEBUG: officeMayPrintIntake; print-unlock-*
+--}}
+{{--
 DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if it still overflows, a second underlined line is added. Originator stays one 11pt comma-separated line.
 --}}
 <!DOCTYPE html>

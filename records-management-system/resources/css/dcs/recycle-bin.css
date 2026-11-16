@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: Recycle Bin list
+ * FILE: resources/css/dcs/recycle-bin.css
+ * DEBUG: Prefer [data-theme="dark"] rules in dark.css for theme bugs; page-specific FOUC/layout here.
+ */
+
 /* DCS file: Recycle Bin table. */
 @import './tokens.css';
 

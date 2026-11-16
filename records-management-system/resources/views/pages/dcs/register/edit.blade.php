@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Edit registration
+  FILE: resources/views/pages/dcs/register/edit.blade.php
+  DEBUG: RegisterUpdateHelper::update; RegisterQueryHelper::editPayload
+--}}
 <?php
 
 /**

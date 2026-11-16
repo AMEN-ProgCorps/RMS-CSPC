@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Inventory offices clamp partial
+  FILE: resources/views/pages/dcs/database/_offices-clamp.blade.php
+  DEBUG: distribution office display
+--}}
+{{--
 DCS file: Office list clamped to two lines, with See more when the rest does not fit.
 --}}
 {{-- Truncate at last complete office that fits in 2 lines; See more sits after that office. --}}

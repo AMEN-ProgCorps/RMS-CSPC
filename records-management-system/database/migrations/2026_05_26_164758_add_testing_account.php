@@ -45,7 +45,7 @@ return new class extends Migration
             'last_name' => 'Administrator',
             'middle_name' => null,
             'office_id' => null,
-            'email' => env('ADMIN_EMAIL', 'kuzabala@my.cspc.edu.ph'),
+            'email' => env('ADMIN_EMAIL', 'nibermundo@my.cspc.edu.ph'),
             'contact_number' => null,
             'is_currently_online' => false,
             'last_online_time' => null,

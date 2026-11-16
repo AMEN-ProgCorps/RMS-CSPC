@@ -1,3 +1,8 @@
+{{--
+  DCS PARTIAL: Register partial (edit-history-page.blade.php)
+  FILE: resources/views/pages/dcs/register/partials/edit-history-page.blade.php
+  DEBUG: RegisterPersistHelper / RegisterQueryHelper; register.css
+--}}
 <div class="hst-container" x-data @keydown.escape.window="window.location.href = '{{ route('dcs.register.update') }}'">
     <div class="hst-header">
         <div>

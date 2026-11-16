@@ -6,14 +6,17 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Campus-wide Distribution and Retrieval monitor for Admin DCS.
- * One family per document number, with every revision and every office it was sent to.
- * DCS file: DistributionRetrievalMonitorHelper in app/ so Composer autoloads it.
- * Campus distribution monitor. One family per document number, with every revision and every office it was sent to.
- * Do not move this class back under resources/views.
- * Public methods:
- * monitor, statusShort, statusLabel.
-*/
+ * Campus-wide Distribution & Retrieval monitor (Admin DCS Monitoring).
+ *
+ * One family per document number, every revision, every office it was sent to.
+ * UI: resources/views/pages/dcs/monitoring/distribution-retrieval.blade.php
+ * LOCATION: app/Helpers — do not move under resources/views.
+ *
+ * DEBUG MAP:
+ *   Empty monitor / missing families  → monitor(); Schema for masterlist/distribution tables
+ *   Wrong received/awaiting counts    → statusShort/statusLabel + distribution office rows
+ *   Search/status filter miss         → monitor($search, $status) filters
+ */
 class DistributionRetrievalMonitorHelper
 {
     /**
@@ -21,6 +24,13 @@ class DistributionRetrievalMonitorHelper
      *     families: list<array<string, mixed>>,
      *     summary: array{documents: int, received: int, awaiting: int, retrieved: int, previous_out: int}
      * }
+     */
+    // =====================================================================
+    // SECTION: MONITOR — families, status helpers
+    // =====================================================================
+
+    /**
+     * Builds the campus Distribution & Retrieval monitor families and summary counts.
      */
     public static function monitor(string $search = '', string $status = 'all'): array
     {
@@ -54,7 +64,9 @@ class DistributionRetrievalMonitorHelper
         ];
     }
 
-    /** @return list<object> */
+    /**
+     * Loads or finds data for load rows.
+     */
     private static function loadRows(): array
     {
         $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
@@ -142,6 +154,7 @@ class DistributionRetrievalMonitorHelper
     }
 
     /**
+     * Builds or formats data for build families.
      * @param  list<object>  $rows
      * @return list<array<string, mixed>>
      */
@@ -297,6 +310,9 @@ class DistributionRetrievalMonitorHelper
         return $families;
     }
 
+    /**
+     * Helper used for office status.
+     */
     private static function officeStatus(bool $received, bool $retrieved, bool $newerOut, bool $olderStillOut): string
     {
         if ($retrieved) {
@@ -312,6 +328,9 @@ class DistributionRetrievalMonitorHelper
         return $received ? 'received' : 'awaiting';
     }
 
+    /**
+     * Returns a short status code for a distribution/retrieval office row.
+     */
     public static function statusShort(string $status): string
     {
         return match ($status) {
@@ -323,6 +342,9 @@ class DistributionRetrievalMonitorHelper
         };
     }
 
+    /**
+     * Returns a human label for a distribution/retrieval status.
+     */
     public static function statusLabel(string $status): string
     {
         return match ($status) {
@@ -342,7 +364,6 @@ class DistributionRetrievalMonitorHelper
     /**
      * A copy leaves the monitor only after every office has received it and returned it.
      * Received copies that are not yet retrieved stay, so both states remain visible.
-     *
      * @param  list<array<string, mixed>>  $families
      * @return list<array<string, mixed>>
      */
@@ -378,6 +399,9 @@ class DistributionRetrievalMonitorHelper
         return $kept;
     }
 
+    /**
+     * Helper used for filter search.
+     */
     private static function filterSearch(array $families, string $search): array
     {
         $search = trim($search);
@@ -409,6 +433,7 @@ class DistributionRetrievalMonitorHelper
     }
 
     /**
+     * Helper used for filter status.
      * @param  list<array<string, mixed>>  $families
      * @return list<array<string, mixed>>
      */
@@ -443,6 +468,9 @@ class DistributionRetrievalMonitorHelper
         return $kept;
     }
 
+    /**
+     * Helper used for status matches.
+     */
     private static function statusMatches(string $filter, string $status): bool
     {
         return match ($filter) {
@@ -456,6 +484,7 @@ class DistributionRetrievalMonitorHelper
     }
 
     /**
+     * Helper used for summarize.
      * @param  list<array<string, mixed>>  $families
      * @return array{documents: int, received: int, awaiting: int, retrieved: int, previous_out: int}
      */
@@ -492,7 +521,9 @@ class DistributionRetrievalMonitorHelper
         return $summary;
     }
 
-    /** @param  list<object>  $rows */
+    /**
+     * Helper used for receiver names.
+     */
     private static function receiverNames(array $rows): array
     {
         $ids = [];
@@ -515,6 +546,9 @@ class DistributionRetrievalMonitorHelper
         return $names;
     }
 
+    /**
+     * Helper used for type name.
+     */
     private static function typeName(object $row): string
     {
         $name = trim((string) ($row->doc_type_name ?? ''));
@@ -525,6 +559,9 @@ class DistributionRetrievalMonitorHelper
         return $name !== '' ? $name : 'Unclassified';
     }
 
+    /**
+     * Tells whether is enabled — used for access and UI decisions.
+     */
     private static function isEnabled(mixed $value): bool
     {
         if (is_bool($value)) {
@@ -534,6 +571,9 @@ class DistributionRetrievalMonitorHelper
         return ! in_array(strtolower(trim((string) $value)), ['', '0', 'f', 'false', 'no'], true);
     }
 
+    /**
+     * Helper used for sort date.
+     */
     private static function sortDate(mixed $value): string
     {
         $value = trim((string) $value);
@@ -547,6 +587,9 @@ class DistributionRetrievalMonitorHelper
         }
     }
 
+    /**
+     * Builds or formats data for format date.
+     */
     private static function formatDate(mixed $value): string
     {
         $value = trim((string) $value);
@@ -560,6 +603,9 @@ class DistributionRetrievalMonitorHelper
         }
     }
 
+    /**
+     * Builds or formats data for format date time.
+     */
     private static function formatDateTime(mixed $value): string
     {
         $value = trim((string) $value);

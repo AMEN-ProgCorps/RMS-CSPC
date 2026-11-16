@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Generate Report browser
+  FILE: resources/views/pages/dcs/reports/show.blade.php
+  DEBUG: ReportHelper; InteractsWithDcsReport
+--}}
 <?php
 
 /**

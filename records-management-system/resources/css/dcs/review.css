@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: Review compare UI
+ * FILE: resources/css/dcs/review.css
+ * DEBUG: Prefer [data-theme="dark"] rules in dark.css for theme bugs; page-specific FOUC/layout here.
+ */
+
 /* DCS file: Review queue. */
 @import './tokens.css';
 

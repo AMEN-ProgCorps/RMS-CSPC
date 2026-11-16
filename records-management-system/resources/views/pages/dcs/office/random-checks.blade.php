@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Office random-check inbox
+  FILE: resources/views/pages/dcs/office/random-checks.blade.php
+  DEBUG: RandomCheckHelper::officeInbox
+--}}
 <?php
 
 /**

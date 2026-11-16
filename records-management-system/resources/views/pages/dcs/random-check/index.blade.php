@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Admin Random Check
+  FILE: resources/views/pages/dcs/random-check/index.blade.php
+  DEBUG: RandomCheckHelper
+--}}
 <?php
 
 /**

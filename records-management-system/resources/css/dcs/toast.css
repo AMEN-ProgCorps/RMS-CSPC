@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: DCS toasts
+ * FILE: resources/css/dcs/toast.css
+ * DEBUG: Prefer [data-theme="dark"] rules in dark.css for theme bugs; page-specific FOUC/layout here.
+ */
+
 /* DCS file: Shared DCS toast. */
 /* Shared DCS toast — same look as Register, used on every DCS page. */
 .dcs-toast,

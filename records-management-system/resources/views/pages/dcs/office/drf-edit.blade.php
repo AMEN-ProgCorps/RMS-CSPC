@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Office edit DRF
+  FILE: resources/views/pages/dcs/office/drf-edit.blade.php
+  DEBUG: OfficeIntakeHelper::updateDrf / canOfficeEditIntake
+--}}
 <?php
 
 /**

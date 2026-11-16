@@ -9,6 +9,14 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Field-level edit history for DCS registrations (registrars can view).
+ *
+ * Table: dcs_document_edit_history
+ * UI: register/partials/edit-history-page.blade.php + history-by-request
+ *
+ * DEBUG MAP:
+ *   History empty after edit          → tableReady(); callers that record field diffs on update
+ *   Wrong field labels                → FIELD_LABELS
+ *   Page 404 / no entries             → RegisterQueryHelper::editHistoryPage*
  */
 class RegisterEditHistoryHelper
 {
@@ -32,14 +40,20 @@ class RegisterEditHistoryHelper
         'distribution_offices' => 'Distribution Offices',
     ];
 
+    // =====================================================================
+    // SECTION: EDIT HISTORY RECORD / READ
+    // =====================================================================
+
+    /**
+     * Checks if the document edit-history table exists so callers can skip history when the migration was not run.
+     */
     public static function tableReady(): bool
     {
         return Schema::hasTable('dcs_document_edit_history');
     }
 
     /**
-     * Snapshot of tracked values for a registration.
-     *
+     * Builds a before/after snapshot of tracked registration fields (title, dates, originator, offices, etc.) for one request.
      * @return array<string, string>
      */
     public static function snapshot(int $requestId): array
@@ -77,8 +91,7 @@ class RegisterEditHistoryHelper
     }
 
     /**
-     * Diff two snapshots and persist a history row when anything changed.
-     *
+     * Compares before and after snapshots and saves an edit-history entry when any tracked field changed.
      * @param  array<string, string>  $before
      * @param  array<string, string>  $after
      */
@@ -121,8 +134,7 @@ class RegisterEditHistoryHelper
     }
 
     /**
-     * Baseline entry when a document is first registered (no prior snapshot).
-     *
+     * Saves the first history entry when a document is newly registered or drafted (no previous values).
      * @param  array<string, string>  $after
      */
     public static function recordBaseline(int $requestId, array $after, string $action = 'register'): void
@@ -153,6 +165,7 @@ class RegisterEditHistoryHelper
     }
 
     /**
+     * Returns edit-history entries for one registration, for the History / Edit History UI.
      * @return list<array{id:int,request_id:int,action:string,user_name:string,edited_by:string,created_at:string,created_at_raw:string,changes:list<array{field:string,label:string,old:string,new:string}>}>
      */
     public static function listForRequest(int $requestId): array
@@ -161,6 +174,7 @@ class RegisterEditHistoryHelper
     }
 
     /**
+     * Returns edit-history entries for many registrations at once (batch load for list pages).
      * @param  list<int>  $requestIds
      * @return list<array{id:int,request_id:int,action:string,user_name:string,edited_by:string,created_at:string,created_at_raw:string,changes:list<array{field:string,label:string,old:string,new:string}>}>
      */
@@ -247,8 +261,7 @@ class RegisterEditHistoryHelper
     }
 
     /**
-     * Prefer "Office added/removed …" over rewriting the full office list.
-     *
+     * Turns office-list diffs into short “office added/removed” change lines instead of rewriting the whole list.
      * @return list<array{field:string,label:string,old:string,new:string}>
      */
     private static function officeListChanges(string $field, string $label, string $old, string $new): array
@@ -339,6 +352,7 @@ class RegisterEditHistoryHelper
     }
 
     /**
+     * Splits a comma-separated office label string into individual office names.
      * @return list<string>
      */
     private static function splitOfficeNames(string $csv): array
@@ -354,6 +368,9 @@ class RegisterEditHistoryHelper
     }
 
     /**
+     * Writes one edit-history header row and its field-change child rows to the database.
+     *
+     * DEBUG: registration save fails / wrong rows → step through persist() first.
      * @param  list<array{field: string, label: string, old: string, new: string}>  $changes
      */
     private static function persist(int $requestId, string $action, array $changes): void
@@ -391,6 +408,9 @@ class RegisterEditHistoryHelper
         }
     }
 
+    /**
+     * Builds the display originator text for a masterlist row (junction names or legacy column).
+     */
     private static function originatorLabel(int $masterlistId, object $ml): string
     {
         if ($masterlistId > 0 && Schema::hasTable('dcs_masterlist_originators') && Schema::hasTable('dcs_originators')) {
@@ -421,6 +441,9 @@ class RegisterEditHistoryHelper
         return '';
     }
 
+    /**
+     * Builds the display keywords text for a masterlist row.
+     */
     private static function keywordsLabel(int $masterlistId, object $ml): string
     {
         if ($masterlistId > 0 && Schema::hasTable('dcs_masterlist_keywords')) {
@@ -444,6 +467,9 @@ class RegisterEditHistoryHelper
         return '';
     }
 
+    /**
+     * Builds the comma-separated source-office label for a masterlist.
+     */
     private static function sourceOfficesLabel(int $masterlistId): string
     {
         if ($masterlistId < 1 || ! Schema::hasTable('dcs_masterlist_source_offices')) {
@@ -464,6 +490,9 @@ class RegisterEditHistoryHelper
         return implode(', ', $names);
     }
 
+    /**
+     * Builds the comma-separated distribution-office label for a request.
+     */
     private static function distributionOfficesLabel(int $requestId): string
     {
         if ($requestId < 1 || ! Schema::hasTable('dcs_document_distribution') || ! Schema::hasTable('dcs_distribution_offices')) {
@@ -486,6 +515,7 @@ class RegisterEditHistoryHelper
     }
 
     /**
+     * Maps account ids to display names for history “edited by” labels.
      * @param  list<int>  $userIds
      * @return array<int, string>
      */
@@ -520,11 +550,17 @@ class RegisterEditHistoryHelper
         return $out;
     }
 
+    /**
+     * Normalizes a string value for fair before/after comparison (trim / empty handling).
+     */
     private static function norm(string $value): string
     {
         return trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
     }
 
+    /**
+     * Normalizes a date value to a comparable Y-m-d string for history diffs.
+     */
     private static function normDate(mixed $value): string
     {
         if ($value === null || $value === '') {
@@ -537,6 +573,9 @@ class RegisterEditHistoryHelper
         }
     }
 
+    /**
+     * Normalizes a time value to a comparable string for history diffs.
+     */
     private static function normTime(mixed $value): string
     {
         if ($value === null || $value === '') {
@@ -553,6 +592,9 @@ class RegisterEditHistoryHelper
         }
     }
 
+    /**
+     * Formats a stored timestamp for the edit-history UI.
+     */
     private static function formatDisplayDateTime(string $value): string
     {
         if ($value === '') {

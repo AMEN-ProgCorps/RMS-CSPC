@@ -1,7 +1,13 @@
 <?php
 
 /**
- * DCS file: Writes a DCS activity event and a short admin log line.
+ * Structured DCS activity events (+ optional short admin_logs line).
+ *
+ * Writes dcs_activity_events with Area / office meta from RegisterPersistHelper,
+ * and may also call RegisterPersistHelper::logAdminChange() for Admin Console logs.
+ *
+ * DEBUG: missing activity row → Schema::hasTable(dcs_activity_events); check Auth::id().
+ *        Wrong Area/Side on log → RegisterPersistHelper::dcsActionArea / appendOfficeContext.
  */
 
 namespace App\Services;
@@ -16,7 +22,6 @@ class DcsAuditService
 {
     /**
      * Structured DCS activity event + optional short admin_logs line.
-     *
      * @param  array<string, mixed>  $meta
      */
     public static function log(
@@ -68,6 +73,9 @@ class DcsAuditService
     }
 
     /**
+     * Saves data for store event meta.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
      * @param  array<string, mixed>  $meta
      */
     private static function storeEventMeta(int $eventId, array $meta): void
@@ -89,6 +97,7 @@ class DcsAuditService
     }
 
     /**
+     * Helper used for flatten meta.
      * @param  array<string, mixed>  $payload
      * @param  list<array{key: string, sort: int, value: string}>  $rows
      */

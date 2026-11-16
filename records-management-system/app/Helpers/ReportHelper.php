@@ -9,13 +9,18 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 /**
+ * Generate Report queries and exports for Admin DCS.
  *
- * DCS file: ReportHelper in app/ so Composer autoloads it.
- * Generate Report queries. Masterlist rows number the latest copy. Obsolete and superseded copies stay unnumbered.
- * Do not move this class back under resources/views.
- * Public methods:
- * reportSplitKeys, payload, data, saveMonitoringRemark, saveMonitoringForwardedDrr,
- * saveOpcrRatingField, saveOpcrRatings, export.
+ * Masterlist rows number the latest copy; obsolete/superseded stay unnumbered.
+ * UI: pages/dcs/reports/* + InteractsWithDcsReport trait
+ * LOCATION: app/Helpers — do not move under resources/views.
+ *
+ * DEBUG MAP:
+ *   Wrong columns / section rules     → reportSplitKeys, payload/data column sets
+ *   Empty report for filters          → data()/payload() filter params
+ *   Export blank or wrong file        → export(); DocumentStorageService paths
+ *   Monitoring remark not sticking    → saveMonitoringRemark / saveMonitoringForwardedDrr
+ *   OPCR ratings                     → saveOpcrRatingField / saveOpcrRatings
  */
 class ReportHelper
 {
@@ -25,6 +30,13 @@ class ReportHelper
      *
      * @param  list<string>  $keys
      * @return list<string>
+     */
+    // =====================================================================
+    // SECTION: REPORT PAYLOAD / DATA / EXPORT
+    // =====================================================================
+
+    /**
+     * Helper used for report split keys.
      */
     public static function reportSplitKeys(array $keys): array
     {
@@ -48,6 +60,9 @@ class ReportHelper
     // REPORT DEFINITIONS
     // ════════════════════════════════════════════
 
+    /**
+     * Loads or finds data for get report categories.
+     */
     private function getReportCategories(): array
     {
         return [
@@ -97,13 +112,17 @@ class ReportHelper
         ];
     }
 
-    /** Report sub-tab → parent doc type ID (dcs_doc_types). */
+    /**
+     * Loads or finds data for get doc type parent map.
+     */
     private function getDocTypeParentMap(): array
     {
         return RegisterQueryHelper::parentTypeIdMap();
     }
 
-    /** Parent + child doc type IDs for a report sub-tab. */
+    /**
+     * Loads or finds data for get type ids for sub tab.
+     */
     private function getTypeIdsForSubTab(?string $sub): ?array
     {
         $parentId = RegisterQueryHelper::parentTypeIdMap()[$sub] ?? null;
@@ -122,6 +141,9 @@ class ReportHelper
             ->all();
     }
 
+    /**
+     * Parses or normalizes values used by resolve date range.
+     */
     private function resolveDateRange(Request $request): array
     {
         $period   = $request->input('period', 'annually');
@@ -161,6 +183,9 @@ class ReportHelper
         return [$start->toDateString(), $end->toDateString(), $end->toDateString(), $period];
     }
 
+    /**
+     * Helper used for period label.
+     */
     private function periodLabel(string $period): string
     {
         return match ($period) {
@@ -173,6 +198,9 @@ class ReportHelper
         };
     }
 
+    /**
+     * Parses or normalizes values used by normalized form year.
+     */
     private function normalizedFormYear(mixed $year): ?int
     {
         $year = trim((string) $year);
@@ -212,7 +240,9 @@ class ReportHelper
         return $this->renderPreviewPdfWithWindowsChrome($html);
     }
 
-    /** Headless Google Chrome on Windows (common for WSL2 local servers). */
+    /**
+     * Helper used for render preview pdf with windows chrome.
+     */
     private function renderPreviewPdfWithWindowsChrome(string $html): ?string
     {
         $chrome = null;
@@ -289,6 +319,9 @@ class ReportHelper
         return $pdf;
     }
 
+    /**
+     * Helper used for to windows path.
+     */
     private function toWindowsPath(string $linuxPath): ?string
     {
         if (! str_starts_with($linuxPath, '/mnt/')) {
@@ -310,6 +343,9 @@ class ReportHelper
         return $drive.':\\'.implode('\\', array_slice($parts, 2));
     }
 
+    /**
+     * Helper used for render preview pdf with puppeteer.
+     */
     private function renderPreviewPdfWithPuppeteer(string $htmlFile, string $pdfFile): ?string
     {
         $script = base_path('scripts/html-to-pdf.mjs');
@@ -353,6 +389,9 @@ class ReportHelper
         return is_string($pdf) && $pdf !== '' ? $pdf : null;
     }
 
+    /**
+     * Parses or normalizes values used by resolve node binary.
+     */
     private function resolveNodeBinary(): ?string
     {
         $candidates = array_filter([
@@ -370,6 +409,9 @@ class ReportHelper
         return null;
     }
 
+    /**
+     * Helper used for render preview pdf with system chrome.
+     */
     private function renderPreviewPdfWithSystemChrome(string $htmlFile, string $pdfFile): ?string
     {
         $binary = $this->resolveChromiumBinary();
@@ -433,7 +475,9 @@ class ReportHelper
         return $pdf;
     }
 
-    /** Locate Chromium/Chrome for headless PDF (Docker apt package or host install). */
+    /**
+     * Parses or normalizes values used by resolve chromium binary.
+     */
     private function resolveChromiumBinary(): ?string
     {
         $envFile = storage_path('app/chromium.env');
@@ -478,7 +522,9 @@ class ReportHelper
         return null;
     }
 
-    /** CSPC form code shown on the report letterhead (right of blue rule). */
+    /**
+     * Helper used for letter number for report.
+     */
     private function letterNumberForReport(?string $category, ?string $sub): string
     {
         return match ($sub) {
@@ -489,6 +535,9 @@ class ReportHelper
         };
     }
 
+    /**
+     * Parses or normalizes values used by parse report filters.
+     */
     private function parseReportFilters(Request $request): array
     {
         $raw = $request->input('sub_type_ids', '');
@@ -526,6 +575,9 @@ class ReportHelper
         ];
     }
 
+    /**
+     * Parses or normalizes values used by normalized sort.
+     */
     private function normalizedSort(mixed $sort): string
     {
         $sort = trim((string) $sort);
@@ -534,16 +586,25 @@ class ReportHelper
         return in_array($sort, $allowed, true) ? $sort : 'effectivity_date';
     }
 
+    /**
+     * Parses or normalizes values used by normalized sort dir.
+     */
     private function normalizedSortDir(mixed $dir): string
     {
         return strtolower(trim((string) $dir)) === 'desc' ? 'desc' : 'asc';
     }
 
+    /**
+     * Helper used for sql sort dir.
+     */
     private function sqlSortDir(array $filters): string
     {
         return ($filters['sort_dir'] ?? 'asc') === 'desc' ? 'DESC' : 'ASC';
     }
 
+    /**
+     * Helper used for order by nullable date.
+     */
     private function orderByNullableDate($query, string $column, array $filters, ?string $timeColumn = null)
     {
         $dir = $this->sqlSortDir($filters);
@@ -565,6 +626,11 @@ class ReportHelper
         return $query;
     }
 
+    /**
+     * Apply query/scope constraint: apply sub type filter.
+     *
+     * DEBUG: wrong rows visible for office/user → check this scope.
+     */
     private function applySubTypeFilter($query, array $filters)
     {
         if (!empty($filters['sub_type_empty'])) {
@@ -578,6 +644,11 @@ class ReportHelper
         return $query->whereIn('dr.sub_type_id', $filters['sub_type_ids']);
     }
 
+    /**
+     * Apply query/scope constraint: apply ui monitoring filters.
+     *
+     * DEBUG: wrong rows visible for office/user → check this scope.
+     */
     private function applyUiMonitoringFilters($query, array $filters)
     {
         if (!empty($filters['ui_doc_type'])) {
@@ -597,7 +668,11 @@ class ReportHelper
         return $query;
     }
 
-    /** Apply report period on registration date, falling back to effectivity. */
+    /**
+     * Apply query/scope constraint: apply masterlist period filter.
+     *
+     * DEBUG: wrong rows visible for office/user → check this scope.
+     */
     private function applyMasterlistPeriodFilter($query, ?string $dateFrom, ?string $dateTo)
     {
         if (! $dateFrom && ! $dateTo) {
@@ -627,6 +702,11 @@ class ReportHelper
         return $query;
     }
 
+    /**
+     * Apply query/scope constraint: apply masterlist category filter.
+     *
+     * DEBUG: wrong rows visible for office/user → check this scope.
+     */
     private function applyMasterlistCategoryFilter($query, ?string $sub)
     {
         $typeIds = $this->getTypeIdsForSubTab($sub);
@@ -657,6 +737,11 @@ class ReportHelper
         return $query;
     }
 
+    /**
+     * Apply query/scope constraint: apply masterlist sub type filter.
+     *
+     * DEBUG: wrong rows visible for office/user → check this scope.
+     */
     private function applyMasterlistSubTypeFilter($query, array $filters)
     {
         if (!empty($filters['sub_type_empty'])) {
@@ -678,6 +763,11 @@ class ReportHelper
         return $query;
     }
 
+    /**
+     * Apply query/scope constraint: apply masterlist common filters.
+     *
+     * DEBUG: wrong rows visible for office/user → check this scope.
+     */
     private function applyMasterlistCommonFilters($query, array $filters)
     {
         if (!empty($filters['originator'])) {
@@ -724,6 +814,9 @@ class ReportHelper
         return $query;
     }
 
+    /**
+     * Builds the Generate Report browser payload for the current filters.
+     */
     public static function payload(array $input): array
     {
         $response = (new self())->data(Request::create('/dcs/reports/data', 'GET', $input));
@@ -735,6 +828,9 @@ class ReportHelper
     // DATA — JSON for report table
     // ════════════════════════════════════════════
 
+    /**
+     * Loads report rows for the current Generate Report filters.
+     */
     public function data(Request $request)
     {
         try {
@@ -771,6 +867,11 @@ class ReportHelper
         }
     }
 
+    /**
+     * Apply query/scope constraint: apply common filters.
+     *
+     * DEBUG: wrong rows visible for office/user → check this scope.
+     */
     private function applyCommonFilters($query, array $filters)
     {
         if (!empty($filters['originator'])) {
@@ -835,16 +936,25 @@ class ReportHelper
         })->values();
     }
 
+    /**
+     * Helper used for sort monitoring docs by form date.
+     */
     private function sortMonitoringDocsByFormDate($docs)
     {
         return $this->sortMonitoringDocs($docs, []);
     }
 
+    /**
+     * Helper used for sort monitoring docs.
+     */
     private function sortMonitoringDocs($docs, array $filters)
     {
         return $this->sortRevisionFamilies($docs, $filters, fn ($doc) => $doc->masterlistRegistration ?? null);
     }
 
+    /**
+     * Helper used for sort masterlist families.
+     */
     private function sortMasterlistFamilies($records, array $filters)
     {
         return $this->sortRevisionFamilies($records, $filters, fn ($ml) => $ml);
@@ -999,6 +1109,9 @@ class ReportHelper
         return $flat->values();
     }
 
+    /**
+     * Helper used for group by revision family.
+     */
     private function groupByRevisionFamily($rows, callable $masterlistOf)
     {
         $items = collect($rows)->values();
@@ -1043,6 +1156,9 @@ class ReportHelper
         return collect(array_values($families));
     }
 
+    /**
+     * Helper used for latest in family.
+     */
     private function latestInFamily(array $family, callable $masterlistOf)
     {
         $current = collect($family)->filter(fn ($row) => $this->isCurrentMasterlist($masterlistOf($row)));
@@ -1066,11 +1182,17 @@ class ReportHelper
         })->first();
     }
 
+    /**
+     * Tells whether is date sort — used for access and UI decisions.
+     */
     private function isDateSort(string $sort): bool
     {
         return ! in_array($sort, ['doc_no', 'doc_title', 'originator', 'rev_no'], true);
     }
 
+    /**
+     * Helper used for family date sort value.
+     */
     private function familyDateSortValue(array $family, string $sort, callable $masterlistOf, bool $descending): string
     {
         $latest = $this->latestInFamily($family, $masterlistOf);
@@ -1078,6 +1200,9 @@ class ReportHelper
         return (string) $this->familySortValue($latest, $sort, $masterlistOf);
     }
 
+    /**
+     * Helper used for order family members.
+     */
     private function orderFamilyMembers(array $family, callable $masterlistOf, string $sort = 'effectivity_date', bool $descending = false)
     {
         if ($this->isDateSort($sort)) {
@@ -1120,6 +1245,9 @@ class ReportHelper
         })->values();
     }
 
+    /**
+     * Helper used for family sort value.
+     */
     private function familySortValue($row, string $sort, callable $masterlistOf): string|int
     {
         if ($row === null) {
@@ -1139,6 +1267,9 @@ class ReportHelper
         };
     }
 
+    /**
+     * Helper used for sort date stamp.
+     */
     private function sortDateStamp(mixed $value): string
     {
         if ($value === null || $value === '') {
@@ -1152,6 +1283,9 @@ class ReportHelper
         }
     }
 
+    /**
+     * Helper used for compare sort values.
+     */
     private function compareSortValues(string|int $va, string|int $vb, bool $descending): int
     {
         $aEmpty = $va === '';
@@ -1172,6 +1306,9 @@ class ReportHelper
         return $descending ? -$cmp : $cmp;
     }
 
+    /**
+     * Tells whether is obsolete masterlist — used for access and UI decisions.
+     */
     private function isObsoleteMasterlist(?object $ml): bool
     {
         if ($ml === null) {
@@ -1181,6 +1318,9 @@ class ReportHelper
         return strtolower(trim((string) ($ml->revision_status ?? ''))) === 'obsolete';
     }
 
+    /**
+     * Tells whether is current masterlist — used for access and UI decisions.
+     */
     private function isCurrentMasterlist(?object $ml): bool
     {
         if ($ml === null) {
@@ -1193,9 +1333,7 @@ class ReportHelper
     }
 
     /**
-     * Sequential row/item number.
-     * Obsolete and superseded copies stay under the latest and do not take a new number.
-     * A report filtered to only that status numbers every row.
+     * Helper used for report row number.
      */
     private function reportRowNumber(?object $ml, int &$counter, array $filters = []): int|string
     {
@@ -1233,7 +1371,9 @@ class ReportHelper
         return $counter;
     }
 
-    /** Narrow request rows for report builders. Relations are loaded separately. */
+    /**
+     * Helper used for report request rows.
+     */
     private function reportRequestRows($query)
     {
         return $query->orderByDesc('dr.id')->get([
@@ -1248,6 +1388,9 @@ class ReportHelper
     // MASTERLIST REPORT
     // ════════════════════════════════════════════
 
+    /**
+     * Helper used for masterlist data.
+     */
     private function masterlistData(?string $sub, ?string $dateFrom, ?string $dateTo, array $filters = [])
     {
         // Source of truth: dcs_masterlist_registration (not document_requests alone).
@@ -1338,6 +1481,7 @@ class ReportHelper
      * Merge consecutive same-originator cells within one doc-no series (rowspan).
      * Call again on each printed/preview page slice so spans never cross page breaks.
      *
+     * DEBUG: blank/missing originator or Undefined property on list/show → check here.
      * @param  iterable<int, array<string, mixed>|object>  $rows
      * @return \Illuminate\Support\Collection<int, array<string, mixed>|object>
      */
@@ -1426,6 +1570,9 @@ class ReportHelper
     // ════════════════════════════════════════════
     // MONITORING REPORT
     // ════════════════════════════════════════════
+    /**
+     * Helper used for monitoring data.
+     */
     private function monitoringData(?string $sub, ?string $dateFrom, ?string $dateTo, array $filters = [])
     {
         if ($sub === 'drf') return $this->drfReport($dateFrom, $dateTo, $filters);
@@ -1806,6 +1953,9 @@ class ReportHelper
         ]);
     }
 
+    /**
+     * Helper used for drf report.
+     */
     private function drfReport(?string $dateFrom, ?string $dateTo, array $filters = [])
     {
         $query = DB::table('dcs_document_request_form as drf')
@@ -1876,6 +2026,9 @@ class ReportHelper
         ]);
     }
 
+    /**
+     * Helper used for dcn report.
+     */
     private function dcnReport(?string $dateFrom, ?string $dateTo, array $filters = [])
     {
         $query = DB::table('dcs_document_change_notice as dcn')
@@ -1954,6 +2107,9 @@ class ReportHelper
     // ════════════════════════════════════════════
     // OPCR TARGETS
     // ════════════════════════════════════════════
+    /**
+     * Helper used for opcr data.
+     */
     private function opcrData(?string $sub, ?string $dateFrom, ?string $dateTo, array $filters = [])
     {
         // Null dates = all-time (do not fall back to current year — that hides External docs).
@@ -2214,6 +2370,9 @@ class ReportHelper
         ]);
     }
 
+    /**
+     * Loads or finds data for get opcr docs.
+     */
     private function getOpcrDocs($startDate, $endDate, ?array $docTypeNames, array $filters = [])
     {
         $query = DB::table('dcs_document_requests as dr')
@@ -2243,6 +2402,9 @@ class ReportHelper
         ]);
     }
 
+    /**
+     * Helper used for ensure monitoring remarks table.
+     */
     private function ensureMonitoringRemarksTable(): void
     {
         if (! Schema::hasTable('dcs_monitoring_remarks')) {
@@ -2264,6 +2426,9 @@ class ReportHelper
         }
     }
 
+    /**
+     * Helper used for monitoring new or revised.
+     */
     private function monitoringNewOrRevised($ml, $dcn = null): string
     {
         $rev = (int) ($ml?->revise_no ?? 0);
@@ -2275,6 +2440,9 @@ class ReportHelper
         return 'New';
     }
 
+    /**
+     * Helper used for monitoring forwarded drr by request id.
+     */
     private function monitoringForwardedDrrByRequestId($docs): array
     {
         $this->ensureMonitoringRemarksTable();
@@ -2290,6 +2458,9 @@ class ReportHelper
             ->all();
     }
 
+    /**
+     * Helper used for monitoring remarks by request id.
+     */
     private function monitoringRemarksByRequestId($docs): array
     {
         $this->ensureMonitoringRemarksTable();
@@ -2305,6 +2476,9 @@ class ReportHelper
             ->all();
     }
 
+    /**
+     * Saves data for save monitoring remark.
+     */
     public function saveMonitoringRemark(int $requestId, $value): ?string
     {
         $this->ensureMonitoringRemarksTable();
@@ -2318,6 +2492,9 @@ class ReportHelper
         return $remarks;
     }
 
+    /**
+     * Saves data for save monitoring forwarded drr.
+     */
     public function saveMonitoringForwardedDrr(int $requestId, bool $value): bool
     {
         $this->ensureMonitoringRemarksTable();
@@ -2341,7 +2518,9 @@ class ReportHelper
         return $value;
     }
 
-    /** Persist a single OPCR rating/remarks field without clobbering the others. */
+    /**
+     * Saves data for save opcr rating field.
+     */
     public function saveOpcrRatingField(int $requestId, string $sub, string $field, $value)
     {
         $ratingFields = ['rating_q', 'rating_e', 'rating_t', 'rating_a'];
@@ -2395,6 +2574,9 @@ class ReportHelper
         return $normalized;
     }
 
+    /**
+     * Saves data for save opcr ratings.
+     */
     public function saveOpcrRatings(Request $request)
     {
         $request->validate([
@@ -2443,6 +2625,9 @@ class ReportHelper
     // OTHERS
     // ════════════════════════════════════════════
 
+    /**
+     * Helper used for others data.
+     */
     private function othersData(?string $dateFrom, ?string $dateTo, array $filters = [])
     {
         $query = DB::table('dcs_document_requests as dr');
@@ -2517,6 +2702,9 @@ class ReportHelper
     // EXPORT — Print-friendly HTML
     // ════════════════════════════════════════════
 
+    /**
+     * Exports the current report to a downloadable file.
+     */
     public function export(Request $request)
     {
         RegisterQueryHelper::assertFullDcsUser('reports');
@@ -2821,6 +3009,9 @@ HTML;
     // Calls the existing private methods and extracts the array
     // ════════════════════════════════════════════
 
+    /**
+     * Helper used for fetch report data.
+     */
     private function fetchReportData(string $category, ?string $sub, ?string $dateFrom, ?string $dateTo, array $filters = []): array
     {
         switch ($category) {
@@ -2857,6 +3048,9 @@ HTML;
         ];
     }
 
+    /**
+     * Tells whether should archive generated report — used for access and UI decisions.
+     */
     private function shouldArchiveGeneratedReport(Request $request): bool
     {
         // Print-only should not create Manage Files copies; explicit downloads still archive.
@@ -2873,7 +3067,6 @@ HTML;
 
     /**
      * Include the row and column selection in the fingerprint so partial exports stay distinct.
-     *
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
@@ -2894,7 +3087,6 @@ HTML;
 
     /**
      * Keep export columns in the requested order when the UI sends a subset.
-     *
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
@@ -2926,6 +3118,9 @@ HTML;
         return $data;
     }
 
+    /**
+     * Helper used for archive generated report.
+     */
     private function archiveGeneratedReport(
         string $content,
         string $format,
@@ -2977,6 +3172,9 @@ HTML;
         }
     }
 
+    /**
+     * Builds or formats data for build csv content.
+     */
     private function buildCsvContent(array $columns, $rows, array $groupHeaders = []): string
     {
         unset($columns['pdf_path']);
@@ -3048,6 +3246,9 @@ HTML;
         return $content;
     }
 
+    /**
+     * Helper used for generate csv.
+     */
     private function generateCsv(array $columns, $rows, string $filename, array $groupHeaders = []): \Symfony\Component\HttpFoundation\StreamedResponse
     {
         unset($columns['pdf_path']);
@@ -3125,6 +3326,9 @@ HTML;
         return $response;
     }
 
+    /**
+     * Builds or formats data for format time.
+     */
     private function formatTime($time): string
     {
         if (!$time) return '';
@@ -3136,6 +3340,9 @@ HTML;
         }
     }
 
+    /**
+     * Helper used for monitoring source acronyms.
+     */
     private function monitoringSourceAcronyms($ml): ?string
     {
         $labels = collect($ml?->sourceOffices ?? [])
@@ -3154,6 +3361,9 @@ HTML;
         return $labels->isEmpty() ? null : $labels->implode(', ');
     }
 
+    /**
+     * Builds or formats data for format monitoring date.
+     */
     private function formatMonitoringDate($val): ?string
     {
         if (! $val) {
@@ -3171,6 +3381,9 @@ HTML;
         }
     }
 
+    /**
+     * Helper used for combine date time.
+     */
     private function combineDateTime($date, $time = null): ?\Carbon\Carbon
     {
         if (!$date) {

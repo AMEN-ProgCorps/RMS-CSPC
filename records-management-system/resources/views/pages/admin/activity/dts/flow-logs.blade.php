@@ -16,6 +16,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Flow Logs')] class e
     /** @var string Real-time search query */
     public string $search = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;

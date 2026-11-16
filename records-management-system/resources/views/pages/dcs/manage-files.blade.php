@@ -42,6 +42,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         'others' => 'Others',
     ];
 
+    /**
+     * Sets the active layout mode.
+     *
+     * @param string $mode
+     *
+     * @return void
+     */
     public function setLayoutMode(string $mode): void
     {
         if (!in_array($mode, ['tiles', 'list', 'details'], true)) {
@@ -50,11 +57,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->layoutMode = $mode;
     }
 
+    /**
+     * Lifecycle hook executed after updating the per page property.
+     * @return void
+     */
     public function updatedPerPage(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed after updating the search property.
+     * @return void
+     */
     public function updatedSearch(): void
     {
         $this->resetPage();
@@ -62,6 +77,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->selectedReportId = null;
     }
 
+    /**
+     * Lifecycle hook executed after updating the file per page property.
+     * @return void
+     */
     public function updatedFilePerPage(): void
     {
         if (! in_array($this->filePerPage, [10, 15, 25, 50, 100], true)) {
@@ -70,26 +89,49 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->filePage = 1;
     }
 
+    /**
+     * Gos to file page.
+     *
+     * @param int $page
+     *
+     * @return void
+     */
     public function goToFilePage(int $page): void
     {
         $this->filePage = max(1, $page);
     }
 
+    /**
+     * Lifecycle hook executed after updating the selected office property.
+     * @return void
+     */
     public function updatedSelectedOffice(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed after updating the report category property.
+     * @return void
+     */
     public function updatedReportCategory(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed after updating the report format property.
+     * @return void
+     */
     public function updatedReportFormat(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function resetFilters(): void
     {
         $this->search = '';
@@ -99,16 +141,34 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->resetPage();
     }
 
+    /**
+     * Selects report and populates the details panel.
+     *
+     * @param ?int $reportId
+     *
+     * @return void
+     */
     public function selectReport(?int $reportId): void
     {
         $this->selectedReportId = $this->selectedReportId === $reportId ? null : $reportId;
     }
 
+    /**
+     * Closes or dismisses the inspector.
+     * @return void
+     */
     public function closeInspector(): void
     {
         $this->selectedReportId = null;
     }
 
+    /**
+     * Displays the folder dialog or panel.
+     *
+     * @param string $path
+     *
+     * @return void
+     */
     public function openFolder(string $path): void
     {
         $path = trim(str_replace('\\', '/', $path), '/');
@@ -121,6 +181,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->resetPage();
     }
 
+    /**
+     * Has active filters.
+     * @return bool
+     */
     public function hasActiveFilters(): bool
     {
         return $this->search !== ''
@@ -129,6 +193,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             || $this->reportFormat !== '';
     }
 
+    /**
+     * Filters and queries reports based on criteria.
+     *
+     * @param mixed $reports
+     * @param bool $canViewAll
+     * @param ?string $userOfficeCode
+     *
+     * @return \Illuminate\Support\Collection
+     */
     private function filterReports($reports, bool $canViewAll, ?string $userOfficeCode): \Illuminate\Support\Collection
     {
         if (!$canViewAll) {
@@ -176,6 +249,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return $reports;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $user = Auth::user();
@@ -209,6 +286,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
     }
 
+    /**
+     * Drives listing.
+     * @return array
+     */
     private function driveListing(): array
     {
         $current = trim(str_replace('\\', '/', $this->folder), '/');
@@ -316,6 +397,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
     }
 
+    /**
+     * Drives display name.
+     *
+     * @param string $name
+     *
+     * @return string
+     */
     private function driveDisplayName(string $name): string
     {
         $name = preg_replace('/^DCC_/', '', $name) ?? $name;
@@ -338,6 +426,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return implode(' ', $words);
     }
 
+    /**
+     * Parents drive path.
+     *
+     * @param string $path
+     *
+     * @return string
+     */
     private function parentDrivePath(string $path): string
     {
         $path = trim(str_replace('\\', '/', $path), '/');
@@ -348,6 +443,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return dirname($path);
     }
 
+    /**
+     * Collects drive files.
+     * @return array
+     */
     private function collectDriveFiles(): array
     {
         $files = [];
@@ -390,6 +489,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return $files;
     }
 
+    /**
+     * Pushs drive file.
+     *
+     * @param array $files
+     * @param array $seen
+     * @param string $path
+     * @param string $category
+     * @param string $title
+     * @param string $docNo
+     *
+     * @return void
+     */
     private function pushDriveFile(array &$files, array &$seen, string $path, string $category, string $title, string $docNo): void
     {
         $path = ltrim(str_replace('\\', '/', $path), '/');
@@ -413,6 +524,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
     }
 
+    /**
+     * Drives folder.
+     *
+     * @param string $path
+     * @param string $category
+     *
+     * @return string
+     */
     private function driveFolder(string $path, string $category): string
     {
         $path = ltrim(str_replace('\\', '/', $path), '/');
@@ -448,6 +567,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return 'DCS/DCC_MASTERLIST';
     }
 
+    /**
+     * Drives file url.
+     *
+     * @param string $path
+     *
+     * @return ?string
+     */
     private function driveFileUrl(string $path): ?string
     {
         $normalized = DocumentStorageService::normalizeDcsScanPath($path);
@@ -465,6 +591,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         );
     }
 
+    /**
+     * Drives kind label.
+     *
+     * @param string $path
+     * @param string $category
+     *
+     * @return string
+     */
     private function driveKindLabel(string $path, string $category): string
     {
         $category = strtolower($category);

@@ -15,6 +15,10 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
 
     #[On('dts-transaction-updated')]
     #[On('refresh-transactions')]
+    /**
+     * Refreshes transactions list data.
+     * @return void
+     */
     public function refreshTransactionsList(): void
     {
         $this->resetPage();
@@ -40,6 +44,10 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
     public array $forwardHubOffices = [];
     public array $forwardHubTempSelected = [];
 
+    /**
+     * Displays the forward hub modal.
+     * @return void
+     */
     public function openForwardHubModal(): void
     {
         $this->forwardHubTempSelected = $this->forwardHubOffices;
@@ -47,12 +55,23 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         $this->showForwardHubModal = true;
     }
 
+    /**
+     * Closes the forward hub modal.
+     * @return void
+     */
     public function closeForwardHubModal(): void
     {
         $this->showForwardHubModal = false;
         $this->forwardHubSearch = '';
     }
 
+    /**
+     * Toggles the forward hub office setting or state.
+     *
+     * @param string $officeCode
+     *
+     * @return void
+     */
     public function toggleForwardHubOffice(string $officeCode): void
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -78,16 +97,28 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         }
     }
 
+    /**
+     * Selects all forward hub offices and populates the details panel.
+     * @return void
+     */
     public function selectAllForwardHubOffices(): void
     {
         $this->forwardHubTempSelected = ['ALL'];
     }
 
+    /**
+     * Resets forward hub offices and clears active selections.
+     * @return void
+     */
     public function clearForwardHubOffices(): void
     {
         $this->forwardHubTempSelected = [];
     }
 
+    /**
+     * Filters and queries forward hub modal based on criteria.
+     * @return void
+     */
     public function applyForwardHubModal(): void
     {
         $this->forwardHubOffices = $this->forwardHubTempSelected;
@@ -95,6 +126,13 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         $this->forwardHubSearch = '';
     }
 
+    /**
+     * Deletes or deactivates the specified forward hub office.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeForwardHubOffice(int $index): void
     {
         if (isset($this->forwardHubOffices[$index])) {
@@ -102,6 +140,10 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         }
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -112,6 +154,10 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         $this->actionNeeded = $this->actionOptions[0] ?? 'For Approval';
     }
 
+    /**
+     * Retrieves and populates action options property data.
+     * @return array
+     */
     public function getActionOptionsProperty(): array
     {
         $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
@@ -122,6 +168,9 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         return $query->pluck('option_name')->toArray();
     }
 
+    /**
+     * Retrieves and populates available target offices property data.
+     */
     public function getAvailableTargetOfficesProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -129,22 +178,41 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
     }
 
+    /**
+     * Toggles the layout setting or state.
+     * @return void
+     */
     public function toggleLayout(): void
     {
         $this->layoutMode = $this->layoutMode === 'table' ? 'box' : 'table';
     }
 
+    /**
+     * Lifecycle hook executed before updating the search query property.
+     * @return void
+     */
     public function updatingSearchQuery(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
+    /**
+     * Displays the forward modal.
+     *
+     * @param string $transactionId
+     *
+     * @return void
+     */
     public function openForwardModal(string $transactionId): void
     {
         $this->clearMessages();
@@ -232,6 +300,10 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         $this->showForwardModal = true;
     }
 
+    /**
+     * Closes the forward modal.
+     * @return void
+     */
     public function closeForwardModal(): void
     {
         $this->showForwardModal = false;
@@ -243,6 +315,10 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         $this->showForwardHubModal = false;
     }
 
+    /**
+     * Submits and processes forward.
+     * @return void
+     */
     public function confirmForward(): void
     {
         $this->clearMessages();
@@ -512,6 +588,9 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         }
     }
 
+    /**
+     * Retrieves and populates received transactions property data.
+     */
     public function getReceivedTransactionsProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 

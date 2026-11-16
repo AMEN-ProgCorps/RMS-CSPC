@@ -74,6 +74,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     public string $approvedPosition = '';
     public bool $includeDescriptionOnPrint = false;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $user = Auth::user();
@@ -121,11 +125,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     private ?string $_officesTable = null;
     private ?string $_sysTable = null;
 
+    /**
+     * Retrieves and populates offices table data.
+     * @return string
+     */
     private function getOfficesTable(): string
     {
         return $this->_officesTable ??= (\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office');
     }
 
+    /**
+     * Retrieves and populates sys table data.
+     * @return string
+     */
     private function getSysTable(): string
     {
         return $this->_sysTable ??= (\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings');
@@ -133,6 +145,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
     private ?array $_dropdownLists = null;
 
+    /**
+     * Retrieves and populates dropdown lists data.
+     * @return array
+     */
     private function getDropdownLists(): array
     {
         if (!$this->showEditSubjectModal) {
@@ -154,6 +170,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         ];
     }
 
+    /**
+     * Lifecycle hook executed after updating the select all property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedSelectAll($value): void
     {
         if ($value) {
@@ -219,6 +242,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
     }
 
+    /**
+     * Toggles the series selection setting or state.
+     *
+     * @param int $seriesId
+     * @param array $childRecordIds
+     *
+     * @return void
+     */
     public function toggleSeriesSelection(int $seriesId, array $childRecordIds): void
     {
         $strChildIds = array_map('strval', $childRecordIds);
@@ -252,6 +283,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
     }
 
+    /**
+     * Toggles the subject selection setting or state.
+     *
+     * @param int $recordId
+     * @param int $seriesId
+     * @param array $allSeriesRecordIds
+     *
+     * @return void
+     */
     public function toggleSubjectSelection(int $recordId, int $seriesId, array $allSeriesRecordIds = []): void
     {
         $recIdStr = (string)$recordId;
@@ -314,6 +354,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
     }
 
+    /**
+     * Displays the cluster modal.
+     * @return void
+     */
     public function openClusterModal(): void
     {
         if (empty($this->selectedIds)) {
@@ -327,11 +371,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $this->showClusterModal = true;
     }
 
+    /**
+     * Closes the cluster modal.
+     * @return void
+     */
     public function closeClusterModal(): void
     {
         $this->showClusterModal = false;
     }
 
+    /**
+     * Submits and processes cluster creation.
+     * @return void
+     */
     public function submitClusterCreation(): void
     {
         if (empty($this->selectedIds)) {
@@ -420,6 +472,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
     }
 
+    /**
+     * Displays the print modal.
+     *
+     * @param array $specificIds
+     * @param array $selectionModes
+     * @param array $subjectIds
+     *
+     * @return void
+     */
     public function openPrintModal(array $specificIds = [], array $selectionModes = [], array $subjectIds = []): void
     {
         $perms = Auth::user()?->permissions;
@@ -444,11 +505,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $this->showPrintModal = true;
     }
 
+    /**
+     * Closes the print modal.
+     * @return void
+     */
     public function closePrintModal(): void
     {
         $this->showPrintModal = false;
     }
 
+    /**
+     * Displays the edit subject modal.
+     *
+     * @param int $id
+     * @param ?int $periodId
+     *
+     * @return void
+     */
     public function openEditSubjectModal(int $id, ?int $periodId = null): void
     {
         $rec = DB::table('rdp_record')->where('id', $id)->first();
@@ -592,6 +665,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
     }
 
+    /**
+     * Creates a new edit duplicate office record.
+     *
+     * @param string $code
+     *
+     * @return void
+     */
     public function addEditDuplicateOffice(string $code): void
     {
         $code = trim($code);
@@ -600,6 +680,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
     }
 
+    /**
+     * Deletes or deactivates the specified edit duplicate office.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeEditDuplicateOffice(int $index): void
     {
         if (isset($this->editSubjectDuplicates[$index])) {
@@ -608,6 +695,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
     }
 
+    /**
+     * Enables edit subject.
+     * @return void
+     */
     public function enableEditSubject(): void
     {
         if ($this->canEditDescription) {
@@ -615,6 +706,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
     }
 
+    /**
+     * Resets edit subject and clears active selections.
+     * @return void
+     */
     public function cancelEditSubject(): void
     {
         if ($this->editingSubjectId) {
@@ -623,6 +718,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $this->isEditingSubject = false;
     }
 
+    /**
+     * Closes the edit subject modal.
+     * @return void
+     */
     public function closeEditSubjectModal(): void
     {
         $this->showEditSubjectModal = false;
@@ -640,6 +739,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $this->attachedFileUrl = null;
     }
 
+    /**
+     * Resets record and clears active selections.
+     * @return void
+     */
     public function cancelRecord(): void
     {
         if (!$this->editingSubjectId) return;
@@ -719,6 +822,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
     }
 
+    /**
+     * Persists edit subject changes to the database.
+     * @return void
+     */
     public function saveEditSubject(): void
     {
         if (!$this->editingSubjectId) return;
@@ -854,6 +961,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search = '';
@@ -956,6 +1067,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return $res;
     }
 
+    /**
+     * Formats and prepares batch date range data.
+     *
+     * @param ?string $startDate
+     * @param ?string $endDate
+     * @param bool $isHeader
+     *
+     * @return string
+     */
     private function formatBatchDateRange(?string $startDate, ?string $endDate = null, bool $isHeader = false): string
     {
         $startDate = trim((string)$startDate);
@@ -1031,11 +1151,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return $sInfo['text'] . ' - ' . $eInfo['text'];
     }
 
+    /**
+     * Formats and prepares date range data.
+     *
+     * @param ?string $startDate
+     * @param ?string $endDate
+     *
+     * @return string
+     */
     private function formatDateRange(?string $startDate, ?string $endDate = null): string
     {
         return $this->formatBatchDateRange($startDate, $endDate, false);
     }
 
+    /**
+     * Formats and prepares sub period year data.
+     *
+     * @param ?string $startStr
+     * @param ?string $endStr
+     *
+     * @return string
+     */
     private function formatSubPeriodYear(?string $startStr, ?string $endStr): string
     {
         try {
@@ -1050,6 +1186,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return '';
     }
 
+    /**
+     * Formats and prepares sub period title data.
+     *
+     * @param string $parentSubject
+     * @param ?string $pDesc
+     * @param ?string $startStr
+     * @param ?string $endStr
+     * @param int $fallbackIndex
+     *
+     * @return string
+     */
     private function formatSubPeriodTitle(string $parentSubject, ?string $pDesc, ?string $startStr, ?string $endStr, int $fallbackIndex = 1): string
     {
         $pDesc = trim((string)$pDesc);
@@ -1068,6 +1215,44 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return $year ?: ('Item ' . $fallbackIndex);
     }
 
+    /**
+     * Submits and processes series records.
+     *
+     * @param mixed $records
+     * @param mixed $seriesId
+     * @param mixed $effTotal
+     * @param mixed $effActive
+     * @param mixed $effStorage
+     * @param mixed $isPerm
+     * @param mixed $periods
+     * @param mixed $utilities
+     * @param mixed $mediumsMap
+     * @param mixed $duplications
+     * @param &$compiledDates $arg
+     * @param &$compiledVols $arg
+     * @param &$compiledMediums $arg
+     * @param &$compiledRestrictions $arg
+     * @param &$compiledLocs $arg
+     * @param &$compiledFreqs $arg
+     * @param &$compiledDups $arg
+     * @param &$compiledTimes $arg
+     * @param &$compiledUtils $arg
+     * @param &$totalItemsCount $arg
+     * @param &$rootDates $arg
+     * @param &$rootVols $arg
+     * @param &$rootMediums $arg
+     * @param &$rootRestrictions $arg
+     * @param &$rootLocs $arg
+     * @param &$rootFreqs $arg
+     * @param &$rootDups $arg
+     * @param &$rootTimes $arg
+     * @param &$rootUtils $arg
+     * @param &$allLocs $arg
+     * @param &$allVols $arg
+     * @param mixed $activeClustersByRecord
+     *
+     * @return array
+     */
     private function processSeriesRecords(
         $records,
         $seriesId,
@@ -1423,6 +1608,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return $childItems;
     }
 
+    /**
+     * Compiles volume.
+     *
+     * @param array $volumes
+     *
+     * @return string
+     */
     private function compileVolume(array $volumes): string
     {
         $totals = [];
@@ -1494,6 +1686,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return !empty($compiledParts) ? implode(', ', $compiledParts) : '—';
     }
 
+    /**
+     * Compiles location.
+     *
+     * @param array $locations
+     *
+     * @return string
+     */
     private function compileLocation(array $locations): string
     {
         $locs = [];
@@ -1523,6 +1722,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return implode(', ', $unique);
     }
 
+    /**
+     * Compiles time value.
+     *
+     * @param array $times
+     *
+     * @return string
+     */
     private function compileTimeValue(array $times): string
     {
         $valid = [];
@@ -1536,6 +1742,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return !empty($unique) ? implode(', ', $unique) : 'T';
     }
 
+    /**
+     * Compiles utility.
+     *
+     * @param array $utilityNames
+     *
+     * @return string
+     */
     private function compileUtility(array $utilityNames): string
     {
         $map = [
@@ -1552,6 +1765,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return !empty($unique) ? implode(', ', $unique) : 'A';
     }
 
+    /**
+     * Formats and prepares item utility data.
+     *
+     * @param array $utilityNames
+     *
+     * @return string
+     */
     private function formatItemUtility(array $utilityNames): string
     {
         $map = [
@@ -1568,6 +1788,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
+    /**
+     * Compiles medium.
+     *
+     * @param array $mediums
+     *
+     * @return string
+     */
     private function compileMedium(array $mediums): string
     {
         $valid = [];
@@ -1581,6 +1808,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
+    /**
+     * Compiles restriction.
+     *
+     * @param array $restrictions
+     *
+     * @return string
+     */
     private function compileRestriction(array $restrictions): string
     {
         $valid = [];
@@ -1594,6 +1828,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
+    /**
+     * Compiles frequency.
+     *
+     * @param array $freqs
+     *
+     * @return string
+     */
     private function compileFrequency(array $freqs): string
     {
         $valid = [];
@@ -1607,6 +1848,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
+    /**
+     * Compiles duplication.
+     *
+     * @param array $dups
+     *
+     * @return string
+     */
     private function compileDuplication(array $dups): string
     {
         $valid = [];
@@ -1620,6 +1868,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
+    /**
+     * Formats and prepares item date data.
+     *
+     * @param string $rawDate
+     *
+     * @return string
+     */
     private function formatItemDate(string $rawDate): string
     {
         $rawDate = trim($rawDate);
@@ -1631,6 +1886,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return $rawDate;
     }
 
+    /**
+     * Cleans val.
+     *
+     * @param mixed $val
+     *
+     * @return string
+     */
     public function cleanVal($val): string
     {
         if ($val === null) return '';
@@ -1641,6 +1903,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return $str;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $user = Auth::user();

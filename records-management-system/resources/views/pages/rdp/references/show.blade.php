@@ -12,6 +12,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
     public string $sortBy = 'item_no';
     public ?object $typeRecord = null;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     *
+     * @param string $type
+     *
+     * @return void
+     */
     public function mount(string $type): void
     {
         $perms = Auth::user()?->permissions;
@@ -32,11 +39,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
         $this->typeRecord = $typeRec;
     }
 
+    /**
+     * Resets search and clears active selections.
+     * @return void
+     */
     public function clearSearch(): void
     {
         $this->search = '';
     }
 
+    /**
+     * Resolves effective retention.
+     *
+     * @param array $allSeriesMap
+     * @param object $record
+     *
+     * @return object
+     */
     private function resolveEffectiveRetention(array $allSeriesMap, object $record): object
     {
         $current = $record;
@@ -76,6 +95,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
         ];
     }
 
+    /**
+     * Builds grouped tree hierarchy.
+     *
+     * @param array $records
+     *
+     * @return array
+     */
     private function buildGroupedTreeHierarchy(array $records): array
     {
         $byBracketAndOffice = [];
@@ -187,6 +213,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
         return $finalOrdered;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         if (!$this->typeRecord) {

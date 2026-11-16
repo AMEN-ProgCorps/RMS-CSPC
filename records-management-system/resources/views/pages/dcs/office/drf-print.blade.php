@@ -894,6 +894,9 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
 <script>
 (function () {
     var last = 0;
+    /**
+     * Pings action.
+     */
     function ping() {
         var now = Date.now();
         if (now - last < 4000) return;
@@ -921,6 +924,9 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
     }
 </style>
 <script>
+/**
+ * Prints action.
+ */
 window.print = function () {};
 @if($printReadyUrl !== '')
 (function () {
@@ -1133,6 +1139,9 @@ window.print = function () {};
 @endforeach
 @endif
 <script>
+/**
+ * Ofis fit sig text.
+ */
 function ofiFitSigText() {
     document.querySelectorAll('[data-sig-fit]').forEach(function (el) {
         var text = (el.textContent || '').replace(/\s+/g, ' ').trim();
@@ -1163,12 +1172,24 @@ function ofiFitSigText() {
     });
 }
 
+/**
+ * Ofis title line.
+ *
+ * @param {*} text
+ */
 function ofiTitleLine(text) {
     var holder = document.createElement('div');
     holder.textContent = text;
     return '<div class="fline w-fill"><div class="fline-val">' + holder.innerHTML + '</div><div class="fline-rule"></div></div>';
 }
 
+/**
+ * Ofis pack two lines.
+ *
+ * @param {*} words
+ * @param {*} ctx
+ * @param {*} limit
+ */
 function ofiPackTwoLines(words, ctx, limit) {
     var line1 = '';
     var index = 0;
@@ -1184,6 +1205,9 @@ function ofiPackTwoLines(words, ctx, limit) {
     return [line1, words.slice(index).join(' ')];
 }
 
+/**
+ * Ofis fit doc titles.
+ */
 function ofiFitDocTitles() {
     var canvas = document.createElement('canvas');
     var ctx = canvas.getContext('2d');
@@ -1198,10 +1222,20 @@ function ofiFitDocTitles() {
         if (width < 40) width = 560;
         var limit = width - 8;
         var words = title === '' ? [] : title.split(' ');
+        /**
+         * Measures one line.
+         *
+         * @param {*} pt
+         */
         function measureOneLine(pt) {
             ctx.font = (pt * 96 / 72) + 'px Arial';
             return title === '' ? 0 : ctx.measureText(title).width;
         }
+        /**
+         * Packed at.
+         *
+         * @param {*} pt
+         */
         function packedAt(pt) {
             ctx.font = (pt * 96 / 72) + 'px Arial';
             var packed = ofiPackTwoLines(words, ctx, limit);
@@ -1256,6 +1290,9 @@ function ofiFitDocTitles() {
 }
 
 var ofiPrintedMarked = false;
+/**
+ * Ofis mark printed.
+ */
 function ofiMarkPrinted() {
     var url = @json($markPrintedUrl);
     if (!url || ofiPrintedMarked) return;
@@ -1283,6 +1320,9 @@ function ofiMarkPrinted() {
     }
 }
 
+/**
+ * Ofis print clean.
+ */
 function ofiPrintClean() {
     ofiFitDocTitles();
     ofiFitSigText();
@@ -1290,6 +1330,9 @@ function ofiPrintClean() {
     var prevTitle = document.title;
     var prevPath = window.location.pathname + window.location.search + window.location.hash;
     var restored = false;
+    /**
+     * Restores action.
+     */
     function restore() {
         if (restored) return;
         restored = true;

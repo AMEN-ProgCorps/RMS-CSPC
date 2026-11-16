@@ -112,10 +112,12 @@
             <span class="subtitle">Camarines Sur Polytechnic Colleges</span>
             <span class="title">Records Management System</span>
         </div>
+        <div class="guide-container">
+            <livewire:components.page-manual />
+        </div>
         <div class="notification-container">
             <livewire:components.notification.notifications />
         </div>
-        <span class="office_name">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</span>
         <x-actions.dropdown />
     </header>
     @php
@@ -144,6 +146,7 @@
                             <span class="account-server-label">{{ \App\Services\ServerManagementService::getServerLabel() }}</span>
                         @endif
                         <span class="account-email">{{ auth()->user()?->details?->email }}</span>
+                        <span class="account-office" title="{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</span>
                     </div>
                 </div>
             </div>
@@ -230,9 +233,10 @@
     })();
     </script>
     <x-messify.floating-widget />
+    <x-dts.scanner-widget />
+    <livewire:components.scanner-modal />
     @auth
     <livewire:components.session-guard />
-    <livewire:components.report-problem />
     @endauth
 </body>
 </html>

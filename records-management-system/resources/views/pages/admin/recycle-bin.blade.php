@@ -29,6 +29,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
     /** @var string Flow purpose filter (used on flows tab) */
     public string $flowPurposeFilter = 'all';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;

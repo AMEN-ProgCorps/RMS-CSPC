@@ -33,6 +33,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
     public string $successMessage = '';
     public string $errorMessage = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -42,12 +46,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
         }
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
+    /**
+     * Toggles the units modal setting or state.
+     * @return void
+     */
     public function toggleUnitsModal(): void
     {
         $this->showUnitsModal = !$this->showUnitsModal;
@@ -88,6 +100,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
         }
     }
 
+    /**
+     * Starts edit unit.
+     *
+     * @param int $volumeId
+     * @param string $name
+     *
+     * @return void
+     */
     public function startEditUnit(int $volumeId, string $name): void
     {
         $this->clearMessages();
@@ -95,11 +115,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
         $this->editingUnitName = $name;
     }
 
+    /**
+     * Resets edit unit and clears active selections.
+     * @return void
+     */
     public function cancelEditUnit(): void
     {
         $this->editingUnitId = null;
     }
 
+    /**
+     * Updates volume unit.
+     * @return void
+     */
     public function updateVolumeUnit(): void
     {
         $this->clearMessages();
@@ -142,6 +170,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
         }
     }
 
+    /**
+     * Deletes or deactivates the specified volume unit.
+     *
+     * @param int $volumeId
+     *
+     * @return void
+     */
     public function deleteVolumeUnit(int $volumeId): void
     {
         $this->clearMessages();
@@ -237,6 +272,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
         }
     }
 
+    /**
+     * Starts edit.
+     *
+     * @param int $ruleId
+     *
+     * @return void
+     */
     public function startEdit(int $ruleId): void
     {
         $this->clearMessages();
@@ -250,11 +292,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
         }
     }
 
+    /**
+     * Resets edit and clears active selections.
+     * @return void
+     */
     public function cancelEdit(): void
     {
         $this->editingId = null;
     }
 
+    /**
+     * Updates rule.
+     * @return void
+     */
     public function updateRule(): void
     {
         $this->clearMessages();
@@ -309,6 +359,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
         }
     }
 
+    /**
+     * Toggles the active setting or state.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function toggleActive(int $id): void
     {
         $this->clearMessages();
@@ -357,6 +414,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
         }
     }
 
+    /**
+     * Deletes or deactivates the specified rule.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function deleteRule(int $id): void
     {
         $this->clearMessages();
@@ -383,6 +447,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         // Automatically synchronize cur_used_standard and cur_used_converted flags based ONLY on currently active rules

@@ -30,6 +30,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $deleteTitle = '';
     public int $deleteRev = 0;
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         return [
@@ -38,16 +42,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
     }
 
+    /**
+     * Lifecycle hook executed after updating the search property.
+     * @return void
+     */
     public function updatedSearch(): void
     {
         $this->page = 1;
     }
 
+    /**
+     * Lifecycle hook executed after updating the doc type id property.
+     * @return void
+     */
     public function updatedDocTypeId(): void
     {
         $this->page = 1;
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search = '';
@@ -55,11 +71,27 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->page = 1;
     }
 
+    /**
+     * Gos to page.
+     *
+     * @param int $page
+     *
+     * @return void
+     */
     public function goToPage(int $page): void
     {
         $this->page = max(1, $page);
     }
 
+    /**
+     * Submits and processes delete.
+     *
+     * @param int $id
+     * @param string $title
+     * @param int $rev
+     *
+     * @return void
+     */
     public function confirmDelete(int $id, string $title, int $rev): void
     {
         $this->deleteId = $id;
@@ -67,6 +99,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->deleteRev = $rev;
     }
 
+    /**
+     * Closes or dismisses the delete.
+     * @return void
+     */
     public function closeDelete(): void
     {
         $this->deleteId = null;
@@ -74,6 +110,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->deleteRev = 0;
     }
 
+    /**
+     * Deletes or deactivates the record.
+     * @return void
+     */
     public function destroy(): void
     {
         if (!$this->deleteId) {

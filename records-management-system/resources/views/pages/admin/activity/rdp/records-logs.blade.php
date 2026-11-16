@@ -15,6 +15,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - RDP Records Logs')] clas
     public string $modeFilter = ''; // '', 'single', 'batch'
     public string $officeFilter = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -24,26 +28,46 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - RDP Records Logs')] clas
         }
     }
 
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
     public function updatingSearch(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the time value filter property.
+     * @return void
+     */
     public function updatingTimeValueFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the mode filter property.
+     * @return void
+     */
     public function updatingModeFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the office filter property.
+     * @return void
+     */
     public function updatingOfficeFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search = '';
@@ -53,6 +77,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - RDP Records Logs')] clas
         $this->resetPage();
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $query = DB::table('rdp_record')

@@ -58,21 +58,35 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
     /** @var int Total number of pages */
     public int $lastPage = 1;
 
+    /**
+     * Lifecycle hook executed after updating the page property.
+     */
     public function updatedPage()
     {
         $this->loadNotifications();
     }
 
+    /**
+     * Displays the config modal.
+     */
     public function openConfigModal()
     {
         $this->showConfigModal = true;
     }
 
+    /**
+     * Closes the config modal.
+     */
     public function closeConfigModal()
     {
         $this->showConfigModal = false;
     }
 
+    /**
+     * Persists muted preferences to the database.
+     *
+     * @param array $newMutedTypes
+     */
     public function saveMutedPreferences(array $newMutedTypes)
     {
         $userId = Auth::id();
@@ -85,6 +99,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
         $this->showConfigModal = false;
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     */
     public function mount()
     {
         $this->availableFilters = \App\Helpers\NotificationFilterHelper::getAvailableFilters();
@@ -93,6 +110,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
         $this->checkRoleUpdate();
     }
 
+    /**
+     * Validates and verifies role update.
+     */
     public function checkRoleUpdate()
     {
         $user = Auth::user();

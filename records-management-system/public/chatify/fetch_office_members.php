@@ -10,21 +10,12 @@
 
 require_once __DIR__ . '/bootstrap.php';
 
-$internalSecret = $_SERVER['HTTP_X_INTERNAL_SECRET'] ?? '';
-$internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
-
-if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret) && $internalAccId > 0) {
-    $myAccountId = $internalAccId;
-    $myOfficeId  = 0;
-    $isAdmin     = Auth::checkIsAdmin($myAccountId);
-} else {
-    session_start();
-    Auth::require();
-    $myAccountId = Auth::accountId();
-    $myOfficeId  = (int) ($_SESSION['office_id'] ?? 0);
-    $isAdmin     = Auth::isAdmin();
-    session_write_close();
-}
+session_start();
+Auth::require();
+$myAccountId = Auth::accountId();
+$myOfficeId  = (int) ($_SESSION['office_id'] ?? 0);
+$isAdmin     = Auth::isAdmin();
+session_write_close();
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');

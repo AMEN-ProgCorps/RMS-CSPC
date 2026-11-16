@@ -41,6 +41,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
     public string $consoleOutput = '';
     public bool $isBusy = false;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function mount(ServerManagementService $service): void
     {
         $this->isMultiServer = $service->isMultiServerEnabled();
@@ -58,6 +65,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         $this->runPrerequisiteChecks($service);
     }
 
+    /**
+     * Runs prerequisite checks.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function runPrerequisiteChecks(ServerManagementService $service): void
     {
         $this->dbCheck = $service->validateExternalDatabase();
@@ -66,6 +80,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         $this->canEnable = ($this->dbCheck['valid'] && $this->vmCheck['valid']);
     }
 
+    /**
+     * Displays the db modal.
+     * @return void
+     */
     public function openDbModal(): void
     {
         $this->showDbModal = true;
@@ -76,6 +94,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         }
     }
 
+    /**
+     * Closes the db modal.
+     * @return void
+     */
     public function closeDbModal(): void
     {
         $this->showDbModal = false;
@@ -83,6 +105,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         $this->errorMessage = '';
     }
 
+    /**
+     * Formats and prepares db url data.
+     * @return void
+     */
     public function parseDbUrl(): void
     {
         $url = trim($this->dbUrlInput);
@@ -114,6 +140,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         $this->successMessage = 'Database URL parsed. Click "Test Connection" to probe connectivity, then "Apply to .env".';
     }
 
+    /**
+     * Tests database connection.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function testDatabaseConnection(ServerManagementService $service): void
     {
         if (!empty(trim($this->dbUrlInput))) {
@@ -132,6 +165,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         $this->isTestingDb = false;
     }
 
+    /**
+     * Filters and queries database config based on criteria.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function applyDatabaseConfig(ServerManagementService $service): void
     {
         if (!empty(trim($this->dbUrlInput))) {
@@ -157,6 +197,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         }
     }
 
+    /**
+     * Reverts to local db.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function revertToLocalDb(ServerManagementService $service): void
     {
         $res = $service->revertDatabaseToLocal();
@@ -177,6 +224,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         }
     }
 
+    /**
+     * Runs migrations.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function runMigrations(ServerManagementService $service): void
     {
         $this->isBusy = true;
@@ -195,18 +249,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         $this->runPrerequisiteChecks($service);
     }
 
+    /**
+     * Displays the backup vm modal.
+     * @return void
+     */
     public function openBackupVmModal(): void
     {
         $this->showBackupVmModal = true;
         $this->testVmResult = null;
     }
 
+    /**
+     * Closes the backup vm modal.
+     * @return void
+     */
     public function closeBackupVmModal(): void
     {
         $this->showBackupVmModal = false;
         $this->testVmResult = null;
     }
 
+    /**
+     * Tests backup vm connection.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function testBackupVmConnection(ServerManagementService $service): void
     {
         $this->isTestingVm = true;
@@ -215,6 +284,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         $this->isTestingVm = false;
     }
 
+    /**
+     * Persists cluster config changes to the database.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function saveClusterConfig(ServerManagementService $service): void
     {
         $cleanUrl = rtrim(trim($this->backupVmUrl), '/');
@@ -229,6 +305,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         $this->runPrerequisiteChecks($service);
     }
 
+    /**
+     * Generates new token.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function generateNewToken(ServerManagementService $service): void
     {
         $this->clusterToken = \Illuminate\Support\Str::random(40);
@@ -237,6 +320,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         $this->runPrerequisiteChecks($service);
     }
 
+    /**
+     * Toggles the multi server setting or state.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function toggleMultiServer(ServerManagementService $service): void
     {
         if ($this->isMultiServer) {
@@ -261,6 +351,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         $this->runPrerequisiteChecks($service);
     }
 
+    /**
+     * Triggers remote update.
+     *
+     * @param ServerManagementService $service
+     *
+     * @return void
+     */
     public function triggerRemoteUpdate(ServerManagementService $service): void
     {
         $this->isBusy = true;
@@ -280,6 +377,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         $this->runPrerequisiteChecks($service);
     }
 
+    /**
+     * Closes the modal.
+     * @return void
+     */
     public function closeModal(): void
     {
         $this->showOutputModal = false;

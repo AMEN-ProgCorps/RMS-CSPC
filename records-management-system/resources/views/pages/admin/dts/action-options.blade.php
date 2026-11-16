@@ -13,6 +13,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
     public string $successMessage = '';
     public string $errorMessage = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -22,12 +26,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
         }
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
+    /**
+     * Creates a new option record.
+     * @return void
+     */
     public function addOption(): void
     {
         $this->clearMessages();
@@ -66,6 +78,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
         }
     }
 
+    /**
+     * Starts edit.
+     *
+     * @param int $id
+     * @param string $name
+     *
+     * @return void
+     */
     public function startEdit(int $id, string $name): void
     {
         $this->clearMessages();
@@ -73,12 +93,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
         $this->editingOptionName = $name;
     }
 
+    /**
+     * Resets edit and clears active selections.
+     * @return void
+     */
     public function cancelEdit(): void
     {
         $this->editingOptionId = null;
         $this->editingOptionName = '';
     }
 
+    /**
+     * Updates option.
+     * @return void
+     */
     public function updateOption(): void
     {
         $this->clearMessages();
@@ -124,6 +152,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
         }
     }
 
+    /**
+     * Deletes or deactivates the specified option.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function deleteOption(int $id): void
     {
         $this->clearMessages();
@@ -147,6 +182,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $query = DB::table('dts_action_options');

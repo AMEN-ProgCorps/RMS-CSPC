@@ -27,12 +27,27 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
     public bool $showParentDropdown = false;
     public ?int $activeSubDropdownIndex = null;
 
+    /**
+     * Selects parent suggestion and populates the details panel.
+     *
+     * @param string $title
+     *
+     * @return void
+     */
     public function selectParentSuggestion(string $title): void
     {
         $this->series_title = trim($title);
         $this->showParentDropdown = false;
     }
 
+    /**
+     * Selects sub suggestion and populates the details panel.
+     *
+     * @param int $index
+     * @param string $title
+     *
+     * @return void
+     */
     public function selectSubSuggestion(int $index, string $title): void
     {
         if (isset($this->subsections[$index])) {
@@ -41,6 +56,13 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
         $this->activeSubDropdownIndex = null;
     }
 
+    /**
+     * Retrieves and populates sub suggestions data.
+     *
+     * @param int $index
+     *
+     * @return \Illuminate\Support\Collection
+     */
     public function getSubSuggestions(int $index): \Illuminate\Support\Collection
     {
         $parentTitleAbove = ($index === 0)
@@ -71,11 +93,22 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
         return $query->distinct('series_title')->orderBy('series_title', 'asc')->limit(8)->get();
     }
 
+    /**
+     * Creates a new subsection record.
+     * @return void
+     */
     public function addSubsection(): void
     {
         $this->subsections[] = '';
     }
 
+    /**
+     * Deletes or deactivates the specified subsection.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeSubsection(int $index): void
     {
         if (isset($this->subsections[$index])) {
@@ -84,6 +117,15 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
         }
     }
 
+    /**
+     * Computes total period.
+     *
+     * @param ?string $active
+     * @param ?string $storage
+     * @param bool $isPermanent
+     *
+     * @return string
+     */
     public function computeTotalPeriod(?string $active, ?string $storage, bool $isPermanent): string
     {
         if ($isPermanent) {
@@ -138,6 +180,13 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
         return $active . ' + ' . $storage;
     }
 
+    /**
+     * Lifecycle hook executed after updating the is permanent property.
+     *
+     * @param mixed $val
+     *
+     * @return void
+     */
     public function updatedIsPermanent($val): void
     {
         if ($val) {
@@ -149,17 +198,29 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the series title property.
+     * @return void
+     */
     public function updatedSeriesTitle(): void
     {
         $this->showParentDropdown = true;
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
+    /**
+     * Resets form and clears active selections.
+     * @return void
+     */
     public function clearForm(): void
     {
         $this->editingSeriesId = null;
@@ -175,6 +236,10 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
         $this->subsections = [];
     }
 
+    /**
+     * Persists draft changes to the database.
+     * @return void
+     */
     public function saveDraft(): void
     {
         $rateCheck = \App\Services\RateLimiterService::check('rdp_create');
@@ -270,6 +335,10 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
         }
     }
 
+    /**
+     * Persists record series changes to the database.
+     * @return void
+     */
     public function saveRecordSeries(): void
     {
         $rateCheck = \App\Services\RateLimiterService::check('rdp_create');
@@ -383,6 +452,10 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $term = strtolower(trim($this->series_title));

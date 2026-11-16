@@ -265,7 +265,7 @@ try {
         <input type="text" id="searchInput" name="csp_srch_own_2k9" placeholder="Search" autocomplete="chrome-off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
       </form>
       <!-- Pinned Global Chat entry -->
-      <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" onmouseenter="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)" onpointerdown="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)">
+      <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" onmouseenter="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)" onpointerdown="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)" ontouchstart="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)">
         <div class="user-avatar">
           <img src="cspc.webp" width="48" height="48" alt="CSPC logo" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
         </div>

@@ -29,6 +29,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
     public bool $showImportModal = false;
     public string $importSearch = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
@@ -38,37 +42,68 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
         }
     }
 
+    /**
+     * Toggles the layout setting or state.
+     * @return void
+     */
     public function toggleLayout(): void
     {
         $this->layoutMode = $this->layoutMode === 'table' ? 'box' : 'table';
     }
 
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
     public function updatingSearch(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the status filter property.
+     * @return void
+     */
     public function updatingStatusFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the date filter property.
+     * @return void
+     */
     public function updatingDateFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the office filter property.
+     * @return void
+     */
     public function updatingOfficeFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = null;
         $this->errorMessage = null;
     }
 
+    /**
+     * Displays the detail modal.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function openDetailModal(int $id): void
     {
         $this->clearMessages();
@@ -82,12 +117,23 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
         }
     }
 
+    /**
+     * Closes the detail modal.
+     * @return void
+     */
     public function closeDetailModal(): void
     {
         $this->showDetailModal = false;
         $this->selectedDoc = null;
     }
 
+    /**
+     * Closes or dismisses the document.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function dismissDocument(int $id): void
     {
         $this->clearMessages();
@@ -105,6 +151,13 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
         }
     }
 
+    /**
+     * Restores document.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function restoreDocument(int $id): void
     {
         $this->clearMessages();
@@ -122,6 +175,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
         }
     }
 
+    /**
+     * Displays the import modal.
+     * @return void
+     */
     public function openImportModal(): void
     {
         $this->clearMessages();
@@ -129,12 +186,23 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
         $this->showImportModal = true;
     }
 
+    /**
+     * Closes the import modal.
+     * @return void
+     */
     public function closeImportModal(): void
     {
         $this->showImportModal = false;
         $this->importSearch = '';
     }
 
+    /**
+     * Processes and imports dts transaction from uploaded file.
+     *
+     * @param string $controlNumber
+     *
+     * @return void
+     */
     public function importDtsTransaction(string $controlNumber): void
     {
         $this->clearMessages();
@@ -210,6 +278,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
         $this->closeImportModal();
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $user = Auth::user();

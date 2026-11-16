@@ -10,6 +10,9 @@ use Livewire\Volt\Component;
 use Livewire\WithPagination;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class extends Component {
+    /** @var string View layout mode: 'default' (Classic) or 'horizontal' (ESXi Miller Columns) */
+    public string $layoutMode = 'horizontal';
+
     use WithPagination;
 
     public string $search = '';
@@ -26,8 +29,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
     public ?string $successMessage = null;
     public ?string $errorMessage = null;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
+        $this->layoutMode = session('admin_tickets_layout_mode', session('admin_management_layout_mode', 'horizontal'));
         $perms = auth()->user()?->permissions;
         if (! $perms || (! $perms->is_sadm && ! $perms->can_access_activity_logs)) {
             $this->redirect(route('portal'));
@@ -39,6 +47,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         $this->autoSelectFirstTicket();
     }
 
+    /**
+     * Consolidates tickets.
+     * @return void
+     */
     public function consolidateTickets(): void
     {
         $perms = auth()->user()?->permissions;
@@ -54,26 +66,62 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         $this->autoSelectFirstTicket();
     }
 
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
     public function updatingSearch(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the status filter property.
+     * @return void
+     */
     public function updatingStatusFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the priority filter property.
+     * @return void
+     */
     public function updatingPriorityFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the source filter property.
+     * @return void
+     */
     public function updatingSourceFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Sets the active layout mode.
+     *
+     * @param string $mode
+     *
+     * @return void
+     */
+    public function setLayoutMode(string $mode): void
+    {
+        if (in_array($mode, ['default', 'horizontal'])) {
+            $this->layoutMode = $mode;
+            session(['admin_tickets_layout_mode' => $mode]);
+            session(['admin_management_layout_mode' => $mode]);
+        }
+    }
+
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search = '';
@@ -85,12 +133,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         $this->autoSelectFirstTicket();
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = null;
         $this->errorMessage = null;
     }
 
+    /**
+     * Sets the active category filter.
+     *
+     * @param string $status
+     * @param string $priority
+     * @param string $source
+     *
+     * @return void
+     */
     public function setCategoryFilter(string $status = '', string $priority = '', string $source = ''): void
     {
         $this->statusFilter = $status;
@@ -101,6 +162,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         $this->autoSelectFirstTicket();
     }
 
+    /**
+     * Selects ticket and populates the details panel.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function selectTicket(int $id): void
     {
         if (! \Illuminate\Support\Facades\Schema::hasTable('sys_error_tickets')) {
@@ -120,6 +188,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         $this->clearMessages();
     }
 
+    /**
+     * Autos select first ticket.
+     * @return void
+     */
     public function autoSelectFirstTicket(): void
     {
         if (! \Illuminate\Support\Facades\Schema::hasTable('sys_error_tickets')) {
@@ -134,6 +206,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         }
     }
 
+    /**
+     * Persists ticket changes to the database.
+     * @return void
+     */
     public function saveTicket(): void
     {
         $perms = auth()->user()?->permissions;
@@ -189,6 +265,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         $this->successMessage = "Ticket {$ticket->ticket_number} updated successfully.";
     }
 
+    /**
+     * Notifies ticket assignee.
+     *
+     * @param \App\Models\ErrorTicket $ticket
+     * @param int $assigneeId
+     *
+     * @return void
+     */
     private function notifyTicketAssignee(\App\Models\ErrorTicket $ticket, int $assigneeId): void
     {
         try {
@@ -238,6 +322,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         }
     }
 
+    /**
+     * Exports and downloads csv data.
+     * @return \Symfony\Component\HttpFoundation\StreamedResponse
+     */
     public function exportCsv(): \Symfony\Component\HttpFoundation\StreamedResponse
     {
         $perms = auth()->user()?->permissions;
@@ -298,6 +386,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         }, 200, $headers);
     }
 
+    /**
+     * Bases query.
+     */
     private function baseQuery()
     {
         $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
@@ -338,6 +429,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         return $query;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $hasTable = \Illuminate\Support\Facades\Schema::hasTable('sys_error_tickets');
@@ -410,6 +505,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
 ?>
 
 @push('styles')
+    @vite('resources/css/admin/activity_logs.css')
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
         .miller-container {
@@ -1148,6 +1244,303 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
     </style>
 @endpush
 
+@if($layoutMode === 'default')
+<div class="activity-logs-container">
+    <div class="page-header" style="margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+            <div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <h1 style="font-size: 20px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-ticket-simple" style="color: #0284c7;"></i> System Error Tickets
+                    </h1>
+                    <span style="font-size: 11px; font-weight: 700; background: #f1f5f9; color: #475569; padding: 3px 8px; border-radius: 9999px; border: 1px solid #cbd5e1;">
+                        Default Layout
+                    </span>
+                </div>
+                <p style="font-size: 12px; color: #64748b; margin: 4px 0 0 0;">
+                    Triage portal runtime exceptions, diagnostics reports, and user-reported issues.
+                </p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <x-admin.layout-trigger :mode="$layoutMode" />
+            </div>
+        </div>
+    </div>
+    @php
+        // Old header replaced
+    @endphp
+    <div style="display: none;">
+
+
+    @if(!$hasTable)
+        <div class="logs-table-card">
+            <div class="empty-state">
+                <i class="fa-solid fa-database"></i>
+                <h3>Tickets table not ready</h3>
+                <p>Run migrations to create <code>sys_error_tickets</code>, then refresh this page.</p>
+            </div>
+        </div>
+    @else
+        <div class="stats-overview-grid">
+            <div class="stat-card blue">
+                <div class="stat-icon"><i class="fa-solid fa-inbox"></i></div>
+                <div class="stat-details">
+                    <span class="stat-value">{{ number_format($stats['open']) }}</span>
+                    <span class="stat-label">Open</span>
+                </div>
+            </div>
+            <div class="stat-card orange">
+                <div class="stat-icon"><i class="fa-solid fa-spinner"></i></div>
+                <div class="stat-details">
+                    <span class="stat-value">{{ number_format($stats['in_progress']) }}</span>
+                    <span class="stat-label">In Progress</span>
+                </div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-icon"><i class="fa-solid fa-bolt"></i></div>
+                <div class="stat-details">
+                    <span class="stat-value">{{ number_format($stats['critical']) }}</span>
+                    <span class="stat-label">Critical Open</span>
+                </div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-icon"><i class="fa-solid fa-ticket"></i></div>
+                <div class="stat-details">
+                    <span class="stat-value">{{ number_format($stats['total']) }}</span>
+                    <span class="stat-label">Total Tickets</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="logs-controls-card">
+            <div class="search-filter-group" style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: 1;">
+                    <div class="search-box-wrapper">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input type="text"
+                               class="search-input"
+                               placeholder="Search ticket, reference, title..."
+                               wire:model.live.debounce.300ms="search">
+                    </div>
+
+                    <select class="filter-select" wire:model.live="statusFilter">
+                        <option value="">All Statuses</option>
+                        <option value="open">Open</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="closed">Closed</option>
+                    </select>
+
+                    <select class="filter-select" wire:model.live="priorityFilter">
+                        <option value="">All Priorities</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                    </select>
+
+                    <select class="filter-select" wire:model.live="sourceFilter">
+                        <option value="">All Sources</option>
+                        <option value="auto">Auto</option>
+                        <option value="user">User</option>
+                    </select>
+
+                    @if($search !== '' || $statusFilter !== '' || $priorityFilter !== '' || $sourceFilter !== '')
+                        <button type="button" class="btn-clear-filters" wire:click="clearFilters">
+                            <i class="fa-solid fa-filter-circle-xmark"></i> Clear Filters
+                        </button>
+                    @endif
+                </div>
+
+                <div>
+                    <button type="button" class="btn-export" wire:click="exportCsv" wire:loading.attr="disabled" title="Export filtered tickets as CSV">
+                        <i class="fa-solid fa-file-csv" wire:loading.remove wire:target="exportCsv"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="exportCsv"></i>
+                        <span wire:loading.remove wire:target="exportCsv">Export CSV</span>
+                        <span wire:loading wire:target="exportCsv">Exporting...</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="logs-table-card">
+            <div class="table-responsive">
+                <table class="logs-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 14%">TICKET</th>
+                            <th style="width: 12%">STATUS</th>
+                            <th style="width: 10%">PRIORITY</th>
+                            <th style="width: 28%">TITLE</th>
+                            <th style="width: 12%">SOURCE</th>
+                            <th style="width: 12%">SUBSYSTEM</th>
+                            <th style="width: 12%">LAST SEEN</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($tickets as $ticket)
+                            @php
+                                $statusStyles = match ($ticket->status) {
+                                    'open' => ['bg' => 'rgba(37,99,235,0.12)', 'color' => '#2563eb', 'border' => 'rgba(37,99,235,0.25)', 'icon' => 'fa-circle'],
+                                    'in_progress' => ['bg' => 'rgba(245,158,11,0.12)', 'color' => '#d97706', 'border' => 'rgba(245,158,11,0.25)', 'icon' => 'fa-spinner'],
+                                    'resolved' => ['bg' => 'rgba(16,185,129,0.12)', 'color' => '#059669', 'border' => 'rgba(16,185,129,0.25)', 'icon' => 'fa-circle-check'],
+                                    'closed' => ['bg' => 'rgba(148,163,184,0.12)', 'color' => '#64748b', 'border' => 'rgba(148,163,184,0.25)', 'icon' => 'fa-lock'],
+                                    default => ['bg' => 'rgba(148,163,184,0.1)', 'color' => '#64748b', 'border' => 'rgba(148,163,184,0.2)', 'icon' => 'fa-circle-info'],
+                                };
+                                $priorityStyles = match ($ticket->priority) {
+                                    'critical' => ['bg' => 'rgba(220,38,38,0.12)', 'color' => '#dc2626', 'border' => 'rgba(220,38,38,0.25)'],
+                                    'high' => ['bg' => 'rgba(234,88,12,0.12)', 'color' => '#ea580c', 'border' => 'rgba(234,88,12,0.25)'],
+                                    'medium' => ['bg' => 'rgba(59,130,246,0.12)', 'color' => '#2563eb', 'border' => 'rgba(59,130,246,0.22)'],
+                                    default => ['bg' => 'rgba(148,163,184,0.12)', 'color' => '#64748b', 'border' => 'rgba(148,163,184,0.22)'],
+                                };
+                                $seen = $ticket->last_seen_at ? \Carbon\Carbon::parse($ticket->last_seen_at) : ($ticket->created_at ? \Carbon\Carbon::parse($ticket->created_at) : null);
+                            @endphp
+                            <tr class="clickable-row" wire:key="ticket-{{ $ticket->id }}" wire:click="openTicket({{ $ticket->id }})">
+                                <td>
+                                    <div class="admin-name-cell">
+                                        <span class="name">{{ $ticket->ticket_number }}</span>
+                                        @if($ticket->reference && $ticket->reference !== $ticket->ticket_number)
+                                            <span class="email-sub">{{ $ticket->reference }}</span>
+                                        @endif
+                                        @if((int) $ticket->occurrence_count > 1)
+                                            <span class="email-sub">×{{ $ticket->occurrence_count }}</span>
+                                        @endif
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge" style="background-color: {{ $statusStyles['bg'] }}; color: {{ $statusStyles['color'] }}; border: 1px solid {{ $statusStyles['border'] }};">
+                                        <i class="fa-solid {{ $statusStyles['icon'] }}"></i>
+                                        <span>{{ str_replace('_', ' ', $ticket->status) }}</span>
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge" style="background-color: {{ $priorityStyles['bg'] }}; color: {{ $priorityStyles['color'] }}; border: 1px solid {{ $priorityStyles['border'] }};">
+                                        {{ ucfirst($ticket->priority) }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="log-description">{{ \Illuminate\Support\Str::limit($ticket->title, 90) }}</div>
+                                </td>
+                                <td>
+                                    <span class="ip-address-pill">{{ $ticket->source === 'auto' ? 'Auto' : 'User' }}</span>
+                                </td>
+                                <td>{{ $ticket->subsystem ? strtoupper($ticket->subsystem) : '—' }}</td>
+                                <td>
+                                    <div class="log-timestamp">
+                                        <span class="log-date">{{ $seen ? $seen->format('M d, Y') : '—' }}</span>
+                                        <span class="log-time">{{ $seen ? $seen->format('h:i A') : '' }}</span>
+                                        <span class="time-ago">{{ $seen ? $seen->diffForHumans() : '' }}</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="7">
+                                    <div class="empty-state">
+                                        <i class="fa-solid fa-ticket"></i>
+                                        <h3>No tickets found</h3>
+                                        <p>No error tickets match your current search or filters.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+
+            @if($tickets->hasPages())
+                <div class="pagination-container">
+                    <div class="pagination-info">
+                        Showing {{ $tickets->firstItem() ?? 0 }} to {{ $tickets->lastItem() ?? 0 }} of {{ $tickets->total() }} entries
+                    </div>
+                    <div class="pagination-links">
+                        @if ($tickets->onFirstPage())
+                            <button type="button" class="pagination-btn" disabled>&laquo;</button>
+                        @else
+                            <button type="button" class="pagination-btn" wire:click="previousPage" wire:loading.attr="disabled">&laquo;</button>
+                        @endif
+
+                        @foreach ($tickets->getUrlRange(max(1, $tickets->currentPage() - 2), min($tickets->lastPage(), $tickets->currentPage() + 2)) as $page => $url)
+                            @if ($page == $tickets->currentPage())
+                                <button type="button" class="pagination-btn active">{{ $page }}</button>
+                            @else
+                                <button type="button" class="pagination-btn" wire:click="gotoPage({{ $page }})" wire:loading.attr="disabled">{{ $page }}</button>
+                            @endif
+                        @endforeach
+
+                        @if ($tickets->hasMorePages())
+                            <button type="button" class="pagination-btn" wire:click="nextPage" wire:loading.attr="disabled">&raquo;</button>
+                        @else
+                            <button type="button" class="pagination-btn" disabled>&raquo;</button>
+                        @endif
+                    </div>
+                </div>
+            @endif
+        </div>
+    @endif
+
+    @if($showDetail && $selected)
+        <div class="ticket-modal-overlay" wire:click.self="closeDetail">
+            <div class="ticket-modal" role="dialog" aria-modal="true">
+                <h2>{{ $selected->ticket_number }}</h2>
+                <p class="sub">{{ $selected->title }}</p>
+
+                <div class="ticket-meta">
+                    <div><strong>Source:</strong> {{ $selected->source }} @if($selected->reference) · <strong>Ref:</strong> {{ $selected->reference }} @endif</div>
+                    <div><strong>URL:</strong> {{ $selected->url ?: '—' }}</div>
+                    <div><strong>Subsystem:</strong> {{ $selected->subsystem ? strtoupper($selected->subsystem) : '—' }} · <strong>HTTP:</strong> {{ $selected->http_status ?: '—' }}</div>
+                    @if($selected->exception_class || $selected->file)
+                        <div><strong>Exception:</strong> {{ $selected->exception_class ?: '—' }}</div>
+                        <div><strong>File:</strong> {{ $selected->file }}@if($selected->line) :{{ $selected->line }}@endif</div>
+                    @endif
+                    <div><strong>Reporter:</strong> {{ $selected->reporter_username ?: 'System' }} · <strong>Occurrences:</strong> {{ $selected->occurrence_count }}</div>
+                    @if($selected->description)
+                        <div style="margin-top:8px;"><strong>Description</strong><br>{{ $selected->description }}</div>
+                    @endif
+                </div>
+
+                <div class="ticket-grid">
+                    <label>Status
+                        <select wire:model="editStatus">
+                            <option value="open">Open</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="resolved">Resolved</option>
+                            <option value="closed">Closed</option>
+                        </select>
+                    </label>
+                    <label>Priority
+                        <select wire:model="editPriority">
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="critical">Critical</option>
+                        </select>
+                    </label>
+                    <label>Assign to
+                        <select wire:model="editAssignedTo">
+                            <option value="">Unassigned</option>
+                            @foreach($admins as $admin)
+                                <option value="{{ $admin->id }}">{{ $admin->username }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                    <label class="ticket-notes">Admin notes
+                        <textarea wire:model="editAdminNotes" rows="4" maxlength="5000" placeholder="Internal triage notes…"></textarea>
+                    </label>
+                </div>
+
+                <div class="ticket-actions">
+                    <button type="button" class="ticket-btn" wire:click="closeDetail">Cancel</button>
+                    <button type="button" class="ticket-btn primary" wire:click="saveTicket" wire:loading.attr="disabled">
+                        <span wire:loading.remove wire:target="saveTicket">Save changes</span>
+                        <span wire:loading wire:target="saveTicket">Saving…</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+</div>
+@else
 <div class="miller-container">
     {{-- Top Title & Quick Filters Bar --}}
     <div class="m-top-bar">
@@ -1160,6 +1553,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
             </div>
 
         <div class="m-top-actions">
+            <x-admin.layout-trigger :mode="$layoutMode" />
             {{-- Quick Source Filter Pills --}}
             <div class="source-pills-bar">
                 <button type="button" wire:click="setCategoryFilter('', '', '')" class="source-pill-btn {{ $sourceFilter === '' && $statusFilter === '' && $priorityFilter === '' ? 'active' : '' }}">
@@ -1758,3 +2152,5 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         </div>
     @endif
 </div>
+
+@endif

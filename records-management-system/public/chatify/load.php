@@ -26,12 +26,9 @@ require_once __DIR__ . '/bootstrap.php';
 
 header('Content-Type: application/json');
 
-$internalSecret = $_SERVER['HTTP_X_INTERNAL_SECRET'] ?? '';
-$internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
-
-if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret) && $internalAccId > 0) {
-    $myAccountId = $internalAccId;
-    $adminId     = 1;
+$myAccountId = 0;
+if (Auth::isTrustedInternalCall($myAccountId)) {
+    $adminId = Auth::adminAccountId();
 } else {
     session_start();
     Auth::require();
@@ -63,9 +60,17 @@ if (empty($convId)) {
 
 $isOfficeGc     = str_starts_with($convId, 'office_');
 $targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
+$isCustomGc     = str_starts_with($convId, 'gc_');
+$customGcId     = 0;
 
-if ($isOfficeGc && $targetOfficeId) {
-    if (!Auth::isAdmin($myAccountId) && $userOfficeId !== $targetOfficeId) {
+if ($convId !== 'global' && !$isOfficeGc && !$isCustomGc) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Invalid conversation channel.']);
+    exit;
+}
+
+if ($isOfficeGc) {
+    if (!$targetOfficeId || $targetOfficeId <= 0 || (!Auth::isAdmin($myAccountId) && $userOfficeId !== $targetOfficeId)) {
         http_response_code(403);
         echo json_encode(['error' => 'You do not belong to this office group chat.']);
         exit;
@@ -77,8 +82,6 @@ if ($isOfficeGc && $targetOfficeId) {
 }
 
 // Custom GC authorization: verify user is a member
-$isCustomGc    = str_starts_with($convId, 'gc_');
-$customGcId    = 0;
 if ($isCustomGc) {
     $customGcId = (int) substr($convId, 3);
     if ($customGcId <= 0 || (!Auth::isAdmin($myAccountId) && !CustomGroupManager::isMember($customGcId, $myAccountId))) {
@@ -124,7 +127,10 @@ $reactions = GlobalChatManager::loadReactions($pageUuids, $convId);
 $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
 
 // ── Build a name cache for all senders in this batch ────────────────────────
-$nameMap = UserResolver::buildNameMap();
+$batchSenderIds = array_column($rawMessages, 'sender_id');
+$batchReplySenderIds = array_column($rawMessages, 'reply_sender_id');
+$uniqueParticipantIds = array_values(array_unique(array_filter(array_merge([$myAccountId], $batchSenderIds, $batchReplySenderIds), 'is_numeric')));
+$nameMap = !empty($uniqueParticipantIds) ? UserResolver::buildNameMapForIds($uniqueParticipantIds) : [];
 
 // ── Build a verification cache: account_id => is_messify_verified ────────────
 // Loaded lazily per-sender using UserResolver::getUserInfo() which caches rows.

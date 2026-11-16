@@ -845,6 +845,7 @@ class ConversationManager
                  ON CONFLICT (conv_id, account_id)
                  DO UPDATE SET last_msg_uuid = EXCLUDED.last_msg_uuid,
                                updated_at    = NOW()
+                 WHERE messify_chat_read_markers.last_msg_uuid IS DISTINCT FROM EXCLUDED.last_msg_uuid
                  RETURNING last_msg_uuid'
             );
             $stmt->execute([

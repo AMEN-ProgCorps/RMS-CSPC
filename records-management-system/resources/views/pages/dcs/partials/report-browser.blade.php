@@ -734,6 +734,9 @@ DCS file: On-screen Generate Report and Monitoring table. Masterlist originators
 @push('scripts')
 <script>
 (function () {
+    /**
+     * Pins report subhead.
+     */
     function pinReportSubhead() {
         document.querySelectorAll('.rpt-table').forEach(function (table) {
             var row = table.querySelector('thead tr:first-child');

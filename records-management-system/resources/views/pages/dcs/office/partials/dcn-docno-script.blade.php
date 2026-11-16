@@ -28,6 +28,12 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
     const exceptDcnId = form.getAttribute('data-except-dcn') || '';
     let duplicateMessage = '';
 
+    /**
+     * Sets the status value.
+     *
+     * @param {*} message
+     * @param {*} ok
+     */
     function setStatus(message, ok) {
         if (!statusEl) return;
         statusEl.hidden = false;
@@ -35,12 +41,18 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         statusEl.dataset.state = ok ? 'ok' : 'bad';
     }
 
+    /**
+     * Clears and resets suggestions.
+     */
     function clearSuggestions() {
         if (!suggestEl) return;
         suggestEl.hidden = true;
         suggestEl.innerHTML = '';
     }
 
+    /**
+     * Clears and resets field suggestions.
+     */
     function clearFieldSuggestions() {
         ['dcnSuggestTitle', 'dcnSuggestOriginator', 'dcnSuggestApprovals'].forEach(function (id) {
             const el = document.getElementById(id);
@@ -50,11 +62,22 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         });
     }
 
+    /**
+     * Sets the field text value.
+     *
+     * @param {*} id
+     * @param {*} value
+     */
     function setFieldText(id, value) {
         const el = document.getElementById(id);
         if (el) el.textContent = value || '—';
     }
 
+    /**
+     * Locks finder.
+     *
+     * @param {*} locked
+     */
     function lockFinder(locked) {
         [finderNo, finderTitle, finderOriginator].forEach(function (el) {
             el.readOnly = locked;
@@ -64,6 +87,11 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         if (selectedBox) selectedBox.hidden = !locked;
     }
 
+    /**
+     * Displays the selected overlay or dialog.
+     *
+     * @param {*} data
+     */
     function showSelected(data) {
         const docNo = (data.document_no || finderNo.value || '').trim();
         const title = (data.current_title || finderTitle.value || '').trim();
@@ -82,6 +110,11 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
 
     let applyingMatch = false;
 
+    /**
+     * Displays the office notice overlay or dialog.
+     *
+     * @param {*} message
+     */
     function showOfficeNotice(message) {
         let root = document.getElementById('ofiNotice');
         if (!root) {
@@ -110,6 +143,11 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         root.querySelector('#ofiNoticeOk')?.focus();
     }
 
+    /**
+     * Displays the duplicate overlay or dialog.
+     *
+     * @param {*} message
+     */
     function showDuplicate(message) {
         duplicateMessage = message || '';
         form.dataset.openRequestMessage = duplicateMessage;
@@ -119,6 +157,9 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         box.textContent = duplicateMessage;
     }
 
+    /**
+     * Clears and resets match.
+     */
     function clearMatch() {
         if (applyingMatch) return;
         showDuplicate('');
@@ -138,6 +179,12 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         }
     }
 
+    /**
+     * Suggestions button.
+     *
+     * @param {*} label
+     * @param {*} onClick
+     */
     function suggestionButton(label, onClick) {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -147,6 +194,11 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         return btn;
     }
 
+    /**
+     * Populates approvals in the interface.
+     *
+     * @param {*} approvals
+     */
     function fillApprovals(approvals) {
         const list = document.getElementById('ofiApprovalsList');
         const addBtn = document.getElementById('ofiAddApproval');
@@ -171,6 +223,12 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
     let suggestOriginator = '';
     let suggestApprovals = [];
 
+    /**
+     * Hints action.
+     *
+     * @param {*} box
+     * @param {*} text
+     */
     function hint(box, text) {
         if (!box) return;
         box.hidden = false;
@@ -181,6 +239,12 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         box.appendChild(label);
     }
 
+    /**
+     * Binds and registers tab fill event listeners.
+     *
+     * @param {*} input
+     * @param {*} read
+     */
     function bindTabFill(input, read) {
         if (!input || input.dataset.tabFillBound === '1') return;
         input.dataset.tabFillBound = '1';
@@ -195,6 +259,11 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         });
     }
 
+    /**
+     * Displays the field suggestions overlay or dialog.
+     *
+     * @param {*} data
+     */
     function showFieldSuggestions(data) {
         const titleBox = document.getElementById('dcnSuggestTitle');
         const titleInput = document.getElementById('dcnDocumentTitle');
@@ -218,6 +287,11 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         bindTabFill(originInput, function () { return suggestOriginator; });
     }
 
+    /**
+     * Applies match.
+     *
+     * @param {*} data
+     */
     function applyMatch(data) {
         applyingMatch = true;
         const canonicalNo = (data.document_no || finderNo.value || '').trim();
@@ -241,6 +315,11 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         applyingMatch = false;
     }
 
+    /**
+     * Displays the match list overlay or dialog.
+     *
+     * @param {*} matches
+     */
     function showMatchList(matches) {
         if (!suggestEl) return;
         suggestEl.hidden = false;
@@ -261,6 +340,9 @@ DCS file: Looks up the DCN finder values and fills the change form when the late
         });
     }
 
+    /**
+     * Retrieves and returns document.
+     */
     async function findDocument() {
         const docNo = finderNo.value.trim();
         const title = finderTitle.value.trim();

@@ -24,6 +24,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS & Object Storage')] 
     public ?string $successMessage = null;
     public ?string $errorMessage = null;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -33,12 +37,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS & Object Storage')] 
         }
     }
 
+    /**
+     * Navigates to.
+     *
+     * @param string $prefix
+     *
+     * @return void
+     */
     public function navigateTo(string $prefix): void
     {
         $this->currentPrefix = trim($prefix, '/');
         $this->clearMessages();
     }
 
+    /**
+     * Navigates up.
+     * @return void
+     */
     public function navigateUp(): void
     {
         if (empty($this->currentPrefix)) return;
@@ -48,6 +63,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS & Object Storage')] 
         $this->clearMessages();
     }
 
+    /**
+     * Tests connection.
+     * @return void
+     */
     public function testConnection(): void
     {
         $ok = NasStorageService::testWrite();
@@ -58,12 +77,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS & Object Storage')] 
         }
     }
 
+    /**
+     * Displays the new folder modal.
+     * @return void
+     */
     public function openNewFolderModal(): void
     {
         $this->newFolderName = '';
         $this->showNewFolderModal = true;
     }
 
+    /**
+     * Creates a new folder record.
+     * @return void
+     */
     public function createFolder(): void
     {
         $this->validate([
@@ -81,12 +108,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS & Object Storage')] 
         }
     }
 
+    /**
+     * Displays the upload modal.
+     * @return void
+     */
     public function openUploadModal(): void
     {
         $this->uploadedFile = null;
         $this->showUploadModal = true;
     }
 
+    /**
+     * Submits and processes upload.
+     * @return void
+     */
     public function submitUpload(): void
     {
         $this->validate([
@@ -108,6 +143,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS & Object Storage')] 
         }
     }
 
+    /**
+     * Deletes or deactivates the specified item.
+     *
+     * @param string $path
+     * @param string $type
+     *
+     * @return void
+     */
     public function deleteItem(string $path, string $type): void
     {
         $isDir = ($type === 'directory');
@@ -120,12 +163,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS & Object Storage')] 
         }
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = null;
         $this->errorMessage = null;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $status = NasStorageService::getStatus();

@@ -38,6 +38,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
     public ?object $selectedCluster = null;
     public array $selectedClusterItems = [];
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         // Keep transferred retention records in sync
@@ -48,16 +52,31 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the cluster search property.
+     * @return void
+     */
     public function updatedClusterSearch(): void
     {
         $this->clusterPage = 1;
     }
 
+    /**
+     * Lifecycle hook executed after updating the received search property.
+     * @return void
+     */
     public function updatedReceivedSearch(): void
     {
         $this->receivedPage = 1;
     }
 
+    /**
+     * Sets the active received tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
     public function setReceivedTab(string $tab): void
     {
         $this->receivedTab = strtoupper($tab) === 'DCS' ? 'DCS' : 'DTS';
@@ -65,12 +84,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         $this->receivedPage = 1;
     }
 
+    /**
+     * Sets the active cluster filter.
+     *
+     * @param string $filter
+     *
+     * @return void
+     */
     public function setClusterFilter(string $filter): void
     {
         $this->clusterFilter = in_array($filter, ['all', 'nap1', 'nap2', 'nap3']) ? $filter : 'all';
         $this->clusterPage = 1;
     }
 
+    /**
+     * Previous cluster page.
+     * @return void
+     */
     public function previousClusterPage(): void
     {
         if ($this->clusterPage > 1) {
@@ -78,6 +108,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         }
     }
 
+    /**
+     * Nexts cluster page.
+     *
+     * @param int $maxPage
+     *
+     * @return void
+     */
     public function nextClusterPage(int $maxPage): void
     {
         if ($this->clusterPage < $maxPage) {
@@ -85,11 +122,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         }
     }
 
+    /**
+     * Gotos cluster page.
+     *
+     * @param int $page
+     *
+     * @return void
+     */
     public function gotoClusterPage(int $page): void
     {
         $this->clusterPage = max(1, $page);
     }
 
+    /**
+     * Previous received page.
+     * @return void
+     */
     public function previousReceivedPage(): void
     {
         if ($this->receivedPage > 1) {
@@ -97,6 +145,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         }
     }
 
+    /**
+     * Nexts received page.
+     *
+     * @param int $maxPage
+     *
+     * @return void
+     */
     public function nextReceivedPage(int $maxPage): void
     {
         if ($this->receivedPage < $maxPage) {
@@ -104,16 +159,31 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         }
     }
 
+    /**
+     * Gotos received page.
+     *
+     * @param int $page
+     *
+     * @return void
+     */
     public function gotoReceivedPage(int $page): void
     {
         $this->receivedPage = max(1, $page);
     }
 
+    /**
+     * Displays the add series modal.
+     * @return void
+     */
     public function openAddSeriesModal(): void
     {
         $this->showAddSeriesModal = true;
     }
 
+    /**
+     * Closes the add series modal.
+     * @return void
+     */
     public function closeAddSeriesModal(): void
     {
         $this->showAddSeriesModal = false;
@@ -125,11 +195,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         $this->newRemarks = '';
     }
 
+    /**
+     * Creates a new subsection record.
+     * @return void
+     */
     public function addSubsection(): void
     {
         $this->newSubsections[] = '';
     }
 
+    /**
+     * Deletes or deactivates the specified subsection.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeSubsection(int $index): void
     {
         if (isset($this->newSubsections[$index])) {
@@ -138,6 +219,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         }
     }
 
+    /**
+     * Computes total period.
+     *
+     * @param ?string $active
+     * @param ?string $storage
+     * @param bool $isPermanent
+     *
+     * @return string
+     */
     public function computeTotalPeriod(?string $active, ?string $storage, bool $isPermanent): string
     {
         if ($isPermanent) {
@@ -184,6 +274,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         return $active . ' + ' . $storage;
     }
 
+    /**
+     * Persists new series changes to the database.
+     * @return void
+     */
     public function saveNewSeries(): void
     {
         $parentTitle = trim($this->newSeriesTitle);
@@ -271,6 +365,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         $this->closeAddSeriesModal();
     }
 
+    /**
+     * Inspects cluster.
+     *
+     * @param int $clusterId
+     * @param string $formCode
+     *
+     * @return void
+     */
     public function inspectCluster(int $clusterId, string $formCode): void
     {
         $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
@@ -363,6 +465,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         }
     }
 
+    /**
+     * Closes the cluster modal.
+     * @return void
+     */
     public function closeClusterModal(): void
     {
         $this->showClusterModal = false;
@@ -370,6 +476,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         $this->selectedClusterItems = [];
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $user = Auth::user();
@@ -876,6 +986,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
 
 <div class="rdp-dashboard-page">
     <script>
+        /**
+         * Rdps dashboard clock.
+         */
         function rdpDashboardClock() {
             return {
                 nowClock: '{{ $headerTime }}',

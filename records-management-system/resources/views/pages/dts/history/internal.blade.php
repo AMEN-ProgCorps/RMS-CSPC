@@ -14,6 +14,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions History')] cla
 
     #[On('dts-transaction-updated')]
     #[On('refresh-transactions')]
+    /**
+     * Refreshes transactions list data.
+     * @return void
+     */
     public function refreshTransactionsList(): void
     {
         $this->resetPage();
@@ -26,6 +30,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions History')] cla
     public string $sortOrder = 'desc'; // 'desc' or 'asc'
     public string $layoutMode = 'table'; // table or box
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -34,36 +42,59 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions History')] cla
         }
     }
 
+    /**
+     * Toggles the layout setting or state.
+     * @return void
+     */
     public function toggleLayout(): void
     {
         $this->layoutMode = $this->layoutMode === 'table' ? 'box' : 'table';
     }
 
+    /**
+     * Lifecycle hook executed before updating the search query property.
+     */
     public function updatingSearchQuery()
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the per page property.
+     */
     public function updatingPerPage()
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the date from property.
+     */
     public function updatingDateFrom()
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the date to property.
+     */
     public function updatingDateTo()
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the sort order property.
+     */
     public function updatingSortOrder()
     {
         $this->resetPage();
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function resetFilters(): void
     {
         $this->searchQuery = '';
@@ -73,6 +104,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions History')] cla
         $this->resetPage();
     }
 
+    /**
+     * Retrieves and populates transactions property data.
+     */
     public function getTransactionsProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 

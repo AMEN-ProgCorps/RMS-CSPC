@@ -37,6 +37,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
     public ?string $actionRecordTitle = null;
     public string $declineReason = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
@@ -50,6 +54,13 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
         }
     }
 
+    /**
+     * Sets the active tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
     public function switchTab(string $tab): void
     {
         if (in_array($tab, ['incoming', 'submitted'], true)) {
@@ -59,32 +70,59 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
         }
     }
 
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
     public function updatingSearch(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the status filter property.
+     * @return void
+     */
     public function updatingStatusFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the date filter property.
+     * @return void
+     */
     public function updatingDateFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the office filter property.
+     * @return void
+     */
     public function updatingOfficeFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = null;
         $this->errorMessage = null;
     }
 
+    /**
+     * Displays the detail modal.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function openDetailModal(int $id): void
     {
         $this->clearMessages();
@@ -153,6 +191,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
         $this->showDetailModal = true;
     }
 
+    /**
+     * Closes the detail modal.
+     * @return void
+     */
     public function closeDetailModal(): void
     {
         $this->showDetailModal = false;
@@ -163,6 +205,13 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
         $this->selectedAttachedFile = null;
     }
 
+    /**
+     * Displays the accept modal.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function openAcceptModal(int $id): void
     {
         $this->clearMessages();
@@ -180,6 +229,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
         }
     }
 
+    /**
+     * Closes the accept modal.
+     * @return void
+     */
     public function closeAcceptModal(): void
     {
         $this->showAcceptModal = false;
@@ -187,6 +240,13 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
         $this->actionRecordTitle = null;
     }
 
+    /**
+     * Accepts request.
+     *
+     * @param ?int $id
+     *
+     * @return void
+     */
     public function acceptRequest(?int $id = null): void
     {
         $targetId = $id ?: $this->actionRecordId;
@@ -269,6 +329,13 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
         }
     }
 
+    /**
+     * Displays the decline modal.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function openDeclineModal(int $id): void
     {
         $this->clearMessages();
@@ -287,6 +354,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
         }
     }
 
+    /**
+     * Closes the decline modal.
+     * @return void
+     */
     public function closeDeclineModal(): void
     {
         $this->showDeclineModal = false;
@@ -295,6 +366,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
         $this->declineReason = '';
     }
 
+    /**
+     * Declines request.
+     * @return void
+     */
     public function declineRequest(): void
     {
         if (!$this->actionRecordId) return;
@@ -379,6 +454,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $user = Auth::user();

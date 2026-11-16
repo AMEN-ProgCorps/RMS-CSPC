@@ -12,7 +12,7 @@ try {
 
 const PORT = process.env.PORT || 8080;
 // Fallback key matches public/messify/config/db.php CHAT_SHARED_SECRET default
-const CHAT_SHARED_SECRET = process.env.CHAT_SHARED_SECRET || '7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd';
+const CHAT_SHARED_SECRET = process.env.CHAT_SHARED_SECRET || '';
 
 // Secret PHP uses to authenticate server-to-server pushes (see handleInternalPush
 // below). Defaults to the same shared secret as client auth for convenience, but
@@ -258,6 +258,8 @@ const RATE_LIMITS = {
   mark_read: { max: 10, windowMs: 1000 }
 };
 const rateState = new Map(); // accountId -> { [category]: { count, windowStart } }
+const lastReadBroadcastMap = new Map(); // `${readerId}:${targetId}` -> last_msg_uuid
+const LAST_READ_MAP_MAX_ENTRIES = 10000;
 
 function isRateLimited(accountId, category) {
   const limits = RATE_LIMITS[category];
@@ -376,6 +378,61 @@ function broadcastToAll(payloadStr, excludeAccountId) {
   }
 }
 
+function applyUserCommSettings(targetAccId, allowTyping, allowSee) {
+  targetAccId = Number(targetAccId);
+  if (!targetAccId) return;
+
+  const prevSettings = getUserCommSettings(targetAccId);
+  const newSettings = {
+    allow_typing_preview: !!allowTyping,
+    allow_see_typing_preview: !!allowSee
+  };
+  userCommSettings.set(targetAccId, newSettings);
+
+  log(`Communication settings updated for account ${targetAccId}: typing_preview=${newSettings.allow_typing_preview}, see_preview=${newSettings.allow_see_typing_preview}`);
+
+  // If user turned OFF allow_typing_preview, clear previews sent by this user
+  if (!newSettings.allow_typing_preview) {
+    for (const [key, entry] of Array.from(activeTypingPreviews.entries())) {
+      if (entry.sender_id === targetAccId) {
+        clearPreview(key, true, 'settings_disabled');
+      }
+    }
+  }
+
+  // If user turned OFF allow_see_typing_preview, clear all previews from this user's view
+  if (!newSettings.allow_see_typing_preview) {
+    for (const [key, entry] of activeTypingPreviews.entries()) {
+      if (entry.recipient_id === targetAccId) {
+        const clearStr = JSON.stringify({
+          type: 'typing_preview_cleared',
+          sender_id: entry.sender_id,
+          recipient_id: targetAccId,
+          reason: 'settings_disabled'
+        });
+        broadcastToAccounts([targetAccId], clearStr);
+      }
+    }
+  }
+
+  // If user just turned ON allow_see_typing_preview, replay any active previews immediately
+  if (newSettings.allow_see_typing_preview && !prevSettings.allow_see_typing_preview) {
+    for (const [key, entry] of activeTypingPreviews.entries()) {
+      if (entry.recipient_id === targetAccId) {
+        const senderSettings = getUserCommSettings(entry.sender_id);
+        if (senderSettings.allow_typing_preview) {
+          broadcastToAccounts([targetAccId], JSON.stringify({
+            type: 'typing_preview',
+            sender_id: entry.sender_id,
+            recipient_id: targetAccId,
+            preview: entry.preview
+          }));
+        }
+      }
+    }
+  }
+}
+
 // ── Internal push endpoint ───────────────────────────────────────────────
 // PHP calls this (server-to-server, not exposed to browsers) right after it
 // does its own DB write, so the change reaches an already-open socket
@@ -445,6 +502,11 @@ function handleInternalPush(req, res) {
           lastSeenTimestamps.delete(pAccId);
         }
       }
+    }
+
+    if (type === 'update_comm_settings' && eventData) {
+      const targetAccId = Number(eventData.account_id || account_id);
+      applyUserCommSettings(targetAccId, eventData.allow_typing_preview, eventData.allow_see_typing_preview);
     }
 
     // force_disconnect=true means "this account's RMS session is gone —
@@ -872,57 +934,7 @@ wss.on('connection', (ws) => {
 
     // 4a2. Handle Communication Settings Update Event
     if (data.type === 'update_comm_settings') {
-      const targetAccId = Number(data.account_id || state.accountId);
-      const prevSettings = getUserCommSettings(targetAccId);
-      const newSettings = {
-        allow_typing_preview: !!data.allow_typing_preview,
-        allow_see_typing_preview: !!data.allow_see_typing_preview
-      };
-      userCommSettings.set(targetAccId, newSettings);
-
-      log(`Communication settings updated for account ${targetAccId}: typing_preview=${newSettings.allow_typing_preview}, see_preview=${newSettings.allow_see_typing_preview}`);
-
-      // If user turned OFF allow_typing_preview, clear previews sent by this user
-      if (!newSettings.allow_typing_preview) {
-        for (const [key, entry] of activeTypingPreviews.entries()) {
-          if (entry.sender_id === targetAccId) {
-            clearPreview(key, true, 'settings_disabled');
-          }
-        }
-      }
-
-      // If user turned OFF allow_see_typing_preview, clear all previews from this user's view
-      if (!newSettings.allow_see_typing_preview) {
-        for (const [key, entry] of activeTypingPreviews.entries()) {
-          if (entry.recipient_id === targetAccId) {
-            const clearStr = JSON.stringify({
-              type: 'typing_preview_cleared',
-              sender_id: entry.sender_id,
-              recipient_id: targetAccId,
-              reason: 'settings_disabled'
-            });
-            broadcastToAccounts([targetAccId], clearStr);
-          }
-        }
-      }
-
-      // If user just turned ON allow_see_typing_preview, replay any active previews immediately
-      if (newSettings.allow_see_typing_preview && !prevSettings.allow_see_typing_preview) {
-        for (const [key, entry] of activeTypingPreviews.entries()) {
-          if (entry.recipient_id === targetAccId) {
-            const senderSettings = getUserCommSettings(entry.sender_id);
-            if (senderSettings.allow_typing_preview) {
-              broadcastToAccounts([targetAccId], JSON.stringify({
-                type: 'typing_preview',
-                sender_id: entry.sender_id,
-                recipient_id: targetAccId,
-                preview: entry.preview
-              }));
-            }
-          }
-        }
-      }
-
+      applyUserCommSettings(state.accountId, data.allow_typing_preview, data.allow_see_typing_preview);
       return;
     }
 
@@ -1011,13 +1023,23 @@ wss.on('connection', (ws) => {
 
       const { target_id, last_msg_uuid } = data;
       const targetId = Number(target_id);
-      if (!targetId) return;
+      if (!targetId || !last_msg_uuid) return;
+
+      const readKey = `${state.accountId}:${targetId}`;
+      if (lastReadBroadcastMap.get(readKey) === last_msg_uuid) {
+        return;
+      }
+      if (lastReadBroadcastMap.size >= LAST_READ_MAP_MAX_ENTRIES) {
+        const oldestKey = lastReadBroadcastMap.keys().next().value;
+        lastReadBroadcastMap.delete(oldestKey);
+      }
+      lastReadBroadcastMap.set(readKey, last_msg_uuid);
 
       const payloadStr = JSON.stringify({
         type: 'message_read',
         reader_id: state.accountId,
         target_id: targetId,
-        last_msg_uuid: last_msg_uuid || null
+        last_msg_uuid: last_msg_uuid
       });
       // Notify the sender's live socket(s) immediately, plus admin (1) for
       // spymode parity with the HTTP-triggered push in mark_read.php.

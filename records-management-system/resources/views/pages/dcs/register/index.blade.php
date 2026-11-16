@@ -15,6 +15,10 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         return [
@@ -994,6 +998,13 @@ function getRegisterAlpineData(rootId) {
     }
 }
 
+/**
+ * Sets the register alpine prop value.
+ *
+ * @param {*} key
+ * @param {*} value
+ * @param {*} rootId
+ */
 function setRegisterAlpineProp(key, value, rootId) {
     const data = getRegisterAlpineData(rootId);
     if (!data) return false;
@@ -1025,11 +1036,22 @@ window.__isSyllabiMode = false;
 window.__syllabiModeLabel = 'Syllabi';
 window.__syllabiFaculty = window.__syllabiFaculty || {};
 
+/**
+ * Checks whether syllabi like sub type condition is met.
+ *
+ * @param {*} subTypeId
+ */
 function isSyllabiLikeSubType(subTypeId) {
     const t = (allDocTypes || []).find(d => String(d.doc_type_id) === String(subTypeId));
     return !!(t && t.is_syllabi_like);
 }
 
+/**
+ * Types allows revision.
+ *
+ * @param {*} docTypeId
+ * @param {*} subTypeId
+ */
 function typeAllowsRevision(docTypeId, subTypeId) {
     const sid = subTypeId ? String(subTypeId) : '';
     const tid = docTypeId ? String(docTypeId) : '';
@@ -1038,6 +1060,9 @@ function typeAllowsRevision(docTypeId, subTypeId) {
     return !row.is_syllabi_like;
 }
 
+/**
+ * Currents type allows revision.
+ */
 function currentTypeAllowsRevision() {
     const docTypeId = document.getElementById('docType')?.value;
     const subTypeId = document.getElementById('subType')?.value;
@@ -1066,6 +1091,12 @@ function checkFile(file) {
     return { valid: true, ext };
 }
 
+/**
+ * Files type error message.
+ *
+ * @param {*} check
+ * @param {*} file
+ */
 function fileTypeErrorMessage(check, file) {
     return check.reason === 'type'
         ? '"' + check.ext + '" is not allowed. Only scanned PDF files are accepted.'
@@ -1078,6 +1109,13 @@ function setFileIcon(icon, ext) {
     icon.style.color = 'var(--reg-error)';
 }
 
+/**
+ * Clears and resets file icon.
+ *
+ * @param {*} icon
+ * @param {*} label
+ * @param {*} originalText
+ */
 function clearFileIcon(icon, label, originalText) {
     icon.className = 'fa-solid fa-cloud-arrow-up';
     icon.style.color = '';
@@ -1096,6 +1134,11 @@ function computeDuration(startDate, startTime, endDate, endTime) {
     return { invalid: false, totalMinutes: Math.floor(diffMs / 60000) };
 }
 
+/**
+ * Formats, parses, or sanitizes duration.
+ *
+ * @param {*} totalMinutes
+ */
 function formatDuration(totalMinutes) {
     const days = Math.floor(totalMinutes / 1440);
     const hours = Math.floor((totalMinutes % 1440) / 60);
@@ -1105,6 +1148,12 @@ function formatDuration(totalMinutes) {
     return minutes + " min";
 }
 
+/**
+ * Offices matches query.
+ *
+ * @param {*} o
+ * @param {*} q
+ */
 function officeMatchesQuery(o, q) {
     const needle = (q || '').trim().toLowerCase();
     if (!needle) return false;
@@ -1114,6 +1163,12 @@ function officeMatchesQuery(o, q) {
     return name.includes(needle) || code.includes(needle) || label.includes(needle);
 }
 
+/**
+ * Retrieves and returns office by label or code.
+ *
+ * @param {*} part
+ * @param {*} list
+ */
 function findOfficeByLabelOrCode(part, list) {
     const n = String(part ?? '').trim().toLowerCase();
     if (!n) return null;
@@ -1125,12 +1180,22 @@ function findOfficeByLabelOrCode(part, list) {
     ) || null;
 }
 
+/**
+ * Filters offices.
+ *
+ * @param {*} query
+ */
 function filterOffices(query) {
     const q = query.trim().toLowerCase();
     if (q.length < 1) return [];
     return allOffices.filter(o => officeMatchesQuery(o, q));
 }
 
+/**
+ * Empties office row html.
+ *
+ * @param {*} bodyId
+ */
 function emptyOfficeRowHTML(bodyId) {
     const cols = bodyId === 'retrievalBody' ? 4 : (bodyId === 'distBody' ? 4 : 3);
     return '<tr class="reg-empty-row">' +
@@ -1143,20 +1208,38 @@ function emptyOfficeRowHTML(bodyId) {
             '</tr>';
 }
 
+/**
+ * Pad2s action.
+ *
+ * @param {*} n
+ */
 function pad2(n) {
     return String(n).padStart(2, '0');
 }
 
+/**
+ * Locals date value.
+ */
 function localDateValue() {
     const d = new Date();
     return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
 }
 
+/**
+ * Locals time value.
+ */
 function localTimeValue() {
     const d = new Date();
     return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
 }
 
+/**
+ * Retrievals when cell html.
+ *
+ * @param {*} dateVal
+ * @param {*} timeVal
+ * @param {*} visible
+ */
 function retrievalWhenCellHTML(dateVal, timeVal, visible) {
     const display = visible ? '' : ' style="display:none"';
     return '<td class="reg-ret-when"><div class="reg-ret-when-fields"' + display + '>' +
@@ -1165,6 +1248,12 @@ function retrievalWhenCellHTML(dateVal, timeVal, visible) {
         '</div></td>';
 }
 
+/**
+ * Renders and synchronizes retrieval when fields in the DOM.
+ *
+ * @param {*} tr
+ * @param {*} isRetrieved
+ */
 function syncRetrievalWhenFields(tr, isRetrieved) {
     const wrap = tr?.querySelector('.reg-ret-when-fields');
     if (!wrap) return;
@@ -1176,6 +1265,11 @@ function syncRetrievalWhenFields(tr, isRetrieved) {
     if (timeInp && !timeInp.value) timeInp.value = localTimeValue();
 }
 
+/**
+ * Retrievals status select html.
+ *
+ * @param {*} status
+ */
 function retrievalStatusSelectHTML(status) {
     const value = status === 'retrieved' ? 'retrieved' : 'pending';
     return '<select name="retrievalStatus[]" class="reg-retrieval-status" onchange="handleRetrievalStatusChange(this)">' +
@@ -1184,6 +1278,11 @@ function retrievalStatusSelectHTML(status) {
     '</select>';
 }
 
+/**
+ * Dists body has office.
+ *
+ * @param {*} officeId
+ */
 function distBodyHasOffice(officeId) {
     const tbody = document.getElementById('distBody');
     if (!tbody) return false;
@@ -1191,6 +1290,13 @@ function distBodyHasOffice(officeId) {
         .some(inp => String(inp.value) === String(officeId));
 }
 
+/**
+ * Adds retrieved office to distribution.
+ *
+ * @param {*} officeId
+ * @param {*} officeName
+ * @param {*} copies
+ */
 function addRetrievedOfficeToDistribution(officeId, officeName, copies) {
     if (distBodyHasOffice(officeId)) return;
     seedOfficeRow('distBody', 'totalDistCopies', officeId, officeName, copies);
@@ -1204,6 +1310,11 @@ function addRetrievedOfficeToDistribution(officeId, officeName, copies) {
     if (typeof syncDistClusterChipState === 'function') syncDistClusterChipState();
 }
 
+/**
+ * Removes specified retrieved office from distribution.
+ *
+ * @param {*} officeId
+ */
 function removeRetrievedOfficeFromDistribution(officeId) {
     const tbody = document.getElementById('distBody');
     if (!tbody) return;
@@ -1221,6 +1332,11 @@ function removeRetrievedOfficeFromDistribution(officeId) {
     if (typeof syncDistClusterChipState === 'function') syncDistClusterChipState();
 }
 
+/**
+ * Checks whether office in retrieved hidden condition is met.
+ *
+ * @param {*} officeId
+ */
 function isOfficeInRetrievedHidden(officeId) {
     const hidden = document.getElementById('retrievalRetrievedHidden');
     if (!hidden) return false;
@@ -1228,6 +1344,11 @@ function isOfficeInRetrievedHidden(officeId) {
         .some(inp => String(inp.value) === String(officeId));
 }
 
+/**
+ * Removes specified office from retrieved hidden.
+ *
+ * @param {*} officeId
+ */
 function removeOfficeFromRetrievedHidden(officeId) {
     const hidden = document.getElementById('retrievalRetrievedHidden');
     if (!hidden) return 1;
@@ -1275,6 +1396,11 @@ function restoreOfficeToRetrievalPending(officeId, officeName, copies) {
     }
 }
 
+/**
+ * Maybes restore dist office to retrieval.
+ *
+ * @param {*} tr
+ */
 function maybeRestoreDistOfficeToRetrieval(tr) {
     if (!tr) return;
     const officeId = tr.querySelector('input[type="hidden"][name="distOffice[]"]')?.value;
@@ -1298,6 +1424,11 @@ function maybeRestoreDistOfficeToRetrieval(tr) {
     restoreOfficeToRetrievalPending(officeId, officeName, copies);
 }
 
+/**
+ * Handles retrieval status change event or response.
+ *
+ * @param {*} select
+ */
 window.handleRetrievalStatusChange = function (select) {
     const tr = select?.closest('tr');
     if (!tr) return;
@@ -1316,6 +1447,13 @@ window.handleRetrievalStatusChange = function (select) {
     }
 };
 
+/**
+ * Moves retrieval row to hidden.
+ *
+ * @param {*} tr
+ * @param {*} officeId
+ * @param {*} copies
+ */
 function moveRetrievalRowToHidden(tr, officeId, copies) {
     const hiddenBody = document.getElementById('retrievalRetrievedHidden')
         || ensureRetrievalHiddenBody();
@@ -1346,6 +1484,9 @@ function moveRetrievalRowToHidden(tr, officeId, copies) {
     updateTotal('totalRetrievalCopies', 'retrievalBody');
 }
 
+/**
+ * Ensures retrieval hidden body.
+ */
 function ensureRetrievalHiddenBody() {
     let hidden = document.getElementById('retrievalRetrievedHidden');
     if (hidden) return hidden;
@@ -1359,6 +1500,17 @@ function ensureRetrievalHiddenBody() {
     return hidden;
 }
 
+/**
+ * Seed retrieval office row.
+ *
+ * @param {*} tbodyId
+ * @param {*} totalId
+ * @param {*} officeId
+ * @param {*} officeName
+ * @param {*} copies
+ * @param {*} status
+ * @param {*} options
+ */
 function seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, status, options = {}) {
     const tbody = document.getElementById(tbodyId);
     if (!tbody) return;
@@ -1398,6 +1550,13 @@ function seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, 
     }
 }
 
+/**
+ * Filters items.
+ *
+ * @param {*} list
+ * @param {*} labelKey
+ * @param {*} query
+ */
 function filterItems(list, labelKey, query) {
     const q = query.trim().toLowerCase();
     if (q.length < 1) return [];
@@ -1408,6 +1567,15 @@ function filterItems(list, labelKey, query) {
     });
 }
 
+/**
+ * Seed office row.
+ *
+ * @param {*} tbodyId
+ * @param {*} totalId
+ * @param {*} officeId
+ * @param {*} officeName
+ * @param {*} copies
+ */
 function seedOfficeRow(tbodyId, totalId, officeId, officeName, copies) {
     if (tbodyId === 'distBody' && typeof isDistOfficesLockedFromDrf === 'function' && isDistOfficesLockedFromDrf()) {
         return;
@@ -1852,6 +2020,9 @@ async function applyInventoryRevisePrefillFromUrl() {
     }
 }
 
+/**
+ * Applies inventory recur prefill from url.
+ */
 async function applyInventoryRecurPrefillFromUrl() {
     const params = new URLSearchParams(location.search);
     if ((params.get('type') || '').toLowerCase() !== 'recurring') {
@@ -1932,6 +2103,9 @@ async function applyInventoryRecurPrefillFromUrl() {
     }
 }
 
+/**
+ * Locks revise registration identity.
+ */
 function lockReviseRegistrationIdentity() {
     window.__reviseIdentityLocked = true;
     window.__versionTypeLocked = true;
@@ -1966,6 +2140,9 @@ function lockReviseRegistrationIdentity() {
     });
 }
 
+/**
+ * Locks recur registration identity.
+ */
 function lockRecurRegistrationIdentity() {
     window.__recurIdentityLocked = true;
     window.__versionTypeLocked = true;
@@ -2031,6 +2208,12 @@ async function applyOfficeIntakePrefillFromUrl() {
     }
 }
 
+/**
+ * Offices intake seed source.
+ *
+ * @param {*} widgetKey
+ * @param {*} offices
+ */
 function officeIntakeSeedSource(widgetKey, offices) {
     const widget = window.__sourceWidgets?.[widgetKey];
     if (!widget || !Array.isArray(offices) || !offices.length) {
@@ -2055,6 +2238,11 @@ function officeIntakeSeedSource(widgetKey, offices) {
     }
 }
 
+/**
+ * Offices intake check checklist.
+ *
+ * @param {*} id
+ */
 function officeIntakeCheckChecklist(id) {
     const cb = document.querySelector(
         '#dynamicCheckboxes input[name="checklists[]"][value="' + id + '"]'
@@ -2123,6 +2311,11 @@ function lockOfficeIntakeRegistrationIdentity(forceMode = null) {
     });
 }
 
+/**
+ * Applies office intake prefill.
+ *
+ * @param {*} prefill
+ */
 async function applyOfficeIntakePrefill(prefill) {
     if (!prefill || typeof prefill !== 'object') {
         return;
@@ -2583,11 +2776,17 @@ function lockDistOfficesFromDrfIntake() {
     if (selectAll) selectAll.disabled = false;
 }
 
+/**
+ * Checks whether dist offices locked from drf condition is met.
+ */
 function isDistOfficesLockedFromDrf() {
     return (!!window.__distOfficesLockedFromDrf || !!window.__distOfficesLockedFromRecur)
         && !window.__seedingDrfDistOffices;
 }
 
+/**
+ * Locks dist offices from recur.
+ */
 function lockDistOfficesFromRecur() {
     window.__distOfficesLockedFromRecur = true;
     window.__distOfficesLockMessage = 'Distribution offices are the same as the previous document and cannot be added.';
@@ -2614,6 +2813,9 @@ function lockDistOfficesFromRecur() {
     document.querySelectorAll('#distBody tr.reg-office-added .btn-remove').forEach((btn) => btn.remove());
 }
 
+/**
+ * Unlocks recur distribution offices.
+ */
 function unlockRecurDistributionOffices() {
     if (!window.__distOfficesLockedFromRecur) return;
     window.__distOfficesLockedFromRecur = false;
@@ -2637,6 +2839,11 @@ function unlockRecurDistributionOffices() {
     if (groups) groups.style.display = '';
 }
 
+/**
+ * Displays the checklist section overlay or dialog.
+ *
+ * @param {*} id
+ */
 function openChecklistSection(id) {
     const cb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="' + id + '"]');
     const section = document.getElementById('section-' + id);
@@ -2651,6 +2858,13 @@ function openChecklistSection(id) {
     if (section) section.style.display = 'block';
 }
 
+/**
+ * Seed revised distribution offices.
+ *
+ * @param {*} offices
+ * @param {*} bodyId
+ * @param {*} totalId
+ */
 function seedRevisedDistributionOffices(offices, bodyId, totalId) {
     const list = Array.isArray(offices) ? offices : [];
     if (!list.length || !tableIsEmpty(bodyId || 'distBody')) return;
@@ -2668,6 +2882,11 @@ function seedRevisedDistributionOffices(offices, bodyId, totalId) {
     openChecklistSection(5);
 }
 
+/**
+ * Seed recur distribution offices.
+ *
+ * @param {*} offices
+ */
 function seedRecurDistributionOffices(offices) {
     const list = Array.isArray(offices) ? offices : [];
     window.__seedingDrfDistOffices = true;
@@ -2692,6 +2911,9 @@ function seedRecurDistributionOffices(offices) {
     lockDistOfficesFromRecur();
 }
 
+/**
+ * Restores office intake prefill if needed.
+ */
 function restoreOfficeIntakePrefillIfNeeded() {
     if (!window.__officeIntakePrefill || typeof applyOfficeIntakeChecklistAndFields !== 'function') {
         return;
@@ -2731,6 +2953,9 @@ function lockSyllabiContextDropdowns() {
     }
 }
 
+/**
+ * Unlocks syllabi context dropdowns.
+ */
 function unlockSyllabiContextDropdowns() {
     ['syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear'].forEach((id) => {
         const el = document.getElementById(id);
@@ -2752,6 +2977,11 @@ function unlockSyllabiContextDropdowns() {
     }
 }
 
+/**
+ * Retrieves and returns syllabi row for intake course.
+ *
+ * @param {*} prefill
+ */
 function findSyllabiRowForIntakeCourse(prefill) {
     const syl = prefill?.syllabi || {};
     const courseId = String(syl.course_id || '').trim();
@@ -2772,6 +3002,11 @@ function findSyllabiRowForIntakeCourse(prefill) {
     return null;
 }
 
+/**
+ * Ensures syllabi row for intake course.
+ *
+ * @param {*} prefill
+ */
 function ensureSyllabiRowForIntakeCourse(prefill) {
     let row = findSyllabiRowForIntakeCourse(prefill);
     if (row) return row;
@@ -2788,6 +3023,12 @@ function ensureSyllabiRowForIntakeCourse(prefill) {
     return appendSyllabiCatalogCourseRow(match);
 }
 
+/**
+ * Seed syllabi faculty from originator.
+ *
+ * @param {*} name
+ * @param {*} row
+ */
 function seedSyllabiFacultyFromOriginator(name, row) {
     const label = String(name || '').trim();
     if (!label || !row) return;
@@ -2808,6 +3049,11 @@ function seedSyllabiFacultyFromOriginator(name, row) {
     }
 }
 
+/**
+ * Applies office intake syllabi drf defaults.
+ *
+ * @param {*} prefill
+ */
 function applyOfficeIntakeSyllabiDrfDefaults(prefill) {
     const syl = prefill?.syllabi || {};
     const drfDate = String(syl.drf_date || prefill?.drfDate || '').trim();
@@ -2868,6 +3114,11 @@ function applyOfficeIntakeSyllabiDrfDefaults(prefill) {
     }
 }
 
+/**
+ * Applies office intake syllabi prefill.
+ *
+ * @param {*} prefill
+ */
 async function applyOfficeIntakeSyllabiPrefill(prefill) {
     const syl = prefill?.syllabi;
     if (!syl || typeof syl !== 'object') return;
@@ -2966,11 +3217,19 @@ function isRevisedDocNoReady(hintEl) {
     return valid === 'true' || valid === 'renumbered';
 }
 
+/**
+ * Retrieves and returns revised from doc no.
+ */
 function getRevisedFromDocNo() {
     const fromInput = document.getElementById('revisedFromDocNo');
     return (fromInput?.value || window.__revisedFromDocNo || '').trim();
 }
 
+/**
+ * Initializes and sets up doc no lookup.
+ *
+ * @param {*} revField
+ */
 function initDocNoLookup(revField) {
     const docNoInput = document.getElementById('masterlistDocNo');
     const hintEl = document.getElementById('docNoHint');
@@ -3016,6 +3275,12 @@ function initDocNoLookup(revField) {
     });
 }
 
+/**
+ * Handles empty doc no event or response.
+ *
+ * @param {*} hintEl
+ * @param {*} revField
+ */
 function handleEmptyDocNo(hintEl, revField) {
     window.__revisedComparePreviousUrl = null;
     window.__revisedComparePreviousRev = null;
@@ -3136,6 +3401,13 @@ async function runRenumberedDocNoCheck(docNo, fromNo, hintEl) {
     }
 }
 
+/**
+ * Runs doc no lookup.
+ *
+ * @param {*} docNo
+ * @param {*} hintEl
+ * @param {*} revField
+ */
 async function runDocNoLookup(docNo, hintEl, revField) {
     try {
         const docTypeId = document.getElementById('docType').value;
@@ -3162,6 +3434,12 @@ async function runDocNoLookup(docNo, hintEl, revField) {
     }
 }
 
+/**
+ * Applies revised document context.
+ *
+ * @param {*} data
+ * @param {*} options
+ */
 function applyRevisedDocumentContext(data, options = {}) {
     const { docNo, hintEl, revField } = options;
     const revFieldEl = revField || document.getElementById('masterlistRevisionNo');
@@ -3363,10 +3641,20 @@ function applyRevisedApprovalFromPrevious(data) {
     }
 }
 
+/**
+ * Clears and resets revised approval context.
+ */
 function clearRevisedApprovalContext() {
     window.__revisedApprovalContext = null;
 }
 
+/**
+ * Applies revised mode lookup result.
+ *
+ * @param {*} data
+ * @param {*} hintEl
+ * @param {*} revField
+ */
 function applyRevisedModeLookupResult(data, hintEl, revField) {
     if (data.exists) {
         setSaveEnabled(true);
@@ -3416,6 +3704,9 @@ function applyRevisedModeLookupResult(data, hintEl, revField) {
     }
 }
 
+/**
+ * Checks whether shared syllabi form condition is met.
+ */
 function isSharedSyllabiForm() {
     if (window.__isSyllabiMode) return true;
     const subTypeId = document.getElementById('subType')?.value;
@@ -3424,6 +3715,13 @@ function isSharedSyllabiForm() {
     return /^CSPC-F-COL-13$/i.test(typed) || /^CSPC-F-COL-16$/i.test(typed);
 }
 
+/**
+ * Applies new mode lookup result.
+ *
+ * @param {*} data
+ * @param {*} hintEl
+ * @param {*} revField
+ */
 function applyNewModeLookupResult(data, hintEl, revField) {
     const allowDup = document.getElementById('allowDuplicateDocNo')?.value === '1';
     // User already chose "Keep this number anyway" — never reopen the draft/duplicate modal.
@@ -3491,6 +3789,9 @@ function applyNewModeLookupResult(data, hintEl, revField) {
         if (typeof window.openDocNoInsertModal === 'function') {
             window.openDocNoInsertModal(data);
         }
+        /**
+         * Marks doc no insert ready.
+         */
         window.markDocNoInsertReady = function () {
             docNoDuplicate = false;
             setSaveEnabled(true);
@@ -3553,6 +3854,9 @@ function isRecurringMode() {
     return hidden && hidden.value === 'recurring';
 }
 
+/**
+ * Checks whether revised mode condition is met.
+ */
 function isRevisedMode() {
     const hidden = document.getElementById('registrationMode');
     return hidden && (hidden.value === 'revised' || hidden.value === 'recurring');
@@ -3567,6 +3871,9 @@ const DOC_NO_PREFIX_BY_NAME = {
     'fmea': 'CSPC-FMEA-',
 };
 
+/**
+ * Resolves selected doc type name.
+ */
 function resolveSelectedDocTypeName() {
     const subTypeId = document.getElementById('subType')?.value;
     const docTypeId = document.getElementById('docType')?.value;
@@ -3584,11 +3891,19 @@ function resolveSelectedDocTypeName() {
 const SYLLABI_FORM_DOC_NO = 'CSPC-F-COL-13';
 const TOS_FORM_DOC_NO = 'CSPC-F-COL-16';
 
+/**
+ * Checks whether fixed form doc no condition is met.
+ *
+ * @param {*} value
+ */
 function isFixedFormDocNo(value) {
     const text = String(value || '').trim().toUpperCase();
     return text === SYLLABI_FORM_DOC_NO || text === TOS_FORM_DOC_NO;
 }
 
+/**
+ * Docs no prefix for selection.
+ */
 function docNoPrefixForSelection() {
     const name = resolveSelectedDocTypeName().toLowerCase();
     if (name.includes('tos') || name.includes('rubric')) return TOS_FORM_DOC_NO;
@@ -3601,6 +3916,9 @@ function docNoPrefixForSelection() {
     return DOC_NO_PREFIX_BY_NAME[name] || null;
 }
 
+/**
+ * Renders and synchronizes document number lock in the DOM.
+ */
 function syncDocumentNumberLock() {
     const input = document.getElementById('masterlistDocNo');
     if (!input) return;
@@ -3610,6 +3928,9 @@ function syncDocumentNumberLock() {
     input.style.cursor = '';
 }
 
+/**
+ * Renders and synchronizes doc no prefix hint in the DOM.
+ */
 function updateDocNoPrefixHint() {
     const hint = document.getElementById('docNoPrefixHint');
     if (!hint) return;
@@ -3617,6 +3938,9 @@ function updateDocNoPrefixHint() {
     hint.style.display = 'none';
 }
 
+/**
+ * Clears and resets doc no availability hint.
+ */
 function clearDocNoAvailabilityHint() {
     const hintEl = document.getElementById('docNoHint');
     if (!hintEl) return;
@@ -3626,12 +3950,18 @@ function clearDocNoAvailabilityHint() {
     docNoDuplicate = false;
 }
 
+/**
+ * Checks whether autofill doc no condition is met.
+ */
 function canAutofillDocNo() {
     if (isRevisedMode()) return false;
     if (window.__requireDraftForDocNoAutofill) return !!window.__isDraftDoc;
     return true;
 }
 
+/**
+ * Maybes autofill doc no.
+ */
 function maybeAutofillDocNo() {
     if (!canAutofillDocNo()) return;
     const finish = () => {
@@ -3747,6 +4077,9 @@ function syncNonRevisableTypeUi() {
     return;
 }
 
+/**
+ * Clears and resets retrieval section.
+ */
 function clearRetrievalSection() {
     const section = document.getElementById('section-4');
     if (section) section.style.display = 'none';
@@ -3770,6 +4103,9 @@ function clearRetrievalSection() {
     if (total) total.textContent = '0';
 }
 
+/**
+ * Renders and synchronizes retrieval for mode in the DOM.
+ */
 function syncRetrievalForMode() {
     const docTypeSelected = String(document.getElementById('docType')?.value || '').trim() !== '';
 
@@ -3820,6 +4156,9 @@ function syncRetrievalForMode() {
     }
 }
 
+/**
+ * Renders and synchronizes registration mode in the DOM.
+ */
 function updateRegistrationMode() {
     const sel = document.getElementById('versionType');
     const hidden = document.getElementById('registrationMode');
@@ -3843,6 +4182,9 @@ function updateRegistrationMode() {
     applyRevisionMode();
 }
 
+/**
+ * Applies revision mode.
+ */
 function applyRevisionMode() {
     syncRecurFinder();
     const revField = document.getElementById('masterlistRevisionNo');
@@ -3923,6 +4265,11 @@ function applyRevisionMode() {
     }
 }
 
+/**
+ * Sets the save enabled value.
+ *
+ * @param {*} enabled
+ */
 function setSaveEnabled(enabled) {
     // Don't re-enable if duplicate is detected
     if (enabled && (docNoDuplicate || revNoDuplicate || window.drfNoDuplicate || window.syllabiContextTaken)) return;
@@ -3955,6 +4302,9 @@ function setSaveEnabled(enabled) {
 let revNoTimer = null;
 let revCheckSeq = 0;
 
+/**
+ * Accepts duplicate doc no copy.
+ */
 window.acceptDuplicateDocNoCopy = function () {
     revCheckSeq++;
     clearTimeout(revNoTimer);
@@ -3963,6 +4313,9 @@ window.acceptDuplicateDocNoCopy = function () {
     setSaveEnabled(true);
 };
 
+/**
+ * Retrieves and returns active doc no for rev check.
+ */
 function getActiveDocNoForRevCheck() {
     if (window.__isSyllabiMode) {
         return (document.getElementById('masterlistDocNo')?.value || '').trim();
@@ -3970,6 +4323,9 @@ function getActiveDocNoForRevCheck() {
     return (document.getElementById('masterlistDocNo')?.value || '').trim();
 }
 
+/**
+ * Clears and resets rev no hint.
+ */
 function clearRevNoHint() {
     revNoDuplicate = false;
     const hint = document.getElementById('revNoHint');
@@ -3985,6 +4341,9 @@ function clearRevNoHint() {
     }
 }
 
+/**
+ * Initializes and sets up rev no lookup.
+ */
 function initRevNoLookup() {
     // Re-check when type/subtype or doc no changes.
     document.getElementById('docType')?.addEventListener('change', scheduleRevNoCheck);
@@ -3992,6 +4351,9 @@ function initRevNoLookup() {
     document.getElementById('masterlistDocNo')?.addEventListener('input', scheduleRevNoCheck);
 }
 
+/**
+ * Schedules rev no check.
+ */
 function scheduleRevNoCheck() {
     clearTimeout(revNoTimer);
     const seq = ++revCheckSeq;
@@ -4014,6 +4376,11 @@ function scheduleRevNoCheck() {
     revNoTimer = setTimeout(() => runRevNoCheck(seq), 400);
 }
 
+/**
+ * Runs rev no check.
+ *
+ * @param {*} seq
+ */
 async function runRevNoCheck(seq) {
     const revField = document.getElementById('masterlistRevisionNo');
     const hint = document.getElementById('revNoHint');
@@ -4178,16 +4545,31 @@ function getOrCreateRevSearchDropdown(key) {
     return dd;
 }
 
+/**
+ * Closes or dismisses the rev search dropdown.
+ *
+ * @param {*} key
+ */
 function closeRevSearchDropdown(key) {
     const dd = document.getElementById('revSearchDropdown_' + key);
     if (dd) dd.style.display = 'none';
 }
 
+/**
+ * Removes specified rev search dropdown.
+ *
+ * @param {*} key
+ */
 function removeRevSearchDropdown(key) {
     const dd = document.getElementById('revSearchDropdown_' + key);
     if (dd) dd.remove();
 }
 
+/**
+ * Takens revision doc nos.
+ *
+ * @param {*} exceptInput
+ */
 function takenRevisionDocNos(exceptInput) {
     const taken = new Set();
     document.querySelectorAll('#revisionTableBody tr').forEach(function (tr) {
@@ -4202,6 +4584,12 @@ function takenRevisionDocNos(exceptInput) {
     return taken;
 }
 
+/**
+ * Revisions doc is taken.
+ *
+ * @param {*} doc
+ * @param {*} taken
+ */
 function revisionDocIsTaken(doc, taken) {
     const id = String(doc?.masterlist_id || '').trim();
     const no = String(doc?.doc_no || '').trim().toLowerCase();
@@ -4211,6 +4599,13 @@ function revisionDocIsTaken(doc, taken) {
     return false;
 }
 
+/**
+ * Handles revision search input event or response.
+ *
+ * @param {*} input
+ * @param {*} key
+ * @param {*} field
+ */
 function handleRevisionSearchInput(input, key, field) {
     if (input.readOnly) return;
 
@@ -4279,6 +4674,12 @@ function handleRevisionSearchInput(input, key, field) {
     }, 300);
 }
 
+/**
+ * Populates revision row from doc in the interface.
+ *
+ * @param {*} row
+ * @param {*} doc
+ */
 function populateRevisionRowFromDoc(row, doc) {
     if (!row || !doc) return;
 
@@ -4317,6 +4718,14 @@ function populateRevisionRowFromDoc(row, doc) {
     lockRevisionScannedCopyCell(row, doc.scanned_copy_url);
 }
 
+/**
+ * Clears and resets linked rows for document.
+ *
+ * @param {*} tbody
+ * @param {*} docNo
+ * @param {*} exceptRow
+ * @param {*} familyKey
+ */
 function clearLinkedRowsForDocument(tbody, docNo, exceptRow, familyKey) {
     if (!tbody || !docNo) return;
     [...tbody.querySelectorAll('tr')].forEach(tr => {
@@ -4329,6 +4738,11 @@ function clearLinkedRowsForDocument(tbody, docNo, exceptRow, familyKey) {
     });
 }
 
+/**
+ * Locks revision history row.
+ *
+ * @param {*} tr
+ */
 function lockRevisionHistoryRow(tr) {
     if (!tr) return;
     tr.dataset.historyLocked = 'true';
@@ -4336,6 +4750,11 @@ function lockRevisionHistoryRow(tr) {
     if (btn) btn.remove();
 }
 
+/**
+ * Others linked revision documents.
+ *
+ * @param {*} exceptDocNo
+ */
 function otherLinkedRevisionDocuments(exceptDocNo) {
     const except = String(exceptDocNo || '').trim().toLowerCase();
     let found = false;
@@ -4346,6 +4765,12 @@ function otherLinkedRevisionDocuments(exceptDocNo) {
     return found;
 }
 
+/**
+ * Revisions history rows for dcn.
+ *
+ * @param {*} docs
+ * @param {*} latestRev
+ */
 function revisionHistoryRowsForDcn(docs, latestRev) {
     const list = Array.isArray(docs) ? docs.slice() : [];
     const cap = latestRev !== null && latestRev !== undefined && latestRev !== ''
@@ -4362,6 +4787,13 @@ function revisionHistoryRowsForDcn(docs, latestRev) {
     return rows;
 }
 
+/**
+ * Populates revision table with document history in the interface.
+ *
+ * @param {*} anchorRow
+ * @param {*} docs
+ * @param {*} options
+ */
 async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {}) {
     const tbody = document.getElementById('revisionTableBody');
     if (!tbody || !anchorRow || !docs.length) return;
@@ -4410,6 +4842,13 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
     suggestRevisionForSources();
 }
 
+/**
+ * Applies revision document pick.
+ *
+ * @param {*} row
+ * @param {*} doc
+ * @param {*} options
+ */
 async function applyRevisionDocumentPick(row, doc, options = {}) {
     if (!row || !doc) {
         return;
@@ -4446,6 +4885,12 @@ async function applyRevisionDocumentPick(row, doc, options = {}) {
     }
 }
 
+/**
+ * Picks revision document.
+ *
+ * @param {*} key
+ * @param {*} idx
+ */
 window.pickRevisionDocument = async function (key, idx) {
     const doc = (revSearchCache[key] || [])[idx];
     if (!doc) return;
@@ -4458,6 +4903,11 @@ window.pickRevisionDocument = async function (key, idx) {
     await applyRevisionDocumentPick(row, doc);
 };
 
+/**
+ * Sets the revision table loading value.
+ *
+ * @param {*} on
+ */
 function setRevisionTableLoading(on) {
     const field = document.getElementById('revisionTableField')
         || document.querySelector('#section-2 .reg-revision-table');
@@ -4466,6 +4916,12 @@ function setRevisionTableLoading(on) {
     if (overlay) overlay.setAttribute('aria-busy', on ? 'true' : 'false');
 }
 
+/**
+ * Bridges dcn pick to masterlist.
+ *
+ * @param {*} docNo
+ * @param {*} options
+ */
 async function bridgeDcnPickToMasterlist(docNo, options = {}) {
     const hintEl = document.getElementById('docNoHint');
     const revField = document.getElementById('masterlistRevisionNo');
@@ -4533,6 +4989,11 @@ async function applyRecurPickToMasterlist(doc) {
     });
 }
 
+/**
+ * Locks revision populated field.
+ *
+ * @param {*} el
+ */
 function lockRevisionPopulatedField(el) {
     if (!el) return;
     el.readOnly = true;
@@ -4577,6 +5038,11 @@ function lockRevisionRowFields(row) {
     });
 }
 
+/**
+ * Checks whether dcs scan pdf url condition is met.
+ *
+ * @param {*} urlOrPath
+ */
 function isDcsScanPdfUrl(urlOrPath) {
     const s = String(urlOrPath || '');
     if (!s) return true;
@@ -4589,6 +5055,12 @@ function isDcsScanPdfUrl(urlOrPath) {
     return /\.pdf(?:$|[?#&])/i.test(s) || s.toLowerCase().includes('.pdf');
 }
 
+/**
+ * Locks revision scanned copy cell.
+ *
+ * @param {*} row
+ * @param {*} scannedCopyUrl
+ */
 function lockRevisionScannedCopyCell(row, scannedCopyUrl) {
     const cell = row.querySelector('.reg-rev-scan-cell');
     if (!cell) return;
@@ -4611,6 +5083,13 @@ function lockRevisionScannedCopyCell(row, scannedCopyUrl) {
     }
 }
 
+/**
+ * Binds and registers revision search input event listeners.
+ *
+ * @param {*} input
+ * @param {*} uid
+ * @param {*} field
+ */
 function bindRevisionSearchInput(input, uid, field) {
     if (!input || input.dataset.searchBound) return;
     input.dataset.searchBound = 'true';
@@ -4647,6 +5126,9 @@ function removeRevisionRowDropdowns(tr) {
     removeRevSearchDropdown(tr.dataset.uid + '_no');
 }
 
+/**
+ * Suggests revision for sources.
+ */
 function suggestRevisionForSources() {
     const revField = document.getElementById('masterlistRevisionNo');
     const master = (document.getElementById('masterlistDocNo')?.value || '').trim().toLowerCase();
@@ -4672,6 +5154,11 @@ function suggestRevisionForSources() {
     }
 }
 
+/**
+ * Ensures blank revision row.
+ *
+ * @param {*} tbody
+ */
 function ensureBlankRevisionRow(tbody) {
     if (!tbody || tbody.querySelector('tr')) return;
     const tr = document.createElement('tr');
@@ -4681,6 +5168,11 @@ function ensureBlankRevisionRow(tbody) {
     bindRevisionRowSearch(tr);
 }
 
+/**
+ * Removes specified revision row.
+ *
+ * @param {*} btn
+ */
 window.removeRevisionRow = function (btn) {
     const tr = btn.closest('tr');
     if (!tr || tr.dataset.historyLocked === 'true') return;
@@ -4725,16 +5217,32 @@ window.__syncingSourceUnits = false;
 
 const SYNCED_SOURCE_UNIT_KEYS = ['drf', 'dcn', 'masterlist'];
 
+/**
+ * Checks whether synced source unit key condition is met.
+ *
+ * @param {*} key
+ */
 function isSyncedSourceUnitKey(key) {
     return SYNCED_SOURCE_UNIT_KEYS.includes(key);
 }
 
+/**
+ * Sources section is open.
+ *
+ * @param {*} key
+ */
 function sourceSectionIsOpen(key) {
     const ids = { drf: 'section-1', dcn: 'section-2', masterlist: 'section-3' };
     const el = document.getElementById(ids[key] || '');
     return !!el && el.style.display !== 'none';
 }
 
+/**
+ * Renders and synchronizes source units across sections in the DOM.
+ *
+ * @param {*} selection
+ * @param {*} sourceKey
+ */
 function syncSourceUnitsAcrossSections(selection, sourceKey) {
     if (window.__syncingSourceUnits || !isSyncedSourceUnitKey(sourceKey)) return;
 
@@ -4752,6 +5260,11 @@ function syncSourceUnitsAcrossSections(selection, sourceKey) {
     }
 }
 
+/**
+ * Creates source unit widget.
+ *
+ * @param {*} opts
+ */
 function createSourceUnitWidget(opts) {
 
     let selected = opts.initial || [];
@@ -4764,10 +5277,20 @@ function createSourceUnitWidget(opts) {
     const getList = opts.dataListGetter || (() => allOffices);
     const itemLabelPlural = opts.itemLabelPlural || 'offices';
 
+    /**
+     * Checks whether office selected condition is met.
+     *
+     * @param {*} itemId
+     */
     function isOfficeSelected(itemId) {
         return selected.some(i => i.type === 'office' && String(i.id) === String(itemId));
     }
 
+    /**
+     * Adds office.
+     *
+     * @param {*} itemId
+     */
     function addOffice(itemId) {
         const item = getList().find(o => o[idKey] == itemId);
         if (!item) return;
@@ -4778,6 +5301,11 @@ function createSourceUnitWidget(opts) {
         maybeSyncSourceUnits();
     }
 
+    /**
+     * Adds free text.
+     *
+     * @param {*} val
+     */
     function addFreeText(val) {
         if (!opts.allowFreeText || !val) return;
         if (opts.singleSelect) selected = [];
@@ -4788,12 +5316,21 @@ function createSourceUnitWidget(opts) {
         maybeSyncSourceUnits();
     }
 
+    /**
+     * Removes specified item.
+     *
+     * @param {*} type
+     * @param {*} id
+     */
     function removeItem(type, id) {
         selected = selected.filter(i => !(i.type === type && String(i.id) === String(id)));
         render();
         maybeSyncSourceUnits();
     }
 
+    /**
+     * Maybes sync source units.
+     */
     function maybeSyncSourceUnits() {
         if (isSyncedSourceUnitKey(opts.key)) {
             syncSourceUnitsAcrossSections(selected.slice(), opts.key);
@@ -4817,6 +5354,9 @@ function createSourceUnitWidget(opts) {
         inputEl.setSelectionRange(len, len);
     }
 
+    /**
+     * Synchronizes DOM state.
+     */
     function render() {
         const widget = document.getElementById(opts.widgetId);
         widget.querySelectorAll('input[data-source-hidden]').forEach(el => el.remove());
@@ -4858,6 +5398,11 @@ function createSourceUnitWidget(opts) {
         return (lastComma === -1 ? raw : raw.slice(lastComma + 1)).trim();
     }
 
+    /**
+     * Handles search event or response.
+     *
+     * @param {*} input
+     */
     function handleSearch(input) {
         const dropdown = document.getElementById(opts.resultsId);
         const q = opts.singleSelect ? input.value.trim() : getCurrentQuery(input);
@@ -4877,6 +5422,12 @@ function createSourceUnitWidget(opts) {
         dropdown.style.display = 'block';
     }
 
+    /**
+     * Handles keydown event or response.
+     *
+     * @param {*} e
+     * @param {*} input
+     */
     function handleKeydown(e, input) {
         if (e.key !== 'Enter' && e.key !== ',') return;
         e.preventDefault();
@@ -4908,6 +5459,11 @@ function createSourceUnitWidget(opts) {
         }
     }
 
+    /**
+     * Picks action.
+     *
+     * @param {*} itemId
+     */
     function pick(itemId) {
         addOffice(itemId);
         const inputEl = document.getElementById(opts.inputId);
@@ -4916,6 +5472,12 @@ function createSourceUnitWidget(opts) {
         document.getElementById(opts.resultsId).style.display = 'none';
     }
 
+    /**
+     * Positions panel.
+     *
+     * @param {*} panelEl
+     * @param {*} anchorEl
+     */
     function positionPanel(panelEl, anchorEl) {
         const rect = anchorEl.getBoundingClientRect();
         panelEl.style.position = 'fixed';
@@ -4925,6 +5487,11 @@ function createSourceUnitWidget(opts) {
         panelEl.style.zIndex = 9500;
     }
 
+    /**
+     * Toggles or switches panel.
+     *
+     * @param {*} e
+     */
     function togglePanel(e) {
         if (e) e.stopPropagation();
         document.getElementById(opts.resultsId).style.display = 'none';
@@ -4950,6 +5517,9 @@ function createSourceUnitWidget(opts) {
         }
     }
 
+    /**
+     * Closes or dismisses the panel.
+     */
     function closePanel() {
         panelOpen = false;
         const chipsEl = document.getElementById(opts.chipsId);
@@ -4961,6 +5531,9 @@ function createSourceUnitWidget(opts) {
         }
     }
 
+    /**
+     * Resets state.
+     */
     function reset() {
         selected = [];
         const inputEl = document.getElementById(opts.inputId);
@@ -4969,17 +5542,34 @@ function createSourceUnitWidget(opts) {
         maybeSyncSourceUnits();
     }
 
+    /**
+     * Removes specified item and sync.
+     *
+     * @param {*} type
+     * @param {*} id
+     */
     function removeItemAndSync(type, id) {
         removeItem(type, id);
         syncInputText();
     }
 
+    /**
+     * Sets the selected items value.
+     *
+     * @param {*} items
+     */
     function setSelectedItems(items) {
         selected = items.map(i => ({ type: i.type, id: i.id, label: i.label }));
         render();
         syncInputText();
     }
 
+    /**
+     * Seed from string.
+     *
+     * @param {*} str
+     * @param {*} force
+     */
     function seedFromString(str, force) {
         if (!str) return;
         if (!force && selected.length > 0) return;
@@ -5003,6 +5593,9 @@ function createSourceUnitWidget(opts) {
     inputEl.addEventListener('input', function () { closePanel(); handleSearch(this); });
     inputEl.addEventListener('keydown', function (e) { handleKeydown(e, this); });
 
+    /**
+     * Jumps caret to end.
+     */
     function jumpCaretToEnd() {
         setTimeout(() => {
             const len = inputEl.value.length;
@@ -5024,6 +5617,9 @@ function createSourceUnitWidget(opts) {
         }
     });
 
+    /**
+     * Commits pending query.
+     */
     function commitPendingQuery() {
         if (!inputEl || opts.singleSelect || !opts.allowFreeText) return;
         const q = getCurrentQuery(inputEl);
@@ -5052,6 +5648,9 @@ function createSourceUnitWidget(opts) {
 // ══════════════════════════════════════════════
 window.__sourceOverlayConfigs = window.__sourceOverlayConfigs || {};
 
+/**
+ * Closes or dismisses the source overlay.
+ */
 function closeSourceOverlay() {
     const overlay = document.getElementById('universalSourceOverlay');
     const backdrop = document.getElementById('universalSourceBackdrop');
@@ -5061,10 +5660,20 @@ function closeSourceOverlay() {
 }
 window.closeSourceOverlay = closeSourceOverlay;
 
+/**
+ * Handles source overlay esc event or response.
+ *
+ * @param {*} e
+ */
 function handleSourceOverlayEsc(e) {
     if (e.key === 'Escape') closeSourceOverlay();
 }
 
+/**
+ * Displays the source overlay overlay or dialog.
+ *
+ * @param {*} config
+ */
 function openSourceOverlay(config) {
     closeSourceOverlay();
     window.__sourceOverlayConfigs[config.key] = config;
@@ -5106,6 +5715,11 @@ function openSourceOverlay(config) {
     refreshSourceOverlay(config);
 }
 
+/**
+ * Renders and synchronizes source overlay in the DOM.
+ *
+ * @param {*} config
+ */
 function refreshSourceOverlay(config) {
     const container = document.getElementById('universalSourceOverlayChips');
     const countEl = document.getElementById('universalSourceOverlayCount');
@@ -5126,6 +5740,12 @@ function refreshSourceOverlay(config) {
     if (config.onChange) config.onChange();
 }
 
+/**
+ * Handles source overlay search event or response.
+ *
+ * @param {*} config
+ * @param {*} input
+ */
 function handleSourceOverlaySearch(config, input) {
     const dropdown = document.getElementById('universalSourceOverlaySuggestions');
     const q = input.value.trim();
@@ -5148,6 +5768,12 @@ function handleSourceOverlaySearch(config, input) {
     dropdown.style.display = 'block';
 }
 
+/**
+ * Picks source overlay office.
+ *
+ * @param {*} key
+ * @param {*} officeId
+ */
 window.pickSourceOverlayOffice = function (key, officeId) {
     const config = window.__sourceOverlayConfigs[key];
     if (!config) return;
@@ -5157,6 +5783,12 @@ window.pickSourceOverlayOffice = function (key, officeId) {
     refreshSourceOverlay(config);
 };
 
+/**
+ * Removes specified source overlay item.
+ *
+ * @param {*} key
+ * @param {*} id
+ */
 window.removeSourceOverlayItem = function (key, id) {
     const config = window.__sourceOverlayConfigs[key];
     if (!config) return;
@@ -5166,12 +5798,20 @@ window.removeSourceOverlayItem = function (key, id) {
 
 document.addEventListener('DOMContentLoaded', renderRelatedDocsChips);
 
+/**
+ * Related docs query.
+ *
+ * @param {*} input
+ */
 function relatedDocsQuery(input) {
     const raw = String(input?.value || '');
     const lastComma = raw.lastIndexOf(',');
     return (lastComma === -1 ? raw : raw.slice(lastComma + 1)).trim();
 }
 
+/**
+ * Renders and synchronizes related docs input in the DOM.
+ */
 function syncRelatedDocsInput() {
     const input = document.getElementById('relatedDocsSearch');
     if (!input) return;
@@ -5184,11 +5824,21 @@ function syncRelatedDocsInput() {
     try { input.setSelectionRange(len, len); } catch (e) {}
 }
 
+/**
+ * Handles related doc focus event or response.
+ *
+ * @param {*} input
+ */
 window.handleRelatedDocFocus = function (input) {
     closeRelatedDocsSelectedPanel();
     syncRelatedDocsInput();
 };
 
+/**
+ * Handles related doc search event or response.
+ *
+ * @param {*} input
+ */
 window.handleRelatedDocSearch = function (input) {
     clearTimeout(window.__relatedDocsTimer);
     if (window.__relatedDocsAbort) {
@@ -5234,6 +5884,11 @@ window.handleRelatedDocSearch = function (input) {
     }, 80);
 };
 
+/**
+ * Picks related doc.
+ *
+ * @param {*} id
+ */
 window.pickRelatedDoc = function (id) {
     const doc = relatedDocsCache.find(d => d.masterlist_id === id);
     if (!doc || relatedDocsSelected.some(d => d.masterlist_id === id)) return;
@@ -5244,6 +5899,12 @@ window.pickRelatedDoc = function (id) {
     if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 };
 
+/**
+ * Removes specified related doc.
+ *
+ * @param {*} id
+ * @param {*} event
+ */
 window.removeRelatedDoc = function (id, event) {
     if (event) event.stopPropagation();
     relatedDocsSelected = relatedDocsSelected.filter(d => d.masterlist_id !== id);
@@ -5252,6 +5913,11 @@ window.removeRelatedDoc = function (id, event) {
     if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 };
 
+/**
+ * Toggles or switches related docs selected.
+ *
+ * @param {*} e
+ */
 window.toggleRelatedDocsSelected = function (e) {
     if (e) e.stopPropagation();
     document.getElementById('relatedDocsResults').style.display = 'none';
@@ -5263,6 +5929,9 @@ window.toggleRelatedDocsSelected = function (e) {
     icon.style.transform = relatedDocsSelectedPanelOpen ? 'rotate(180deg)' : '';
 };
 
+/**
+ * Closes or dismisses the related docs selected panel.
+ */
 function closeRelatedDocsSelectedPanel() {
     relatedDocsSelectedPanelOpen = false;
     const panel = document.getElementById('relatedDocsSelectedPanel');
@@ -5271,6 +5940,9 @@ function closeRelatedDocsSelectedPanel() {
     if (icon) icon.style.transform = '';
 }
 
+/**
+ * Renders and synchronizes related docs chips in the DOM.
+ */
 function renderRelatedDocsChips() {
     const container = document.getElementById('relatedDocsChips');
     if (!container) return;
@@ -5454,6 +6126,9 @@ function assignDroppedFiles(input, files) {
     return !!(input.files && input.files.length > 0);
 }
 
+/**
+ * Initializes and sets up file inputs.
+ */
 function initFileInputs() {
     document.querySelectorAll('.reg-upload').forEach(container => {
         const input = container.querySelector('input[type="file"]');
@@ -5508,6 +6183,15 @@ function initFileInputs() {
     });
 }
 
+/**
+ * Process upload area file.
+ *
+ * @param {*} input
+ * @param {*} container
+ * @param {*} icon
+ * @param {*} label
+ * @param {*} originalText
+ */
 function processUploadAreaFile(input, container, icon, label, originalText) {
     container.classList.remove('reg-upload-success', 'reg-upload-error', 'reg-upload-drag');
     removeExistingError(container);
@@ -5543,6 +6227,13 @@ function processUploadAreaFile(input, container, icon, label, originalText) {
     }
 }
 
+/**
+ * Triggers scan extraction.
+ *
+ * @param {*} input
+ * @param {*} file
+ * @param {*} section
+ */
 function triggerScanExtraction(input, file, section) {
     section = section || 'drf';
     const formData = new FormData();
@@ -5601,6 +6292,11 @@ function triggerScanExtraction(input, file, section) {
         });
 }
 
+/**
+ * Autofills drf fields.
+ *
+ * @param {*} fields
+ */
 function autofillDrfFields(fields) {
     let filled = false;
     const map = {
@@ -5638,6 +6334,9 @@ function autofillDrfFields(fields) {
     return filled;
 }
 
+/**
+ * Reveals distribution section.
+ */
 function revealDistributionSection() {
     const cb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="5"]');
     if (cb && !cb.checked) {
@@ -5649,6 +6348,11 @@ function revealDistributionSection() {
     if (section) section.style.display = 'block';
 }
 
+/**
+ * Applies distribution offices.
+ *
+ * @param {*} fields
+ */
 function applyDistributionOffices(fields) {
     const offices = Array.isArray(fields?.distributionOffices) ? fields.distributionOffices : [];
     if (!offices.length || typeof addOffice !== 'function') return false;
@@ -5703,6 +6407,11 @@ function resolveActiveSourceUnitItems(fields) {
     return items;
 }
 
+/**
+ * Removes specified upload field actions.
+ *
+ * @param {*} container
+ */
 function removeUploadFieldActions(container) {
     if (!container) return;
     const actions = container.querySelector('.reg-upload-field-actions');
@@ -5714,6 +6423,11 @@ function removeUploadFieldActions(container) {
     container.classList.remove('reg-upload-has-file');
 }
 
+/**
+ * Removes specified existing preview.
+ *
+ * @param {*} container
+ */
 function removeExistingPreview(container) {
     removeUploadFieldActions(container);
     const host = container?.closest('.reg-field') || container?.closest('td') || container?.parentElement;
@@ -5726,6 +6440,16 @@ function removeExistingPreview(container) {
     });
 }
 
+/**
+ * Binds and registers upload field actions event listeners.
+ *
+ * @param {*} container
+ * @param {*} input
+ * @param {*} file
+ * @param {*} icon
+ * @param {*} label
+ * @param {*} originalText
+ */
 function attachUploadFieldActions(container, input, file, icon, label, originalText) {
     removeUploadFieldActions(container);
     if (!container || !file) return;
@@ -5773,6 +6497,12 @@ function attachUploadFieldActions(container, input, file, icon, label, originalT
     container.appendChild(actions);
 }
 
+/**
+ * Displays the file preview modal.
+ *
+ * @param {*} url
+ * @param {*} title
+ */
 function openFilePreviewModal(url, title) {
     const overlay = document.getElementById('filePreviewModal');
     const frame = document.getElementById('filePreviewModalFrame');
@@ -5790,6 +6520,9 @@ function openFilePreviewModal(url, title) {
     document.body.style.overflow = 'hidden';
 }
 
+/**
+ * Closes and hides the file preview modal.
+ */
 function closeFilePreviewModal() {
     const overlay = document.getElementById('filePreviewModal');
     const frame = document.getElementById('filePreviewModalFrame');
@@ -5807,6 +6540,9 @@ function closeFilePreviewModal() {
     document.body.style.overflow = '';
 }
 
+/**
+ * Displays the compare revision modal.
+ */
 function openCompareRevisionModal() {
     resolveRevisedComparePrevious();
     const upload = document.getElementById('uploadScannedCopy');
@@ -5849,6 +6585,9 @@ function openCompareRevisionModal() {
     }
 }
 
+/**
+ * Closes and hides the compare revision modal.
+ */
 function closeCompareRevisionModal() {
     const overlay = document.getElementById('compareRevisionModal');
     const root = document.getElementById('registerPdfCompare');
@@ -5865,6 +6604,12 @@ function closeCompareRevisionModal() {
     document.body.style.overflow = '';
 }
 
+/**
+ * Displays the upload preview overlay or dialog.
+ *
+ * @param {*} container
+ * @param {*} file
+ */
 function showUploadPreview(container, file) {
     const input = container?.querySelector('input[type="file"]');
     if (!input) return;
@@ -5874,6 +6619,12 @@ function showUploadPreview(container, file) {
     attachUploadFieldActions(container, input, file, icon, label, originalText);
 }
 
+/**
+ * Displays the upload field error overlay or dialog.
+ *
+ * @param {*} container
+ * @param {*} message
+ */
 function showUploadFieldError(container, message) {
     removeExistingError(container);
 
@@ -5917,6 +6668,14 @@ function formatDrfOcrHint(data) {
     return msg;
 }
 
+/**
+ * Clears and resets upload area.
+ *
+ * @param {*} container
+ * @param {*} icon
+ * @param {*} label
+ * @param {*} originalText
+ */
 function resetUploadArea(container, icon, label, originalText) {
     container.classList.remove('reg-upload-success', 'reg-upload-error', 'reg-upload-drag', 'reg-upload-has-file');
     container.style.borderColor = '';
@@ -5930,6 +6689,11 @@ function resetUploadArea(container, icon, label, originalText) {
     removeExistingError(container);
 }
 
+/**
+ * Removes specified existing error.
+ *
+ * @param {*} container
+ */
 function removeExistingError(container) {
     if (!container) return;
     container.querySelectorAll('.reg-file-error, .reg-ocr-hint').forEach(el => el.remove());
@@ -5937,6 +6701,14 @@ function removeExistingError(container) {
     parent?.querySelectorAll(':scope > .reg-file-error, :scope > .reg-ocr-hint').forEach(el => el.remove());
 }
 
+/**
+ * Clears and resets upload cell.
+ *
+ * @param {*} cell
+ * @param {*} icon
+ * @param {*} label
+ * @param {*} originalText
+ */
 function resetUploadCell(cell, icon, label, originalText) {
     cell.classList.remove('reg-upload-cell-success', 'reg-upload-cell-error');
     cell.style.borderColor = '';
@@ -5946,6 +6718,12 @@ function resetUploadCell(cell, icon, label, originalText) {
     removeExistingPreview(cell);
 }
 
+/**
+ * Process upload cell file.
+ *
+ * @param {*} input
+ * @param {*} cell
+ */
 function processUploadCellFile(input, cell) {
     const label = cell.querySelector('span');
     const icon = cell.querySelector('i');
@@ -5975,6 +6753,11 @@ function processUploadCellFile(input, cell) {
     showUploadPreview(cell, file);
 }
 
+/**
+ * Validates and verifies table file.
+ *
+ * @param {*} input
+ */
 function validateTableFile(input) {
     const td = input.closest('td');
     removeExistingError(td);
@@ -6175,6 +6958,11 @@ function resetTextLikeInputs(el) {
     el.querySelectorAll('select').forEach(sel => { sel.selectedIndex = 0; });
 }
 
+/**
+ * Clears and resets file widgets in.
+ *
+ * @param {*} el
+ */
 function resetFileWidgetsIn(el) {
     el.querySelectorAll('input[type="file"]').forEach(file => {
         file.value = '';
@@ -6264,6 +7052,11 @@ function resetRegisterSectionInputs() {
     setSaveEnabled(true);
 }
 
+/**
+ * Renders and synchronizes sub type field in the DOM.
+ *
+ * @param {*} docTypeId
+ */
 function syncSubTypeField(docTypeId) {
     const field = document.getElementById("subTypeField");
     if (!field) return;
@@ -6275,6 +7068,9 @@ function syncSubTypeField(docTypeId) {
     field.style.display = show ? "" : "none";
 }
 
+/**
+ * Handles doc type change event or response.
+ */
 function handleDocTypeChange() {
     const lockedTypeId = document.getElementById("docType")?.value || "";
     if (window.__officeIntakeIdentityLocked) {
@@ -6340,6 +7136,11 @@ function handleDocTypeChange() {
     window.DCSScanNamePreview?.update();
 }
 
+/**
+ * Binds and registers table file input event listeners.
+ *
+ * @param {*} fileInput
+ */
 function bindTableFileInput(fileInput) {
     if (!fileInput) return;
     fileInput.dataset.bound = "true";
@@ -6357,6 +7158,9 @@ function resetMasterlistNoOfPagesField() {
     mlPages.style.cursor = '';
 }
 
+/**
+ * Clears and resets syllabi section.
+ */
 function resetSyllabiSection() {
     const syllabiBody = document.getElementById('syllabiTableBody');
     if (syllabiBody) {
@@ -6535,6 +7339,12 @@ function ensureVersionChecklistsRendered() {
     return !!container?.querySelector('input[name="checklists[]"]');
 }
 
+/**
+ * Renders and synchronizes checklists in the DOM.
+ *
+ * @param {*} checklists
+ * @param {*} disabled
+ */
 function renderChecklists(checklists, disabled) {
     const container = document.getElementById("dynamicCheckboxes");
     container.innerHTML = "";
@@ -6678,6 +7488,9 @@ function lockOfficeIntakeChecklistsOn() {
     syncOfficeIntakeChecklistHiddens();
 }
 
+/**
+ * Locks masterlist checklist on.
+ */
 function lockMasterlistChecklistOn() {
     const container = document.getElementById("dynamicCheckboxes");
     if (!container) return;
@@ -6697,6 +7510,9 @@ function lockMasterlistChecklistOn() {
     syncMasterlistChecklistHidden();
 }
 
+/**
+ * Locks checklist.
+ */
 function lockChecklist() {
     const container = document.getElementById("dynamicCheckboxes");
     container.querySelectorAll("input[type='checkbox']").forEach(cb => {
@@ -6716,6 +7532,9 @@ function lockChecklist() {
     if (syllabiSection) syllabiSection.style.display = "none";
 }
 
+/**
+ * Unlocks checklist.
+ */
 function unlockChecklist() {
     // Quick actions can leave #dynamicCheckboxes empty after Livewire remorph.
     // Types without sub-types (Forms / External / Logbooks) call unlock immediately
@@ -6772,6 +7591,11 @@ function recurFinderReady() {
     return !!(document.getElementById('subType')?.value);
 }
 
+/**
+ * Locks recur revision field.
+ *
+ * @param {*} rev
+ */
 function lockRecurRevisionField(rev) {
     const revField = document.getElementById('masterlistRevisionNo');
     if (!revField) return;
@@ -6789,6 +7613,9 @@ function lockRecurRevisionField(rev) {
     revField.removeAttribute('title');
 }
 
+/**
+ * Renders and synchronizes recur finder in the DOM.
+ */
 function syncRecurFinder() {
     const panel = document.getElementById('section-supersede');
     const on = recurFinderReady();
@@ -6802,6 +7629,9 @@ function syncRecurFinder() {
     }
 }
 
+/**
+ * Supersedes finder parts.
+ */
 function supersedeFinderParts() {
     return {
         no: (document.getElementById('supersedeDocNo')?.value || '').trim(),
@@ -6810,6 +7640,12 @@ function supersedeFinderParts() {
     };
 }
 
+/**
+ * Supersedes doc matches.
+ *
+ * @param {*} doc
+ * @param {*} parts
+ */
 function supersedeDocMatches(doc, parts) {
     const no = String(doc.doc_no || '').toLowerCase();
     const title = String(doc.doc_title || '').toLowerCase();
@@ -6820,6 +7656,12 @@ function supersedeDocMatches(doc, parts) {
     return true;
 }
 
+/**
+ * Supersedes result html.
+ *
+ * @param {*} doc
+ * @param {*} index
+ */
 function supersedeResultHtml(doc, index) {
     const origin = (doc.originator_name || '').trim();
     const effectivity = (doc.effectivity_date || '').trim();
@@ -6836,6 +7678,11 @@ function supersedeResultHtml(doc, index) {
         + '</div>';
 }
 
+/**
+ * Revisions status text.
+ *
+ * @param {*} status
+ */
 function revisionStatusText(status) {
     const key = String(status || 'latest').toLowerCase();
     if (key === 'superseded') return 'Superseded';
@@ -6850,6 +7697,11 @@ function revisionStatusText(status) {
     return 'Latest';
 }
 
+/**
+ * Sets the supersede loading value.
+ *
+ * @param {*} on
+ */
 function setSupersedeLoading(on) {
     const field = document.getElementById('supersedeHistoryField');
     const overlay = document.getElementById('supersedeHistoryLoading');
@@ -6860,6 +7712,9 @@ function setSupersedeLoading(on) {
     if (overlay) overlay.setAttribute('aria-busy', on ? 'true' : 'false');
 }
 
+/**
+ * Renders and synchronizes supersede selected bar in the DOM.
+ */
 function syncSupersedeSelectedBar() {
     const bar = document.getElementById('supersedeSelectedBar');
     const picked = document.getElementById('supersedeDocPicked');
@@ -6871,6 +7726,11 @@ function syncSupersedeSelectedBar() {
     }
 }
 
+/**
+ * Locks supersede finder inputs.
+ *
+ * @param {*} locked
+ */
 function lockSupersedeFinderInputs(locked) {
     const section = document.getElementById('section-supersede');
     if (section) section.classList.toggle('is-finder-locked', !!locked);
@@ -6904,6 +7764,11 @@ function lockSupersedeFinderInputs(locked) {
     }
 }
 
+/**
+ * Retrieves and returns supersede family.
+ *
+ * @param {*} doc
+ */
 async function loadSupersedeFamily(doc) {
     if (!doc || !doc.request_id) return doc ? [doc] : [];
     // No lineage expand: same document number can belong to other titles (e.g. Buhi vs ERP).
@@ -6925,12 +7790,24 @@ async function loadSupersedeFamily(doc) {
     return rows.length ? rows : (doc ? [doc] : []);
 }
 
+/**
+ * Supersedes history text cell.
+ *
+ * @param {*} value
+ * @param {*} cellClass
+ */
 function supersedeHistoryTextCell(value, cellClass) {
     const text = String(value || '').trim();
     const wrap = text.length > 28 ? ' is-wrap' : '';
     return '<td class="' + (cellClass || '') + '"><span class="reg-rev-title-text' + wrap + '">' + escapeHtml(text || '—') + '</span></td>';
 }
 
+/**
+ * Displays the supersede document history overlay or dialog.
+ *
+ * @param {*} doc
+ * @param {*} options
+ */
 async function showSupersedeDocumentHistory(doc, options) {
     options = options || {};
     const field = document.getElementById('supersedeHistoryField');
@@ -7017,6 +7894,9 @@ async function showSupersedeDocumentHistory(doc, options) {
     }
 }
 
+/**
+ * Clears and resets supersede finder.
+ */
 function resetSupersedeFinder() {
     if (window.__suppressSupersedeReset) return;
     ['supersedeDocNo', 'supersedeDocTitle', 'supersedeDocOriginator', 'supersedeMasterlistId', 'revisedFromDocNo'].forEach(function (id) {
@@ -7048,6 +7928,9 @@ function resetSupersedeFinder() {
     window.__supersedeSearch = [];
 }
 
+/**
+ * Clears and resets supersede selection.
+ */
 function clearSupersedeSelection() {
     ['supersedeDocNo', 'supersedeDocTitle', 'supersedeDocOriginator', 'supersedeMasterlistId', 'revisedFromDocNo'].forEach(function (id) {
         const el = document.getElementById(id);
@@ -7071,6 +7954,9 @@ function clearSupersedeSelection() {
     document.getElementById('supersedeDocNo')?.focus();
 }
 
+/**
+ * Clears and resets recur picked details.
+ */
 function clearRecurPickedDetails() {
     ['section-1', 'section-3', 'section-5'].forEach(function (id) {
         const el = document.getElementById(id);
@@ -7141,6 +8027,11 @@ function clearRecurPickedDetails() {
     if (typeof window.DCSScanNamePreview?.update === 'function') window.DCSScanNamePreview.update();
 }
 
+/**
+ * Populates supersede finder in the interface.
+ *
+ * @param {*} doc
+ */
 function fillSupersedeFinder(doc) {
     const no = document.getElementById('supersedeDocNo');
     const title = document.getElementById('supersedeDocTitle');
@@ -7159,6 +8050,9 @@ function fillSupersedeFinder(doc) {
     syncSupersedeSelectedBar();
 }
 
+/**
+ * Binds and registers supersede finder event listeners.
+ */
 function bindSupersedeFinder() {
     const noInput = document.getElementById('supersedeDocNo');
     const titleInput = document.getElementById('supersedeDocTitle');
@@ -7168,6 +8062,11 @@ function bindSupersedeFinder() {
     noInput.dataset.bound = '1';
     let timer = null;
 
+    /**
+     * Runs search.
+     *
+     * @param {*} activeValue
+     */
     async function runSearch(activeValue) {
         if (noInput.readOnly || window.__recurSelectionLocked || window.__recurFromDatabase) {
             dd.style.display = 'none';
@@ -7274,6 +8173,9 @@ function bindSupersedeFinder() {
     }
 }
 
+/**
+ * Suggested checklist ids for current doc type.
+ */
 function suggestedChecklistIdsForCurrentDocType() {
     if (isRecurringMode()) return new Set([1, 3, 5]);
     if (!isLeafExternalFormsLogbookDocType()) return null;
@@ -7288,6 +8190,9 @@ function suggestedChecklistIdsForCurrentDocType() {
     return new Set([3, 5]); // Masterlist + Distribution
 }
 
+/**
+ * Checks whether masterlist scanned copy condition is met.
+ */
 function hasMasterlistScannedCopy() {
     const file = document.getElementById('uploadScannedCopy');
     if (file && file.files && file.files.length > 0) return true;
@@ -7295,6 +8200,9 @@ function hasMasterlistScannedCopy() {
     return false;
 }
 
+/**
+ * Masterlists filled fields.
+ */
 function masterlistFilledFields() {
     const docNo = (document.getElementById('masterlistDocNo')?.value || '').trim();
     const title = (
@@ -7325,6 +8233,9 @@ function masterlistFilledFields() {
     };
 }
 
+/**
+ * Masterlists has data.
+ */
 function masterlistHasData() {
     const f = masterlistFilledFields();
     return Object.values(f).some(Boolean);
@@ -7431,6 +8342,9 @@ function showFormActions() {
     if (el) el.style.display = "flex";
 }
 
+/**
+ * Closes or dismisses the form actions.
+ */
 function hideFormActions() {
     const el = document.getElementById("formActions");
     if (el) el.style.display = "none";
@@ -7473,15 +8387,24 @@ function calcTimeDiff(startDateId, startTimeId, endDateId, endTimeId, displayId,
     hidden.value = String(result.totalMinutes);
 }
 
+/**
+ * Calcs retrieval time spent.
+ */
 window.calcRetrievalTimeSpent = function () {
     calcTimeDiff("retrievalFormDate", "retrievalFormTime", "retrievalDate", "retrievalTime", "retrievalTimeSpentDisplay", "retrievalTimeSpent");
 };
 
+/**
+ * Calcs distribution time spent.
+ */
 window.calcDistributionTimeSpent = function () {
     // Receipt (Masterlist) → Distribution date/time
     calcTimeDiff("masterlistReceiptDate", "masterlistReceiptTime", "distributionDate", "distributionTime", "distributionTimeSpentDisplay", "distributionTimeSpent");
 };
 
+/**
+ * Generates distribution template.
+ */
 window.generateDistributionTemplate = function () {
     const btn = document.getElementById('btnGenerateDistribution');
     if (btn?.disabled) {
@@ -7518,6 +8441,11 @@ window.generateDistributionTemplate = function () {
     openDistributionPrintModal(params);
 };
 
+/**
+ * Displays the distribution print modal.
+ *
+ * @param {*} params
+ */
 window.openDistributionPrintModal = function (params) {
     const overlay = document.getElementById('distributionPrintModal');
     const frame = document.getElementById('distributionPrintFrame');
@@ -7533,6 +8461,9 @@ window.openDistributionPrintModal = function (params) {
     document.body.style.overflow = 'hidden';
 };
 
+/**
+ * Closes and hides the distribution print modal.
+ */
 window.closeDistributionPrintModal = function () {
     const overlay = document.getElementById('distributionPrintModal');
     const frame = document.getElementById('distributionPrintFrame');
@@ -7547,6 +8478,9 @@ window.closeDistributionPrintModal = function () {
     document.body.style.overflow = '';
 };
 
+/**
+ * Prints distribution preview.
+ */
 window.printDistributionPreview = function () {
     const frame = document.getElementById('distributionPrintFrame');
     try {
@@ -7557,6 +8491,9 @@ window.printDistributionPreview = function () {
     }
 };
 
+/**
+ * Renders and synchronizes dist cluster chips in the DOM.
+ */
 function renderDistClusterChips() {
     const wrap = document.getElementById('distClusterChips');
     if (!wrap) return;
@@ -7571,6 +8508,11 @@ function renderDistClusterChips() {
     syncDistClusterChipState();
 }
 
+/**
+ * Retrieves and returns selected office ids.
+ *
+ * @param {*} bodyId
+ */
 function getSelectedOfficeIds(bodyId) {
     const tbody = document.getElementById(bodyId);
     if (!tbody) return [];
@@ -7579,10 +8521,20 @@ function getSelectedOfficeIds(bodyId) {
         .filter(Boolean);
 }
 
+/**
+ * Clusters offices.
+ *
+ * @param {*} clusterCode
+ */
 function clusterOffices(clusterCode) {
     return allOffices.filter((o) => String(o.cluster) === String(clusterCode));
 }
 
+/**
+ * Checks whether cluster fully selected condition is met.
+ *
+ * @param {*} clusterCode
+ */
 function isClusterFullySelected(clusterCode) {
     const offices = clusterOffices(clusterCode);
     if (!offices.length) return false;
@@ -7590,6 +8542,11 @@ function isClusterFullySelected(clusterCode) {
     return offices.every((o) => selected.has(String(o.office_id)));
 }
 
+/**
+ * Adds offices by cluster.
+ *
+ * @param {*} clusterCode
+ */
 function addOfficesByCluster(clusterCode) {
     if (typeof isDistOfficesLockedFromDrf === 'function' && isDistOfficesLockedFromDrf()) {
         return;
@@ -7600,6 +8557,11 @@ function addOfficesByCluster(clusterCode) {
     syncDistClusterChipState();
 }
 
+/**
+ * Removes specified offices by cluster.
+ *
+ * @param {*} clusterCode
+ */
 function removeOfficesByCluster(clusterCode) {
     if (typeof isDistOfficesLockedFromDrf === 'function' && isDistOfficesLockedFromDrf()) {
         return;
@@ -7623,6 +8585,11 @@ function removeOfficesByCluster(clusterCode) {
     syncDistClusterChipState();
 }
 
+/**
+ * Toggles or switches offices by cluster.
+ *
+ * @param {*} clusterCode
+ */
 function toggleOfficesByCluster(clusterCode) {
     if (isClusterFullySelected(clusterCode)) {
         removeOfficesByCluster(clusterCode);
@@ -7632,6 +8599,9 @@ function toggleOfficesByCluster(clusterCode) {
     syncDistClusterChipState();
 }
 
+/**
+ * Renders and synchronizes dist cluster chip state in the DOM.
+ */
 function syncDistClusterChipState() {
     const selected = new Set(getSelectedOfficeIds('distBody'));
     document.querySelectorAll('#distClusterChips .reg-cluster-chip').forEach((btn) => {
@@ -7645,6 +8615,9 @@ function syncDistClusterChipState() {
     });
 }
 
+/**
+ * Binds and registers dist body drag event listeners.
+ */
 function bindDistBodyDrag() {
     const tbody = document.getElementById('distBody');
     if (!tbody || tbody.dataset.dragBound) return;
@@ -7676,6 +8649,9 @@ function bindDistBodyDrag() {
     });
 }
 
+/**
+ * Calcs masterlist time spent.
+ */
 window.calcMasterlistTimeSpent = function () {
     calcTimeDiff("masterlistReceiptDate", "masterlistReceiptTime", "masterlistRegisteredDate", "masterlistRegisteredTime", "masterlistTimeSpentDisplay", "masterlistTimeSpent");
     // Distribution time spent also starts from masterlist document receipt.
@@ -7692,6 +8668,12 @@ function clearValidation() {
     document.querySelectorAll(".reg-field-error").forEach(el => el.remove());
 }
 
+/**
+ * Marks field error.
+ *
+ * @param {*} fieldId
+ * @param {*} message
+ */
 function markFieldError(fieldId, message) {
     // Fix 1: also search by [name] so dynamic hidden inputs are found
     const field = fieldId
@@ -7719,6 +8701,12 @@ function markFieldError(fieldId, message) {
     }
 }
 
+/**
+ * Marks table error.
+ *
+ * @param {*} tableId
+ * @param {*} message
+ */
 function markTableError(tableId, message) {
     const table = document.getElementById(tableId);
     if (!table) return;
@@ -7732,6 +8720,12 @@ function markTableError(tableId, message) {
     }
 }
 
+/**
+ * Marks search error.
+ *
+ * @param {*} inputId
+ * @param {*} message
+ */
 function markSearchError(inputId, message) {
     const field = document.getElementById(inputId);
     if (!field) return;
@@ -7747,6 +8741,11 @@ function markSearchError(inputId, message) {
     }
 }
 
+/**
+ * Marks checklist error.
+ *
+ * @param {*} message
+ */
 function markChecklistError(message) {
     const container = document.getElementById("dynamicCheckboxes");
     if (!container) return;
@@ -7760,6 +8759,11 @@ function markChecklistError(message) {
     }
 }
 
+/**
+ * Sections visible.
+ *
+ * @param {*} id
+ */
 function sectionVisible(id) {
     const el = document.getElementById(id);
     return el && el.style.display !== "none";
@@ -7784,11 +8788,17 @@ function syllabiSelectionErrors() {
     });
 }
 
+/**
+ * Syllabis registration has courses.
+ */
 function syllabiRegistrationHasCourses() {
     return [...document.querySelectorAll('#syllabiTableBody .syllabi-merged-course, #syllabiTableBody [name="syllabiCourseName[]"]')]
         .some((el) => String(el.value || '').trim() !== '');
 }
 
+/**
+ * Syllabis courses missing from settings.
+ */
 function syllabiCoursesMissingFromSettings() {
     const known = new Set(
         catalogCoursesForContext()
@@ -7801,6 +8811,9 @@ function syllabiCoursesMissingFromSettings() {
         .filter((name) => !known.has(name.toLowerCase()));
 }
 
+/**
+ * Validates and verifies form.
+ */
 function validateForm() {
     clearValidation();
     const errors = [];
@@ -8180,6 +9193,11 @@ function collectMissingFields() {
     return missing;
 }
 
+/**
+ * Displays the validation errors overlay or dialog.
+ *
+ * @param {*} errors
+ */
 function showValidationErrors(errors) {
     errors.forEach(err => {
         if (err.type === "table") markTableError(err.field, err.message);
@@ -8191,6 +9209,11 @@ function showValidationErrors(errors) {
     scrollToField(errors[0].field);
 }
 
+/**
+ * Scrolls to field.
+ *
+ * @param {*} fieldId
+ */
 window.scrollToField = function (fieldId) {
     const field = document.getElementById(fieldId);
     if (!field) return;
@@ -8245,12 +9268,22 @@ function getInputVal(id) {
     return el ? el.value.trim() : "";
 }
 
+/**
+ * Retrieves and returns select text.
+ *
+ * @param {*} id
+ */
 function getSelectText(id) {
     const el = document.getElementById(id);
     if (!el || el.selectedIndex < 0) return "";
     return el.options[el.selectedIndex].text;
 }
 
+/**
+ * Formats, parses, or sanitizes smart date value.
+ *
+ * @param {*} val
+ */
 function formatSmartDateValue(val) {
     if (!val) return "";
     const date = new Date(val + "T00:00:00");
@@ -8264,18 +9297,36 @@ function formatSmartDateValue(val) {
     return mon + " " + day + ", " + yyyy;
 }
 
+/**
+ * Formats, parses, or sanitizes input date.
+ *
+ * @param {*} id
+ */
 function formatInputDate(id) {
     return formatSmartDateValue(getInputVal(id));
 }
 
+/**
+ * Fmts date value.
+ *
+ * @param {*} val
+ */
 function fmtDateValue(val) {
     return formatSmartDateValue(val);
 }
 
+/**
+ * Checks whether deadline not applicable condition is met.
+ */
 function isDeadlineNotApplicable() {
     return !!document.getElementById("deadlineNotApplicable")?.checked;
 }
 
+/**
+ * Retrieves and returns office list.
+ *
+ * @param {*} tbodyId
+ */
 function getOfficeList(tbodyId) {
     const tbody = document.getElementById(tbodyId);
     if (!tbody) return [];
@@ -8288,6 +9339,13 @@ function getOfficeList(tbodyId) {
     return offices;
 }
 
+/**
+ * Adds review section.
+ *
+ * @param {*} container
+ * @param {*} title
+ * @param {*} fields
+ */
 function addReviewSection(container, title, fields) {
     if (fields.length === 0) return;
 
@@ -8314,6 +9372,13 @@ function addReviewSection(container, title, fields) {
     container.appendChild(section);
 }
 
+/**
+ * Adds review list.
+ *
+ * @param {*} container
+ * @param {*} title
+ * @param {*} items
+ */
 function addReviewList(container, title, items) {
     const section = document.createElement("div");
     section.className = "review-section";
@@ -8326,6 +9391,13 @@ function addReviewList(container, title, items) {
     container.appendChild(section);
 }
 
+/**
+ * Adds review office list.
+ *
+ * @param {*} container
+ * @param {*} title
+ * @param {*} offices
+ */
 function addReviewOfficeList(container, title, offices) {
     const section = document.createElement("div");
     section.className = "review-section";
@@ -8347,6 +9419,9 @@ function addReviewOfficeList(container, title, offices) {
     container.appendChild(section);
 }
 
+/**
+ * Confirms save.
+ */
 window.confirmSave = function () {
     if (window.__isSyllabiMode && window.syllabiContextTaken) {
         scrollToField('syllabiSchoolYear');
@@ -8499,6 +9574,11 @@ window.handleConfirmSaveAnywayToggle = function (checkbox) {
     }
 };
 
+/**
+ * Builds syllabi info review.
+ *
+ * @param {*} reviewContent
+ */
 function buildSyllabiInfoReview(reviewContent) {
     const ss = document.getElementById("section-syllabi");
     if (!ss || ss.style.display === "none") return;
@@ -8514,6 +9594,11 @@ function buildSyllabiInfoReview(reviewContent) {
     ]);
 }
 
+/**
+ * Builds syllabi rows review.
+ *
+ * @param {*} reviewContent
+ */
 function buildSyllabiRowsReview(reviewContent) {
     const ss = document.getElementById("section-syllabi");
     if (!ss || ss.style.display === "none") return;
@@ -8551,6 +9636,11 @@ function buildSyllabiRowsReview(reviewContent) {
     });
 }
 
+/**
+ * Appends controlled form reviews.
+ *
+ * @param {*} reviewContent
+ */
 function appendControlledFormReviews(reviewContent) {
     if (typeof isRecurringMode === 'function' && isRecurringMode()) {
         const picked = document.getElementById('supersedeDocPicked');
@@ -8570,6 +9660,11 @@ function appendControlledFormReviews(reviewContent) {
     buildDcnReview(reviewContent);
 }
 
+/**
+ * Builds drf review.
+ *
+ * @param {*} reviewContent
+ */
 function buildDrfReview(reviewContent) {
     const s1 = document.getElementById("section-1");
     if (!s1 || s1.style.display === "none") return;
@@ -8585,6 +9680,11 @@ function buildDrfReview(reviewContent) {
     ]);
 }
 
+/**
+ * Builds dcn review.
+ *
+ * @param {*} reviewContent
+ */
 function buildDcnReview(reviewContent) {
     const s2 = document.getElementById("section-2");
     if (!s2 || s2.style.display === "none") return;
@@ -8613,6 +9713,11 @@ function buildDcnReview(reviewContent) {
     if (rev.length) addReviewList(reviewContent, "Revisions", rev);
 }
 
+/**
+ * Builds masterlist review.
+ *
+ * @param {*} reviewContent
+ */
 function buildMasterlistReview(reviewContent) {
     const s3 = document.getElementById("section-3");
     if (!s3 || s3.style.display === "none") return;
@@ -8636,6 +9741,11 @@ function buildMasterlistReview(reviewContent) {
     ]);
 }
 
+/**
+ * Builds approval review.
+ *
+ * @param {*} reviewContent
+ */
 function buildApprovalReview(reviewContent) {
     const sa = document.getElementById("section-approval");
     if (!sa || sa.style.display === "none") return;
@@ -8647,6 +9757,11 @@ function buildApprovalReview(reviewContent) {
     ]);
 }
 
+/**
+ * Builds retrieval review.
+ *
+ * @param {*} reviewContent
+ */
 function buildRetrievalReview(reviewContent) {
     const s4 = document.getElementById("section-4");
     if (!s4 || s4.style.display === "none") return;
@@ -8654,6 +9769,11 @@ function buildRetrievalReview(reviewContent) {
     if (off.length) addReviewOfficeList(reviewContent, "Receiving Offices (Retrieval)", off);
 }
 
+/**
+ * Builds distribution review.
+ *
+ * @param {*} reviewContent
+ */
 function buildDistributionReview(reviewContent) {
     const s5 = document.getElementById("section-5");
     if (!s5 || s5.style.display === "none") return;
@@ -8670,6 +9790,9 @@ function buildDistributionReview(reviewContent) {
     if (off.length) addReviewOfficeList(reviewContent, "Receiving Offices (Distribution)", off);
 }
 
+/**
+ * Closes and hides the confirm modal.
+ */
 window.closeConfirmModal = function () {
     if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
     const root = document.getElementById("dcsRegisterRoot");
@@ -8683,6 +9806,9 @@ document.addEventListener("keydown", function (e) {
     if (data?.reviewOpen) closeConfirmModal();
 });
 
+/**
+ * Submits and sends form request.
+ */
 window.submitForm = function () {
     if (window.__isSyllabiMode && window.syllabiContextTaken) {
         showValidationErrors([{
@@ -8724,6 +9850,9 @@ window.submitForm = function () {
     form.submit();
 };
 
+/**
+ * Displays the saving document overlay overlay or dialog.
+ */
 function showSavingDocumentOverlay() {
     const modal = document.getElementById('confirmModal');
     const banner = document.getElementById('regReviewSavingBanner');
@@ -8778,6 +9907,9 @@ function showSavingDocumentOverlay() {
     }
 }
 
+/**
+ * Unlocks syllabi context for submit.
+ */
 function unlockSyllabiContextForSubmit() {
     ['syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear']
         .forEach((id) => {
@@ -8786,6 +9918,9 @@ function unlockSyllabiContextForSubmit() {
         });
 }
 
+/**
+ * Prepares draft submit defaults.
+ */
 function prepareDraftSubmitDefaults() {
     unlockSyllabiContextForSubmit();
     const approvalChecked = document.querySelector('input[name="approval_status"]:checked');
@@ -8795,6 +9930,9 @@ function prepareDraftSubmitDefaults() {
     }
 }
 
+/**
+ * Syllabis registration has progress.
+ */
 function syllabiRegistrationHasProgress() {
     if (!window.__isSyllabiMode) return false;
     const ids = ['syllabiDocTitle', 'syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear'];
@@ -8803,6 +9941,9 @@ function syllabiRegistrationHasProgress() {
         .some((el) => (el.value || '').trim() !== '');
 }
 
+/**
+ * Registrations has user progress.
+ */
 function registrationHasUserProgress() {
     const form = document.getElementById('masterForm');
     if (!form) return false;
@@ -8864,6 +10005,9 @@ function registrationHasUserProgress() {
     return false;
 }
 
+/**
+ * Regs draft can save.
+ */
 window.__regDraftCanSave = function () {
     if (typeof syncSyllabiToMasterlistFields === 'function') syncSyllabiToMasterlistFields();
     if (window.__isSyllabiMode && typeof maybeAutofillDocNo === 'function') maybeAutofillDocNo();
@@ -8876,18 +10020,32 @@ window.__regDraftCanSave = function () {
     return draftErrors.length === 0;
 };
 
+/**
+ * Regs draft has progress.
+ */
 window.__regDraftHasProgress = function () {
     return registrationHasUserProgress();
 };
 
+/**
+ * Regs draft should autosave on leave.
+ */
 window.__regDraftShouldAutosaveOnLeave = function () {
     return true; // create page
 };
 
+/**
+ * Regs draft prepare submit.
+ */
 window.__regDraftPrepareSubmit = function () {
     prepareDraftSubmitDefaults();
 };
 
+/**
+ * Regs draft show errors.
+ *
+ * @param {*} message
+ */
 window.__regDraftShowErrors = function (message) {
     const draftErrors = [];
     validateMasterlistRequired(draftErrors, { requireScan: false, forDraft: true });
@@ -8922,6 +10080,9 @@ window.handleApprovalToggle = function (applicable) {
     if (approval) approval.style.display = applicable ? "block" : "none";
 };
 
+/**
+ * Applies deadline not applicable state.
+ */
 function applyDeadlineNotApplicableState() {
     const deadline = document.getElementById('deadlineOfSubmission');
     const na = document.getElementById('deadlineNotApplicable');
@@ -8934,6 +10095,9 @@ function applyDeadlineNotApplicableState() {
     }
 }
 
+/**
+ * Wires deadline not applicable.
+ */
 function wireDeadlineNotApplicable() {
     const na = document.getElementById('deadlineNotApplicable');
     if (!na || na.dataset.bound === '1') return;
@@ -8942,6 +10106,9 @@ function wireDeadlineNotApplicable() {
     applyDeadlineNotApplicableState();
 }
 
+/**
+ * Wires approval deadline sync.
+ */
 function wireApprovalDeadlineSync() {
     const approval = document.getElementById('approvalDate');
     const deadline = document.getElementById('deadlineOfSubmission');
@@ -8999,6 +10166,9 @@ function resolveRevisedComparePrevious() {
     refreshCompareRevisionButton();
 }
 
+/**
+ * Renders and synchronizes compare revision button in the DOM.
+ */
 function refreshCompareRevisionButton() {
     const upload = document.getElementById('uploadScannedCopy');
     const wrap = document.getElementById('compareRevisionWrap');
@@ -9009,6 +10179,9 @@ function refreshCompareRevisionButton() {
     wrap.style.display = show ? 'block' : 'none';
 }
 
+/**
+ * Wires compare revision button.
+ */
 function wireCompareRevisionButton() {
     const upload = document.getElementById('uploadScannedCopy');
     const wrap = document.getElementById('compareRevisionWrap');
@@ -9029,6 +10202,9 @@ function wireCompareRevisionButton() {
     refreshCompareRevisionButton();
 }
 
+/**
+ * Enables approval.
+ */
 function enableApproval() {
     document.querySelectorAll('input[name="approval_status"]').forEach(r => r.disabled = false);
     // After checklist unlock, re-sync Approval Details from the linked previous document
@@ -9037,6 +10213,9 @@ function enableApproval() {
     }
 }
 
+/**
+ * Disables approval.
+ */
 function disableApproval() {
     document.querySelectorAll('input[name="approval_status"]').forEach(r => {
         r.disabled = true;
@@ -9069,6 +10248,9 @@ function revisionRowCellsHTML() {
     `;
 }
 
+/**
+ * Adds revision row.
+ */
 window.addRevisionRow = function () {
     const tbody = document.getElementById("revisionTableBody");
     if (!tbody) return;
@@ -9083,6 +10265,11 @@ window.addRevisionRow = function () {
 // ══════════════════════════════════════════════
 let syllabiTitleManuallyEdited = false;
 
+/**
+ * Formats, parses, or sanitizes school year text.
+ *
+ * @param {*} text
+ */
 function formatSchoolYearText(text) {
     if (!text) return '';
     const m = text.match(/^(\d{4})\s*-\s*(\d{4})$/);
@@ -9090,6 +10277,11 @@ function formatSchoolYearText(text) {
     return /^s\/y/i.test(text) ? text : 'S/Y ' + text;
 }
 
+/**
+ * Syllabis course type title phrase.
+ *
+ * @param {*} raw
+ */
 function syllabiCourseTypeTitlePhrase(raw) {
     const v = String(raw || '').trim();
     if (v === 'PE Courses') return 'P.E Courses';
@@ -9099,6 +10291,9 @@ function syllabiCourseTypeTitlePhrase(raw) {
     return v;
 }
 
+/**
+ * Renders and synchronizes syllabi title in the DOM.
+ */
 function updateSyllabiTitle() {
     const titleInput = document.getElementById('syllabiDocTitle');
     if (!titleInput || syllabiTitleManuallyEdited) return;
@@ -9151,6 +10346,9 @@ function syncSyllabiToMasterlistFields() {
     if (titleInput && mlTitle) mlTitle.value = titleInput.value;
 }
 
+/**
+ * Wires syllabi masterlist sync.
+ */
 function wireSyllabiMasterlistSync() {
     const titleInput = document.getElementById('syllabiDocTitle');
     if (titleInput) {
@@ -9190,11 +10388,21 @@ async function loadSyllabiContextDropdowns() {
 
 const SYLLABI_YEAR_LEVELS = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'];
 
+/**
+ * Years level sort index.
+ *
+ * @param {*} year
+ */
 function yearLevelSortIndex(year) {
     const i = SYLLABI_YEAR_LEVELS.indexOf(year);
     return i === -1 ? 99 : i;
 }
 
+/**
+ * Syllabis year level options html.
+ *
+ * @param {*} selected
+ */
 function syllabiYearLevelOptionsHtml(selected) {
     const sel = String(selected || '');
     const fromCatalog = yearLevelsFromCourses(catalogCoursesForContext());
@@ -9206,6 +10414,9 @@ function syllabiYearLevelOptionsHtml(selected) {
     ).join('');
 }
 
+/**
+ * Catalogs courses for context.
+ */
 function catalogCoursesForContext() {
     const programId = document.getElementById('syllabiProgram')?.value;
     const semesterId = document.getElementById('syllabiSemester')?.value;
@@ -9215,6 +10426,11 @@ function catalogCoursesForContext() {
     return courses.filter((c) => !courseType || String(c.course_type || '') === courseType);
 }
 
+/**
+ * Years levels from courses.
+ *
+ * @param {*} courses
+ */
 function yearLevelsFromCourses(courses) {
     const seen = new Set();
     (courses || []).forEach((c) => {
@@ -9224,6 +10440,9 @@ function yearLevelsFromCourses(courses) {
     return [...seen].sort((a, b) => yearLevelSortIndex(a) - yearLevelSortIndex(b));
 }
 
+/**
+ * Collects syllabi year levels from rows.
+ */
 function collectSyllabiYearLevelsFromRows() {
     const years = new Set();
     document.querySelectorAll('#syllabiTableBody .syllabi-merged-year').forEach((sel) => {
@@ -9233,6 +10452,9 @@ function collectSyllabiYearLevelsFromRows() {
     return [...years].sort((a, b) => yearLevelSortIndex(a) - yearLevelSortIndex(b));
 }
 
+/**
+ * Retrieves and returns selected syllabi year levels.
+ */
 function getSelectedSyllabiYearLevels() {
     return [...document.querySelectorAll('#syllabiYearLevelPicker input[type="checkbox"]:checked')]
         .map((cb) => String(cb.value || '').trim())
@@ -9240,6 +10462,9 @@ function getSelectedSyllabiYearLevels() {
         .sort((a, b) => yearLevelSortIndex(a) - yearLevelSortIndex(b));
 }
 
+/**
+ * Renders and synchronizes syllabi year level hiddens in the DOM.
+ */
 function syncSyllabiYearLevelHiddens() {
     const host = document.getElementById('syllabiYearLevelHiddens');
     if (!host) return;
@@ -9293,11 +10518,19 @@ function refreshSyllabiYearLevelDisplay(available, selected = null) {
     syncSyllabiYearLevelHiddens();
 }
 
+/**
+ * Handles syllabi year level toggle event or response.
+ */
 function onSyllabiYearLevelToggle() {
     syncSyllabiYearLevelHiddens();
     applySyllabiYearLevelFilterToTable();
 }
 
+/**
+ * Locks syllabi year from settings.
+ *
+ * @param {*} sel
+ */
 function lockSyllabiYearFromSettings(sel) {
     if (!sel) return;
     const value = String(sel.value || '').trim();
@@ -9318,6 +10551,11 @@ function lockSyllabiYearFromSettings(sel) {
     hidden.value = value;
 }
 
+/**
+ * Appends syllabi catalog course row.
+ *
+ * @param {*} c
+ */
 function appendSyllabiCatalogCourseRow(c) {
     const tbody = document.getElementById('syllabiTableBody');
     if (!tbody || !c) return null;
@@ -9398,6 +10636,9 @@ function setSyllabiGroupExcludedByYear(groupId, excluded) {
     });
 }
 
+/**
+ * Applies syllabi year level filter to table.
+ */
 function applySyllabiYearLevelFilterToTable() {
     const selected = new Set(getSelectedSyllabiYearLevels());
     const tbody = document.getElementById('syllabiTableBody');
@@ -9453,12 +10694,20 @@ function applySyllabiYearLevelFilterToTable() {
     if (typeof applySyllabiSectionLabel === 'function') applySyllabiSectionLabel();
 }
 
+/**
+ * Renders and synchronizes syllabi year levels from rows in the DOM.
+ */
 function refreshSyllabiYearLevelsFromRows() {
     // Context year checkboxes are the source of truth — keep them, only refresh table headers.
     syncSyllabiYearLevelHiddens();
     refreshSyllabiYearSectionHeaders();
 }
 
+/**
+ * Handles syllabi row year changed event or response.
+ *
+ * @param {*} selectEl
+ */
 function onSyllabiRowYearChanged(selectEl) {
     if (!selectEl) return;
     selectEl.disabled = false;
@@ -9475,11 +10724,19 @@ function onSyllabiRowYearChanged(selectEl) {
     refreshSyllabiYearSectionHeaders();
 }
 
+/**
+ * Syllabis table colspan.
+ */
 function syllabiTableColspan() {
     const ths = document.querySelectorAll('#syllabiWizardTable thead th');
     return ths.length || 16;
 }
 
+/**
+ * Builds syllabi year header row.
+ *
+ * @param {*} year
+ */
 function buildSyllabiYearHeaderRow(year) {
     const tr = document.createElement('tr');
     tr.className = 'syllabi-year-header';
@@ -9489,6 +10746,9 @@ function buildSyllabiYearHeaderRow(year) {
     return tr;
 }
 
+/**
+ * Renders and synchronizes syllabi year section headers in the DOM.
+ */
 function refreshSyllabiYearSectionHeaders() {
     const tbody = document.getElementById('syllabiTableBody');
     if (!tbody) return;
@@ -9522,6 +10782,11 @@ function refreshSyllabiYearSectionHeaders() {
     });
 }
 
+/**
+ * Syllabis context field value.
+ *
+ * @param {*} id
+ */
 function syllabiContextFieldValue(id) {
     const el = document.getElementById(id);
     if (el && String(el.value || '').trim() !== '') return String(el.value).trim();
@@ -9529,6 +10794,9 @@ function syllabiContextFieldValue(id) {
     return locked ? String(locked.value || '').trim() : '';
 }
 
+/**
+ * Syllabis context complete.
+ */
 function syllabiContextComplete() {
     return syllabiContextFieldValue('syllabiCollege')
         && syllabiContextFieldValue('syllabiProgram')
@@ -9537,6 +10805,12 @@ function syllabiContextComplete() {
         && syllabiContextFieldValue('syllabiSchoolYear');
 }
 
+/**
+ * Sets the syllabi context hint value.
+ *
+ * @param {*} message
+ * @param {*} isError
+ */
 function setSyllabiContextHint(message, isError) {
     const hint = document.getElementById('syllabiContextHint');
     if (!hint) return;
@@ -9552,6 +10826,12 @@ function setSyllabiContextHint(message, isError) {
     hint.classList.toggle('is-ok', !isError);
 }
 
+/**
+ * Sets the syllabi context taken value.
+ *
+ * @param {*} taken
+ * @param {*} message
+ */
 function setSyllabiContextTaken(taken, message) {
     window.syllabiContextTaken = !!taken;
     if (taken) {
@@ -9579,6 +10859,9 @@ function setSyllabiContextTaken(taken, message) {
     setSaveEnabled(true);
 }
 
+/**
+ * Validates and verifies syllabi context taken.
+ */
 async function checkSyllabiContextTaken() {
     if (!syllabiContextComplete()) {
         setSyllabiContextTaken(false);
@@ -9642,6 +10925,9 @@ async function checkSyllabiContextTaken() {
     }
 }
 
+/**
+ * Autos populate syllabi courses.
+ */
 async function autoPopulateSyllabiCourses() {
     if (!syllabiContextComplete()) return;
 
@@ -9709,6 +10995,9 @@ async function autoPopulateSyllabiCourses() {
     }
 }
 
+/**
+ * Displays the syllabi empty catalog hint overlay or dialog.
+ */
 function showSyllabiEmptyCatalogHint() {
     const tbody = document.getElementById('syllabiTableBody');
     if (!tbody) return;
@@ -9719,6 +11008,13 @@ function showSyllabiEmptyCatalogHint() {
     if (typeof updateSyllabiTotals === 'function') updateSyllabiTotals();
 }
 
+/**
+ * Applies catalog faculties to row.
+ *
+ * @param {*} row
+ * @param {*} faculties
+ * @param {*} options
+ */
 function applyCatalogFacultiesToRow(row, faculties, options = {}) {
     if (!row || !Array.isArray(faculties) || faculties.length === 0) return;
     const names = faculties.map(f => f.faculty_name || f.name).filter(Boolean);
@@ -9728,6 +11024,9 @@ function applyCatalogFacultiesToRow(row, faculties, options = {}) {
     restoreCatalogFaculties(row);
 }
 
+/**
+ * Clears and resets syllabi course rows.
+ */
 function clearSyllabiCourseRows() {
     if (window.__officeIntakeSyllabiLocked) return;
     const tbody = document.getElementById('syllabiTableBody');
@@ -9751,6 +11050,11 @@ document.addEventListener("DOMContentLoaded", () => {
         titleInput.addEventListener("input", () => { syllabiTitleManuallyEdited = true; });
     }
 
+    /**
+     * Clears and resets downstream from.
+     *
+     * @param {*} level
+     */
     function resetDownstreamFrom(level) {
         // Office intake (and locked context) must keep college/program/semester/course type/S/Y
         // and the stamped request course — do not wipe the table.
@@ -9824,6 +11128,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 });
 
+/**
+ * Retrieves and returns select text with code.
+ *
+ * @param {*} id
+ */
 function getSelectTextWithCode(id) {
     const el = document.getElementById(id);
     if (!el || el.selectedIndex < 0) return "";
@@ -9849,12 +11158,18 @@ function setSyllabiStep(step) {
     setTimeout(retry, 50);
 }
 
+/**
+ * Syllabis step next.
+ */
 window.syllabiStepNext = function () {
     if (syllabiCurrentStep < 2) {
         setSyllabiStep(syllabiCurrentStep + 1);
     }
 };
 
+/**
+ * Syllabis step back.
+ */
 window.syllabiStepBack = function () {
     if (syllabiCurrentStep > 1) setSyllabiStep(syllabiCurrentStep - 1);
 };
@@ -9877,6 +11192,11 @@ function bindSyllabiFacultyReposition() {
     window.addEventListener('resize', repositionOpen);
 }
 
+/**
+ * Builds syllabi faculty cell html.
+ *
+ * @param {*} uid
+ */
 function buildSyllabiFacultyCellHTML(uid) {
     return `
         <div class="syllabi-faculty-wrap" id="syllabiFacultyWrap_${uid}" style="position:relative;">
@@ -9894,6 +11214,12 @@ function initSyllabiFacultyPicker(uid, mode, rootEl) {
     renderSyllabiFacultyChips(uid);
 }
 
+/**
+ * Sets the syllabi faculty mode value.
+ *
+ * @param {*} uid
+ * @param {*} mode
+ */
 function setSyllabiFacultyMode(uid, mode) {
     const rootEl = document.querySelector(`#syllabiTableBody tr[data-uid="${uid}"]`);
     if (!window.__syllabiFaculty[uid]) {
@@ -9908,6 +11234,9 @@ function setSyllabiFacultyMode(uid, mode) {
     renderSyllabiFacultyChips(uid);
 }
 
+/**
+ * Retrieves and returns syllabi college id.
+ */
 function getSyllabiCollegeId() {
     const hidden = document.getElementById('syllabiCollegeHidden');
     if (hidden && hidden.value) return hidden.value;
@@ -9915,6 +11244,9 @@ function getSyllabiCollegeId() {
     return select && select.value ? select.value : '';
 }
 
+/**
+ * Retrieves and returns syllabi course type.
+ */
 function getSyllabiCourseType() {
     const hidden = document.getElementById('syllabiCourseTypeHidden');
     if (hidden && hidden.value) return hidden.value.trim();
@@ -9922,6 +11254,9 @@ function getSyllabiCourseType() {
     return (select && select.value ? select.value : '').trim();
 }
 
+/**
+ * Cas college id.
+ */
 function casCollegeId() {
     const colleges = (window.__registerCatalog || {}).colleges || [];
     const cas = colleges.find((c) => {
@@ -9934,12 +11269,20 @@ function casCollegeId() {
     return cas ? String(cas.college_id) : '';
 }
 
+/**
+ * Reloads faculties for college.
+ */
 async function reloadFacultiesForCollege() {
     window.__facultiesCacheKey = null;
     allFaculties = ((window.__registerCatalog || {}).faculties || []).slice();
     window.__facultiesCacheKey = 'all';
 }
 
+/**
+ * Ensures faculty state.
+ *
+ * @param {*} uid
+ */
 function ensureFacultyState(uid) {
     if (window.__syllabiFaculty[uid]) return;
     const row = document.querySelector(`#syllabiTableBody tr[data-uid="${uid}"]`);
@@ -9953,6 +11296,9 @@ function ensureFacultyState(uid) {
     initSyllabiFacultyPicker(uid, mode, row);
 }
 
+/**
+ * Ensures faculties loaded.
+ */
 async function ensureFacultiesLoaded() {
     if (window.__facultiesCacheKey === 'all' && Array.isArray(allFaculties) && allFaculties.length > 0) {
         return;
@@ -9960,6 +11306,12 @@ async function ensureFacultiesLoaded() {
     await reloadFacultiesForCollege();
 }
 
+/**
+ * Faculties belongs to college.
+ *
+ * @param {*} f
+ * @param {*} collegeId
+ */
 function facultyBelongsToCollege(f, collegeId) {
     if (!collegeId) return false;
     const want = String(collegeId);
@@ -9969,6 +11321,9 @@ function facultyBelongsToCollege(f, collegeId) {
     return String(f.college_id || '') === want;
 }
 
+/**
+ * Retrieves and returns faculty candidates.
+ */
 function getFacultyCandidates() {
     if (!Array.isArray(allFaculties)) return [];
     const type = getSyllabiCourseType();
@@ -9989,6 +11344,9 @@ function getFacultyCandidates() {
     return allFaculties;
 }
 
+/**
+ * Faculties empty message.
+ */
 function facultyEmptyMessage() {
     const type = getSyllabiCourseType();
     if (type === 'GE Courses') {
@@ -10003,6 +11361,11 @@ function facultyEmptyMessage() {
     return 'No matching faculty';
 }
 
+/**
+ * Formats, parses, or sanitizes html.
+ *
+ * @param {*} str
+ */
 function escapeHtml(str) {
     return String(str)
         .replace(/&/g, '&amp;')
@@ -10011,6 +11374,11 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
 
+/**
+ * Formats, parses, or sanitizes form fields.
+ *
+ * @param {*} form
+ */
 function sanitizeFormFields(form) {
     if (!form) return;
     form.querySelectorAll('input, textarea').forEach(function (el) {
@@ -10025,6 +11393,11 @@ function sanitizeFormFields(form) {
     });
 }
 
+/**
+ * Retrieves and returns or create syllabi faculty dropdown.
+ *
+ * @param {*} uid
+ */
 function getOrCreateSyllabiFacultyDropdown(uid) {
     let dd = document.getElementById('syllabiFacultyDropdown_' + uid);
     if (!dd) {
@@ -10037,16 +11410,32 @@ function getOrCreateSyllabiFacultyDropdown(uid) {
     return dd;
 }
 
+/**
+ * Checks whether add more syllabi faculty condition is met.
+ *
+ * @param {*} state
+ */
 function canAddMoreSyllabiFaculty(state) {
     if (!state) return false;
     if (state.mode === 'single') return state.selected.length < 1;
     return state.selected.length < 2;
 }
 
+/**
+ * Retrieves and returns syllabi faculty display value.
+ *
+ * @param {*} state
+ */
 function getSyllabiFacultyDisplayValue(state) {
     return state.selected.map(s => s.label).join(', ');
 }
 
+/**
+ * Retrieves and returns syllabi faculty search query.
+ *
+ * @param {*} input
+ * @param {*} state
+ */
 function getSyllabiFacultySearchQuery(input, state) {
     if (!input || !state) return '';
 
@@ -10062,6 +11451,12 @@ function getSyllabiFacultySearchQuery(input, state) {
     return val.trim();
 }
 
+/**
+ * Renders and synchronizes syllabi faculty input display in the DOM.
+ *
+ * @param {*} uid
+ * @param {*} force
+ */
 function syncSyllabiFacultyInputDisplay(uid, { focusForNext = false, force = false } = {}) {
     const state = window.__syllabiFaculty[uid];
     const hidden = document.getElementById('syllabiFacultyHidden_' + uid);
@@ -10086,6 +11481,12 @@ function syncSyllabiFacultyInputDisplay(uid, { focusForNext = false, force = fal
     }
 }
 
+/**
+ * Picks syllabi faculty from query.
+ *
+ * @param {*} uid
+ * @param {*} query
+ */
 function pickSyllabiFacultyFromQuery(uid, query) {
     const candidates = getFacultyCandidates();
     const q = query.toLowerCase();
@@ -10105,6 +11506,12 @@ function pickSyllabiFacultyFromQuery(uid, query) {
     if (partial.length === 1) addSyllabiFaculty(uid, partial[0].faculty_name, true);
 }
 
+/**
+ * Binds and registers syllabi faculty input event listeners.
+ *
+ * @param {*} uid
+ * @param {*} rootEl
+ */
 function bindSyllabiFacultyInput(uid, rootEl) {
     const input = (rootEl && rootEl.querySelector('#syllabiFacultyInput_' + uid))
         || document.getElementById('syllabiFacultyInput_' + uid);
@@ -10180,6 +11587,12 @@ function bindSyllabiFacultyInput(uid, rootEl) {
     bindSyllabiFacultyReposition();
 }
 
+/**
+ * Renders and synchronizes syllabi faculty dropdown in the DOM.
+ *
+ * @param {*} uid
+ * @param {*} input
+ */
 async function renderSyllabiFacultyDropdown(uid, input) {
     ensureFacultyState(uid);
     const state = window.__syllabiFaculty[uid];
@@ -10227,11 +11640,23 @@ async function renderSyllabiFacultyDropdown(uid, input) {
     dd.style.display = 'block';
 }
 
+/**
+ * Closes or dismisses the syllabi faculty dropdown.
+ *
+ * @param {*} uid
+ */
 function closeSyllabiFacultyDropdown(uid) {
     const dd = document.getElementById('syllabiFacultyDropdown_' + uid);
     if (dd) dd.style.display = 'none';
 }
 
+/**
+ * Adds syllabi faculty.
+ *
+ * @param {*} uid
+ * @param {*} name
+ * @param {*} focusNext
+ */
 window.addSyllabiFaculty = function (uid, name, focusNext) {
     const state = window.__syllabiFaculty[uid];
     if (!state || !name) return;
@@ -10267,6 +11692,11 @@ window.addSyllabiFaculty = function (uid, name, focusNext) {
     if (row) fillReceivedFromGroup(row);
 };
 
+/**
+ * Siblings faculty names.
+ *
+ * @param {*} uid
+ */
 function siblingFacultyNames(uid) {
     const used = new Set();
     const row = document.querySelector(`#syllabiTableBody tr[data-uid="${uid}"]`);
@@ -10284,10 +11714,20 @@ function siblingFacultyNames(uid) {
     return used;
 }
 
+/**
+ * Renders and synchronizes syllabi faculty chips in the DOM.
+ *
+ * @param {*} uid
+ */
 function renderSyllabiFacultyChips(uid) {
     syncSyllabiFacultyInputDisplay(uid);
 }
 
+/**
+ * Removes specified syllabi faculty picker.
+ *
+ * @param {*} uid
+ */
 function removeSyllabiFacultyPicker(uid) {
     delete window.__syllabiFaculty[uid];
     const dd = document.getElementById('syllabiFacultyDropdown_' + uid);
@@ -10317,6 +11757,11 @@ function buildSyllabiFacultyTd(uid, mirrorHiddenHTML = '') {
     `;
 }
 
+/**
+ * Renders and synchronizes syllabi drf row in the DOM.
+ *
+ * @param {*} tr
+ */
 window.syncSyllabiDrfRow = function (tr) {
     if (!tr) return;
     const checkbox = tr.querySelector('.syllabi-drf-availability')
@@ -10412,6 +11857,11 @@ function stampEmpty(el, value) {
     return true;
 }
 
+/**
+ * Retrieves and returns first filled received.
+ *
+ * @param {*} excludeRow
+ */
 function findFirstFilledReceived(excludeRow) {
     const tbody = document.getElementById('syllabiTableBody');
     if (!tbody) return null;
@@ -10424,6 +11874,11 @@ function findFirstFilledReceived(excludeRow) {
     return null;
 }
 
+/**
+ * Retrieves and returns first filled drf.
+ *
+ * @param {*} excludeRow
+ */
 function findFirstFilledDrf(excludeRow) {
     const tbody = document.getElementById('syllabiTableBody');
     if (!tbody) return null;
@@ -10436,6 +11891,11 @@ function findFirstFilledDrf(excludeRow) {
     return null;
 }
 
+/**
+ * Propagates received to empty rows.
+ *
+ * @param {*} source
+ */
 function propagateReceivedToEmptyRows(source) {
     const filled = source && (source.date || source.time)
         ? source
@@ -10453,6 +11913,11 @@ function propagateReceivedToEmptyRows(source) {
     });
 }
 
+/**
+ * Propagates drf to empty rows.
+ *
+ * @param {*} source
+ */
 function propagateDrfToEmptyRows(source) {
     // Office-intake stamp must not spill DRF date onto other courses.
     if (window.__syllabiIntakeStampLock) return;
@@ -10473,10 +11938,18 @@ function propagateDrfToEmptyRows(source) {
     });
 }
 
+/**
+ * Stamps group received from peer.
+ *
+ * @param {*} groupId
+ */
 function stampGroupReceivedFromPeer(groupId) {
     stampAvailableRowsFromFirstFilled();
 }
 
+/**
+ * Stamps available rows from first filled.
+ */
 function stampAvailableRowsFromFirstFilled() {
     const peer = findFirstFilledReceived();
     const date = (peer?.date || '').trim();
@@ -10520,17 +11993,32 @@ function cascadeDrfToNewRow(newRow) {
     stampEmpty(newRow.querySelector('input[name="syllabiDrfReceived[]"]'), peer.drfReceived);
 }
 
+/**
+ * Syllabis group is available.
+ *
+ * @param {*} groupId
+ */
 function syllabiGroupIsAvailable(groupId) {
     const firstRow = document.querySelector(`#syllabiTableBody tr[data-group="${groupId}"][data-is-first="true"]`);
     return !!firstRow?.querySelector('.syllabi-merged-availability')?.checked;
 }
 
+/**
+ * Syllabis row has faculty.
+ *
+ * @param {*} tr
+ */
 function syllabiRowHasFaculty(tr) {
     const uid = tr?.dataset?.uid;
     const state = uid && window.__syllabiFaculty[uid];
     return !!(state && state.selected && state.selected.length > 0);
 }
 
+/**
+ * Clears and resets syllabi faculty row.
+ *
+ * @param {*} tr
+ */
 function clearSyllabiFacultyRow(tr) {
     const uid = tr.dataset.uid;
     if (!window.__syllabiFaculty[uid]) return;
@@ -10538,6 +12026,12 @@ function clearSyllabiFacultyRow(tr) {
     syncSyllabiFacultyInputDisplay(uid, { force: true });
 }
 
+/**
+ * Sets the syllabi faculty row enabled value.
+ *
+ * @param {*} tr
+ * @param {*} enabled
+ */
 function setSyllabiFacultyRowEnabled(tr, enabled) {
     const input = tr.querySelector('.syllabi-faculty-input');
     if (input) {
@@ -10551,6 +12045,11 @@ function setSyllabiFacultyRowEnabled(tr, enabled) {
     });
 }
 
+/**
+ * Restores catalog faculties.
+ *
+ * @param {*} firstRow
+ */
 function restoreCatalogFaculties(firstRow) {
     if (!firstRow) return;
     let names = [];
@@ -10637,6 +12136,11 @@ function assignSyllabiFacultiesToGroup(groupId, names, copies) {
     });
 }
 
+/**
+ * Renders and synchronizes syllabi availability in the DOM.
+ *
+ * @param {*} groupId
+ */
 window.syncSyllabiAvailability = function (groupId) {
     const firstRow = document.querySelector(`#syllabiTableBody tr[data-group="${groupId}"][data-is-first="true"]`);
     if (!firstRow) return;
@@ -10660,6 +12164,11 @@ window.cascadeSyllabiReceived = function (input) {
     propagateReceivedToEmptyRows({ date, time, row: sourceRow });
 };
 
+/**
+ * Populates received from group in the interface.
+ *
+ * @param {*} tr
+ */
 function fillReceivedFromGroup(tr) {
     if (!tr || !syllabiGroupIsAvailable(tr.dataset.group)) return;
     stampAvailableRowsFromFirstFilled();
@@ -10693,6 +12202,11 @@ function updateSyllabiTotals() {
     }
 }
 
+/**
+ * Binds and registers syllabi row file inputs event listeners.
+ *
+ * @param {*} tr
+ */
 function bindSyllabiRowFileInputs(tr) {
     tr.querySelectorAll('.reg-upload-cell input[type="file"]').forEach(fileInput => {
         const cell = fileInput.closest('.reg-upload-cell');
@@ -10763,6 +12277,12 @@ function buildSyllabiGroupFirstRow(groupId, rowspan) {
     return tr;
 }
 
+/**
+ * Builds syllabi continuation row.
+ *
+ * @param {*} groupId
+ * @param {*} copyNo
+ */
 function buildSyllabiContinuationRow(groupId, copyNo) {
     const tr = document.createElement("tr");
     tr.style.animation = "fadeSlideUp 0.25s ease";
@@ -10786,11 +12306,21 @@ function buildSyllabiContinuationRow(groupId, copyNo) {
     return tr;
 }
 
+/**
+ * Autosizes syllabi course.
+ *
+ * @param {*} el
+ */
 function autosizeSyllabiCourse(el) {
     el.style.height = 'auto';
     el.style.height = el.scrollHeight + 'px';
 }
 
+/**
+ * Renders and synchronizes syllabi merged fields in the DOM.
+ *
+ * @param {*} groupId
+ */
 window.syncSyllabiMergedFields = function (groupId) {
     const firstRow = document.querySelector(`#syllabiTableBody tr[data-group="${groupId}"][data-is-first="true"]`);
     if (!firstRow) return;
@@ -10820,6 +12350,9 @@ window.syncSyllabiMergedFields = function (groupId) {
     updateSyllabiTotals();
 };
 
+/**
+ * Adds syllabi row.
+ */
 window.addSyllabiRow = function () {
     const tbody = document.getElementById("syllabiTableBody");
     if (!tbody) return;
@@ -10834,6 +12367,11 @@ window.addSyllabiRow = function () {
     refreshSyllabiYearLevelsFromRows();
 };
 
+/**
+ * Removes specified syllabi group.
+ *
+ * @param {*} groupId
+ */
 window.removeSyllabiGroup = function (groupId) {
     document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]`).forEach(r => {
         removeSyllabiFacultyPicker(r.dataset.uid);
@@ -10906,6 +12444,15 @@ window.handleSearch = function (input, resultsId, bodyId, totalId) {
     dropdown.style.display = "block";
 };
 
+/**
+ * Adds office.
+ *
+ * @param {*} officeId
+ * @param {*} officeName
+ * @param {*} bodyId
+ * @param {*} totalId
+ * @param {*} resultsId
+ */
 window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
     if (bodyId === 'distBody' && typeof isDistOfficesLockedFromDrf === 'function' && isDistOfficesLockedFromDrf()) {
         if (typeof showToast === 'function') {
@@ -10991,6 +12538,13 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
     refreshOfficeSeeMore(bodyId);
 };
 
+/**
+ * Removes specified office.
+ *
+ * @param {*} btn
+ * @param {*} totalId
+ * @param {*} bodyId
+ */
 window.removeOffice = function (btn, totalId, bodyId) {
     if (bodyId === 'retrievalBody') {
         return;
@@ -11021,6 +12575,12 @@ window.removeOffice = function (btn, totalId, bodyId) {
     }, 200);
 };
 
+/**
+ * Renders and synchronizes total in the DOM.
+ *
+ * @param {*} totalId
+ * @param {*} bodyId
+ */
 window.updateTotal = function (totalId, bodyId) {
     const totalEl = document.getElementById(totalId);
     if (!totalEl) return;
@@ -11049,18 +12609,33 @@ window.updateTotal = function (totalId, bodyId) {
 // ══════════════════════════════════════════════
 const OFFICE_SEE_MORE_MIN = 2;
 
+/**
+ * Offices see more btn for body.
+ *
+ * @param {*} bodyId
+ */
 function officeSeeMoreBtnForBody(bodyId) {
     if (bodyId === 'distBody') return document.getElementById('distSeeMore');
     if (bodyId === 'retrievalBody') return document.getElementById('retrievalSeeMore');
     return null;
 }
 
+/**
+ * Offices wrap for body.
+ *
+ * @param {*} bodyId
+ */
 function officeWrapForBody(bodyId) {
     if (bodyId === 'distBody') return document.getElementById('distOfficeWrap');
     if (bodyId === 'retrievalBody') return document.getElementById('retrievalOfficeWrap');
     return null;
 }
 
+/**
+ * Renders and synchronizes office see more in the DOM.
+ *
+ * @param {*} bodyId
+ */
 window.refreshOfficeSeeMore = function (bodyId) {
     const bodies = bodyId ? [bodyId] : ['distBody', 'retrievalBody'];
     bodies.forEach((id) => {
@@ -11084,6 +12659,11 @@ window.refreshOfficeSeeMore = function (bodyId) {
     });
 };
 
+/**
+ * Toggles or switches office see more.
+ *
+ * @param {*} btn
+ */
 window.toggleOfficeSeeMore = function (btn) {
     const wrapId = btn.getAttribute('data-office-wrap');
     const wrap = document.getElementById(wrapId);

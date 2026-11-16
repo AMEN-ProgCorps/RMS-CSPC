@@ -91,7 +91,6 @@
 
         @auth
         <livewire:components.session-guard />
-        <livewire:components.report-problem />
         @if(\Illuminate\Support\Facades\Cache::remember('rms_page_prewarming_enabled', 300, fn () => \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'page_prewarming_enabled')->value('value') === 'true'))
             @php
                 $prewarmUrls = ['/portal', '/profile', '/profile/security-logs', '/profile/notification-manager'];
@@ -193,5 +192,7 @@
         @endauth
         <x-rms-error />
         <x-messify.floating-widget />
+        <x-dts.scanner-widget />
+        <livewire:components.scanner-modal />
     </body>
 </html>

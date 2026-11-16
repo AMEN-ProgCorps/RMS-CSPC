@@ -14,19 +14,35 @@ Pauses while the tab is hidden. The route must stay on EnforceDcsIntakeAllowlist
     var activeMs = 2500;
     var hiddenMs = 15000;
 
+    /**
+     * Controls action.
+     */
     function control() {
         return document.getElementById('ofiPrintControl');
     }
+    /**
+     * Clears and resets timer.
+     */
     function clearTimer() {
         if (timer) {
             clearInterval(timer);
             timer = null;
         }
     }
+    /**
+     * Schedules action.
+     *
+     * @param {*} ms
+     */
     function schedule(ms) {
         clearTimer();
         timer = setInterval(tick, ms);
     }
+    /**
+     * Unlocks action.
+     *
+     * @param {*} node
+     */
     function unlock(node) {
         clearTimer();
         var printUrl = node.getAttribute('data-print-url');
@@ -40,6 +56,9 @@ Pauses while the tab is hidden. The route must stay on EnforceDcsIntakeAllowlist
         var hint = document.getElementById('ofiPrintHint');
         if (hint) hint.remove();
     }
+    /**
+     * Ticks action.
+     */
     async function tick() {
         if (typeof document !== 'undefined' && document.hidden) return;
         var node = control();

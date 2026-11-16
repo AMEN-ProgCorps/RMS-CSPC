@@ -69,12 +69,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
     public string $filterType = 'all'; // 'all', 'full', 'selective'
     public string $filterSource = 'all'; // 'all', 'google', 'local', 'nas'
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $this->loadScheduleSettings();
         $this->checkBackups();
     }
 
+    /**
+     * Retrieves and populates schedule settings data.
+     * @return void
+     */
     public function loadScheduleSettings(): void
     {
         $settings = \App\Services\BackupScheduleService::getSettings();
@@ -93,12 +101,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         $this->scheduleNextRun = \App\Services\BackupScheduleService::calculateNextRun();
     }
 
+    /**
+     * Toggles the schedule enabled setting or state.
+     * @return void
+     */
     public function toggleScheduleEnabled(): void
     {
         $this->scheduleEnabled = !$this->scheduleEnabled;
         $this->saveScheduleSettings();
     }
 
+    /**
+     * Persists schedule settings changes to the database.
+     * @return void
+     */
     public function saveScheduleSettings(): void
     {
         $this->isSavingSchedule = true;
@@ -125,6 +141,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         }
     }
 
+    /**
+     * Triggers scheduled backup now.
+     * @return void
+     */
     public function triggerScheduledBackupNow(): void
     {
         $this->isBackupProcessing = true;
@@ -151,32 +171,59 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         $this->isBackupProcessing = false;
     }
 
+    /**
+     * Lifecycle hook executed after updating the search property.
+     * @return void
+     */
     public function updatedSearch(): void
     {
         $this->currentPage = 1;
     }
 
+    /**
+     * Lifecycle hook executed after updating the filter type property.
+     * @return void
+     */
     public function updatedFilterType(): void
     {
         $this->currentPage = 1;
     }
 
+    /**
+     * Lifecycle hook executed after updating the filter source property.
+     * @return void
+     */
     public function updatedFilterSource(): void
     {
         $this->currentPage = 1;
     }
 
+    /**
+     * Lifecycle hook executed after updating the per page property.
+     * @return void
+     */
     public function updatedPerPage(): void
     {
         $this->currentPage = 1;
     }
 
+    /**
+     * Sets the active page.
+     *
+     * @param int $page
+     *
+     * @return void
+     */
     public function setPage(int $page): void
     {
         $totalPages = $this->getTotalPages();
         $this->currentPage = max(1, min($page, $totalPages));
     }
 
+    /**
+     * Previous page.
+     * @return void
+     */
     public function previousPage(): void
     {
         if ($this->currentPage > 1) {
@@ -184,6 +231,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         }
     }
 
+    /**
+     * Nexts page.
+     * @return void
+     */
     public function nextPage(): void
     {
         if ($this->currentPage < $this->getTotalPages()) {
@@ -191,6 +242,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         }
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function resetFilters(): void
     {
         $this->search = '';
@@ -199,6 +254,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         $this->currentPage = 1;
     }
 
+    /**
+     * Retrieves and populates filtered backups data.
+     * @return array
+     */
     public function getFilteredBackups(): array
     {
         $list = $this->backupsList;
@@ -232,17 +291,29 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         return array_values($list);
     }
 
+    /**
+     * Retrieves and populates total filtered count data.
+     * @return int
+     */
     public function getTotalFilteredCount(): int
     {
         return count($this->getFilteredBackups());
     }
 
+    /**
+     * Retrieves and populates total pages data.
+     * @return int
+     */
     public function getTotalPages(): int
     {
         $count = $this->getTotalFilteredCount();
         return max(1, (int) ceil($count / $this->perPage));
     }
 
+    /**
+     * Retrieves and populates paginated backups data.
+     * @return array
+     */
     public function getPaginatedBackups(): array
     {
         $filtered = $this->getFilteredBackups();
@@ -255,6 +326,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         return array_slice($filtered, $offset, $this->perPage);
     }
 
+    /**
+     * Retrieves and populates backup category definitions data.
+     * @return array
+     */
     public function getBackupCategoryDefinitions(): array
     {
         return [
@@ -339,6 +414,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         ];
     }
 
+    /**
+     * Displays the create backup modal.
+     * @return void
+     */
     public function openCreateBackupModal(): void
     {
         $this->showCreateBackupModal = true;
@@ -347,16 +426,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         $this->errorMessage = '';
     }
 
+    /**
+     * Selects all categories and populates the details panel.
+     * @return void
+     */
     public function selectAllCategories(): void
     {
         $this->selectedBackupCategories = array_keys($this->getBackupCategoryDefinitions());
     }
 
+    /**
+     * Deselects all categories.
+     * @return void
+     */
     public function deselectAllCategories(): void
     {
         $this->selectedBackupCategories = [];
     }
 
+    /**
+     * Ensures backup directories exist.
+     * @return void
+     */
     public function ensureBackupDirectoriesExist(): void
     {
         // 1. Check & create local storage/app/backups folder
@@ -378,6 +469,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         }
     }
 
+    /**
+     * Validates and verifies backups.
+     * @return void
+     */
     public function checkBackups(): void
     {
         @set_time_limit(180);
@@ -583,6 +678,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         $this->isBackupProcessing = false;
     }
 
+    /**
+     * Creates a new backup record.
+     * @return void
+     */
     public function createBackup(): void
     {
         @set_time_limit(300);
@@ -763,12 +862,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         $this->isBackupProcessing = false;
     }
 
+    /**
+     * Exports and downloads backup data.
+     *
+     * @param string $filename
+     */
     public function downloadBackup(string $filename)
     {
         $filename = basename($filename);
         return redirect()->route('admin.backup.download', ['filename' => $filename]);
     }
 
+    /**
+     * Processes and imports backup from uploaded file.
+     * @return void
+     */
     public function importBackup(): void
     {
         @set_time_limit(300);
@@ -867,6 +975,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         $this->isBackupProcessing = false;
     }
 
+    /**
+     * Submits and processes revert modal.
+     *
+     * @param string $filename
+     *
+     * @return void
+     */
     public function confirmRevertModal(string $filename): void
     {
         $this->selectedTargetBackup = basename($filename);
@@ -874,6 +989,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         $this->showRevertConfirmModal = true;
     }
 
+    /**
+     * Resets revert modal and clears active selections.
+     * @return void
+     */
     public function cancelRevertModal(): void
     {
         $this->showRevertConfirmModal = false;
@@ -881,11 +1000,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         $this->backupConfirmInput = '';
     }
 
+    /**
+     * Retrieves and populates table priority map data.
+     * @return array
+     */
     public function getTablePriorityMap(): array
     {
         return \App\Services\BackupService::getTablePriorityMap();
     }
 
+    /**
+     * Starts revert process.
+     * @return void
+     */
     public function startRevertProcess(): void
     {
         @set_time_limit(300);
@@ -976,17 +1103,32 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         }
     }
 
+    /**
+     * Reverts to target backup.
+     * @return void
+     */
     public function revertToTargetBackup(): void
     {
         $this->startRevertProcess();
     }
 
+    /**
+     * Resets revert and clears active selections.
+     * @return void
+     */
     public function cancelRevert(): void
     {
         $this->isReverting = false;
         $this->errorMessage = 'Database revert operation was cancelled by administrator.';
     }
 
+    /**
+     * Deletes or deactivates the specified backup.
+     *
+     * @param string $filename
+     *
+     * @return void
+     */
     public function deleteBackup(string $filename): void
     {
         $filename = basename($filename);
@@ -1034,6 +1176,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         }
     }
 
+    /**
+     * Retrieves and populates all database tables data.
+     * @return array
+     */
     protected function getAllDatabaseTables(): array
     {
         $driver = \DB::getDriverName();
@@ -1060,6 +1206,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
         return array_values(array_filter($tables, fn($t) => !in_array($t, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs', 'sys_backup_logs'])));
     }
 
+    /**
+     * Formats and prepares bytes data.
+     *
+     * @param mixed $bytes
+     * @param mixed $precision
+     *
+     * @return string
+     */
     protected function formatBytes($bytes, $precision = 2): string
     {
         $units = ['B', 'KB', 'MB', 'GB', 'TB'];

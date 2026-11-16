@@ -74,6 +74,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         $this->checkRoleUpdate();
     }
 
+    /**
+     * Refreshes settings data.
+     * @return void
+     */
     public function refreshSettings(): void
     {
         $user = Auth::user();
@@ -100,6 +104,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         }
     }
 
+    /**
+     * Toggles the auto open chat setting or state.
+     * @return void
+     */
     public function toggleAutoOpenChat(): void
     {
         $user = Auth::user();
@@ -116,6 +124,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         }
     }
 
+    /**
+     * Toggles the notification sound alert setting or state.
+     * @return void
+     */
     public function toggleNotificationSoundAlert(): void
     {
         $user = Auth::user();
@@ -133,6 +145,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         }
     }
 
+    /**
+     * Toggles the enable popout notifications setting or state.
+     * @return void
+     */
     public function toggleEnablePopoutNotifications(): void
     {
         $user = Auth::user();
@@ -150,6 +166,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         }
     }
 
+    /**
+     * Toggles the enable top tabs setting or state.
+     * @return void
+     */
     public function toggleEnableTopTabs(): void
     {
         $user = Auth::user();
@@ -166,6 +186,13 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         }
     }
 
+    /**
+     * Sets the active theme.
+     *
+     * @param string $theme
+     *
+     * @return void
+     */
     public function setTheme(string $theme): void
     {
         $theme = in_array($theme, ['light', 'dark']) ? $theme : 'light';
@@ -184,6 +211,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         }
     }
 
+    /**
+     * Toggles the follow scroll setting or state.
+     * @return void
+     */
     public function toggleFollowScroll(): void
     {
         $user = Auth::user();
@@ -202,6 +233,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         }
     }
 
+    /**
+     * Toggles the follow scroll side setting or state.
+     * @return void
+     */
     public function toggleFollowScrollSide(): void
     {
         $user = Auth::user();
@@ -220,6 +255,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         }
     }
 
+    /**
+     * Toggles the follow scroll vertical setting or state.
+     * @return void
+     */
     public function toggleFollowScrollVertical(): void
     {
         $user = Auth::user();
@@ -238,6 +277,13 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         }
     }
 
+    /**
+     * Toggles the dcs db group setting or state.
+     *
+     * @param string $groupKey
+     *
+     * @return void
+     */
     public function toggleDcsDbGroup(string $groupKey): void
     {
         if (! RegisterQueryHelper::isFullDcsUser()) {
@@ -257,6 +303,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         $this->persistDcsDbVisibleGroups($groups, 'DCS Database column visibility updated.');
     }
 
+    /**
+     * Displays the all dcs db groups dialog or panel.
+     * @return void
+     */
     public function showAllDcsDbGroups(): void
     {
         if (! RegisterQueryHelper::isFullDcsUser()) {
@@ -268,6 +318,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         );
     }
 
+    /**
+     * Closes or dismisses the all dcs db groups.
+     * @return void
+     */
     public function hideAllDcsDbGroups(): void
     {
         if (! RegisterQueryHelper::isFullDcsUser()) {
@@ -298,6 +352,15 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         $this->dispatch('rms-settings-changed', type: 'profile_preference', message: $message);
     }
 
+    /**
+     * Assigns key setting.
+     *
+     * @param string $targetField
+     * @param ?string $key
+     * @param string $targetLabel
+     *
+     * @return void
+     */
     private function assignKeySetting(string $targetField, ?string $key, string $targetLabel): void
     {
         $key = trim((string)$key);
@@ -367,61 +430,124 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         $this->dispatch('rms-settings-changed', type: 'profile_preference', message: "{$targetLabel} updated.");
     }
 
+    /**
+     * Sets the active modal close key.
+     *
+     * @param ?string $key
+     *
+     * @return void
+     */
     public function setModalCloseKey(?string $key): void
     {
         $this->assignKeySetting('modal_close_key', $key, 'Modal Close Shortcut');
     }
 
+    /**
+     * Resets modal close key and clears active selections.
+     * @return void
+     */
     public function resetModalCloseKey(): void
     {
         $this->setModalCloseKey('Escape');
     }
 
+    /**
+     * Resets modal close key and clears active selections.
+     * @return void
+     */
     public function clearModalCloseKey(): void
     {
         $this->setModalCloseKey(null);
     }
 
+    /**
+     * Sets the active sidebar toggle key.
+     *
+     * @param ?string $key
+     *
+     * @return void
+     */
     public function setSidebarToggleKey(?string $key): void
     {
         $this->assignKeySetting('sidebar_toggle_key', $key, 'Sidebar Navigation Panel Toggle');
     }
 
+    /**
+     * Resets sidebar toggle key and clears active selections.
+     * @return void
+     */
     public function resetSidebarToggleKey(): void
     {
         $this->setSidebarToggleKey(null);
     }
 
+    /**
+     * Sets the active action toggle key.
+     *
+     * @param ?string $key
+     *
+     * @return void
+     */
     public function setActionToggleKey(?string $key): void
     {
         $this->assignKeySetting('action_toggle_key', $key, 'Actions Menu Toggle');
     }
 
+    /**
+     * Resets action toggle key and clears active selections.
+     * @return void
+     */
     public function resetActionToggleKey(): void
     {
         $this->setActionToggleKey(null);
     }
 
+    /**
+     * Sets the active notification toggle key.
+     *
+     * @param ?string $key
+     *
+     * @return void
+     */
     public function setNotificationToggleKey(?string $key): void
     {
         $this->assignKeySetting('notification_toggle_key', $key, 'Notification Center Toggle');
     }
 
+    /**
+     * Resets notification toggle key and clears active selections.
+     * @return void
+     */
     public function resetNotificationToggleKey(): void
     {
         $this->setNotificationToggleKey(null);
     }
 
+    /**
+     * Sets the active messify toggle key.
+     *
+     * @param ?string $key
+     *
+     * @return void
+     */
     public function setMessifyToggleKey(?string $key): void
     {
         $this->assignKeySetting('messify_toggle_key', $key, 'Messify Messaging Widget Toggle');
     }
 
+    /**
+     * Resets messify toggle key and clears active selections.
+     * @return void
+     */
     public function resetMessifyToggleKey(): void
     {
         $this->setMessifyToggleKey(null);
     }
 
+    /**
+     * Validates and verifies role update.
+     * @return void
+     */
     public function checkRoleUpdate(): void
     {
         $user = Auth::user();

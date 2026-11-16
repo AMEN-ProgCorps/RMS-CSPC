@@ -25,6 +25,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
     public string $dateFrom     = '';
     public string $dateTo       = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -34,17 +38,44 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
         }
     }
 
+    /**
+     * Sets the active tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
     public function switchTab(string $tab): void
     {
         $this->activeTab = $tab;
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
     public function updatingSearch(): void      { $this->resetPage(); }
+    /**
+     * Lifecycle hook executed before updating the action filter property.
+     * @return void
+     */
     public function updatingActionFilter(): void { $this->resetPage(); }
+    /**
+     * Lifecycle hook executed before updating the date from property.
+     * @return void
+     */
     public function updatingDateFrom(): void    { $this->resetPage(); }
+    /**
+     * Lifecycle hook executed before updating the date to property.
+     * @return void
+     */
     public function updatingDateTo(): void      { $this->resetPage(); }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search       = '';
@@ -54,6 +85,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
         $this->resetPage();
     }
 
+    /**
+     * Actions label.
+     *
+     * @param string $action
+     *
+     * @return string
+     */
     private function actionLabel(string $action): string
     {
         return match($action) {
@@ -69,6 +107,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
         };
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         // ── Audit Log tab ────────────────────────────────────────────────────
@@ -146,6 +188,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
         ];
     }
 
+    /**
+     * Retrieves and populates action label data.
+     *
+     * @param string $action
+     *
+     * @return string
+     */
     public function getActionLabel(string $action): string
     {
         return $this->actionLabel($action);

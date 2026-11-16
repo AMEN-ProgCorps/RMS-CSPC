@@ -19,6 +19,10 @@ use Livewire\WithPagination;
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     use WithPagination;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
@@ -28,6 +32,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         return [

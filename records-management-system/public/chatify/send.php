@@ -81,18 +81,23 @@ if (empty($convId)) {
 
 $isOfficeGc     = str_starts_with($convId, 'office_');
 $targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
+$isCustomGc     = str_starts_with($convId, 'gc_');
+$customGcId     = 0;
+
+if ($convId !== 'global' && !$isOfficeGc && !$isCustomGc) {
+    http_response_code(400);
+    die(json_encode(['error' => 'Invalid conversation channel.']));
+}
 
 // Security check: Only members of this office or Super Admins can post
-if ($isOfficeGc && $targetOfficeId) {
-    if (!Auth::isAdmin($senderId) && $userOfficeId !== $targetOfficeId) {
+if ($isOfficeGc) {
+    if (!$targetOfficeId || $targetOfficeId <= 0 || (!Auth::isAdmin($senderId) && $userOfficeId !== $targetOfficeId)) {
         http_response_code(403);
         die(json_encode(['error' => 'You do not belong to this office group chat.']));
     }
 }
 
 // Custom GC authorization: verify membership
-$isCustomGc = str_starts_with($convId, 'gc_');
-$customGcId = 0;
 if ($isCustomGc) {
     $customGcId = (int) substr($convId, 3);
     if ($customGcId <= 0 || (!Auth::isAdmin($senderId) && !CustomGroupManager::isMember($customGcId, $senderId))) {
@@ -157,6 +162,7 @@ if ($message !== '') {
 header('Content-Type: application/json');
 
 if (empty($errors) && !empty($allResults)) {
+    $pushPayloads = [];
     foreach ($allResults as $msgData) {
         if (empty($msgData['id'])) continue;
 
@@ -165,7 +171,7 @@ if (empty($errors) && !empty($allResults)) {
             $replyPreview = GlobalChatManager::getReplyPreview($msgData['reply_to_msg_uuid'], $convId);
         }
 
-        $payload = [
+        $pushPayloads[] = [
             'chat_type'         => $isOfficeGc ? 'office_gc' : ($isCustomGc ? 'custom_gc' : 'global'),
             'conv_id'           => $convId,
             'office_id'         => $targetOfficeId,
@@ -180,33 +186,43 @@ if (empty($errors) && !empty($allResults)) {
             'reply_to_msg_uuid' => $msgData['reply_to_msg_uuid'] ?? null,
             'reply_snippet'     => $replyPreview['snippet'] ?? null,
         ];
-
-        if ($isCustomGc && $customGcId > 0) {
-            // Push to group members AND all super admins for spy mode
-            $gcMembers   = CustomGroupManager::getMembers($customGcId);
-            $gcMemberIds = array_column($gcMembers, 'account_id');
-            $adminIds    = Auth::getAllSuperAdminIds();
-            $targetIds   = array_values(array_unique(array_merge($gcMemberIds, $adminIds)));
-            WsPush::push($targetIds, 'message', $payload);
-        } elseif ($isOfficeGc && $targetOfficeId) {
-            $memberIds = OfficeChatManager::getOfficeMembers($targetOfficeId);
-            $adminIds  = Auth::getAllSuperAdminIds();
-            $targetIds = array_values(array_unique(array_merge($memberIds, $adminIds)));
-            WsPush::push($targetIds, 'message', $payload);
-        } else {
-            WsPush::broadcast('message', $payload);
-        }
     }
+
     echo json_encode(['success' => true, 'message' => $allResults[0], 'messages' => $allResults, 'conv_id' => $convId]);
-    // ── Audit log (fire-and-forget) ───────────────────────────────────────────
-    ChatAuditLogger::log($senderId, 'send_message', $allResults[0]['id'] ?? null, [
-        'chat_type'  => $isOfficeGc ? 'office_gc' : 'global',
-        'conv_id'    => $convId,
-        'office_id'  => $targetOfficeId,
-        'has_text'   => $message !== '',
-        'has_file'   => $uploadedRaw !== '',
-        'file_count' => count($allResults) - ($message !== '' ? 1 : 0),
-    ]);
+
+    // Everything below is best-effort side-effects (live socket push, audit
+    // log) that must never be on the critical path of returning the response to sender.
+    WsPush::flushResponseThenRun(function () use (
+        $pushPayloads, $isCustomGc, $customGcId, $isOfficeGc, $targetOfficeId, $senderId, $convId, $allResults, $message, $uploadedRaw
+    ) {
+        foreach ($pushPayloads as $payload) {
+            if ($isCustomGc && $customGcId > 0) {
+                // Push to group members AND all super admins for spy mode
+                $gcMembers   = CustomGroupManager::getMembers($customGcId);
+                $gcMemberIds = array_column($gcMembers, 'account_id');
+                $adminIds    = Auth::getAllSuperAdminIds();
+                $targetIds   = array_values(array_unique(array_merge($gcMemberIds, $adminIds)));
+                WsPush::push($targetIds, 'message', $payload);
+            } elseif ($isOfficeGc && $targetOfficeId) {
+                $memberIds = OfficeChatManager::getOfficeMembers($targetOfficeId);
+                $adminIds  = Auth::getAllSuperAdminIds();
+                $targetIds = array_values(array_unique(array_merge($memberIds, $adminIds)));
+                WsPush::push($targetIds, 'message', $payload);
+            } else {
+                WsPush::broadcast('message', $payload);
+            }
+        }
+
+        // ── Audit log (fire-and-forget) ───────────────────────────────────────────
+        ChatAuditLogger::log($senderId, 'send_message', $allResults[0]['id'] ?? null, [
+            'chat_type'  => $isOfficeGc ? 'office_gc' : ($isCustomGc ? 'custom_gc' : 'global'),
+            'conv_id'    => $convId,
+            'office_id'  => $targetOfficeId,
+            'has_text'   => $message !== '',
+            'has_file'   => $uploadedRaw !== '',
+            'file_count' => count($allResults) - ($message !== '' ? 1 : 0),
+        ]);
+    });
 } else {
     http_response_code(500);
     echo json_encode(['success' => false, 'errors' => $errors]);

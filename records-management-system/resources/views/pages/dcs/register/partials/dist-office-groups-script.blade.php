@@ -18,18 +18,30 @@ DCS file: Saves and applies a named group of distribution offices on the registe
         ? window.__distOfficeGroups
         : ((window.__registerCatalog || {}).distributionOfficeGroups || []);
 
+    /**
+     * Dists total id.
+     */
     function distTotalId() {
         return document.getElementById('totalDistCopies') ? 'totalDistCopies' : 'distTotal';
     }
 
+    /**
+     * Retrieves and returns dist rows.
+     */
     function getDistRows() {
         return [...document.querySelectorAll('#distBody tr.reg-office-added')];
     }
 
+    /**
+     * Retrieves and returns selected dist rows.
+     */
     function getSelectedDistRows() {
         return getDistRows().filter((tr) => tr.querySelector('.dist-office-check')?.checked);
     }
 
+    /**
+     * Renders and synchronizes dist select all state in the DOM.
+     */
     function syncDistSelectAllState() {
         const rows = getDistRows();
         const selected = getSelectedDistRows();
@@ -48,6 +60,9 @@ DCS file: Saves and applies a named group of distribution offices on the registe
         }
     }
 
+    /**
+     * Toggles or switches select all dist offices.
+     */
     window.toggleSelectAllDistOffices = function () {
         const rows = getDistRows();
         const allSelected = rows.length > 0 && getSelectedDistRows().length === rows.length;
@@ -58,10 +73,18 @@ DCS file: Saves and applies a named group of distribution offices on the registe
         syncDistSelectAllState();
     };
 
+    /**
+     * Handles dist office check change event or response.
+     */
     window.onDistOfficeCheckChange = function () {
         syncDistSelectAllState();
     };
 
+    /**
+     * Moves selected dist offices.
+     *
+     * @param {*} direction
+     */
     window.moveSelectedDistOffices = function (direction) {
         const selected = getSelectedDistRows();
         if (!selected.length) {
@@ -114,6 +137,9 @@ DCS file: Saves and applies a named group of distribution offices on the registe
         </td>`;
     };
 
+    /**
+     * Ensures dist table header.
+     */
     function ensureDistTableHeader() {
         const table = document.querySelector('#distBody')?.closest('table');
         if (!table) return;
@@ -151,6 +177,11 @@ DCS file: Saves and applies a named group of distribution offices on the registe
     // Patch empty-row colspan for distBody.
     const _emptyOfficeRowHTML = window.emptyOfficeRowHTML;
     if (typeof _emptyOfficeRowHTML === 'function') {
+        /**
+         * Empties office row html.
+         *
+         * @param {*} bodyId
+         */
         window.emptyOfficeRowHTML = function (bodyId) {
             if (bodyId === 'distBody') {
                 const cols = document.querySelector('#distBody')?.closest('table')?.querySelector('.reg-dist-receipt-head') ? 5 : 4;
@@ -161,6 +192,9 @@ DCS file: Saves and applies a named group of distribution offices on the registe
         };
     }
 
+    /**
+     * Renders and synchronizes dist office group chips in the DOM.
+     */
     function renderDistOfficeGroupChips() {
         const wrap = document.getElementById('distOfficeGroupChips');
         if (!wrap) return;
@@ -188,12 +222,22 @@ DCS file: Saves and applies a named group of distribution offices on the registe
         });
     }
 
+    /**
+     * Retrieves and returns group.
+     *
+     * @param {*} id
+     */
     function findGroup(id) {
         return (window.__distOfficeGroups || []).find((g) => Number(g.id) === Number(id)) || null;
     }
 
     let pendingDeleteGroupId = null;
 
+    /**
+     * Applies dist office group.
+     *
+     * @param {*} groupId
+     */
     window.applyDistOfficeGroup = function (groupId) {
         if (typeof isDistOfficesLockedFromDrf === 'function' && isDistOfficesLockedFromDrf()) {
             alert('Distribution offices from the submitted DRF cannot be replaced.');
@@ -244,6 +288,9 @@ DCS file: Saves and applies a named group of distribution offices on the registe
         syncDistSelectAllState();
     };
 
+    /**
+     * Displays the save dist office group modal.
+     */
     window.openSaveDistOfficeGroupModal = function () {
         if (!getDistRows().length) {
             alert('Add offices to the distribution list before saving a group.');
@@ -261,6 +308,9 @@ DCS file: Saves and applies a named group of distribution offices on the registe
         }
     };
 
+    /**
+     * Closes and hides the save dist office group modal.
+     */
     window.closeSaveDistOfficeGroupModal = function () {
         const modal = document.getElementById('distOfficeGroupModal');
         if (modal) {
@@ -269,6 +319,11 @@ DCS file: Saves and applies a named group of distribution offices on the registe
         }
     };
 
+    /**
+     * Submits and sends save dist office group request.
+     *
+     * @param {*} overwrite
+     */
     window.submitSaveDistOfficeGroup = async function (overwrite) {
         const name = (document.getElementById('distOfficeGroupName')?.value || '').trim();
         const err = document.getElementById('distOfficeGroupModalError');
@@ -326,6 +381,11 @@ DCS file: Saves and applies a named group of distribution offices on the registe
         }
     };
 
+    /**
+     * Removes specified dist office group.
+     *
+     * @param {*} groupId
+     */
     window.deleteDistOfficeGroup = function (groupId) {
         const group = findGroup(groupId);
         if (!group) return;
@@ -342,6 +402,9 @@ DCS file: Saves and applies a named group of distribution offices on the registe
         }
     };
 
+    /**
+     * Closes and hides the delete dist office group modal.
+     */
     window.closeDeleteDistOfficeGroupModal = function () {
         pendingDeleteGroupId = null;
         const modal = document.getElementById('distOfficeGroupDeleteModal');
@@ -351,6 +414,9 @@ DCS file: Saves and applies a named group of distribution offices on the registe
         }
     };
 
+    /**
+     * Confirms delete dist office group.
+     */
     window.confirmDeleteDistOfficeGroup = async function () {
         const groupId = pendingDeleteGroupId;
         if (!groupId) return;

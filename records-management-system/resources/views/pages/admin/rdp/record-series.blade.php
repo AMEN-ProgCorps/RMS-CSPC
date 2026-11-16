@@ -115,6 +115,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public string $successMessage = '';
     public string $errorMessage = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -124,40 +128,71 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
     }
 
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
     public function updatingSearch(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the status filter property.
+     * @return void
+     */
     public function updatingStatusFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the per page property.
+     * @return void
+     */
     public function updatingPerPage(): void
     {
         // Start from the first page whenever the page size changes.
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the sort by property.
+     * @return void
+     */
     public function updatingSortBy(): void
     {
         // Start from the first page whenever the sort order changes.
         $this->resetPage();
     }
 
+    /**
+     * Selects tab and populates the details panel.
+     *
+     * @param string $tabKey
+     *
+     * @return void
+     */
     public function selectTab(string $tabKey): void
     {
         $this->activeTab = $tabKey;
         $this->resetPage();
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search = '';
@@ -165,6 +200,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->resetPage();
     }
 
+    /**
+     * Toggles the add form setting or state.
+     * @return void
+     */
     public function toggleAddForm(): void
     {
         if (!$this->showAddForm && $this->isCurrentTypeLocked()) {
@@ -186,6 +225,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
     }
 
+    /**
+     * Autos fill last item number.
+     * @return void
+     */
     public function autoFillLastItemNumber(): void
     {
         $typeQuery = DB::table('rdp_record_series')->whereNull('parent_id');
@@ -203,11 +246,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->series_title = '';
     }
 
+    /**
+     * Creates a new subsection record.
+     * @return void
+     */
     public function addSubsection(): void
     {
         $this->subsections[] = '';
     }
 
+    /**
+     * Deletes or deactivates the specified subsection.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeSubsection(int $index): void
     {
         if (isset($this->subsections[$index])) {
@@ -216,18 +270,36 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
     }
 
+    /**
+     * Selects bracket suggestion and populates the details panel.
+     *
+     * @param string $bracketName
+     *
+     * @return void
+     */
     public function selectBracketSuggestion(string $bracketName): void
     {
         $this->bracketInput = trim($bracketName);
         $this->showBracketDropdown = false;
     }
 
+    /**
+     * Selects edit bracket suggestion and populates the details panel.
+     *
+     * @param string $bracketName
+     *
+     * @return void
+     */
     public function selectEditBracketSuggestion(string $bracketName): void
     {
         $this->editBracketInput = trim($bracketName);
         $this->showEditBracketDropdown = false;
     }
 
+    /**
+     * Lifecycle hook executed after updating the edit parent input property.
+     * @return void
+     */
     public function updatedEditParentInput(): void
     {
         // Typing invalidates any previous pick — a parent must come from the
@@ -236,6 +308,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->editParentId = null;
     }
 
+    /**
+     * Selects edit parent suggestion and populates the details panel.
+     *
+     * @param int $seriesId
+     *
+     * @return void
+     */
     public function selectEditParentSuggestion(int $seriesId): void
     {
         // The edited row itself can never be its own parent.
@@ -253,6 +332,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->showEditParentDropdown = false;
     }
 
+    /**
+     * Resets edit parent and clears active selections.
+     * @return void
+     */
     public function clearEditParent(): void
     {
         $this->editParentId = null;
@@ -260,22 +343,41 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->showEditParentDropdown = false;
     }
 
+    /**
+     * Lifecycle hook executed after updating the series title property.
+     * @return void
+     */
     public function updatedSeriesTitle(): void
     {
         $this->showParentDropdown = true;
     }
 
+    /**
+     * Lifecycle hook executed after updating the bracket input property.
+     * @return void
+     */
     public function updatedBracketInput(): void
     {
         $this->showBracketDropdown = true;
     }
 
+    /**
+     * Selects parent suggestion and populates the details panel.
+     *
+     * @param string $title
+     *
+     * @return void
+     */
     public function selectParentSuggestion(string $title): void
     {
         $this->series_title = trim($title);
         $this->showParentDropdown = false;
     }
 
+    /**
+     * Displays the add type modal.
+     * @return void
+     */
     public function openAddTypeModal(): void
     {
         $this->newTypeName = '';
@@ -283,6 +385,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->showAddTypeModal = true;
     }
 
+    /**
+     * Closes the add type modal.
+     * @return void
+     */
     public function closeAddTypeModal(): void
     {
         $this->showAddTypeModal = false;
@@ -290,6 +396,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->newTypeShortCode = '';
     }
 
+    /**
+     * Displays the import modal.
+     * @return void
+     */
     public function openImportModal(): void
     {
         if ($this->isCurrentTypeLocked()) {
@@ -308,12 +418,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->showImportModal = true;
     }
 
+    /**
+     * Closes the import modal.
+     * @return void
+     */
     public function closeImportModal(): void
     {
         $this->importFile = null;
         $this->showImportModal = false;
     }
 
+    /**
+     * Persists record type changes to the database.
+     * @return void
+     */
     public function saveRecordType(): void
     {
         $this->clearMessages();
@@ -369,6 +487,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
     }
 
+    /**
+     * Resolves bracket id.
+     *
+     * @param string $inputName
+     *
+     * @return ?int
+     */
     public function resolveBracketId(string $inputName): ?int
     {
         $inputName = trim($inputName);
@@ -392,6 +517,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         ]);
     }
 
+    /**
+     * Resolves office code.
+     *
+     * @param ?string $input
+     * @param bool $onlyExisting
+     *
+     * @return ?string
+     */
     public function resolveOfficeCode(?string $input, bool $onlyExisting = false): ?string
     {
         $input = trim(rtrim($input ?? '', ';'));
@@ -415,6 +548,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         return $onlyExisting ? null : mb_strtoupper($input);
     }
 
+    /**
+     * Computes total period.
+     *
+     * @param ?string $active
+     * @param ?string $storage
+     * @param bool $isPermanent
+     *
+     * @return string
+     */
     public function computeTotalPeriod(?string $active, ?string $storage, bool $isPermanent): string
     {
         if ($isPermanent) {
@@ -469,6 +611,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         return $active . ' + ' . $storage;
     }
 
+    /**
+     * Resolves effective retention.
+     *
+     * @param array $allSeriesMap
+     * @param object $record
+     *
+     * @return object
+     */
     private function resolveEffectiveRetention(array $allSeriesMap, object $record): object
     {
         $current = $record;
@@ -526,6 +676,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         ];
     }
 
+    /**
+     * Builds grouped tree hierarchy.
+     *
+     * @param array $records
+     *
+     * @return array
+     */
     private function buildGroupedTreeHierarchy(array $records): array
     {
         $byBracketAndOffice = [];
@@ -637,6 +794,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         return $finalOrdered;
     }
 
+    /**
+     * Resets add form and clears active selections.
+     * @return void
+     */
     public function resetAddForm(): void
     {
         $this->newItemNumber = '';
@@ -660,6 +821,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->relativeRecordTitle = '';
     }
 
+    /**
+     * Displays the add row dialog or panel.
+     *
+     * @param int $recordId
+     * @param string $position
+     *
+     * @return void
+     */
     public function openAddRow(int $recordId, string $position = 'below'): void
     {
         if ($this->isCurrentTypeLocked()) {
@@ -707,6 +876,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->showAddForm = true;
     }
 
+    /**
+     * Creates a new series record.
+     * @return void
+     */
     public function addSeries(): void
     {
         $this->clearMessages();
@@ -845,6 +1018,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
     }
 
+    /**
+     * Starts edit.
+     *
+     * @param int $seriesId
+     *
+     * @return void
+     */
     public function startEdit(int $seriesId): void
     {
         $this->clearMessages();
@@ -904,11 +1084,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->showEditParentDropdown = false;
     }
 
+    /**
+     * Resets edit and clears active selections.
+     * @return void
+     */
     public function cancelEdit(): void
     {
         $this->editingId = null;
     }
 
+    /**
+     * Updates series.
+     * @return void
+     */
     public function updateSeries(): void
     {
         $this->clearMessages();
@@ -1205,6 +1393,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->showSubsectionModal = true;
     }
 
+    /**
+     * Closes the subsection modal.
+     * @return void
+     */
     public function closeSubsectionModal(): void
     {
         $this->showSubsectionModal = false;
@@ -1223,6 +1415,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->subsectionIsSuperseding = false;
     }
 
+    /**
+     * Persists subsections changes to the database.
+     * @return void
+     */
     public function saveSubsections(): void
     {
         $this->clearMessages();
@@ -1351,6 +1547,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->closeSubsectionModal();
     }
 
+    /**
+     * Processes and imports record series from uploaded file.
+     * @return void
+     */
     public function importRecordSeries(): void
     {
         $this->clearMessages();
@@ -1671,6 +1871,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
     }
 
+    /**
+     * Toggles the active setting or state.
+     *
+     * @param int $seriesId
+     *
+     * @return void
+     */
     public function toggleActive(int $seriesId): void
     {
         $this->clearMessages();
@@ -1701,6 +1908,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->successMessage = "Record Series \"{$series->series_title}\" has been {$statusText}.";
     }
 
+    /**
+     * Deletes or deactivates the specified series.
+     *
+     * @param int $seriesId
+     *
+     * @return void
+     */
     public function deleteSeries(int $seriesId): void
     {
         $this->clearMessages();
@@ -1763,6 +1977,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->first();
     }
 
+    /**
+     * Logs type action.
+     *
+     * @param string $message
+     *
+     * @return void
+     */
     private function logTypeAction(string $message): void
     {
         DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
@@ -1822,6 +2043,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         return (bool) ($type && $type->is_active);
     }
 
+    /**
+     * Is current type locked.
+     * @return bool
+     */
     public function isCurrentTypeLocked(): bool
     {
         if (!is_numeric($this->activeTab)) {
@@ -1836,6 +2061,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         return (bool) ($type && !empty($type->is_locked));
     }
 
+    /**
+     * Toggles the lock record type setting or state.
+     *
+     * @param ?string $typeId
+     *
+     * @return void
+     */
     public function toggleLockRecordType(?string $typeId = null): void
     {
         $this->clearMessages();
@@ -1866,6 +2098,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->successMessage = "Record Type '{$t->type_name}' is now {$state}.";
     }
 
+    /**
+     * Displays the rename type modal.
+     *
+     * @param string $typeId
+     *
+     * @return void
+     */
     public function openRenameTypeModal(string $typeId): void
     {
         $this->clearMessages();
@@ -1885,6 +2124,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->showRenameTypeModal = true;
     }
 
+    /**
+     * Closes the rename type modal.
+     * @return void
+     */
     public function closeRenameTypeModal(): void
     {
         $this->showRenameTypeModal = false;
@@ -1894,6 +2137,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->renameTypeIdentifier = null;
     }
 
+    /**
+     * Persists type rename changes to the database.
+     * @return void
+     */
     public function saveTypeRename(): void
     {
         $this->clearMessages();
@@ -2047,6 +2294,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->showTypeActionModal = true;
     }
 
+    /**
+     * Closes the type action modal.
+     * @return void
+     */
     public function closeTypeActionModal(): void
     {
         $this->showTypeActionModal = false;
@@ -2057,6 +2308,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->typeActionConfirmLabel = '';
     }
 
+    /**
+     * Runs type action.
+     * @return void
+     */
     public function runTypeAction(): void
     {
         $this->clearMessages();
@@ -2077,6 +2332,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
     }
 
+    /**
+     * Counts scope series.
+     *
+     * @param string $target
+     * @param bool $activeOnly
+     *
+     * @return int
+     */
     private function countScopeSeries(string $target, bool $activeOnly = true): int
     {
         $query = DB::table('rdp_record_series');
@@ -2094,6 +2357,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         return $query->count();
     }
 
+    /**
+     * Runs clear data.
+     *
+     * @param string $target
+     *
+     * @return void
+     */
     private function runClearData(string $target): void
     {
         $label = 'Unregistered';
@@ -2129,6 +2399,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->successMessage = "{$count} record series under \"{$label}\" were cleared and moved to the Recycle Bin.";
     }
 
+    /**
+     * Runs remove type.
+     *
+     * @param string $target
+     *
+     * @return void
+     */
     private function runRemoveType(string $target): void
     {
         $type = $this->findSeriesType($target);
@@ -2415,6 +2692,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         return [$name, $short];
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         // Removed (soft deleted) types are hidden; deactivated ones stay listed
@@ -3043,6 +3324,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             if (!active) return storage;
             if (!storage) return active;
             
+            /**
+             * Parses retention period string into years and months tuple.
+             *
+             * @param {string} s - Period duration string to parse.
+             * @returns {[number, number]} Array containing [years, months].
+             */
             function parse(s) {
                 let y = 0, m = 0;
                 let ym = s.match(/(\d+)\s*(?:years?|yrs?|y)/i);

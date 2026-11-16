@@ -15,6 +15,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
     public string $dateFilter = '';
     public string $officeFilter = '';
 
+    /**
+     * Dcs system id.
+     * @return int
+     */
     private function dcsSystemId(): int
     {
         return (int) DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')
@@ -22,6 +26,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
             ->value('subsystem_id');
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -38,31 +46,55 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
         }
     }
 
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
     public function updatingSearch(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the action filter property.
+     * @return void
+     */
     public function updatingActionFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the area filter property.
+     * @return void
+     */
     public function updatingAreaFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the date filter property.
+     * @return void
+     */
     public function updatingDateFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed before updating the office filter property.
+     * @return void
+     */
     public function updatingOfficeFilter(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search = '';
@@ -73,6 +105,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
         $this->resetPage();
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $systemId = $this->dcsSystemId();

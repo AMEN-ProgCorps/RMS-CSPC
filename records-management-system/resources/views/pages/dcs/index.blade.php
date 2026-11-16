@@ -116,6 +116,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 ->selectRaw('COUNT(*)::int as current');
         }
         $byTypeId = $counts->get()->keyBy(fn ($row) => (int) $row->doc_type_id);
+        /**
+         * $counts for.
+         */
         $countFor = function (string $key) use ($byTypeId, $typeIds): int {
             $row = $byTypeId->get((int) ($typeIds[$key] ?? 0));
 

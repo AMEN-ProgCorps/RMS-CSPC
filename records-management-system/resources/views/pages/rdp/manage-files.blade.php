@@ -27,6 +27,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
     public bool $showDocumentModal = false;
     public ?string $previewDocId = null;
 
+    /**
+     * Displays the metadata modal.
+     *
+     * @param ?string $docId
+     *
+     * @return void
+     */
     public function openMetadataModal(?string $docId = null): void
     {
         $this->metadataDocId = $docId ?: $this->selectedFileId;
@@ -35,12 +42,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
         }
     }
 
+    /**
+     * Closes the metadata modal.
+     * @return void
+     */
     public function closeMetadataModal(): void
     {
         $this->showMetadataModal = false;
         $this->metadataDocId = null;
     }
 
+    /**
+     * Displays the document modal.
+     *
+     * @param ?string $docId
+     *
+     * @return void
+     */
     public function openDocumentModal(?string $docId = null): void
     {
         $this->previewDocId = $docId ?: $this->selectedFileId;
@@ -49,12 +67,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
         }
     }
 
+    /**
+     * Closes the document modal.
+     * @return void
+     */
     public function closeDocumentModal(): void
     {
         $this->showDocumentModal = false;
         $this->previewDocId = null;
     }
 
+    /**
+     * Sets the active tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
     public function setTab(string $tab): void
     {
         $this->activeTab = $tab;
@@ -62,6 +91,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
         $this->resetPage();
     }
 
+    /**
+     * Sets the active view mode.
+     *
+     * @param string $mode
+     *
+     * @return void
+     */
     public function setViewMode(string $mode): void
     {
         $this->viewMode = $mode;
@@ -69,20 +105,47 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed after updating the per page property.
+     * @return void
+     */
     public function updatedPerPage(): void
     {
         $this->resetPage();
     }
 
+    /**
+     * Lifecycle hook executed after updating the search property.
+     * @return void
+     */
     public function updatedSearch(): void    { $this->resetPage(); }
+    /**
+     * Lifecycle hook executed after updating the selected office property.
+     * @return void
+     */
     public function updatedSelectedOffice(): void { $this->resetPage(); }
+    /**
+     * Lifecycle hook executed after updating the sort by property.
+     * @return void
+     */
     public function updatedSortBy(): void    { $this->resetPage(); }
 
+    /**
+     * Toggles the direction setting or state.
+     * @return void
+     */
     public function toggleDirection(): void
     {
         $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
     }
 
+    /**
+     * Selects file and populates the details panel.
+     *
+     * @param ?string $fileId
+     *
+     * @return void
+     */
     public function selectFile(?string $fileId): void
     {
         if ($this->selectedFileId === $fileId) {
@@ -92,11 +155,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
         }
     }
 
+    /**
+     * Closes or dismisses the inspector.
+     * @return void
+     */
     public function closeInspector(): void
     {
         $this->selectedFileId = null;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $user = Auth::user();

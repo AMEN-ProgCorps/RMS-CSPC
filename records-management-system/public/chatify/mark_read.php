@@ -5,12 +5,9 @@
 
 require_once __DIR__ . '/bootstrap.php';
 
-$internalSecret = $_SERVER['HTTP_X_INTERNAL_SECRET'] ?? '';
-$internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
-
-if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret) && $internalAccId > 0) {
-    $myAccountId = $internalAccId;
-} else {
+$myAccountId = 0;
+$isInternalCall = Auth::isTrustedInternalCall($myAccountId);
+if (!$isInternalCall) {
     session_start();
     Auth::require();
     session_write_close();
@@ -64,7 +61,7 @@ echo json_encode(['success' => true]);
 // updates in real time instead of waiting for their next poll. Admin (1)
 // is included too, for spymode parity with other DM events. Deferred until
 // after the response above is flushed — see WsPush::flushResponseThenRun().
-if ($lastMsgUuid !== null && $internalSecret === '') {
+if ($lastMsgUuid !== null && !$isInternalCall) {
     WsPush::flushResponseThenRun(function () use ($targetId, $myAccountId, $lastMsgUuid) {
         $readRecipients = array_values(array_unique(array_merge([$targetId], Auth::getAllSuperAdminIds())));
         WsPush::push($readRecipients, 'message_read', [

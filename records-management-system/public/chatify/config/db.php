@@ -62,20 +62,10 @@ if (!defined('LARAVEL_DB_PASS')) define('LARAVEL_DB_PASS', getEnvValue('DB_PASSW
 // Must match the value in your Laravel .env:   CHAT_SHARED_SECRET=...
 // Generate a strong one: php -r "echo bin2hex(random_bytes(32));"
 // -----------------------------------------------------------------------------
-if (!defined('CHAT_SHARED_SECRET')) define('CHAT_SHARED_SECRET', getEnvValue('CHAT_SHARED_SECRET', '7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd'));
-// SECURITY: change this in your actual .env in every environment. The value
-// above is a public default shared by this codebase's docs/example config —
-// if it's still in effect in production, anyone can forge a valid ws_token
-// for any account_id. Treat this exactly like a leaked secret until rotated.
-
-// -----------------------------------------------------------------------------
-// ws-server internal push endpoint — lets PHP force-disconnect an account's
-// live WebSocket the instant its RMS session is invalidated (logout, admin
-// kick, etc.) instead of waiting for the socket's own token to expire.
-// -----------------------------------------------------------------------------
-$defaultWsHost = (getenv('DB_HOST') === 'db' || LARAVEL_DB_HOST === 'db' || file_exists('/.dockerenv')) ? 'websocket' : '127.0.0.1';
-if (!defined('WS_INTERNAL_PUSH_URL')) define('WS_INTERNAL_PUSH_URL', getEnvValue('WS_INTERNAL_PUSH_URL', "http://{$defaultWsHost}:8080/internal/push"));
-if (!defined('INTERNAL_PUSH_SECRET')) define('INTERNAL_PUSH_SECRET', getEnvValue('INTERNAL_PUSH_SECRET', CHAT_SHARED_SECRET));
+// Must be defined in your .env / .env.docker: CHAT_SHARED_SECRET=...
+// Never fall back to a hardcoded default string.
+if (!defined('CHAT_SHARED_SECRET')) define('CHAT_SHARED_SECRET', (string) getEnvValue('CHAT_SHARED_SECRET', ''));
+if (!defined('INTERNAL_PUSH_SECRET')) define('INTERNAL_PUSH_SECRET', (string) getEnvValue('INTERNAL_PUSH_SECRET', CHAT_SHARED_SECRET));
 
 // -----------------------------------------------------------------------------
 // Token TTL - how many seconds a Laravel-issued entry token remains valid

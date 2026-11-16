@@ -13,6 +13,14 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
     public bool $isProcessing = false;
     public string $deviceInfoJson = '';
 
+    /**
+     * Tracks action.
+     *
+     * @param ?string $code
+     * @param ?string $deviceInfo
+     *
+     * @return void
+     */
     public function track(?string $code = null, ?string $deviceInfo = null): void
     {
         if (!empty($code)) {
@@ -380,10 +388,16 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
     // ==========================================
     let currentActivePane = 'white';
 
+    /**
+     * Checks whether mobile condition is met.
+     */
     function isMobile() {
         return window.innerWidth <= 992;
     }
 
+    /**
+     * Initializes and sets up mobile swipe.
+     */
     function initMobileSwipe() {
         const wrapper = document.getElementById('main-swipe-wrapper');
         const whitePane = document.getElementById('pane-white');
@@ -393,6 +407,9 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         }
     }
 
+    /**
+     * Initializes and sets up swipe.
+     */
     function setupSwipe() {
         const wrapper = document.getElementById('main-swipe-wrapper');
         const whitePane = document.getElementById('pane-white');
@@ -436,12 +453,24 @@ if (typeof Html5Qrcode === 'undefined') {
     let availableCameras = [];
     let currentCameraIndex = 0;
 
+    /**
+     * Retrieves and returns modal.
+     */
     function getModal() { return document.getElementById('public-scanner-modal'); }
+    /**
+     * Retrieves and returns input.
+     */
     function getInput() { return document.getElementById('tracking-input'); }
+    /**
+     * Retrieves and returns form.
+     */
     function getForm() { return document.getElementById('track-form'); }
 
     let currentFacingMode = 'environment';
 
+    /**
+     * Clears and resets public media tracks.
+     */
     function releasePublicMediaTracks() {
         try {
             const preview = document.getElementById('public-qr-preview');
@@ -459,6 +488,9 @@ if (typeof Html5Qrcode === 'undefined') {
         }
     }
 
+    /**
+     * Stops and cleans up public scanner.
+     */
     async function stopPublicScanner() {
         if (publicHtml5QrCode) {
             try {
@@ -472,6 +504,9 @@ if (typeof Html5Qrcode === 'undefined') {
         releasePublicMediaTracks();
     }
 
+    /**
+     * Displays the scanner modal.
+     */
     async function openScannerModal() {
         const modal = getModal();
         if (!modal) return;
@@ -479,6 +514,9 @@ if (typeof Html5Qrcode === 'undefined') {
         switchTab('camera');
     }
 
+    /**
+     * Closes and hides the scanner modal.
+     */
     async function closeScannerModal() {
         const modal = getModal();
         if (modal) modal.style.display = 'none';
@@ -486,6 +524,11 @@ if (typeof Html5Qrcode === 'undefined') {
         resetFileStatus();
     }
 
+    /**
+     * Toggles or switches tab.
+     *
+     * @param {*} tab
+     */
     function switchTab(tab) {
         const camBtn = document.getElementById('tab-camera-btn');
         const fileBtn = document.getElementById('tab-file-btn');
@@ -507,6 +550,11 @@ if (typeof Html5Qrcode === 'undefined') {
         }
     }
 
+    /**
+     * Starts and initializes camera.
+     *
+     * @param {*} cameraTarget
+     */
     async function startCamera(cameraTarget = null) {
         const placeholder = document.getElementById('public-camera-placeholder');
         const statusEl = document.getElementById('scanner-camera-status');
@@ -623,6 +671,9 @@ if (typeof Html5Qrcode === 'undefined') {
         }
     }
 
+    /**
+     * Toggles or switches camera.
+     */
     async function switchCamera() {
         if (availableCameras && availableCameras.length > 1) {
             currentCameraIndex = (currentCameraIndex + 1) % availableCameras.length;
@@ -634,6 +685,11 @@ if (typeof Html5Qrcode === 'undefined') {
         }
     }
 
+    /**
+     * Handles successful scan event or response.
+     *
+     * @param {*} decodedText
+     */
     function handleSuccessfulScan(decodedText) {
         const cleaned = decodedText ? decodedText.trim() : '';
         if (!cleaned) return;
@@ -660,6 +716,12 @@ if (typeof Html5Qrcode === 'undefined') {
         closeScannerModal();
     }
 
+    /**
+     * Sets the file status value.
+     *
+     * @param {*} msg
+     * @param {*} type
+     */
     function setFileStatus(msg, type) {
         const el = document.getElementById('scanner-file-status');
         if (!el) return;
@@ -668,6 +730,9 @@ if (typeof Html5Qrcode === 'undefined') {
         el.style.display = 'block';
     }
 
+    /**
+     * Clears and resets file status.
+     */
     function resetFileStatus() {
         const el = document.getElementById('scanner-file-status');
         if (el) {
@@ -678,6 +743,11 @@ if (typeof Html5Qrcode === 'undefined') {
         if (fileInput) fileInput.value = '';
     }
 
+    /**
+     * Handles file scan event or response.
+     *
+     * @param {*} file
+     */
     async function handleFileScan(file) {
         if (!file || !file.type.startsWith('image/')) {
             setFileStatus('Please select a valid image file (PNG, JPG, WEBP).', 'error');
@@ -703,6 +773,9 @@ if (typeof Html5Qrcode === 'undefined') {
         }
     }
 
+    /**
+     * Initializes and sets up public scanner.
+     */
     function setupPublicScanner() {
         const openBtn = document.getElementById('open-public-scanner-btn');
         const closeBtn = document.getElementById('close-public-scanner-btn');
@@ -780,12 +853,23 @@ if (typeof Html5Qrcode === 'undefined') {
     let submitting = false;
     let cleanupTrackResult = null;
 
+    /**
+     * Retrieves and returns device.
+     */
     function getDevice() {
         try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; }
     }
 
+    /**
+     * Persists device to local storage or state.
+     *
+     * @param {*} d
+     */
     function saveDevice(d) { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); }
 
+    /**
+     * Initializes and sets up device.
+     */
     function initDevice() {
         let d = getDevice();
         if (!d || typeof d !== 'object') {
@@ -802,6 +886,15 @@ if (typeof Html5Qrcode === 'undefined') {
         return d;
     }
 
+    /**
+     * Displays the tracking modal.
+     *
+     * @param {*} type
+     * @param {*} title
+     * @param {*} message
+     * @param {*} code
+     * @param {*} showClose
+     */
     window.showTrackingModal = function (type, title, message, code = '', showClose = false) {
         const modalEl = document.getElementById('tracking-status-modal');
         const iconWrapEl = document.getElementById('tsm-icon-wrap');
@@ -839,6 +932,9 @@ if (typeof Html5Qrcode === 'undefined') {
         };
     };
 
+    /**
+     * Closes and hides the tracking modal.
+     */
     window.hideTrackingModal = function () {
         const modalEl = document.getElementById('tracking-status-modal');
         if (modalEl) modalEl.style.display = 'none';
@@ -846,6 +942,9 @@ if (typeof Html5Qrcode === 'undefined') {
         window.isTrackingSubmitting = false;
     };
 
+    /**
+     * Submits and sends tracking request.
+     */
     window.submitTracking = async function () {
         if (submitting || window.isTrackingSubmitting) return;
 
@@ -958,12 +1057,18 @@ if (typeof Html5Qrcode === 'undefined') {
         }
     };
 
+    /**
+     * Initializes setup component.
+     */
     function setup() {
         const form = document.getElementById('track-form');
         if (!form) return;
 
         initDevice();
 
+        /**
+         * Binds and registers result listener event listeners.
+         */
         function bindResultListener() {
             if (typeof Livewire === 'undefined') return;
             if (cleanupTrackResult) { cleanupTrackResult(); cleanupTrackResult = null; }
@@ -1076,6 +1181,9 @@ if (typeof Html5Qrcode === 'undefined') {
 })();
 </script>
 <script>
+/**
+ * Validates and verifies device status.
+ */
 window.checkDeviceStatus = function () {
     const KEY = 'rms_tracking_device';
     let d;
@@ -1107,6 +1215,9 @@ window.checkDeviceStatus = function () {
 
     return d;
 };
+/**
+ * Clears and resets tracking device.
+ */
 window.resetTrackingDevice = function () {
     const KEY = 'rms_tracking_device';
     localStorage.removeItem(KEY);

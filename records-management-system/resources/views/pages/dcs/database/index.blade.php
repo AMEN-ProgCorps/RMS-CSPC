@@ -39,6 +39,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $notice = '';
     public bool $exportAllColumns = false;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         RegisterQueryHelper::assertFullDcsUser('database');
@@ -57,6 +61,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Updated action.
+     *
+     * @param mixed $name
+     *
+     * @return void
+     */
     public function updated($name): void
     {
         if (in_array($name, ['page', 'notice'], true)) {
@@ -65,12 +76,23 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->page = 1;
     }
 
+    /**
+     * Sets the active type.
+     *
+     * @param string $id
+     *
+     * @return void
+     */
     public function setType(string $id): void
     {
         $this->docTypeId = $id;
         $this->page = 1;
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function resetFilters(): void
     {
         $this->subTypeId = 'all';
@@ -91,6 +113,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->page = 1;
     }
 
+    /**
+     * Gos to page.
+     *
+     * @param int $page
+     *
+     * @return void
+     */
     public function goToPage(int $page): void
     {
         $this->page = max(1, $page);
@@ -112,6 +141,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         );
     }
 
+    /**
+     * Exports data.
+     */
     public function export()
     {
         $list = $this->listing(paginate: false);
@@ -199,6 +231,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ]);
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $catalog = $this->catalog();
@@ -223,6 +259,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ]);
     }
 
+    /**
+     * Catalogs action.
+     * @return array
+     */
     private function catalog(): array
     {
         return Cache::remember('dcs.database.catalog.v1', 90, function () {
@@ -230,6 +270,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         });
     }
 
+    /**
+     * Retrieves and populates catalog data.
+     * @return array
+     */
     private function loadCatalog(): array
     {
         $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
@@ -266,6 +310,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
     }
 
+    /**
+     * Listings action.
+     *
+     * @param bool $paginate
+     *
+     * @return array
+     */
     private function listing(bool $paginate = true): array
     {
         try {
@@ -705,6 +756,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Lights inventory rows.
+     *
+     * @param mixed $query
+     * @param int $receivedOfficeId
+     *
+     * @return \Illuminate\Support\Collection
+     */
     private function lightInventoryRows($query, int $receivedOfficeId = 0): \Illuminate\Support\Collection
     {
         $select = [
@@ -837,6 +896,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }, $groups);
     }
 
+    /**
+     * Maps document.
+     *
+     * @param object $doc
+     *
+     * @return array
+     */
     private function mapDocument(object $doc): array
     {
         $hasSyllabi = $doc->syllabi->isNotEmpty();
@@ -1019,6 +1085,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
     }
 
+    /**
+     * Revisions status label.
+     *
+     * @param ?string $status
+     *
+     * @return string
+     */
     private function revisionStatusLabel(?string $status): string
     {
         return match (strtolower(trim((string) $status))) {
@@ -1203,11 +1276,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return $edges;
     }
 
+    /**
+     * Renumbers group key.
+     *
+     * @param mixed $docNo
+     * @param mixed $docTypeId
+     * @param mixed $subTypeId
+     *
+     * @return string
+     */
     private function renumberGroupKey(mixed $docNo, mixed $docTypeId, mixed $subTypeId): string
     {
         return strtolower(trim((string) $docNo)) . '||' . (int) $docTypeId . '||' . (int) $subTypeId;
     }
 
+    /**
+     * Exports and downloads row data.
+     *
+     * @param array $r
+     * @param string $itemNo
+     *
+     * @return array
+     */
     private function exportRow(array $r, string $itemNo): array
     {
         $related = collect($r['related'] ?? [])
@@ -1260,6 +1350,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
     }
 
+    /**
+     * Exports and downloads file url data.
+     *
+     * @param ?string $path
+     *
+     * @return string
+     */
     private function exportFileUrl(?string $path): string
     {
         if (! $path) {
@@ -1269,6 +1366,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return str_starts_with($path, 'http') ? $path : url($path);
     }
 
+    /**
+     * Formats and prepares time data.
+     *
+     * @param mixed $time
+     *
+     * @return ?string
+     */
     private function formatTime($time): ?string
     {
         if (! $time) {
@@ -2452,6 +2556,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 </div>
 
 <script>
+/**
+ * Dcs offices clamp.
+ *
+ * @param {*} offices
+ * @param {*} highlightOffice
+ */
 window.dcsOfficesClamp = function (offices, highlightOffice) {
     return {
         offices: Array.isArray(offices) ? offices.filter(Boolean) : [],
@@ -2616,6 +2726,11 @@ window.dcsOfficesClamp = function (offices, highlightOffice) {
     };
 };
 
+/**
+ * Dcs text clamp.
+ *
+ * @param {*} text
+ */
 window.dcsTextClamp = function (text) {
     return {
         fullText: String(text ?? '').trim(),

@@ -760,6 +760,11 @@
     </div>
 
     <script>
+        /**
+         * Toggles or switches subject display.
+         *
+         * @param {*} showAll
+         */
         function toggleSubjectDisplay(showAll) {
             const truncatedList = document.querySelectorAll('.subject-truncated');
             const fullList = document.querySelectorAll('.subject-full');

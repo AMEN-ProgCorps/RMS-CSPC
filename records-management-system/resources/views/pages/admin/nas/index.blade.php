@@ -42,6 +42,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
     public ?string $successMessage = null;
     public ?string $errorMessage = null;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -51,6 +55,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         }
     }
 
+    /**
+     * Navigates to.
+     *
+     * @param string $prefix
+     *
+     * @return void
+     */
     public function navigateTo(string $prefix): void
     {
         $this->currentPrefix = trim($prefix, '/');
@@ -60,6 +71,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         $this->clearMessages();
     }
 
+    /**
+     * Navigates up.
+     * @return void
+     */
     public function navigateUp(): void
     {
         if (empty($this->currentPrefix)) {
@@ -73,6 +88,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         $this->clearMessages();
     }
 
+    /**
+     * Selects item and populates the details panel.
+     *
+     * @param string $path
+     * @param string $type
+     *
+     * @return void
+     */
     public function selectItem(string $path, string $type): void
     {
         $this->selectedPath = $path;
@@ -80,12 +103,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         $this->clearMessages();
     }
 
+    /**
+     * Resets selection and clears active selections.
+     * @return void
+     */
     public function clearSelection(): void
     {
         $this->selectedPath = null;
         $this->selectedType = null;
     }
 
+    /**
+     * Tests connection.
+     * @return void
+     */
     public function testConnection(): void
     {
         $ok = NasStorageService::testWrite();
@@ -96,12 +127,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         }
     }
 
+    /**
+     * Displays the new folder modal.
+     * @return void
+     */
     public function openNewFolderModal(): void
     {
         $this->newFolderName = '';
         $this->showNewFolderModal = true;
     }
 
+    /**
+     * Creates a new folder record.
+     * @return void
+     */
     public function createFolder(): void
     {
         $this->validate([
@@ -119,12 +158,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         }
     }
 
+    /**
+     * Displays the upload modal.
+     * @return void
+     */
     public function openUploadModal(): void
     {
         $this->uploadedFile = null;
         $this->showUploadModal = true;
     }
 
+    /**
+     * Submits and processes upload.
+     * @return void
+     */
     public function submitUpload(): void
     {
         $this->validate([
@@ -148,6 +195,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         }
     }
 
+    /**
+     * Displays the config modal.
+     * @return void
+     */
     public function openConfigModal(): void
     {
         $cfg = NasStorageService::loadConfiguration();
@@ -163,12 +214,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         $this->showConfigModal = true;
     }
 
+    /**
+     * Closes the config modal.
+     * @return void
+     */
     public function closeConfigModal(): void
     {
         $this->showConfigModal = false;
         $this->configTestResult = null;
     }
 
+    /**
+     * Tests config connection.
+     * @return void
+     */
     public function testConfigConnection(): void
     {
         $this->isTestingConfig = true;
@@ -185,6 +244,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         $this->configTestResult = $res['message'];
     }
 
+    /**
+     * Persists configuration changes to the database.
+     * @return void
+     */
     public function saveConfiguration(): void
     {
         $this->validate([
@@ -216,6 +279,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         }
     }
 
+    /**
+     * Exports and downloads item data.
+     *
+     * @param string $path
+     */
     public function downloadItem(string $path)
     {
         try {
@@ -232,6 +300,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         }
     }
 
+    /**
+     * Deletes or deactivates the specified item.
+     *
+     * @param string $path
+     * @param string $type
+     *
+     * @return void
+     */
     public function deleteItem(string $path, string $type): void
     {
         $isDir = ($type === 'directory');
@@ -248,12 +324,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - NAS Datastore File Brows
         }
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = null;
         $this->errorMessage = null;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $status = NasStorageService::getStatus();

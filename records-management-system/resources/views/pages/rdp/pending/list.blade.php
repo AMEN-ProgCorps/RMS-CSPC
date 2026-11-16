@@ -70,22 +70,38 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public string $successMessage = '';
     public string $errorMessage = '';
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
+    /**
+     * Displays the cancel confirm modal.
+     * @return void
+     */
     public function openCancelConfirmModal(): void
     {
         $this->showCancelConfirmModal = true;
     }
 
+    /**
+     * Closes the cancel confirm modal.
+     * @return void
+     */
     public function closeCancelConfirmModal(): void
     {
         $this->showCancelConfirmModal = false;
     }
 
+    /**
+     * Resets cluster and clears active selections.
+     * @return void
+     */
     public function cancelCluster(): void
     {
         $this->showCancelConfirmModal = false;
@@ -146,6 +162,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         }
     }
 
+    /**
+     * Marks cluster printed.
+     * @return void
+     */
     public function markClusterPrinted(): void
     {
         $clusterId = (int)($this->printCluster?->cluster_id ?? 0);
@@ -181,6 +201,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         ]);
     }
 
+    /**
+     * Marks cluster downloaded.
+     *
+     * @param int $clusterId
+     * @param string $formCode
+     * @param string $fileType
+     *
+     * @return void
+     */
     public function markClusterDownloaded(int $clusterId, string $formCode, string $fileType = 'file'): void
     {
         if ($clusterId <= 0) return;
@@ -219,6 +248,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         ]);
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
@@ -240,11 +273,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         if ($fontSize) $this->rdpPrintFontSize = $fontSize;
     }
 
+    /**
+     * Toggles the layout setting or state.
+     * @return void
+     */
     public function toggleLayout(): void
     {
         $this->layoutMode = $this->layoutMode === 'table' ? 'box' : 'table';
     }
 
+    /**
+     * Sets the active tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
     public function setTab(string $tab): void
     {
         $this->activeTab = $tab;
@@ -254,6 +298,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->clearMessages();
     }
 
+    /**
+     * Retrieves and populates cluster data data.
+     *
+     * @param int $clusterId
+     * @param string $formType
+     *
+     * @return array
+     */
     public function fetchClusterData(int $clusterId, string $formType): array
     {
         $cluster = null;
@@ -410,6 +462,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return ['cluster' => $cluster, 'items' => $items];
     }
 
+    /**
+     * Displays the detail modal.
+     *
+     * @param int $clusterId
+     * @param string $formType
+     *
+     * @return void
+     */
     public function openDetailModal(int $clusterId, string $formType): void
     {
         $data = $this->fetchClusterData($clusterId, $formType);
@@ -420,6 +480,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         }
     }
 
+    /**
+     * Closes the detail modal.
+     * @return void
+     */
     public function closeDetailModal(): void
     {
         $this->showDetailModal = false;
@@ -428,6 +492,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->clusterItems = [];
     }
 
+    /**
+     * Displays the download modal.
+     *
+     * @param int $clusterId
+     * @param string $formType
+     *
+     * @return void
+     */
     public function openDownloadModal(int $clusterId, string $formType): void
     {
         $this->downloadClusterId = $clusterId;
@@ -438,6 +510,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->showDownloadModal = true;
     }
 
+    /**
+     * Closes the download modal.
+     * @return void
+     */
     public function closeDownloadModal(): void
     {
         $this->showDownloadModal = false;
@@ -447,6 +523,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->downloadTotalItems = 0;
     }
 
+    /**
+     * Exports and downloads as xlsx data.
+     */
     public function downloadAsXlsx()
     {
         if (!$this->downloadClusterId || !$this->downloadFormType) {
@@ -582,6 +661,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return RdpExportHelper::streamXlsx($fileName, $title, $meta, $headers, $rows);
     }
 
+    /**
+     * Exports and downloads as pdf data.
+     */
     public function downloadAsPdf()
     {
         if (!$this->downloadClusterId || !$this->downloadFormType) {
@@ -675,6 +757,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return RdpExportHelper::streamPdf($fileName, $cluster, $exportItems, $formCode, $signatures);
     }
 
+    /**
+     * Displays the print modal.
+     *
+     * @param int $clusterId
+     * @param string $formType
+     *
+     * @return void
+     */
     public function openPrintModal(int $clusterId, string $formType): void
     {
         $this->showDetailModal = false;
@@ -728,6 +818,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->showPrintModal = true;
     }
 
+    /**
+     * Closes the print modal.
+     * @return void
+     */
     public function closePrintModal(): void
     {
         $this->showPrintModal = false;
@@ -740,6 +834,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->preparedPosition = 'Administrative Officer V / Records Officer';
     }
 
+    /**
+     * Resolves effective retention.
+     *
+     * @param array $allSeriesMap
+     * @param object $record
+     *
+     * @return object
+     */
     private function resolveEffectiveRetention(array $allSeriesMap, object $record): object
     {
         $current = $record;
@@ -780,6 +882,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         ];
     }
 
+    /**
+     * Builds tree hierarchy.
+     *
+     * @param array $records
+     *
+     * @return array
+     */
     private function buildTreeHierarchy(array $records): array
     {
         $allParentIds = [];
@@ -854,6 +963,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return $ordered;
     }
 
+    /**
+     * Builds nap2 tree.
+     *
+     * @param array $items
+     *
+     * @return array
+     */
     private function buildNap2Tree(array $items): array
     {
         if (empty($items)) {
@@ -894,6 +1010,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return $treeOrdered;
     }
 
+    /**
+     * Compiles period covered.
+     *
+     * @param array $dates
+     *
+     * @return string
+     */
     private function compilePeriodCovered(array $dates): string
     {
         $years = [];
@@ -949,6 +1072,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return $res;
     }
 
+    /**
+     * Compiles volume.
+     *
+     * @param array $volumes
+     *
+     * @return string
+     */
     private function compileVolume(array $volumes): string
     {
         $totals = [];
@@ -1015,6 +1145,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return !empty($compiledParts) ? implode(', ', $compiledParts) : '—';
     }
 
+    /**
+     * Compiles location.
+     *
+     * @param array $locations
+     *
+     * @return string
+     */
     private function compileLocation(array $locations): string
     {
         $locs = [];
@@ -1044,6 +1181,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return implode(', ', $unique);
     }
 
+    /**
+     * Compiles time value.
+     *
+     * @param array $times
+     *
+     * @return string
+     */
     private function compileTimeValue(array $times): string
     {
         $valid = [];
@@ -1057,6 +1201,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return !empty($unique) ? implode(', ', $unique) : 'T';
     }
 
+    /**
+     * Compiles utility.
+     *
+     * @param array $utilityNames
+     *
+     * @return string
+     */
     private function compileUtility(array $utilityNames): string
     {
         $map = [
@@ -1073,6 +1224,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return !empty($unique) ? implode(', ', $unique) : 'A';
     }
 
+    /**
+     * Formats and prepares item utility data.
+     *
+     * @param array $utilityNames
+     *
+     * @return string
+     */
     private function formatItemUtility(array $utilityNames): string
     {
         $map = [
@@ -1089,6 +1247,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
+    /**
+     * Compiles medium.
+     *
+     * @param array $mediums
+     *
+     * @return string
+     */
     private function compileMedium(array $mediums): string
     {
         $valid = [];
@@ -1102,6 +1267,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
+    /**
+     * Compiles restriction.
+     *
+     * @param array $restrictions
+     *
+     * @return string
+     */
     private function compileRestriction(array $restrictions): string
     {
         $valid = [];
@@ -1115,6 +1287,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
+    /**
+     * Compiles frequency.
+     *
+     * @param array $freqs
+     *
+     * @return string
+     */
     private function compileFrequency(array $freqs): string
     {
         $valid = [];
@@ -1128,6 +1307,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
+    /**
+     * Compiles duplication.
+     *
+     * @param array $dups
+     *
+     * @return string
+     */
     private function compileDuplication(array $dups): string
     {
         $valid = [];
@@ -1141,6 +1327,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
+    /**
+     * Builds nap record tree.
+     *
+     * @param int $clusterId
+     * @param bool $isNap3
+     *
+     * @return array
+     */
     private function buildNapRecordTree(int $clusterId, bool $isNap3): array
     {
         $records = DB::table('rdp_grouped_record')
@@ -1454,6 +1648,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         ];
     }
 
+    /**
+     * Cleans val.
+     *
+     * @param mixed $val
+     *
+     * @return string
+     */
     public function cleanVal($val): string
     {
         if ($val === null) return '';
@@ -1464,6 +1665,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         return $str;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $statuses = DB::table('rdp_pending_status')->where('is_active', true)->get();

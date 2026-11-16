@@ -68,6 +68,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     /** @var string Available codes filter: 'all', 'incoming', 'received' */
     public string $availableFilter = 'all';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -95,6 +99,9 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->sessionScans = session()->get('dts_scanner_session_logs', []);
     }
 
+    /**
+     * Retrieves and populates available target offices property data.
+     */
     public function getAvailableTargetOfficesProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -102,6 +109,13 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
     }
 
+    /**
+     * Lifecycle hook executed after updating the action needed property.
+     *
+     * @param string $value
+     *
+     * @return void
+     */
     public function updatedActionNeeded(string $value): void
     {
         if ($value === 'To be Forwarded to' && empty($this->forwardToOfficeCode)) {
@@ -109,6 +123,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         }
     }
 
+    /**
+     * Displays the forward hub modal.
+     * @return void
+     */
     public function openForwardHubModal(): void
     {
         $this->forwardHubTempSelected = $this->forwardHubOffices;
@@ -116,12 +134,23 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->showForwardHubModal = true;
     }
 
+    /**
+     * Closes the forward hub modal.
+     * @return void
+     */
     public function closeForwardHubModal(): void
     {
         $this->showForwardHubModal = false;
         $this->forwardHubSearch = '';
     }
 
+    /**
+     * Toggles the forward hub office setting or state.
+     *
+     * @param string $officeCode
+     *
+     * @return void
+     */
     public function toggleForwardHubOffice(string $officeCode): void
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -147,16 +176,28 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         }
     }
 
+    /**
+     * Selects all forward hub offices and populates the details panel.
+     * @return void
+     */
     public function selectAllForwardHubOffices(): void
     {
         $this->forwardHubTempSelected = ['ALL'];
     }
 
+    /**
+     * Resets forward hub offices and clears active selections.
+     * @return void
+     */
     public function clearForwardHubOffices(): void
     {
         $this->forwardHubTempSelected = [];
     }
 
+    /**
+     * Filters and queries forward hub modal based on criteria.
+     * @return void
+     */
     public function applyForwardHubModal(): void
     {
         $this->forwardHubOffices = $this->forwardHubTempSelected;
@@ -164,6 +205,13 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->forwardHubSearch = '';
     }
 
+    /**
+     * Deletes or deactivates the specified forward hub office.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function removeForwardHubOffice(int $index): void
     {
         if (isset($this->forwardHubOffices[$index])) {
@@ -171,6 +219,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         }
     }
 
+    /**
+     * Resets alerts and clears active selections.
+     * @return void
+     */
     public function clearAlerts(): void
     {
         $this->successMessage = '';
@@ -178,11 +230,19 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->infoMessage = '';
     }
 
+    /**
+     * Toggles the continuous mode setting or state.
+     * @return void
+     */
     public function toggleContinuousMode(): void
     {
         $this->continuousMode = !$this->continuousMode;
     }
 
+    /**
+     * Resets session history and clears active selections.
+     * @return void
+     */
     public function clearSessionHistory(): void
     {
         $this->sessionScans = [];
@@ -190,6 +250,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->infoMessage = 'Session scan logs cleared.';
     }
 
+    /**
+     * Resets console and clears active selections.
+     * @return void
+     */
     public function resetConsole(): void
     {
         $this->clearAlerts();
@@ -204,6 +268,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->dispatch('focus-scanner-input');
     }
 
+    /**
+     * Displays the available codes modal.
+     * @return void
+     */
     public function openAvailableCodesModal(): void
     {
         $this->availableSearch = '';
@@ -211,11 +279,22 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->showAvailableModal = true;
     }
 
+    /**
+     * Closes the available codes modal.
+     * @return void
+     */
     public function closeAvailableCodesModal(): void
     {
         $this->showAvailableModal = false;
     }
 
+    /**
+     * Selects and scan and populates the details panel.
+     *
+     * @param string $code
+     *
+     * @return void
+     */
     public function selectAndScan(string $code): void
     {
         $this->showAvailableModal = false;
@@ -608,6 +687,13 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         }
     }
 
+    /**
+     * Selects scanned code and populates the details panel.
+     *
+     * @param string $code
+     *
+     * @return void
+     */
     public function selectScannedCode(string $code): void
     {
         $this->selectAndScan($code);
@@ -1131,6 +1217,17 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 }; ?>
 
 <div class="advanced-scanner-wrapper" style="padding: 24px; max-width: 1400px; margin: 0 auto; font-family: Outfit, 'Segoe UI', sans-serif;">
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                if (window.Livewire) {
+                    Livewire.dispatch('open-scanner-modal');
+                } else {
+                    window.dispatchEvent(new CustomEvent('open-scanner-modal'));
+                }
+            }, 100);
+        });
+    </script>
 
     {{-- Header Banner & Mode Switches --}}
     <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;">
@@ -2017,6 +2114,12 @@ if (typeof Html5Qrcode === 'undefined') {
     // otherwise be swallowed silently (html5-qrcode eats callback errors).
     // ------------------------------------------------------------------
     if (!window.__scannerToast) {
+        /**
+         * Scanners toast.
+         *
+         * @param {*} message
+         * @param {*} type
+         */
         window.__scannerToast = function (message, type) {
             type = type || 'error';
             console.warn('[Scanner]', message);
@@ -2055,6 +2158,9 @@ if (typeof Html5Qrcode === 'undefined') {
 
     // Surface failed Livewire requests
     if (!window.__scannerConnectionHooked) {
+        /**
+         * Binds and registers scanner request hook event listeners.
+         */
         var attachScannerRequestHook = function () {
             if (window.__scannerConnectionHooked) return;
             if (!window.Livewire || typeof Livewire.hook !== 'function') return;
@@ -2124,6 +2230,11 @@ if (typeof Html5Qrcode === 'undefined') {
         return null;
     }
 
+    /**
+     * Calls load transaction.
+     *
+     * @param {*} code
+     */
     function callLoadTransaction(code) {
         let comp = getScannerComponent();
         if (!comp) {
@@ -2166,6 +2277,9 @@ if (typeof Html5Qrcode === 'undefined') {
         }
     }
 
+    /**
+     * Starts and initializes camera watchdog.
+     */
     function startCameraWatchdog() {
         stopCameraWatchdog();
         cameraWatchdogTimer = setInterval(async () => {
@@ -2257,6 +2371,9 @@ if (typeof Html5Qrcode === 'undefined') {
         }
     });
 
+    /**
+     * Stops and cleans up scanner.
+     */
     async function stopScanner() {
         stopCameraWatchdog();
         if (html5QrCode) {
@@ -2378,7 +2495,18 @@ if (typeof Html5Qrcode === 'undefined') {
         }
     };
 
+    /**
+     * Starts and initializes scanning.
+     *
+     * @param {*} cameraConfig
+     */
     async function startScanning(cameraConfig) {
+        /**
+         * Calculates and returns qrbox size.
+         *
+         * @param {*} viewfinderWidth
+         * @param {*} viewfinderHeight
+         */
         const calculateQrboxSize = function(viewfinderWidth, viewfinderHeight) {
             // Generous rectangular scanning zone (78% width, 75% height)
             // Ensures QR codes are caught across almost the entire field of view
@@ -2483,6 +2611,11 @@ if (typeof Html5Qrcode === 'undefined') {
         throw lastError || new Error('Unable to start any camera');
     }
 
+    /**
+     * Toggles or switches camera.
+     *
+     * @param {*} cameraId
+     */
     window.switchCamera = async function(cameraId) {
         if (!isScanning) return;
         try {
@@ -2517,6 +2650,11 @@ if (typeof Html5Qrcode === 'undefined') {
         }
     });
 
+    /**
+     * Decodes qr from file.
+     *
+     * @param {*} file
+     */
     async function decodeQrFromFile(file) {
         if (typeof Html5Qrcode === 'undefined') {
             window.__scannerToast('Scanner library is still loading — please try again in a moment.', 'info');

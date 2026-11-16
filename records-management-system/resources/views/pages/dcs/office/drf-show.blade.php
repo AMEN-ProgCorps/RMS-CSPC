@@ -18,6 +18,13 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public int $id;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     *
+     * @param mixed $id
+     *
+     * @return void
+     */
     public function mount($id): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
@@ -34,6 +41,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         OfficeIntakeHelper::assertOwnsDrf($drf);
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $drf = OfficeIntakeHelper::findOfficeDrf($this->id);

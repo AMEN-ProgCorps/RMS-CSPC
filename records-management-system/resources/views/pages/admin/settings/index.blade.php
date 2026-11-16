@@ -84,6 +84,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public string $trackingSsoClientSecret = '';
     public string $trackingSsoRedirectUri = 'dynamic';
 
+    /**
+     * Toggles the drive edit form setting or state.
+     * @return void
+     */
     public function toggleDriveEditForm(): void
     {
         $this->showDriveEditForm = !$this->showDriveEditForm;
@@ -92,6 +96,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Retrieves and populates drive credentials data.
+     * @return void
+     */
     public function loadDriveCredentials(): void
     {
         $this->driveClientId = \DB::table('sys_system_settings')->where('key', 'google_drive_client_id')->value('value')
@@ -114,6 +122,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Persists drive credentials changes to the database.
+     * @return void
+     */
     public function saveDriveCredentials(): void
     {
         try {
@@ -169,6 +181,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Toggles the nas edit form setting or state.
+     * @return void
+     */
     public function toggleNasEditForm(): void
     {
         $this->showNasEditForm = !$this->showNasEditForm;
@@ -177,6 +193,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Retrieves and populates nas credentials data.
+     * @return void
+     */
     public function loadNasCredentials(): void
     {
         $this->nasEndpoint = \DB::table('sys_system_settings')->where('key', 's3_endpoint')->value('value')
@@ -202,6 +222,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Persists nas credentials changes to the database.
+     * @return void
+     */
     public function saveNasCredentials(): void
     {
         try {
@@ -260,6 +284,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Tests nas connection.
+     * @return void
+     */
     public function testNasConnection(): void
     {
         $this->isTestingNas = true;
@@ -306,6 +334,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $this->isTestingNas = false;
     }
 
+    /**
+     * Toggles the sso edit form setting or state.
+     * @return void
+     */
     public function toggleSsoEditForm(): void
     {
         $this->showSsoEditForm = !$this->showSsoEditForm;
@@ -314,6 +346,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Retrieves and populates sso credentials data.
+     * @return void
+     */
     public function loadSsoCredentials(): void
     {
         $this->ssoClientId = \DB::table('sys_system_settings')->where('key', 'google_sso_client_id')->value('value')
@@ -335,6 +371,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             ?: env('GOOGLE_TRACKING_REDIRECT_URI', 'dynamic');
     }
 
+    /**
+     * Persists sso credentials changes to the database.
+     * @return void
+     */
     public function saveSsoCredentials(): void
     {
         try {
@@ -389,6 +429,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Tests sso connection.
+     * @return void
+     */
     public function testSsoConnection(): void
     {
         try {
@@ -433,6 +477,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Updates env file.
+     *
+     * @param array $data
+     *
+     * @return void
+     */
     protected function updateEnvFile(array $data): void
     {
         $paths = [base_path('.env'), base_path('.env.docker')];
@@ -460,6 +511,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -660,6 +715,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Rdps series title.
+     *
+     * @param int $id
+     *
+     * @return ?string
+     */
     private function rdpSeriesTitle(int $id): ?string
     {
         if (!\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series')) {
@@ -671,6 +733,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         return $title === null ? null : trim((string) $title);
     }
 
+    /**
+     * Tests drive connection.
+     * @return void
+     */
     public function testDriveConnection(): void
     {
         $this->isTestingDrive = true;
@@ -706,6 +772,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $this->isTestingDrive = false;
     }
 
+    /**
+     * Refreshes drive metrics data.
+     * @return void
+     */
     public function refreshDriveMetrics(): void
     {
         try {
@@ -756,6 +826,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public array $preloadOfficesList = [];
     public int $preloadCurrentIndex = 0;
 
+    /**
+     * Preloads office folders.
+     * @return void
+     */
     public function preloadOfficeFolders(): void
     {
         $this->successMessage = '';
@@ -787,6 +861,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $this->executePreloadStep(0);
     }
 
+    /**
+     * Executes preload step.
+     *
+     * @param int $index
+     *
+     * @return void
+     */
     public function executePreloadStep(int $index): void
     {
         if (!$this->isPreloading) {
@@ -882,12 +963,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Resets preload and clears active selections.
+     * @return void
+     */
     public function cancelPreload(): void
     {
         $this->isPreloading = false;
         $this->errorMessage = 'Preload office folders operation was manually cancelled by administrator.';
     }
 
+    /**
+     * Persists settings changes to the database.
+     * @return void
+     */
     public function saveSettings(): void
     {
         $this->successMessage = '';
@@ -1129,6 +1218,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         }
     }
 
+    /**
+     * Broadcasts refresh to all tabs.
+     * @return void
+     */
     public function broadcastRefreshToAllTabs(): void
     {
         $this->successMessage = 'Broadcasted synchronized 5-second auto-refresh signal to all active browser tabs!';
@@ -1142,6 +1235,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         ]);
     }
 
+    /**
+     * Ensures backup directories exist.
+     * @return void
+     */
     public function ensureBackupDirectoriesExist(): void
     {
         // 1. Check & create local storage/app/backups folder
@@ -1165,6 +1262,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
 
 
+    /**
+     * Retrieves and populates all database tables data.
+     * @return array
+     */
     protected function getAllDatabaseTables(): array
     {
         $driver = \DB::getDriverName();
@@ -1199,6 +1300,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         return array_values(array_filter($tables, fn($t) => !in_array($t, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])));
     }
 
+    /**
+     * Formats and prepares bytes data.
+     *
+     * @param mixed $bytes
+     * @param mixed $precision
+     *
+     * @return string
+     */
     protected function formatBytes($bytes, $precision = 2): string
     {
         $units = ['B', 'KB', 'MB', 'GB', 'TB'];

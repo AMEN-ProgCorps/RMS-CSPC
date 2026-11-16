@@ -16,10 +16,16 @@ DCS file: Adds and removes reviewer rows on the office DCN.
 
     const max = Math.max(1, parseInt(root.getAttribute('data-max') || '9', 10) || 9);
 
+    /**
+     * Rows action.
+     */
     function rows() {
         return Array.from(list.querySelectorAll('[data-reviewer-row]'));
     }
 
+    /**
+     * Renumbers action.
+     */
     function renumber() {
         const items = rows();
         items.forEach((row, i) => {

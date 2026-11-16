@@ -22,6 +22,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public int $page = 1;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         abort_unless(RegisterQueryHelper::canBrowseAllOfficeIntake(), 403);
@@ -30,16 +34,31 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the filter property.
+     * @return void
+     */
     public function updatedFilter(): void
     {
         $this->page = 1;
     }
 
+    /**
+     * Gos to page.
+     *
+     * @param int $page
+     *
+     * @return void
+     */
     public function goToPage(int $page): void
     {
         $this->page = max(1, $page);
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $allRows = OfficeIntakeHelper::listPendingOfficeRequests('all');

@@ -34,6 +34,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public string $tab = 'masterlist';
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $compare = $this->selectedDocNo !== ''
@@ -82,21 +86,37 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
     }
 
+    /**
+     * Lifecycle hook executed after updating the search property.
+     * @return void
+     */
     public function updatedSearch(): void
     {
         $this->page = 1;
     }
 
+    /**
+     * Lifecycle hook executed after updating the doc type id property.
+     * @return void
+     */
     public function updatedDocTypeId(): void
     {
         $this->page = 1;
     }
 
+    /**
+     * Lifecycle hook executed after updating the per page property.
+     * @return void
+     */
     public function updatedPerPage(): void
     {
         $this->page = 1;
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search = '';
@@ -104,11 +124,25 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->page = 1;
     }
 
+    /**
+     * Gos to page.
+     *
+     * @param int $page
+     *
+     * @return void
+     */
     public function goToPage(int $page): void
     {
         $this->page = max(1, $page);
     }
 
+    /**
+     * Selects document and populates the details panel.
+     *
+     * @param string $docNo
+     *
+     * @return void
+     */
     public function selectDocument(string $docNo): void
     {
         $docNo = trim($docNo);
@@ -128,6 +162,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->tab = $preview['tabs'][0]['key'] ?? 'masterlist';
     }
 
+    /**
+     * Resets document and clears active selections.
+     * @return void
+     */
     public function clearDocument(): void
     {
         $this->selectedDocNo = '';
@@ -136,6 +174,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->tab = 'masterlist';
     }
 
+    /**
+     * Lifecycle hook executed after updating the left id property.
+     * @return void
+     */
     public function updatedLeftId(): void
     {
         // Free pick — reviewCompare orders sides and accepts any two revisions.
@@ -144,6 +186,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the right id property.
+     * @return void
+     */
     public function updatedRightId(): void
     {
         if ($this->rightId !== '' && $this->rightId === $this->leftId) {
@@ -151,6 +197,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    /**
+     * Selects pair and populates the details panel.
+     *
+     * @param string $key
+     *
+     * @return void
+     */
     public function selectPair(string $key): void
     {
         if ($this->selectedDocNo === '' || $key === '') {
@@ -164,11 +217,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->rightId = $right;
     }
 
+    /**
+     * Sets the active tab.
+     *
+     * @param string $tab
+     *
+     * @return void
+     */
     public function setTab(string $tab): void
     {
         $this->tab = $tab;
     }
 
+    /**
+     * Pages size.
+     * @return int
+     */
     private function pageSize(): int
     {
         return in_array($this->perPage, [10, 15, 25, 50, 100], true) ? $this->perPage : 15;

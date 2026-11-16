@@ -16,6 +16,10 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     use \App\View\Components\Dcs\InteractsWithDcsReport;
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $this->asOf = now('Asia/Manila')->toDateString();

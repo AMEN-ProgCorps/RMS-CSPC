@@ -20,11 +20,68 @@ new class extends Component {
     public array $actionOptions = [];
     public string $resubmitTarget = 'start';
 
+    // Advanced Scanner Modes & Available Directory
+    public bool $isMaximized = false;
+    public bool $continuousMode = false;
+    public bool $autoAction = false;
+    public bool $showAvailableModal = false;
+    public string $availableSearch = '';
+    public string $availableFilter = 'all';
+
+    public function toggleMaximize(): void
+    {
+        $this->isMaximized = !$this->isMaximized;
+    }
+
+    public function resetConsole(): void
+    {
+        $this->clearMessages();
+        $this->activeTransaction = null;
+        $this->scannedCode = '';
+        $this->notes = '';
+        $this->forwardToOfficeCode = '';
+        $this->forwardHubOffices = [];
+        $this->forwardHubTempSelected = [];
+        $this->showForwardHubModal = false;
+        $this->dispatch('focus-scanner-input');
+    }
+
     // Forward HUB Selection Modal State
     public bool $showForwardHubModal = false;
     public string $forwardHubSearch = '';
     public array $forwardHubOffices = [];
     public array $forwardHubTempSelected = [];
+
+    public function toggleContinuousMode(): void
+    {
+        $this->continuousMode = !$this->continuousMode;
+        session()->put('dts_scanner_continuous', $this->continuousMode);
+    }
+
+    public function toggleAutoAction(): void
+    {
+        $this->autoAction = !$this->autoAction;
+        session()->put('dts_scanner_auto_action', $this->autoAction);
+    }
+
+    public function openAvailableCodesModal(): void
+    {
+        $this->availableSearch = '';
+        $this->availableFilter = 'all';
+        $this->showAvailableModal = true;
+    }
+
+    public function closeAvailableCodesModal(): void
+    {
+        $this->showAvailableModal = false;
+        $this->availableSearch = '';
+    }
+
+    public function loadAvailableTransaction(string $qrCode): void
+    {
+        $this->closeAvailableCodesModal();
+        $this->loadTransaction($qrCode);
+    }
 
     public function openForwardHubModal(): void
     {
@@ -108,6 +165,8 @@ new class extends Component {
 
         $this->actionNeeded = $this->actionOptions[0] ?? 'For Approval';
         $this->recentScans = session()->get('dts_recent_scans', []);
+        $this->continuousMode = (bool) session()->get('dts_scanner_continuous', false);
+        $this->autoAction = (bool) session()->get('dts_scanner_auto_action', false);
     }
 
     public function getAvailableTargetOfficesProperty()
@@ -115,6 +174,148 @@ new class extends Component {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
         return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
+    }
+
+    public function getAvailableTransactionsProperty()
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        $canViewAllCodes = (bool) (auth()->user()?->permissions?->can_dts_view_all_scanner_codes ?? false);
+
+        if (!$userOfficeCode && !$canViewAllCodes && !auth()->user()?->permissions?->is_sadm) {
+            return collect();
+        }
+
+        $query = DB::table('dts_transactions as dt')
+            ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
+            ->whereNotIn('dt.status', ['completed', 'cancelled']);
+
+        if ($userOfficeCode && !$canViewAllCodes) {
+            $query->where(function ($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhere(function ($sub) use ($userOfficeCode) {
+                      $sub->where('dt.current_office', 'ORIGIN')
+                          ->where('dtd.originated_from', $userOfficeCode);
+                  });
+            });
+        }
+
+        if (!empty(trim($this->availableSearch))) {
+            $s = '%' . trim($this->availableSearch) . '%';
+            $query->where(function ($sub) use ($s) {
+                $sub->where('dtd.control_number', 'like', $s)
+                    ->orWhere('dt.qr_code', 'like', $s)
+                    ->orWhere('dtd.subject', 'like', $s)
+                    ->orWhere('dtd.classification', 'like', $s)
+                    ->orWhere('dtd.originated_from', 'like', $s)
+                    ->orWhere('req.requestor_name', 'like', $s)
+                    ->orWhere('originated_office.office_name', 'like', $s);
+            });
+        }
+
+        $transactions = $query->select(
+            'dt.transaction_id',
+            'dt.trans_type as type',
+            'dt.status',
+            'dt.sequence',
+            'dt.qr_code',
+            'dt.current_office',
+            'current_office_tb.office_name as current_office_name',
+            'dtd.control_number',
+            'dtd.subject',
+            'dtd.classification',
+            'dtd.action_needed',
+            'dtd.originated_from',
+            'originated_office.office_name as originated_office_name',
+            'req.requestor_name',
+            'dtd.date_created as tx_created_at'
+        )->orderBy('dtd.date_created', 'desc')->limit(60)->get();
+
+        return $transactions->map(function ($item) use ($userOfficeCode) {
+            $checkOffice = $userOfficeCode ?: $item->current_office;
+            $lastLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
+                ->where('transaction_id', $item->transaction_id)
+                ->where('office_code', $checkOffice)
+                ->orderBy('id', 'desc')
+                ->first();
+
+            $item->is_received = $lastLog && ($lastLog->type === 'received' || (!empty($lastLog->date_in) && $lastLog->type !== 'forwarded'));
+            $item->document_type = $item->classification ?: $item->type ?: 'Document';
+            return $item;
+        })->filter(function ($item) {
+            if ($this->availableFilter === 'incoming') {
+                return !$item->is_received;
+            }
+            if ($this->availableFilter === 'received') {
+                return (bool) $item->is_received;
+            }
+            return true;
+        });
+    }
+
+    public function getAvailableCountsProperty(): array
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        $canViewAllCodes = (bool) (auth()->user()?->permissions?->can_dts_view_all_scanner_codes ?? false);
+        if (!$userOfficeCode && !$canViewAllCodes && !auth()->user()?->permissions?->is_sadm) {
+            return ['all' => 0, 'incoming' => 0, 'received' => 0];
+        }
+
+        $query = DB::table('dts_transactions as dt')
+            ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->whereNotIn('dt.status', ['completed', 'cancelled']);
+
+        if ($userOfficeCode && !$canViewAllCodes) {
+            $query->where(function ($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhere(function ($sub) use ($userOfficeCode) {
+                      $sub->where('dt.current_office', 'ORIGIN')
+                          ->where('dtd.originated_from', $userOfficeCode);
+                  });
+            });
+        }
+
+        $allRows = $query->select('dt.transaction_id', 'dt.current_office')->get();
+        $incomingCount = 0;
+        $receivedCount = 0;
+
+        foreach ($allRows as $row) {
+            $checkOffice = $userOfficeCode ?: $row->current_office;
+            $lastLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
+                ->where('transaction_id', $row->transaction_id)
+                ->where('office_code', $checkOffice)
+                ->orderBy('id', 'desc')
+                ->first();
+
+            $isReceived = $lastLog && ($lastLog->type === 'received' || (!empty($lastLog->date_in) && $lastLog->type !== 'forwarded'));
+            if ($isReceived) {
+                $receivedCount++;
+            } else {
+                $incomingCount++;
+            }
+        }
+
+        return [
+            'all' => count($allRows),
+            'incoming' => $incomingCount,
+            'received' => $receivedCount,
+        ];
+    }
+
+    #[On('toggle-scanner-modal')]
+    public function toggleModal(string $code = ''): void
+    {
+        if ($this->isOpen) {
+            $this->closeModal();
+        } else {
+            $this->openModal($code);
+        }
     }
 
     #[On('open-scanner-modal')]
@@ -133,6 +334,7 @@ new class extends Component {
             $this->loadTransaction($this->scannedCode);
         }
 
+        $this->dispatch('scanner-modal-opened');
         $this->dispatch('init-camera-scanner');
     }
 
@@ -140,6 +342,7 @@ new class extends Component {
     public function closeModal(): void
     {
         $this->isOpen = false;
+        $this->isMaximized = false;
         $this->clearMessages();
         $this->activeTransaction = null;
         $this->scannedCode = '';
@@ -147,6 +350,7 @@ new class extends Component {
         $this->forwardHubOffices = [];
         $this->forwardHubTempSelected = [];
         $this->showForwardHubModal = false;
+        $this->dispatch('scanner-modal-closed');
         $this->dispatch('stop-camera-scanner');
     }
 
@@ -270,6 +474,7 @@ new class extends Component {
                 $this->errorMessage = 'Invalid QR Code: Only valid, registered QR codes can be processed by the scanner.';
             }
             $this->dispatch('scanner-code-invalid');
+            $this->dispatch('scanner-audio-error');
             return;
         }
 
@@ -277,12 +482,14 @@ new class extends Component {
         if ($rawStatus === 'completed') {
             $this->errorMessage = 'That QR code is already finished its transaction.';
             $this->dispatch('scanner-code-invalid');
+            $this->dispatch('scanner-audio-error');
             return;
         }
 
         if ($rawStatus === 'cancelled') {
             $this->errorMessage = 'That QR code transaction has been cancelled.';
             $this->dispatch('scanner-code-invalid');
+            $this->dispatch('scanner-audio-error');
             return;
         }
 
@@ -292,6 +499,7 @@ new class extends Component {
         if (!$userOfficeCode) {
             $this->errorMessage = 'User office code could not be resolved.';
             $this->dispatch('scanner-code-invalid');
+            $this->dispatch('scanner-audio-error');
             return;
         }
 
@@ -299,6 +507,7 @@ new class extends Component {
             $currOfficeName = $transaction->current_office_name ?: $transaction->current_office;
             $this->errorMessage = "That QR code is no longer within your office transaction list. Current station: {$currOfficeName}.";
             $this->dispatch('scanner-code-invalid');
+            $this->dispatch('scanner-audio-error');
             return;
         }
 
@@ -792,6 +1001,7 @@ new class extends Component {
 
             if ($alreadyReceived) {
                 $this->errorMessage = "Transaction '{$this->activeTransaction['control_number']}' has already been received at your office.";
+                $this->dispatch('scanner-audio-error');
                 return;
             }
 
@@ -800,10 +1010,12 @@ new class extends Component {
             $this->activeTransaction = null;
             $this->scannedCode = '';
             $this->notes = '';
+            $this->dispatch('scanner-audio-action');
             $this->dispatch('focus-scanner-input');
             $this->dispatch('dts-transaction-updated');
         } catch (\Throwable $e) {
             $this->errorMessage = 'Action failed: ' . $e->getMessage();
+            $this->dispatch('scanner-audio-error');
         }
     }
 };
@@ -824,462 +1036,569 @@ new class extends Component {
     </script>
 
     @if($isOpen)
-        <div class="global-scanner-backdrop" wire:click.self="closeModal" @keydown.window.escape="$wire.closeModal()">
-            <div class="global-scanner-modal">
-                
-                <!-- Modal Header -->
-                <div class="global-scanner-header">
-                    <div style="display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1;">
-                        <div class="global-scanner-icon-box">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
-                                <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
-                                <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
-                                <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
-                                <line x1="7" y1="12" x2="17" y2="12"></line>
-                            </svg>
-                        </div>
-                        <div style="min-width: 0; flex: 1;">
-                            <h3 class="global-scanner-title">DTS Barcode & QR Scanner</h3>
-                            <p class="global-scanner-subtitle">Scan QR code with webcam, barcode gun, or control number</p>
-                        </div>
+        <div 
+            id="dts-scanner-widget-card"
+            class="dts-scanner-widget-card {{ $isMaximized ? 'is-maximized' : '' }}"
+            @keydown.window.escape="$wire.closeModal()"
+        >
+            <!-- Chatify-Style Dark Header Bar -->
+            <div class="dts-scanner-widget-header">
+                <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                    <div class="scanner-live-dot" title="Live Scanner Armed"></div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="scanner-header-title">DTS Scanner</span>
+                        <span class="scanner-header-tag">Live Console</span>
                     </div>
-                    <button type="button" wire:click="closeModal" class="global-scanner-close-btn" aria-label="Close scanner">
-                        &times;
-                    </button>
                 </div>
 
-                <!-- Modal Body -->
-                <div class="global-scanner-body">
-                    
-                    <!-- Alert Banners -->
+                <!-- Header Actions Toolbar -->
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    <!-- Available Directory Button -->
+                    <button
+                        type="button"
+                        wire:click="openAvailableCodesModal"
+                        class="scanner-header-pill-btn btn-cyan"
+                        title="Browse pending documents for your station"
+                    >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                        </svg>
+                        <span>Available</span>
+                        <span class="count-badge">{{ $this->availableCounts['all'] ?? 0 }}</span>
+                    </button>
+
+                    <!-- Batch / Continuous Intake Mode Toggle -->
+                    <button
+                        type="button"
+                        wire:click="toggleContinuousMode"
+                        class="scanner-header-pill-btn {{ $continuousMode ? 'btn-green-active' : '' }}"
+                        title="Batch Mode: Continuously scan documents without closing"
+                    >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <polyline points="1 20 1 14 7 14"></polyline>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                        <span>Batch: {{ $continuousMode ? 'ON' : 'OFF' }}</span>
+                    </button>
+
+                    <!-- Auto-Action Toggle -->
+                    <button
+                        type="button"
+                        wire:click="toggleAutoAction"
+                        class="scanner-header-pill-btn {{ $autoAction ? 'btn-amber-active' : '' }}"
+                        title="Auto-Action: Automatically execute Receive or Forward when scanned"
+                    >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                        </svg>
+                        <span>Auto: {{ $autoAction ? 'ON' : 'OFF' }}</span>
+                    </button>
+
+                    <!-- Reset / Reload Console -->
+                    <button
+                        type="button"
+                        wire:click="resetConsole"
+                        class="scanner-header-icon-btn"
+                        title="Reset Scanner Console"
+                    >
+                        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+
+                    <!-- Maximize / Restore Toggle -->
+                    <button
+                        type="button"
+                        wire:click="toggleMaximize"
+                        class="scanner-header-icon-btn"
+                        title="{{ $isMaximized ? 'Restore Floating Size' : 'Expand Full Window' }}"
+                    >
+                        @if($isMaximized)
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+                            </svg>
+                        @else
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            </svg>
+                        @endif
+                    </button>
+
+                    <!-- Minimize Button -->
+                    <button
+                        type="button"
+                        wire:click="closeModal"
+                        class="scanner-header-icon-btn"
+                        title="Minimize Scanner"
+                    >
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Styles Scoped to Scanner Widget -->
+            <style>
+                .dts-scanner-widget-card {
+                    position: fixed;
+                    bottom: 88px;
+                    right: 24px;
+                    width: 1040px;
+                    max-width: calc(100vw - 32px);
+                    height: 520px;
+                    max-height: calc(100vh - 105px);
+                    border-radius: 16px;
+                    background: #ffffff;
+                    box-shadow: 0 24px 50px -10px rgba(15, 23, 42, 0.32), 0 0 0 1px rgba(148, 163, 184, 0.25);
+                    z-index: 999999;
+                    display: flex;
+                    flex-direction: column;
+                    overflow: hidden;
+                    animation: scannerWidgetPop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+                    transition: width 0.2s ease, height 0.2s ease, bottom 0.2s ease, right 0.2s ease, border-radius 0.2s ease;
+                    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+                }
+                .dts-scanner-widget-card.is-maximized {
+                    bottom: 16px;
+                    right: 16px;
+                    width: calc(100vw - 32px);
+                    max-width: calc(100vw - 32px);
+                    height: calc(100vh - 32px);
+                    max-height: calc(100vh - 32px);
+                    border-radius: 14px;
+                    box-shadow: 0 25px 60px -10px rgba(15, 23, 42, 0.5), 0 0 0 1px rgba(148, 163, 184, 0.3);
+                }
+                @keyframes scannerWidgetPop {
+                    0% {
+                        opacity: 0;
+                        transform: translateY(16px) scale(0.96);
+                    }
+                    100% {
+                        opacity: 1;
+                        transform: translateY(0) scale(1);
+                    }
+                }
+                .dts-scanner-widget-header {
+                    background: #0f172a;
+                    padding: 10px 16px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                    user-select: none;
+                    flex-shrink: 0;
+                    gap: 12px;
+                }
+                .scanner-live-dot {
+                    width: 9px;
+                    height: 9px;
+                    border-radius: 50%;
+                    background: #10b981;
+                    box-shadow: 0 0 8px #10b981;
+                    animation: scannerLivePulse 2s infinite;
+                }
+                @keyframes scannerLivePulse {
+                    0%, 100% { opacity: 1; transform: scale(1); }
+                    50% { opacity: 0.65; transform: scale(0.85); }
+                }
+                .scanner-header-title {
+                    color: #f8fafc;
+                    font-weight: 700;
+                    font-size: 13.5px;
+                    letter-spacing: 0.2px;
+                }
+                .scanner-header-tag {
+                    background: rgba(255, 255, 255, 0.14);
+                    color: #94a3b8;
+                    font-size: 10px;
+                    font-weight: 700;
+                    padding: 2px 7px;
+                    border-radius: 999px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.04em;
+                }
+                .scanner-header-pill-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 5px;
+                    background: rgba(255, 255, 255, 0.08);
+                    border: 1px solid rgba(255, 255, 255, 0.15);
+                    color: #cbd5e1;
+                    border-radius: 7px;
+                    padding: 4px 9px;
+                    font-size: 11.5px;
+                    font-weight: 700;
+                    cursor: pointer;
+                    transition: all 0.15s ease;
+                    white-space: nowrap;
+                }
+                .scanner-header-pill-btn:hover {
+                    background: rgba(255, 255, 255, 0.16);
+                    color: #ffffff;
+                }
+                .scanner-header-pill-btn.btn-cyan {
+                    background: rgba(2, 132, 199, 0.25);
+                    border-color: rgba(56, 189, 248, 0.45);
+                    color: #38bdf8;
+                }
+                .scanner-header-pill-btn.btn-cyan:hover {
+                    background: rgba(2, 132, 199, 0.4);
+                    color: #ffffff;
+                }
+                .scanner-header-pill-btn.btn-cyan .count-badge {
+                    background: #0284c7;
+                    color: #ffffff;
+                    font-size: 10px;
+                    padding: 1px 5px;
+                    border-radius: 99px;
+                }
+                .scanner-header-pill-btn.btn-green-active {
+                    background: rgba(22, 163, 74, 0.28);
+                    border-color: rgba(74, 222, 128, 0.5);
+                    color: #4ade80;
+                }
+                .scanner-header-pill-btn.btn-amber-active {
+                    background: rgba(217, 119, 6, 0.28);
+                    border-color: rgba(251, 191, 36, 0.5);
+                    color: #fbbf24;
+                }
+                .scanner-header-icon-btn {
+                    background: transparent;
+                    border: none;
+                    color: #94a3b8;
+                    cursor: pointer;
+                    padding: 4px;
+                    border-radius: 6px;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    transition: color 0.15s ease, background 0.15s ease;
+                }
+                .scanner-header-icon-btn:hover {
+                    color: #f8fafc;
+                    background: rgba(255, 255, 255, 0.1);
+                }
+                .dts-scanner-widget-body {
+                    flex: 1;
+                    min-height: 0;
+                    display: flex;
+                    flex-direction: row;
+                    background: #ffffff;
+                    overflow: hidden;
+                    position: relative;
+                }
+                .dts-scanner-left-pane {
+                    width: 390px;
+                    flex-shrink: 0;
+                    border-right: 1px solid #e2e8f0;
+                    display: flex;
+                    flex-direction: column;
+                    padding: 12px 14px;
+                    gap: 9px;
+                    overflow-y: auto;
+                    background: #ffffff;
+                    box-sizing: border-box;
+                }
+                .dts-scanner-right-pane {
+                    flex: 1;
+                    min-width: 0;
+                    display: flex;
+                    flex-direction: column;
+                    background: #f8fafc;
+                    padding: 14px 18px;
+                    overflow-y: auto;
+                    box-sizing: border-box;
+                }
+                .scanner-alert {
+                    padding: 9px 12px;
+                    border-radius: 8px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 8px;
+                }
+                .scanner-alert.alert-success {
+                    background: #f0fdf4;
+                    border: 1px solid #bbf7d0;
+                    color: #166534;
+                }
+                .scanner-alert.alert-danger {
+                    background: #fef2f2;
+                    border: 1px solid #fecaca;
+                    color: #991b1b;
+                }
+                .dts-scanner-viewport-container {
+                    background: #0f172a;
+                    border-radius: 10px;
+                    overflow: hidden;
+                    position: relative;
+                    width: 100%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.6);
+                }
+                #modal-qr-preview {
+                    width: 100% !important;
+                    height: 100% !important;
+                    border: none !important;
+                    position: relative;
+                    overflow: hidden;
+                }
+                #modal-qr-preview video {
+                    width: 100% !important;
+                    height: 100% !important;
+                    object-fit: cover !important;
+                    border-radius: 10px;
+                    display: block;
+                }
+                #modal-qr-preview__scan_region {
+                    border: 2.5px dashed #0284c7 !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.55), 0 0 20px rgba(2, 132, 199, 0.45) !important;
+                }
+                #modal-qr-preview__scan_region img {
+                    display: none !important;
+                }
+                #modal-qr-preview__dashboard {
+                    display: none !important;
+                }
+                .scanner-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 5px;
+                    padding: 4px 10px;
+                    border-radius: 20px;
+                    font-size: 11.5px;
+                    font-weight: 700;
+                    line-height: 1.2;
+                }
+                .scanner-badge.badge-completed {
+                    background: #f1f5f9;
+                    color: #475569;
+                    border: 1px solid #cbd5e1;
+                }
+                .scanner-badge.badge-received {
+                    background: #f0fdf4;
+                    color: #166534;
+                    border: 1px solid #bbf7d0;
+                }
+                .scanner-badge.badge-incoming {
+                    background: #eff6ff;
+                    color: #1e40af;
+                    border: 1px solid #bfdbfe;
+                }
+                .scanner-input-row {
+                    display: flex;
+                    gap: 6px;
+                    width: 100%;
+                    box-sizing: border-box;
+                }
+                .scanner-details-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 6px 12px;
+                    font-size: 12px;
+                    color: #334155;
+                    word-break: break-word;
+                }
+                .scanner-action-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                    padding: 9px 18px;
+                    color: #ffffff;
+                    border: none;
+                    border-radius: 8px;
+                    font-weight: 700;
+                    font-size: 12.5px;
+                    cursor: pointer;
+                    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+                    transition: transform 0.1s ease, box-shadow 0.15s ease;
+                }
+                .scanner-action-btn:active {
+                    transform: scale(0.98);
+                }
+
+                @media (max-width: 860px) {
+                    .dts-scanner-widget-card {
+                        width: calc(100vw - 20px) !important;
+                        height: calc(100vh - 90px) !important;
+                        bottom: 75px !important;
+                        right: 10px !important;
+                    }
+                    .dts-scanner-widget-body {
+                        flex-direction: column !important;
+                        overflow-y: auto !important;
+                    }
+                    .dts-scanner-left-pane {
+                        width: 100% !important;
+                        border-right: none !important;
+                        border-bottom: 1px solid #e2e8f0 !important;
+                    }
+                    .scanner-details-grid {
+                        grid-template-columns: 1fr !important;
+                    }
+                }
+            </style>
+
+            <!-- Two-Column Body (Landscape 2:1 Split) -->
+            <div class="dts-scanner-widget-body">
+                <!-- Left Pane: Viewport, Camera Controls, & Barcode Gun Input (Width: 390px) -->
+                <div class="dts-scanner-left-pane">
                     @if($successMessage)
                         <div class="scanner-alert alert-success">
                             <span style="display: flex; align-items: center; gap: 6px; min-width: 0; word-break: break-word;">
-                                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" style="flex-shrink: 0;"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" style="flex-shrink: 0;"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                 <span>{{ $successMessage }}</span>
                             </span>
-                            <button type="button" wire:click="clearMessages" style="background: none; border: none; color: #166534; cursor: pointer; font-weight: bold; font-size: 16px; line-height: 1; padding: 2px;">&times;</button>
+                            <button type="button" wire:click="clearMessages" style="background: none; border: none; color: #166534; cursor: pointer; font-weight: bold; font-size: 15px; line-height: 1; padding: 2px;">&times;</button>
                         </div>
                     @endif
 
                     @if($errorMessage)
                         <div class="scanner-alert alert-danger">
                             <span style="display: flex; align-items: center; gap: 6px; min-width: 0; word-break: break-word;">
-                                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" style="flex-shrink: 0;"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                                <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" style="flex-shrink: 0;"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
                                 <span>{{ $errorMessage }}</span>
                             </span>
-                            <button type="button" wire:click="clearMessages" style="background: none; border: none; color: #991b1b; cursor: pointer; font-weight: bold; font-size: 16px; line-height: 1; padding: 2px;">&times;</button>
+                            <button type="button" wire:click="clearMessages" style="background: none; border: none; color: #991b1b; cursor: pointer; font-weight: bold; font-size: 15px; line-height: 1; padding: 2px;">&times;</button>
                         </div>
                     @endif
 
-                    <!-- Scanner Custom Styles & Mobile Optimization -->
-                    <style>
-                        .global-scanner-backdrop {
-                            position: fixed;
-                            inset: 0;
-                            background: rgba(15, 23, 42, 0.75);
-                            backdrop-filter: blur(6px);
-                            z-index: 99999;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            padding: 16px;
-                            box-sizing: border-box;
-                        }
-                        .global-scanner-modal {
-                            background: #ffffff;
-                            border-radius: 16px;
-                            max-width: 640px;
-                            width: 100%;
-                            max-height: 90vh;
-                            max-height: 90dvh;
-                            overflow-y: auto;
-                            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
-                            border: 1px solid #e2e8f0;
-                            animation: modalPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-                            display: flex;
-                            flex-direction: column;
-                            box-sizing: border-box;
-                        }
-                        .global-scanner-header {
-                            padding: 16px 22px;
-                            border-bottom: 1px solid #f1f5f9;
-                            display: flex;
-                            align-items: center;
-                            justify-content: space-between;
-                            background: #f8fafc;
-                            border-top-left-radius: 16px;
-                            border-top-right-radius: 16px;
-                            gap: 12px;
-                        }
-                        .global-scanner-icon-box {
-                            width: 36px;
-                            height: 36px;
-                            min-width: 36px;
-                            border-radius: 10px;
-                            background: #eff6ff;
-                            color: #2563eb;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                        }
-                        .global-scanner-title {
-                            font-size: 16.5px;
-                            font-weight: 700;
-                            color: #0f172a;
-                            margin: 0;
-                            line-height: 1.25;
-                        }
-                        .global-scanner-subtitle {
-                            font-size: 12px;
-                            color: #64748b;
-                            margin: 2px 0 0 0;
-                            line-height: 1.35;
-                            white-space: nowrap;
-                            overflow: hidden;
-                            text-overflow: ellipsis;
-                        }
-                        .global-scanner-close-btn {
-                            background: transparent;
-                            border: none;
-                            font-size: 22px;
-                            color: #94a3b8;
-                            cursor: pointer;
-                            border-radius: 50%;
-                            width: 32px;
-                            height: 32px;
-                            min-width: 32px;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            transition: all 0.15s;
-                        }
-                        .global-scanner-close-btn:hover {
-                            background: #e2e8f0;
-                            color: #0f172a;
-                        }
-                        .global-scanner-body {
-                            padding: 18px 22px;
-                            box-sizing: border-box;
-                        }
-                        .scanner-alert {
-                            padding: 11px 14px;
-                            border-radius: 10px;
-                            font-size: 13px;
-                            font-weight: 600;
-                            margin-bottom: 16px;
-                            display: flex;
-                            align-items: center;
-                            justify-content: space-between;
-                            gap: 10px;
-                        }
-                        .scanner-alert.alert-success {
-                            background: #f0fdf4;
-                            border: 1px solid #bbf7d0;
-                            color: #166534;
-                        }
-                        .scanner-alert.alert-danger {
-                            background: #fef2f2;
-                            border: 1px solid #fecaca;
-                            color: #991b1b;
-                        }
-                        .dts-scanner-viewport-container {
-                            background: #0f172a;
-                            border-radius: 14px;
-                            overflow: hidden;
-                            position: relative;
-                            min-height: 280px;
-                            max-height: 360px;
-                            width: 100%;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.6);
-                        }
-                        #modal-qr-preview {
-                            width: 100% !important;
-                            height: 100% !important;
-                            border: none !important;
-                            position: relative;
-                            overflow: hidden;
-                        }
-                        #modal-qr-preview video {
-                            width: 100% !important;
-                            height: 100% !important;
-                            object-fit: cover !important;
-                            border-radius: 12px;
-                            max-height: 360px;
-                            display: block;
-                        }
-                        #modal-qr-preview__scan_region {
-                            border: 3px dashed #3b82f6 !important;
-                            border-radius: 16px !important;
-                            box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.6), 0 0 25px rgba(59, 130, 246, 0.5) !important;
-                            transition: all 0.2s ease;
-                        }
-                        #modal-qr-preview__scan_region img {
-                            display: none !important;
-                        }
-                        #modal-qr-preview__dashboard {
-                            display: none !important;
-                        }
-                        .scanner-badge {
-                            display: inline-flex;
-                            align-items: center;
-                            gap: 5px;
-                            padding: 5px 12px;
-                            border-radius: 20px;
-                            font-size: 12px;
-                            font-weight: 700;
-                            line-height: 1.2;
-                        }
-                        .scanner-badge.badge-completed {
-                            background: #f1f5f9;
-                            color: #475569;
-                            border: 1px solid #cbd5e1;
-                        }
-                        .scanner-badge.badge-received {
-                            background: #f0fdf4;
-                            color: #166534;
-                            border: 1px solid #bbf7d0;
-                        }
-                        .scanner-badge.badge-incoming {
-                            background: #eff6ff;
-                            color: #1e40af;
-                            border: 1px solid #bfdbfe;
-                        }
-                        .scanner-input-row {
-                            display: flex;
-                            gap: 8px;
-                            width: 100%;
-                            box-sizing: border-box;
-                        }
-                        .scanner-details-grid {
-                            display: grid;
-                            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-                            gap: 8px 12px;
-                            font-size: 12.5px;
-                            color: #334155;
-                            margin-bottom: 14px;
-                            word-break: break-word;
-                        }
-                        .scanner-action-btn {
-                            display: inline-flex;
-                            align-items: center;
-                            justify-content: center;
-                            gap: 6px;
-                            padding: 10px 22px;
-                            color: #ffffff;
-                            border: none;
-                            border-radius: 8px;
-                            font-weight: 700;
-                            font-size: 13.5px;
-                            cursor: pointer;
-                            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-                            transition: transform 0.1s ease, box-shadow 0.15s ease;
-                        }
-                        .scanner-action-btn:active {
-                            transform: scale(0.98);
-                        }
-
-                        /* ── Mobile Shrink & Responsiveness ── */
-                        @media (max-width: 640px) {
-                            .global-scanner-backdrop {
-                                padding: 8px !important;
-                            }
-                            .global-scanner-modal {
-                                border-radius: 12px !important;
-                                max-height: 94dvh !important;
-                            }
-                            .global-scanner-header {
-                                padding: 12px 14px !important;
-                            }
-                            .global-scanner-icon-box {
-                                width: 32px !important;
-                                height: 32px !important;
-                                min-width: 32px !important;
-                            }
-                            .global-scanner-title {
-                                font-size: 15px !important;
-                            }
-                            .global-scanner-subtitle {
-                                font-size: 11px !important;
-                            }
-                            .global-scanner-body {
-                                padding: 12px 14px !important;
-                            }
-                            .dts-scanner-viewport-container {
-                                min-height: 220px !important;
-                                max-height: 250px !important;
-                            }
-                            #modal-qr-preview video {
-                                max-height: 250px !important;
-                            }
-                            .scanner-input-row {
-                                flex-direction: row !important;
-                            }
-                            #global-scanner-code-input {
-                                font-size: 13px !important;
-                                padding: 9px 12px !important;
-                            }
-                            .scanner-search-btn {
-                                padding: 9px 14px !important;
-                                font-size: 12.5px !important;
-                            }
-                            .scanner-action-form-row {
-                                flex-direction: column !important;
-                                gap: 8px !important;
-                            }
-                            .scanner-action-form-row > div {
-                                width: 100% !important;
-                                min-width: 100% !important;
-                            }
-                            .scanner-action-btn {
-                                width: 100% !important;
-                                padding: 11px 16px !important;
-                            }
-                            .scanner-details-grid {
-                                grid-template-columns: 1fr 1fr !important;
-                                gap: 6px 8px !important;
-                                font-size: 11.5px !important;
-                            }
-                        }
-
-                        @media (max-width: 420px) {
-                            .scanner-details-grid {
-                                grid-template-columns: 1fr !important;
-                            }
-                            .scanner-badge {
-                                font-size: 11px !important;
-                                padding: 4px 8px !important;
-                            }
-                            .scanner-recent-item {
-                                flex-direction: column !important;
-                                align-items: flex-start !important;
-                                gap: 3px !important;
-                            }
-                        }
-                    </style>
-
-                    <!-- Camera & Manual Input Grid -->
-                    <div style="display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 18px;">
-                        
-                        <!-- Webcam Viewport -->
-                        <div wire:ignore class="dts-scanner-viewport-container" style="position: relative;">
-                            <div id="modal-qr-preview"></div>
-                            <div id="camera-loading-placeholder" style="position: absolute; color: #94a3b8; font-size: 13px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 5;">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.85;">
-                                    <path d="M23 7l-7 5 7 5V7z"></path>
-                                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-                                </svg>
-                                <span>Initializing Camera Feed...</span>
-                            </div>
-
-                            {{-- Floating Flip Camera button on the viewfinder --}}
-                            <button
-                                type="button"
-                                id="modal-flip-camera-btn"
-                                onclick="window.flipModalCamera()"
-                                title="Switch Camera"
-                                style="display: none; position: absolute; top: 12px; right: 12px; z-index: 25; background: rgba(15, 23, 42, 0.75); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 20px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; backdrop-filter: blur(8px); align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.15s ease;"
-                            >
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8c0 1.94.693 3.72 1.85 5.11L4 19l4.5-1.5"></path>
-                                    <path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8c0-1.94-.693-3.72-1.85-5.11L20 5l-4.5 1.5"></path>
-                                </svg>
-                                <span id="modal-flip-camera-label">Flip Camera</span>
-                            </button>
+                    <!-- Webcam Viewport -->
+                    <div wire:ignore class="dts-scanner-viewport-container" style="position: relative; height: 185px; border-radius: 10px; overflow: hidden; background: #0f172a; flex-shrink: 0;">
+                        <div id="modal-qr-preview"></div>
+                        <div id="camera-loading-placeholder" style="position: absolute; color: #94a3b8; font-size: 12px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 5;">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.85;">
+                                <path d="M23 7l-7 5 7 5V7z"></path>
+                                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                            </svg>
+                            <span>Initializing Camera Feed...</span>
                         </div>
 
-                        {{-- Camera selector row --}}
-                        <div id="modal-camera-select-container" style="display: none; align-items: center; gap: 8px; margin-top: 6px;">
-                            <div style="flex: 1; min-width: 0;">
-                                <select
-                                    id="modal-camera-select"
-                                    onchange="window.switchModalCamera(this.value)"
-                                    style="width: 100%; padding: 8px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 12px; color: #334155; background: #f8fafc; outline: none; cursor: pointer;"
-                                ></select>
-                            </div>
-                            <button
-                                type="button"
-                                onclick="window.flipModalCamera()"
-                                style="padding: 8px 14px; background: #eff6ff; border: 1.5px solid #bfdbfe; border-radius: 8px; font-size: 12px; font-weight: 700; color: #2563eb; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; transition: background 0.15s;"
-                                onmouseover="this.style.background='#dbeafe';"
-                                onmouseout="this.style.background='#eff6ff';"
-                                title="Switch between front and rear camera"
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8c0 1.94.693 3.72 1.85 5.11L4 19l4.5-1.5"></path>
-                                    <path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8c0-1.94-.693-3.72-1.85-5.11L20 5l-4.5 1.5"></path>
-                                </svg>
-                                <span>Flip</span>
-                            </button>
-                        </div>
-
-                        <!-- Manual Code Input Field -->
-                        <div class="scanner-input-row">
-                            <input 
-                                type="text" 
-                                id="global-scanner-code-input" 
-                                wire:model.live.debounce.300ms="scannedCode" 
-                                wire:keydown.enter="loadTransaction" 
-                                placeholder="Scan barcode gun or enter Control / QR Code..." 
-                                style="flex: 1; min-width: 0; padding: 10px 14px; border: 1.5px solid #cbd5e1; border-radius: 10px; font-size: 13.5px; outline: none; transition: border-color 0.15s; box-sizing: border-box;" 
-                                onfocus="this.style.borderColor='#2563eb';" 
-                                onblur="this.style.borderColor='#cbd5e1';"
-                            />
-                            <button 
-                                type="button" 
-                                wire:click="loadTransaction" 
-                                class="scanner-search-btn"
-                                style="padding: 10px 18px; background: #2563eb; color: #ffffff; border: none; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; transition: background 0.15s; white-space: nowrap; flex-shrink: 0;"
-                                onmouseover="this.style.background='#1d4ed8';" 
-                                onmouseout="this.style.background='#2563eb';"
-                            >
-                                Search
-                            </button>
-                        </div>
+                        <!-- Floating Flip Camera Button -->
+                        <button
+                            type="button"
+                            id="modal-flip-camera-btn"
+                            onclick="window.flipModalCamera()"
+                            title="Switch Camera"
+                            style="display: none; position: absolute; top: 8px; right: 8px; z-index: 25; background: rgba(15, 23, 42, 0.75); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 20px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; backdrop-filter: blur(8px); align-items: center; gap: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.15s ease;"
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8c0 1.94.693 3.72 1.85 5.11L4 19l4.5-1.5"></path>
+                                <path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8c0-1.94-.693-3.72-1.85-5.11L20 5l-4.5 1.5"></path>
+                            </svg>
+                            <span id="modal-flip-camera-label">Flip</span>
+                        </button>
                     </div>
 
-                    <!-- Active Transaction Result Panel -->
+                    <!-- Camera selector row -->
+                    <div id="modal-camera-select-container" style="display: none; align-items: center; gap: 6px;">
+                        <div style="flex: 1; min-width: 0;">
+                            <select
+                                id="modal-camera-select"
+                                onchange="window.switchModalCamera(this.value)"
+                                style="width: 100%; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 7px; font-size: 11.5px; color: #334155; background: #f8fafc; outline: none; cursor: pointer;"
+                            ></select>
+                        </div>
+                        <button
+                            type="button"
+                            onclick="window.flipModalCamera()"
+                            style="padding: 6px 10px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 7px; font-size: 11.5px; font-weight: 700; color: #2563eb; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"
+                            title="Switch front/rear camera"
+                        >
+                            <span>Flip</span>
+                        </button>
+                    </div>
+
+                    <!-- Manual Code Input Field -->
+                    <div class="scanner-input-row">
+                        <input 
+                            type="text" 
+                            id="global-scanner-code-input" 
+                            wire:model.live.debounce.300ms="scannedCode" 
+                            wire:keydown.enter="loadTransaction" 
+                            placeholder="Scan barcode gun or enter Control/QR..." 
+                            style="flex: 1; min-width: 0; padding: 8px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 12.5px; outline: none; transition: border-color 0.15s; box-sizing: border-box;" 
+                            onfocus="this.style.borderColor='#0284c7';" 
+                            onblur="this.style.borderColor='#cbd5e1';"
+                        />
+                        <button 
+                            type="button" 
+                            wire:click="loadTransaction" 
+                            class="scanner-search-btn"
+                            style="padding: 8px 14px; background: #0284c7; color: #ffffff; border: none; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; transition: background 0.15s; white-space: nowrap; flex-shrink: 0;"
+                            onmouseover="this.style.background='#0369a1';" 
+                            onmouseout="this.style.background='#0284c7';"
+                        >
+                            Search
+                        </button>
+                    </div>
+
+                    <!-- Recent Session Scans (Compact) -->
+                    @if(!empty($recentScans))
+                        <div style="border-top: 1px solid #f1f5f9; padding-top: 8px; flex-shrink: 0;">
+                            <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em;">Recent Session Scans</span>
+                            <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px; max-height: 100px; overflow-y: auto;">
+                                @foreach(array_slice($recentScans, 0, 4) as $rs)
+                                    <div class="scanner-recent-item" 
+                                         wire:click="loadTransaction('{{ $rs['control_number'] }}')"
+                                         style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; background: #f8fafc; padding: 5px 8px; border-radius: 6px; border: 1px solid #e2e8f0; gap: 6px; cursor: pointer; transition: background 0.15s;"
+                                         onmouseover="this.style.background='#e0f2fe';"
+                                         onmouseout="this.style.background='#f8fafc';"
+                                         title="Click to load this document"
+                                    >
+                                        <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1;">
+                                            <span style="font-weight: 700; color: #0284c7; font-family: monospace; flex-shrink: 0;">{{ $rs['control_number'] }}</span>
+                                            <span style="color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $rs['subject'] }}</span>
+                                        </div>
+                                        <span style="color: #94a3b8; font-weight: 500; font-size: 10px; flex-shrink: 0;">{{ $rs['scanned_at'] }}</span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+                </div>
+
+                <!-- Right Pane: Active Transaction Details / Action Station (Flex: 1) -->
+                <div class="dts-scanner-right-pane">
                     @if($activeTransaction)
-                        <div style="background: #f8fafc; border: 1.5px solid {{ $activeTransaction['is_completed'] ? '#cbd5e1' : ($activeTransaction['is_received_here'] ? '#bbf7d0' : '#bfdbfe') }}; border-radius: 12px; padding: 16px; margin-bottom: 18px; animation: modalPop 0.15s ease; box-sizing: border-box;">
+                        <div style="background: #ffffff; border: 1.5px solid {{ $activeTransaction['is_completed'] ? '#cbd5e1' : ($activeTransaction['is_received_here'] ? '#bbf7d0' : '#bfdbfe') }}; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                             
                             <!-- Header Status Line -->
-                            <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                            <div style="display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                                 <div>
-                                    <span style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">Control Number</span>
-                                    <h4 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 2px 0 0 0; word-break: break-all;">{{ $activeTransaction['control_number'] }}</h4>
+                                    <span style="font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">Control Number</span>
+                                    <h4 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 2px 0 0 0; word-break: break-all; font-family: monospace;">{{ $activeTransaction['control_number'] }}</h4>
                                 </div>
 
-                                <div>
+                                <div style="display: flex; align-items: center; gap: 6px;">
                                     @if($activeTransaction['is_completed'])
                                         <span class="scanner-badge badge-completed">
-                                            <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                            <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                             Completed
                                         </span>
                                     @elseif($activeTransaction['is_received_here'])
                                         <span class="scanner-badge badge-received">
-                                            <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                                            Received at Office (Ready to Forward)
+                                            <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                                            In Custody (Ready to Forward)
                                         </span>
                                     @else
                                         <span class="scanner-badge badge-incoming">
-                                            <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+                                            <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
                                             Incoming (Ready to Receive)
                                         </span>
                                     @endif
+                                    <span style="font-size: 11px; background: #f1f5f9; color: #475569; padding: 3px 8px; border-radius: 6px; font-weight: 600;">
+                                        {{ $activeTransaction['classification'] ?? $activeTransaction['type'] ?? 'Document' }}
+                                    </span>
                                 </div>
                             </div>
-
-                            <!-- Completed Transaction Alert -->
-                            @if($activeTransaction['is_completed'])
-                                <div style="background: #fff7ed; border: 1px solid #fed7aa; color: #c2410c; padding: 10px 14px; border-radius: 8px; font-size: 12.5px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
-                                    <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" style="flex-shrink: 0;"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
-                                    <span>This transaction has already been completed. No further action needed.</span>
-                                </div>
-                            @endif
 
                             <!-- Detail Specs Grid -->
                             <div class="scanner-details-grid">
@@ -1288,35 +1607,39 @@ new class extends Component {
                                 <div><strong style="color: #64748b;">Originator:</strong> {{ $activeTransaction['originated_office'] }}</div>
                                 <div><strong style="color: #64748b;">Current Office:</strong> {{ $activeTransaction['current_office'] }}</div>
                                 <div><strong style="color: #64748b;">Next Office:</strong> {{ $activeTransaction['next_office'] }}</div>
+                                <div><strong style="color: #64748b;">Date Created:</strong> {{ $activeTransaction['created_at'] ?? 'N/A' }}</div>
                             </div>
 
-                            <!-- Action Form Controls (If not completed) -->
-                            @if(!$activeTransaction['is_completed'])
-                                <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; display: flex; flex-direction: column; gap: 10px;">
+                            <!-- Completed Transaction Alert -->
+                            @if($activeTransaction['is_completed'])
+                                <div style="background: #fff7ed; border: 1px solid #fed7aa; color: #c2410c; padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                                    <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" style="flex-shrink: 0;"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+                                    <span>This transaction has already reached completion. No further routing actions are required.</span>
+                                </div>
+                            @else
+                                <!-- Action Form Controls (If not completed) -->
+                                <div style="border-top: 1px solid #e2e8f0; padding-top: 12px; display: flex; flex-direction: column; gap: 10px;">
                                     @if($activeTransaction['is_received_here'])
                                         @if(strtolower($activeTransaction['status']) === 'revision')
-                                            <div style="margin: 4px 0 6px 0; padding: 12px 14px; background: #eff6ff; border: 1.5px solid #3b82f6; border-radius: 10px; font-size: 12px;">
+                                            <div style="padding: 10px 12px; background: #eff6ff; border: 1.5px solid #3b82f6; border-radius: 8px; font-size: 11.5px;">
                                                 <div style="font-weight: 700; color: #1e40af; margin-bottom: 4px; display: flex; align-items: center; gap: 5px;">
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                                                     <span>Resubmission Route for Revised Document</span>
                                                 </div>
-                                                <div style="color: #334155; margin-bottom: 8px;">
-                                                    This document was returned for revision{{ !empty($activeTransaction['revision_requested_by_office']) ? ' by ' . $activeTransaction['revision_requested_by_office'] : '' }}. Select target:
-                                                </div>
-                                                <div style="display: flex; flex-direction: column; gap: 8px;">
-                                                    <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; cursor: pointer; padding: 6px 8px; border-radius: 6px; background: #ffffff; border: 1px solid #cbd5e1;">
+                                                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
+                                                    <label style="display: flex; align-items: flex-start; gap: 6px; font-size: 11.5px; cursor: pointer; padding: 5px 8px; border-radius: 6px; background: #ffffff; border: 1px solid #cbd5e1;">
                                                         <input type="radio" wire:model="resubmitTarget" value="start" style="margin-top: 2px; accent-color: #2563eb;">
                                                         <div>
                                                             <strong style="color: #0f172a;">Option A: Restart Approval Chain</strong>
-                                                            <div style="font-size: 11px; color: #64748b;">Resubmit sequentially to the next office in the approval chain.</div>
+                                                            <div style="font-size: 10.5px; color: #64748b;">Resubmit sequentially to the next office in the approval chain.</div>
                                                         </div>
                                                     </label>
                                                     @if(!empty($activeTransaction['revision_requested_by_sequence']) && $activeTransaction['revision_requested_by_sequence'] > 1)
-                                                        <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; cursor: pointer; padding: 6px 8px; border-radius: 6px; background: #ffffff; border: 1px solid #cbd5e1;">
+                                                        <label style="display: flex; align-items: flex-start; gap: 6px; font-size: 11.5px; cursor: pointer; padding: 5px 8px; border-radius: 6px; background: #ffffff; border: 1px solid #cbd5e1;">
                                                             <input type="radio" wire:model="resubmitTarget" value="requestor" style="margin-top: 2px; accent-color: #2563eb;">
                                                             <div>
                                                                 <strong style="color: #2563eb;">Option B: Fast-Track to Revision Requestor</strong>
-                                                                <div style="font-size: 11px; color: #64748b;">Bypass prior steps and send directly back to {{ $activeTransaction['revision_requested_by_office'] ?? 'Revision Requestor' }}.</div>
+                                                                <div style="font-size: 10.5px; color: #64748b;">Bypass prior steps and send directly back to {{ $activeTransaction['revision_requested_by_office'] ?? 'Revision Requestor' }}.</div>
                                                             </div>
                                                         </label>
                                                     @endif
@@ -1324,27 +1647,27 @@ new class extends Component {
                                             </div>
                                         @endif
 
-                                        <div class="scanner-action-form-row" style="display: flex; gap: 10px; flex-wrap: wrap;">
-                                            <div style="flex: 1; min-width: 160px;">
-                                                <label style="font-size: 11px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px; text-transform: uppercase;">Action Needed For Forwarding</label>
-                                                <select wire:model.live="actionNeeded" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; background: #ffffff; box-sizing: border-box;">
+                                        <div class="scanner-action-form-row" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                            <div style="flex: 1; min-width: 150px;">
+                                                <label style="font-size: 10.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 3px; text-transform: uppercase;">Action Needed</label>
+                                                <select wire:model.live="actionNeeded" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 7px; font-size: 12px; background: #ffffff; box-sizing: border-box;">
                                                     @foreach($actionOptions as $opt)
                                                         <option value="{{ $opt }}">{{ $opt }}</option>
                                                     @endforeach
                                                 </select>
                                             </div>
-                                            <div style="flex: 2; min-width: 180px;">
-                                                <label style="font-size: 11px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px; text-transform: uppercase;">Remarks / Notes (Optional)</label>
-                                                <input type="text" wire:model="notes" placeholder="Enter forwarding remarks..." style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; box-sizing: border-box;">
+                                            <div style="flex: 2; min-width: 170px;">
+                                                <label style="font-size: 10.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 3px; text-transform: uppercase;">Remarks / Notes (Optional)</label>
+                                                <input type="text" wire:model="notes" placeholder="Enter remarks..." style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 7px; font-size: 12px; box-sizing: border-box;">
                                             </div>
                                         </div>
 
                                         @if($actionNeeded === 'To be Forwarded to')
-                                            <div style="margin-top: 10px; background: #eff6ff; padding: 12px; border-radius: 8px; border: 1.5px solid #3b82f6;">
-                                                <label style="font-size: 11px; font-weight: 700; color: #1e40af; display: block; margin-bottom: 4px; text-transform: uppercase;">
-                                                    <i class="fa-solid fa-building-circle-arrow-right"></i> Destination Office
+                                            <div style="background: #eff6ff; padding: 10px; border-radius: 8px; border: 1.5px solid #3b82f6;">
+                                                <label style="font-size: 10.5px; font-weight: 700; color: #1e40af; display: block; margin-bottom: 4px; text-transform: uppercase;">
+                                                    Destination Office
                                                 </label>
-                                                <select wire:model.live="forwardToOfficeCode" style="width: 100%; padding: 8px 12px; border: 1px solid #93c5fd; border-radius: 8px; font-size: 13px; background: #ffffff; box-sizing: border-box;">
+                                                <select wire:model.live="forwardToOfficeCode" style="width: 100%; padding: 7px 10px; border: 1px solid #93c5fd; border-radius: 7px; font-size: 12px; background: #ffffff; box-sizing: border-box;">
                                                     <option value="">-- Select Office to Forward To --</option>
                                                     @foreach($this->availableTargetOffices as $office)
                                                         <option value="{{ $office->office_code }}">{{ $office->office_name }} ({{ $office->office_code }})</option>
@@ -1352,34 +1675,32 @@ new class extends Component {
                                                 </select>
 
                                                 @if($forwardToOfficeCode === '[HUB]')
-                                                    <div style="margin-top: 8px; padding: 10px; background: #ffffff; border: 1px dashed #3b82f6; border-radius: 6px;">
+                                                    <div style="margin-top: 8px; padding: 8px; background: #ffffff; border: 1px dashed #3b82f6; border-radius: 6px;">
                                                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-                                                            <span style="font-size: 12px; font-weight: 700; color: #1e40af;">
-                                                                <i class="fa-solid fa-layer-group"></i> Office Hub Recipients:
-                                                            </span>
+                                                            <span style="font-size: 11.5px; font-weight: 700; color: #1e40af;">Office Hub Broadcast:</span>
                                                             <button type="button" 
                                                                     wire:click="openForwardHubModal" 
-                                                                    style="background: #2563eb; color: #ffffff; border: none; border-radius: 6px; padding: 4px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-                                                                <i class="fa-solid fa-plus-circle"></i> Office Hub [ {{ in_array('ALL', $forwardHubOffices) ? 'ALL' : count($forwardHubOffices) }} selected ]
+                                                                    style="background: #2563eb; color: #ffffff; border: none; border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 700; cursor: pointer;">
+                                                                Select Offices [ {{ in_array('ALL', $forwardHubOffices) ? 'ALL' : count($forwardHubOffices) }} ]
                                                             </button>
                                                         </div>
 
                                                         @if(empty($forwardHubOffices))
-                                                            <div style="font-size: 12px; color: #dc2626; font-style: italic;">
-                                                                ⚠️ Click "Office Hub" to select recipient offices for broadcast forwarding.
+                                                            <div style="font-size: 11px; color: #dc2626; font-style: italic;">
+                                                                Click above to select recipient offices for broadcast.
                                                             </div>
                                                         @else
-                                                            <div style="display: flex; flex-wrap: wrap; gap: 5px; max-height: 100px; overflow-y: auto;">
+                                                            <div style="display: flex; flex-wrap: wrap; gap: 4px; max-height: 80px; overflow-y: auto;">
                                                                 @if(in_array('ALL', $forwardHubOffices))
-                                                                    <span style="display: inline-flex; align-items: center; gap: 5px; background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;">
-                                                                        <i class="fa-solid fa-globe"></i> ALL ACTIVE OFFICES
-                                                                        <button type="button" wire:click="clearForwardHubOffices" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 12px; line-height: 1; padding: 0;">&times;</button>
+                                                                    <span style="display: inline-flex; align-items: center; gap: 4px; background: #dbeafe; color: #1e40af; padding: 2px 7px; border-radius: 5px; font-size: 10.5px; font-weight: 700;">
+                                                                        ALL ACTIVE OFFICES
+                                                                        <button type="button" wire:click="clearForwardHubOffices" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 12px; padding: 0;">&times;</button>
                                                                     </span>
                                                                 @else
                                                                     @foreach($forwardHubOffices as $idx => $fCode)
-                                                                        <span style="display: inline-flex; align-items: center; gap: 5px; background: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;">
+                                                                        <span style="display: inline-flex; align-items: center; gap: 4px; background: #f1f5f9; color: #0f172a; padding: 2px 7px; border-radius: 5px; font-size: 10.5px; font-weight: 600; border: 1px solid #cbd5e1;">
                                                                             <strong>{{ $fCode }}</strong>
-                                                                            <button type="button" wire:click="removeForwardHubOffice({{ $idx }})" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 12px; line-height: 1; padding: 0;">&times;</button>
+                                                                            <button type="button" wire:click="removeForwardHubOffice({{ $idx }})" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 12px; padding: 0;">&times;</button>
                                                                         </span>
                                                                     @endforeach
                                                                 @endif
@@ -1387,26 +1708,22 @@ new class extends Component {
                                                         @endif
                                                     </div>
                                                 @endif
-
-                                                <div style="font-size: 11px; color: #3b82f6; margin-top: 4px;">
-                                                    This will dynamically route the transaction to this office and insert it directly into the active routing sequence flow.
-                                                </div>
                                             </div>
                                         @endif
                                     @endif
 
-                                    <div style="display: flex; justify-content: flex-end; margin-top: 6px;">
+                                    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
                                         <button 
                                             type="button" 
                                             wire:click="processScanAction" 
                                             class="scanner-action-btn"
-                                            style="background: {{ $activeTransaction['is_received_here'] ? '#16a34a' : '#2563eb' }};"
+                                            style="background: {{ $activeTransaction['is_received_here'] ? '#16a34a' : '#2563eb' }}; padding: 9px 18px; font-size: 12.5px;"
                                         >
                                             @if($activeTransaction['is_received_here'])
-                                                <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
+                                                <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
                                                 <span>{{ $actionNeeded === 'To be Forwarded to' ? 'Forward to Office' : 'Forward Transaction' }}</span>
                                             @else
-                                                <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z" clip-rule="evenodd"/></svg>
+                                                <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z" clip-rule="evenodd"/></svg>
                                                 <span>Receive Transaction</span>
                                             @endif
                                         </button>
@@ -1414,23 +1731,50 @@ new class extends Component {
                                 </div>
                             @endif
                         </div>
-                    @endif
-
-                    <!-- Recent Session Scans -->
-                    @if(!empty($recentScans))
-                        <div style="border-top: 1px solid #f1f5f9; padding-top: 14px;">
-                            <span style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em;">Recent Session Scans</span>
-                            <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
-                                @foreach($recentScans as $rs)
-                                    <div class="scanner-recent-item" style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; background: #f8fafc; padding: 7px 12px; border-radius: 6px; border: 1px solid #e2e8f0; gap: 8px; box-sizing: border-box;">
-                                        <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
-                                            <span style="font-weight: 700; color: #2563eb; font-family: monospace; flex-shrink: 0;">{{ $rs['control_number'] }}</span>
-                                            <span style="color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $rs['subject'] }}</span>
-                                        </div>
-                                        <span style="color: #94a3b8; font-weight: 500; font-size: 11px; flex-shrink: 0;">{{ $rs['scanned_at'] }}</span>
-                                    </div>
-                                @endforeach
+                    @else
+                        <!-- Standby State / Empty Console Panel -->
+                        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px 24px; background: #ffffff; border: 1.5px dashed #cbd5e1; border-radius: 12px;">
+                            <div style="width: 52px; height: 52px; border-radius: 14px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; box-shadow: 0 4px 14px rgba(2, 132, 199, 0.2);">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
+                                    <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
+                                    <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
+                                    <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
+                                    <line x1="7" y1="12" x2="17" y2="12"></line>
+                                </svg>
                             </div>
+                            <h4 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">DTS Scanner Console Armed</h4>
+                            <p style="font-size: 12px; color: #64748b; margin: 0 0 16px 0; max-width: 380px; line-height: 1.45;">
+                                Aim your camera at a document QR code, use a handheld barcode scanner, or choose a document waiting at your station.
+                            </p>
+
+                            <!-- Quick Stats Cards -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 420px; margin-bottom: 14px;">
+                                <div wire:click="openAvailableCodesModal" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#4ade80';" onmouseout="this.style.borderColor='#bbf7d0';">
+                                    <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #166534; letter-spacing: 0.04em;">Pending Receipt</div>
+                                    <div style="font-size: 20px; font-weight: 800; color: #15803d; margin-top: 2px;">{{ $this->availableCounts['incoming'] ?? 0 }}</div>
+                                    <div style="font-size: 10.5px; color: #166534; margin-top: 2px;">Incoming documents</div>
+                                </div>
+                                <div wire:click="openAvailableCodesModal" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#60a5fa';" onmouseout="this.style.borderColor='#bfdbfe';">
+                                    <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #1e40af; letter-spacing: 0.04em;">In Custody</div>
+                                    <div style="font-size: 20px; font-weight: 800; color: #1d4ed8; margin-top: 2px;">{{ $this->availableCounts['received'] ?? 0 }}</div>
+                                    <div style="font-size: 10.5px; color: #1e40af; margin-top: 2px;">Ready to forward</div>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                wire:click="openAvailableCodesModal"
+                                style="background: #0284c7; color: #ffffff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);"
+                                onmouseover="this.style.background='#0369a1';"
+                                onmouseout="this.style.background='#0284c7';"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                </svg>
+                                <span>Browse Available Documents ({{ $this->availableCounts['all'] ?? 0 }})</span>
+                            </button>
                         </div>
                     @endif
                 </div>
@@ -1512,7 +1856,7 @@ new class extends Component {
                             }
 
                             // Only show scanner error if the global scanner modal is currently open in the DOM
-                            var modal = document.querySelector('.global-scanner-modal');
+                            var modal = document.querySelector('.dts-scanner-widget-card, .global-scanner-modal');
                             if (!modal) return;
 
                             window.__scannerToast('Scanner connection problem (HTTP ' + status + '). Please try again.', 'error');
@@ -1531,7 +1875,7 @@ new class extends Component {
 
         function releaseAllModalMediaTracks() {
             try {
-                const modal = document.querySelector('.global-scanner-modal');
+                const modal = document.querySelector('.dts-scanner-widget-card, .global-scanner-modal');
                 const videos = modal ? modal.querySelectorAll('video') : document.querySelectorAll('#modal-qr-preview video');
                 videos.forEach(v => {
                     if (v.srcObject && typeof v.srcObject.getTracks === 'function') {
@@ -1679,7 +2023,8 @@ new class extends Component {
         // component reference is stale.
         const resolveModalComponent = () => {
             try {
-                const modalEl = document.querySelector('.global-scanner-modal')
+                const modalEl = document.querySelector('.dts-scanner-widget-card')
+                    || document.querySelector('.global-scanner-modal')
                     || document.querySelector('.global-scanner-backdrop')
                     || document.getElementById('global-scanner-code-input');
                 const root = modalEl && modalEl.closest ? modalEl.closest('[wire\\:id]') : null;
@@ -2082,6 +2427,76 @@ new class extends Component {
             }
         };
 
+        // Web Audio API Synthesizer Feedback for Scanner
+        let audioCtx = null;
+        function playBeep(freq, type, duration) {
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type || 'sine';
+                osc.frequency.value = freq || 800;
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) {
+                // Audio context not allowed or unsupported
+            }
+        }
+
+        window.addEventListener('scanner-audio-success', () => {
+            playBeep(880, 'sine', 0.12);
+            setTimeout(() => playBeep(1320, 'sine', 0.18), 120);
+        });
+
+        window.addEventListener('scanner-audio-action', () => {
+            playBeep(587.33, 'triangle', 0.1);
+            setTimeout(() => playBeep(880, 'triangle', 0.1), 100);
+            setTimeout(() => playBeep(1174.66, 'triangle', 0.2), 200);
+        });
+
+        window.addEventListener('scanner-audio-error', () => {
+            playBeep(250, 'sawtooth', 0.25);
+        });
+
+        // Hardware Barcode Gun Keypress Listener
+        let gunBarcodeBuffer = '';
+        let lastKeyTime = 0;
+        window.addEventListener('keydown', (e) => {
+            const modal = document.querySelector('.dts-scanner-widget-card, .global-scanner-modal');
+            if (!modal) return;
+
+            if (e.target.tagName === 'TEXTAREA' || (e.target.tagName === 'INPUT' && e.target.id !== 'global-scanner-code-input')) {
+                return;
+            }
+
+            const now = Date.now();
+            if (now - lastKeyTime > 120) {
+                gunBarcodeBuffer = '';
+            }
+            lastKeyTime = now;
+
+            if (e.key === 'Enter') {
+                if (gunBarcodeBuffer.length >= 4) {
+                    e.preventDefault();
+                    if (window.Livewire) {
+                        Livewire.dispatch('open-scanner-modal', { code: gunBarcodeBuffer.trim() });
+                    }
+                    gunBarcodeBuffer = '';
+                }
+            } else if (e.key.length === 1) {
+                gunBarcodeBuffer += e.key;
+            }
+        });
+
         // Livewire 3 dispatches both Livewire events and DOM CustomEvents to window.
         // We bind only to window once to prevent duplicate concurrent camera starts.
         if (!window.__scannerModalEventsBound) {
@@ -2096,6 +2511,125 @@ new class extends Component {
         });
     })();
     </script>
+
+    <!-- Available Documents Directory Modal -->
+    @if($showAvailableModal)
+        <div class="available-modal-backdrop" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px); z-index: 100010; display: flex; align-items: center; justify-content: center; padding: 16px; animation: modalFadeIn 0.15s ease-out;" wire:click.self="closeAvailableCodesModal">
+            <div class="available-modal-card" style="background: #ffffff; border-radius: 16px; max-width: 860px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e2e8f0; overflow: hidden;">
+                
+                {{-- Modal Header --}}
+                <div class="available-modal-header" style="padding: 16px 22px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; background: #f8fafc;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 38px; height: 38px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 16px;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0;">
+                                Available Documents for Station Action
+                            </h3>
+                            <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
+                                Documents stationed at your office pending receipt or dispatch.
+                            </p>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="closeAvailableCodesModal" class="available-modal-close"
+                            style="width: 30px; height: 30px; border-radius: 8px; border: 1px solid #e2e8f0; background: #ffffff; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;">
+                        &times;
+                    </button>
+                </div>
+
+                {{-- Modal Filters & Search Bar --}}
+                <div style="padding: 14px 22px; border-bottom: 1px solid #f1f5f9; background: #ffffff; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; gap: 6px; background: #f1f5f9; padding: 4px; border-radius: 10px;">
+                        <button type="button" wire:click="$set('availableFilter', 'all')"
+                                style="padding: 5px 11px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'all' ? 'background: #ffffff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                            All ({{ $this->availableCounts['all'] ?? 0 }})
+                        </button>
+                        <button type="button" wire:click="$set('availableFilter', 'incoming')"
+                                style="padding: 5px 11px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'incoming' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                            Incoming / To Receive ({{ $this->availableCounts['incoming'] ?? 0 }})
+                        </button>
+                        <button type="button" wire:click="$set('availableFilter', 'received')"
+                                style="padding: 5px 11px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'received' ? 'background: #ffffff; color: #16a34a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                            In Custody / To Forward ({{ $this->availableCounts['received'] ?? 0 }})
+                        </button>
+                    </div>
+
+                    <div style="position: relative; flex: 1; min-width: 200px; max-width: 300px;">
+                        <input type="text" wire:model.live.debounce.250ms="availableSearch" placeholder="Search control no, subject..." 
+                               style="width: 100%; height: 34px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 12px; font-size: 12px; outline: none; box-sizing: border-box;" />
+                    </div>
+                </div>
+
+                {{-- Modal Body: Scrollable Document List --}}
+                <div style="padding: 16px 22px; overflow-y: auto; flex: 1; max-height: calc(88vh - 180px);">
+                    @if($this->availableTransactions->isNotEmpty())
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            @foreach($this->availableTransactions as $item)
+                                <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; background: #ffffff;">
+                                    <div style="flex: 1; min-width: 0;">
+                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
+                                            <span style="font-family: monospace; font-size: 13.5px; font-weight: 800; color: #0f172a;">
+                                                {{ $item->control_number }}
+                                            </span>
+                                            @if(!$item->is_received)
+                                                <span style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
+                                                    Pending Receipt
+                                                </span>
+                                            @else
+                                                <span style="font-size: 10px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
+                                                    In Custody
+                                                </span>
+                                            @endif
+                                            <span style="font-size: 11px; background: #f1f5f9; color: #475569; padding: 2px 6px; border-radius: 4px;">
+                                                {{ $item->document_type ?? 'Document' }}
+                                            </span>
+                                        </div>
+                                        <div style="font-size: 12.5px; font-weight: 600; color: #334155; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                            {{ $item->subject ?: 'Untitled Transaction' }}
+                                        </div>
+                                        <div style="font-size: 11px; color: #64748b; display: flex; gap: 10px; flex-wrap: wrap;">
+                                            <span>Origin: <strong>{{ $item->originated_office_name ?? $item->originated_from }}</strong></span>
+                                            @if($item->requestor_name)
+                                                <span>Requestor: <strong>{{ $item->requestor_name }}</strong></span>
+                                            @endif
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        wire:click="loadAvailableTransaction('{{ $item->qr_code }}')"
+                                        style="background: #0284c7; color: #ffffff; border: none; border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; transition: background 0.15s;"
+                                    >
+                                        <span>Load</span>
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                                    </button>
+                                </div>
+                            @endforeach
+                        </div>
+                    @else
+                        <div style="text-align: center; padding: 36px 20px; color: #94a3b8;">
+                            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 10px auto; opacity: 0.6;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            <p style="font-size: 13.5px; font-weight: 600; color: #64748b; margin: 0 0 4px 0;">No Documents Found</p>
+                            <p style="font-size: 12px; margin: 0;">No active documents matched the current station filter or search query.</p>
+                        </div>
+                    @endif
+                </div>
+
+                {{-- Modal Footer --}}
+                <div style="padding: 12px 22px; border-top: 1px solid #e2e8f0; background: #f8fafc; display: flex; justify-content: flex-end;">
+                    <button type="button" wire:click="closeAvailableCodesModal" style="background: #e2e8f0; color: #334155; border: none; border-radius: 8px; padding: 7px 16px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
 
     <!-- Office Hub Collective Modal for Forwarding -->
     <x-dts.hub-collective-modal 

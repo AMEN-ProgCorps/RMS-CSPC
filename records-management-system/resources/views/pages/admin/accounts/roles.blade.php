@@ -18,6 +18,14 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] class extends Component {
+    use \Livewire\WithPagination;
+
+    /** @var string View layout mode: 'default' (Classic) or 'horizontal' (ESXi Miller Columns) */
+    public string $layoutMode = 'horizontal';
+
+    /** @var string Classic layout directory view mode ('table' or 'grid') */
+    public string $viewMode = 'table';
+
     /** @var string Holds the active search input query for roles */
     public string $search = '';
 
@@ -113,11 +121,43 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
             $this->redirect(route('portal'));
             return;
         }
+        $this->layoutMode = session('admin_roles_layout_mode', session('admin_management_layout_mode', 'horizontal'));
         $this->cancelSelection();
     }
 
     /**
      * Clears all session alert banners.
+     */
+    public function setLayoutMode(string $mode): void
+    {
+        if (in_array($mode, ['default', 'horizontal'])) {
+            $this->layoutMode = $mode;
+            session(['admin_roles_layout_mode' => $mode]);
+            session(['admin_management_layout_mode' => $mode]);
+        }
+    }
+
+    /**
+     * Toggles the sort dir setting or state.
+     * @return void
+     */
+    public function toggleSortDir(): void
+    {
+        $this->sortDir = $this->sortDir === 'asc' ? 'desc' : 'asc';
+    }
+
+    /**
+     * Lifecycle hook executed before updating the search property.
+     * @return void
+     */
+    public function updatingSearch(): void
+    {
+        $this->resetPage();
+    }
+
+    /**
+     * Resets messages and clears active selections.
+     * @return void
      */
     public function clearMessages(): void
     {
@@ -266,6 +306,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         }
     }
 
+    /**
+     * Selects module and populates the details panel.
+     *
+     * @param string $module
+     *
+     * @return void
+     */
     public function selectModule(string $module): void
     {
         $this->selectedModule = $module;
@@ -672,6 +719,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         $perms->can_rdp_generate_reports  = $this->canRdpGenerateReports;
     }
 
+    /**
+     * Roles has dcs admin pages.
+     *
+     * @param object $perms
+     *
+     * @return bool
+     */
     private function roleHasDcsAdminPages(object $perms): bool
     {
         foreach ([
@@ -693,6 +747,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         return false;
     }
 
+    /**
+     * Lifecycle hook executed after updating the is admin property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedIsAdmin($value): void
     {
         if (! $value) {
@@ -709,6 +770,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the can access dcs property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedCanAccessDcs($value): void
     {
         if (! $value) {
@@ -724,6 +792,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the dcs can office intake property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedDcsCanOfficeIntake($value): void
     {
         if ($value) {
@@ -732,6 +807,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the dcs can admin property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedDcsCanAdmin($value): void
     {
         if ($value) {
@@ -739,6 +821,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the dcs can recycle bin property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedDcsCanRecycleBin($value): void
     {
         if ($value) {
@@ -746,6 +835,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         }
     }
 
+    /**
+     * Filters and queries dcs clearance exclusivity based on criteria.
+     * @return void
+     */
     private function applyDcsClearanceExclusivity(): void
     {
         if ($this->dcsCanOfficeIntake) {
@@ -754,6 +847,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         }
     }
 
+    /**
+     * Lifecycle hook executed after updating the is sadm property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedIsSadm($value): void
     {
         if ($value) {
@@ -771,6 +871,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         }
     }
 
+    /**
+     * Submits and processes verification.
+     * @return void
+     */
     public function submitVerification(): void
     {
         $this->verificationError = '';
@@ -792,12 +896,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         }
     }
 
+    /**
+     * Resets verification and clears active selections.
+     * @return void
+     */
     public function cancelVerification(): void
     {
         $this->showVerificationModal = false;
         $this->isSadm = false;
     }
 
+    /**
+     * Enables all permissions.
+     * @return void
+     */
     private function enableAllPermissions(): void
     {
         $this->isAdmin = true;
@@ -842,6 +954,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         $this->canRdpGenerateReports = true;
     }
 
+    /**
+     * Lifecycle hook executed after updating the can dts use issuance property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedCanDtsUseIssuance($value): void
     {
         if ($value) {
@@ -853,6 +972,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $query = \App\Models\role_list::query()->where('is_active', true);
@@ -878,7 +1001,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                 break;
         }
 
-        $roles = $query->get();
+        $roles = $this->layoutMode === 'default' ? $query->paginate(20) : $query->get();
 
         // Calculate assigned user counts per role for fast display
         $userCounts = \App\Models\User::groupBy('account_role')
@@ -903,6 +1026,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
 ?>
 
 @push('styles')
+    @vite(['resources/css/admin/accounts_roles.css', 'resources/css/admin/accounts_users.css'])
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
         .miller-container {
@@ -1414,6 +1538,753 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
     </style>
 @endpush
 
+@if($layoutMode === 'default')
+
+    {-- ======================================================== --}
+    {-- MODE: DEFAULT (CLASSIC DUAL-PANE VIEW) --}
+    {-- ======================================================== --}
+    <div style="max-width: 1600px; margin: 0 auto; padding: 16px 20px 0 20px; box-sizing: border-box;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <h1 style="font-size: 20px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-users-gear" style="color: #0284c7;"></i> Roles & Clearances Console
+                </h1>
+                <span style="font-size: 11px; font-weight: 700; background: #f1f5f9; color: #475569; padding: 3px 8px; border-radius: 9999px; border: 1px solid #cbd5e1;">
+                    Default Layout
+                </span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <x-admin.layout-trigger :mode="$layoutMode" />
+                <button type="button" class="btn-create-new" wire:click="startCreate" style="padding: 7px 14px; background: #003699; color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 13px;">
+                    <i class="fa-solid fa-plus"></i> New Role
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div 
+                                    <!-- Modify Issuance Control Number -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Issuance Control Number</span>
+                                            <span class="permission-toggle-desc">Allows user to manually edit control numbers on Issuances. Restrict exclusively to President/VP functions without full general communication modification clearance.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsModifyIssuanceControlNo">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>class="admin-roles-container {{ !$selectedRoleId ? 'no-selection' : 'has-selection' }}">
+    <!-- Left Pane: Roles Directory -->
+    <div class="directory-panel">
+        <div class="directory-header-row">
+            <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">Roles Directory</span>
+            <button type="button" class="btn-create-new" wire:click="startCreate">
+                <i class="fa-solid fa-plus"></i> New Role
+            </button>
+        </div>
+
+        <div class="directory-controls-bar">
+            <div class="search-box-wrapper">
+                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                <input type="text" class="search-box" placeholder="Search roles..." wire:model.live="search">
+            </div>
+
+            <div class="sort-controls-wrapper">
+                <span class="sort-label">Sort By:</span>
+                <select class="sort-select" wire:model.live="sortBy">
+                    <option value="name">Name</option>
+                    <option value="description">Description</option>
+                    <option value="status">Status</option>
+                    <option value="id">ID</option>
+                </select>
+                <button type="button" wire:click="toggleSortDir" class="btn-sort-dir" title="Toggle Order Direction ({{ strtoupper($sortDir) }})">
+                    @if($sortDir === 'asc')
+                        <i class="fa-solid fa-arrow-up-a-z"></i>
+                    @else
+                        <i class="fa-solid fa-arrow-down-z-a"></i>
+                    @endif
+                </button>
+            </div>
+
+            <!-- View Mode Toggle -->
+            <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1; margin-left: auto;">
+                <button type="button" wire:click="$set('viewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $viewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $viewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $viewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                    <i class="fa-solid fa-border-all"></i> Cards
+                </button>
+                <button type="button" wire:click="$set('viewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $viewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $viewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $viewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                    <i class="fa-solid fa-table-list"></i> Table
+                </button>
+            </div>
+        </div>
+        
+        @if($viewMode === 'table')
+            <div class="roles-table-container" style="margin-top: 12px; overflow-x: auto;">
+                <table class="users-data-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <thead>
+                        <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left; color: #475569;">
+                            <th style="padding: 10px 12px;">Role Name</th>
+                            <th style="padding: 10px 12px;">Description</th>
+                            <th style="padding: 10px 12px;">Assigned Users</th>
+                            <th style="padding: 10px 12px;">Status</th>
+                            <th style="padding: 10px 12px; text-align: right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($roles as $role)
+                            @php
+                                $userCount = \App\Models\User::where('account_role', $role->id)->count();
+                                $roleInitials = strtoupper(substr($role->key_name ?: '?', 0, 2));
+                            @endphp
+                            <tr style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $selectedRoleId === $role->id ? '#f0f9ff' : 'transparent' }};" wire:click="selectRole({{ $role->id }})" wire:key="role-tbl-{{ $role->id }}">
+                                <td style="padding: 10px 12px; font-weight: 600; color: #0f172a;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <div style="width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: #003699; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700;">
+                                            {{ $roleInitials }}
+                                        </div>
+                                        <span>{{ $role->key_name }}</span>
+                                    </div>
+                                </td>
+                                <td style="padding: 10px 12px; color: #475569; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    {{ $role->key_description ?: 'No description provided.' }}
+                                </td>
+                                <td style="padding: 10px 12px; color: #334155;">
+                                    <span style="font-weight: 600;">{{ $userCount }}</span> {{ \Illuminate\Support\Str::plural('user', $userCount) }}
+                                </td>
+                                <td style="padding: 10px 12px;">
+                                    @if($role->is_active)
+                                        <span class="role-status-badge active-badge">Active</span>
+                                    @else
+                                        <span class="role-status-badge inactive-badge">Suspended</span>
+                                    @endif
+                                </td>
+                                <td style="padding: 10px 12px; text-align: right;">
+                                    <button type="button" class="btn-table-action" wire:click.stop="selectRole({{ $role->id }})">
+                                        <i class="fa-solid fa-pen-to-square"></i> Configure
+                                    </button>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="5" style="padding: 24px; text-align: center; color: #94a3b8;">
+                                    No roles configured.
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        @else
+            <div class="roles-list" style="margin-top: 12px;">
+                @forelse($roles as $role)
+                    @php
+                        $roleInitials = strtoupper(substr($role->key_name ?: '?', 0, 2));
+                    @endphp
+                    <div class="role-item-card {{ $selectedRoleId === $role->id ? 'active' : '' }}" wire:key="role-{{ $role->id }}" wire:click="selectRole({{ $role->id }})">
+                        <div class="role-avatar-small">
+                            <span>{{ $roleInitials }}</span>
+                        </div>
+                        <div class="role-meta-info">
+                            <span class="role-display-name">{{ $role->key_name }}</span>
+                            <span class="role-display-desc">{{ $role->key_description ?: 'No description provided.' }}</span>
+                            @if($role->is_active)
+                                <span class="role-status-badge active-badge">Active</span>
+                            @else
+                                <span class="role-status-badge inactive-badge">Suspended</span>
+                            @endif
+                        </div>
+                    </div>
+                @empty
+                    <div style="text-align: center; color: #94a3b8; padding: 20px; font-family: 'Inter', sans-serif; font-size: 13.5px;">
+                        No roles configured.
+                    </div>
+                @endforelse
+            </div>
+        @endif
+
+        @if($roles->hasPages())
+            <div class="roles-pagination-bar" style="padding-top: 10px; border-top: 1px solid #f1f5f9; display: flex; justify-content: center;">
+                {{ $roles->links('components.pagination') }}
+            </div>
+        @endif
+    </div>
+
+    <!-- Right Pane: Role Form Configurator -->
+    @if($selectedRoleId)
+        <div class="details-panel">
+            <!-- Header -->
+            <div class="details-header">
+                <div class="details-header-avatar">
+                    <i class="fa-solid fa-user-shield"></i>
+                </div>
+                <div class="details-header-info">
+                    <h2 class="details-header-name">
+                        {{ $selectedRoleId === -1 ? 'Configure New Custom Role' : $keyName }}
+                    </h2>
+                    <span class="details-header-sub">
+                        {{ $selectedRoleId === -1 ? 'Configure access clearance permissions from scratch' : 'Review & adjust active clearance clearances' }}
+                    </span>
+                </div>
+                <button type="button" class="btn-close-details" wire:click="cancelSelection" title="Close Details Panel">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Body Form -->
+            <div class="details-body">
+                @if($successMessage || session('success'))
+                    <div class="toast-alert success">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>{{ $successMessage ?: session('success') }}</span>
+                    </div>
+                @endif
+
+                @if($errorMessage || session('error'))
+                    <div class="toast-alert error">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        <span>{{ $errorMessage ?: session('error') }}</span>
+                    </div>
+                @endif
+
+                <form wire:submit.prevent="saveRoleChanges" style="display: flex; flex-direction: column; gap: 20px;">
+                    <!-- Role Name -->
+                    <div class="form-group">
+                        <span class="form-label">Role Title / Designation</span>
+                        <input type="text" class="form-input" placeholder="e.g. Records Liaison Officer" wire:model="keyName">
+                        @error('keyName') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                    </div>
+
+                    <!-- Role Description -->
+                    <div class="form-group">
+                        <span class="form-label">Description / Scope of Authority</span>
+                        <input type="text" class="form-input" placeholder="e.g. Handles document tracking within college division" wire:model="keyDescription">
+                        @error('keyDescription') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
+                    </div>
+
+                    <!-- Active Toggle Wrapper (Only shown for edit mode, not create mode) -->
+                    @if($selectedRoleId > 0)
+                        <div class="form-group">
+                            <div class="status-toggle-wrapper">
+                                <div class="status-toggle-label">
+                                    <span class="status-toggle-title">Clearance Active Status</span>
+                                    <span class="status-toggle-desc">Toggle whether this role is active or soft-deactivated for transparency.</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="isActive">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    @endif
+
+                    <!-- Permissions Clearance Matrix -->
+                    <div class="form-group" style="margin-top: 8px;">
+                        <span class="form-label" style="display: block; margin-bottom: 12px;">Access Permissions Matrix</span>
+                        
+                        <div style="display: flex; flex-direction: column; gap: 20px;">
+                            <!-- Category 1: Platform/Subsystem Access -->
+                            <div class="permissions-section-card">
+                                <span class="permissions-section-title"><i class="fa-solid fa-desktop"></i> System Access Clearances</span>
+                                <div class="permissions-grid-layout">
+                                    <!-- Super Admin -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Super Administrator</span>
+                                            <span class="permission-toggle-desc">Unrestricted platform-wide control.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model.live="isSadm">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Normal Admin -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Administrator Access</span>
+                                            <span class="permission-toggle-desc">Access Admin Console with restricted permissions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model.live="isAdmin">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- DTS -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access DTS</span>
+                                            <span class="permission-toggle-desc">Clearance to use Document Tracking System.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessDts">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Archives -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access RDP Archives</span>
+                                            <span class="permission-toggle-desc">Clearance to view/query records disposal archives.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessArchv">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- DCS -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access DCS Subsystem</span>
+                                            <span class="permission-toggle-desc">Unlocks DCS and defaults to Office Intake below. Switch to Document Controller (Admin DCS) if needed — not both.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model.live="canAccessDcs">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Category 2: Document Tracking System Clearances -->
+                            <div class="permissions-section-card">
+                                <span class="permissions-section-title"><i class="fa-solid fa-file-signature"></i> Document Tracking System Clearances</span>
+                                <div class="permissions-grid-layout">
+                                    <!-- Modify Docflow -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Doc Flow</span>
+                                            <span class="permission-toggle-desc">Clearance to override document track routes.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canModifyDocflow">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View all list -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All Lists</span>
+                                            <span class="permission-toggle-desc">View documents registered across all offices.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canViewAllList" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View all archive -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All Archives</span>
+                                            <span class="permission-toggle-desc">Query and search historical files.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canViewAllArchive" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View all current trans -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All Current Transactions</span>
+                                            <span class="permission-toggle-desc">View all active transactions from all offices.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canViewAllCurrentTrans" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Create own transaction flow -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Create Own Transaction Flow</span>
+                                            <span class="permission-toggle-desc">Define and construct custom transaction flows.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canCreateOwnFlow">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Use Internal Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Use Internal Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to create, list, and filter Internal Transactions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsUseInternal">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Use External Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Use External Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to create, list, and filter External Transactions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsUseExternal">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Use Application Letter Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Use Application Letter Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to create, list, and filter Application Letter Transactions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsUseApplication">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Use Issuance Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Use Issuance Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to create, list, and filter Issuance Transactions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model.live="canDtsUseIssuance">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Issuance Receiving Office Clearance -->
+                                    <div class="permission-toggle-row" style="{{ !$canDtsUseIssuance ? 'opacity: 0.6;' : '' }}">
+                                        <div class="permission-toggle-info" style="padding-left: 14px;">
+                                            <span class="permission-toggle-title">Issuance - Receiving Office</span>
+                                            <span class="permission-toggle-desc">Clearance to route issuances using Receiving Office(s) and Hub broadcast.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsIssuanceReceivingOffice" {{ !$canDtsUseIssuance ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Issuance Transaction Flow Clearance -->
+                                    <div class="permission-toggle-row" style="{{ !$canDtsUseIssuance ? 'opacity: 0.6;' : '' }}">
+                                        <div class="permission-toggle-info" style="padding-left: 14px;">
+                                            <span class="permission-toggle-title">Issuance - Transaction Flow</span>
+                                            <span class="permission-toggle-desc">Clearance to route issuances using Transaction Flow / Path sequences.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsIssuanceTransactionFlow" {{ !$canDtsUseIssuance ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Receive Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Receive & Forward Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to receive, forward, update, or complete transactions. If disabled, actions will be read-only.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsUserReceived">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Forward Transaction to Other office -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Forward Transaction to Other office</span>
+                                            <span class="permission-toggle-desc">Clearance to dynamically route and insert an ad-hoc office into the active transaction sequence flow using "To be Forwarded to".</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsForwardOtherOffice">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Modify Transactions -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Transactions Details</span>
+                                            <span class="permission-toggle-desc">Clearance to modify metadata details (Control #, Subject/Particulars, CF, etc.) on active transactions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsModifyTransaction" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Modify Control Number on Create -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Control Number</span>
+                                            <span class="permission-toggle-desc">Allows user to see and manually edit the control number on the create transaction form. When disabled, control numbers are auto-generated.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsModifyControlNo">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View All Scanner Codes -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All Scanner Codes</span>
+                                            <span class="permission-toggle-desc">Scanner's Available Codes lists documents from every office instead of only this station's. Without it, only documents targeted to this station's office appear. Requires Super Administrator or Administrator Access.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canViewAllScannerCodes" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Category: RDP Clearances -->
+                            <div class="permissions-section-card">
+                                <span class="permissions-section-title"><i class="fa-solid fa-folder-tree"></i> Records Disposition Program (RDP) Clearances</span>
+                                <div class="permissions-grid-layout">
+                                    <!-- RDP Subsystem Clearance -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access RDP Portal</span>
+                                            <span class="permission-toggle-desc">General clearance to access the Records Disposition Program subsystem.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessArchv">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View All Office Files -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All Office Files</span>
+                                            <span class="permission-toggle-desc">Clearance to search and inspect repository document files across all college offices.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="rdpViewAllFiles" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View All Pending List -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All Pending List (RDP)</span>
+                                            <span class="permission-toggle-desc">Clearance to view pending submission clusters from all college offices instead of only user's own office.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="isRdpViewAllPendingList">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access For Approval Page -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access For Approval Page (RDP)</span>
+                                            <span class="permission-toggle-desc">Clearance to view and access the RDP Pending For Approval page to evaluate and approve submissions.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpAccessForApproval">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View All Received Documents -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All Received Documents (RDP)</span>
+                                            <span class="permission-toggle-desc">Clearance to view received documents from all college offices and use the office filter dropdown.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="isRdpViewAllReceivedDocs">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Modify Record Series & Appraisal -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Record Series & Appraisal</span>
+                                            <span class="permission-toggle-desc">Clearance to add, edit, or update record series, inventory appraisal schedules, and retention values.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpModifySeries">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Generate & Print RDP Reports -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Generate & Print RDP Reports</span>
+                                            <span class="permission-toggle-desc">Clearance to access, view, configure, and generate official RDP reports (NAP Forms 1, 2, 3 and Generalized Records).</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canRdpGenerateReports">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Document Control System Clearances (gated by Access DCS only — not Administrative Access) -->
+                            <div class="permissions-section-card">
+                                <span class="permissions-section-title"><i class="fa-solid fa-stamp"></i> Document Control System (DCS) Clearances</span>
+                                <p class="permission-toggle-desc" style="margin: 0 0 0.75rem;">Access DCS turns Office Intake on by default. Switch to Admin DCS when needed — they cannot be on together. Super Admin already has Admin DCS pages. Recycle Bin is Head Admin only and also cannot combine with Office Intake.</p>
+                                <div class="permissions-grid-layout">
+                                    <div class="permission-toggle-row" style="{{ (!$canAccessDcs || $dcsCanAdmin || $dcsCanRecycleBin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Office Intake (Client)</span>
+                                            <span class="permission-toggle-desc">Client path: My DRF, My DCN, and office documents for submitting offices. Disabled while Admin DCS or Recycle Bin is on.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model.live="dcsCanOfficeIntake" {{ (!$canAccessDcs || $dcsCanAdmin || $dcsCanRecycleBin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="permission-toggle-row" style="{{ (!$canAccessDcs || $dcsCanOfficeIntake) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Document Controller (Admin DCS)</span>
+                                            <span class="permission-toggle-desc">Admin DCS path: Register, Settings, Review intake, Reports, Document Review, Stamping, Database, Manage Files, and Random Check. Granted by role clearance only — any office.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model.live="dcsCanAdmin" {{ (!$canAccessDcs || $dcsCanOfficeIntake) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="permission-toggle-row" style="{{ (!$canAccessDcs || $dcsCanOfficeIntake) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Recycle Bin (Head Admin)</span>
+                                            <span class="permission-toggle-desc">Head Admin of DCS only. Stacks with Admin DCS: review, restore, or permanently delete soft-deleted documents. Not included with Super Admin or Admin DCS alone.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model.live="dcsCanRecycleBin" {{ (!$canAccessDcs || $dcsCanOfficeIntake) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Category 3: Security & Accounts Control -->
+                            <div class="permissions-section-card">
+                                <span class="permissions-section-title"><i class="fa-solid fa-user-lock"></i> Administration Clearances</span>
+                                <div class="permissions-grid-layout">
+                                    <!-- Modify Users -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Accounts Directory</span>
+                                            <span class="permission-toggle-desc">Clearance to alter personal user data.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canModifyUser" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Modify Role lists -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Subsystem Roles</span>
+                                            <span class="permission-toggle-desc">Clearance to manage roles and access matrices.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canModifyAccountlist" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Modify Passwords -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Passwords</span>
+                                            <span class="permission-toggle-desc">Override and reset user passwords.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canModifyPass" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View Activity Logs -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access Activity Logs</span>
+                                            <span class="permission-toggle-desc">Clearance to view the login, transaction, and update log history.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessActivityLogs" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access Subsystems -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Manage Subsystems</span>
+                                            <span class="permission-toggle-desc">Clearance to add, activate, or deactivate portal subsystems.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessSubsystems" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access DTS Admin -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access DTS Admin Log</span>
+                                            <span class="permission-toggle-desc">Clearance to view transaction log history and predefined flow patterns.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessDtsAdmin" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access RDP Admin -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access RDP Admin Log</span>
+                                            <span class="permission-toggle-desc">Clearance to view retention schedules and records logs.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessRdpAdmin" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access DCS Admin -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access DCS Admin Log</span>
+                                            <span class="permission-toggle-desc">Clearance to view Document Control System activity logs in Admin Console.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessDcsAdmin" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access System Settings -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Manage System Settings</span>
+                                            <span class="permission-toggle-desc">Clearance to adjust portal variables and configurations.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessSettings" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Access Recycle Bin -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Access Recycle Bin</span>
+                                            <span class="permission-toggle-desc">Clearance to view and restore deactivated portal items.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canAccessRecycleBin" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Footer Actions -->
+            <div class="details-footer">
+                @if($selectedRoleId > 0)
+                    <button type="button" class="btn-delete" wire:click="deleteRole" style="margin-right: auto;">
+                        <i class="fa-solid fa-trash-can"></i> Delete Role
+                    </button>
+                @endif
+                <button type="button" class="btn-cancel" wire:click="cancelSelection">Cancel</button>
+                <button type="button" class="btn-save" wire:click="saveRoleChanges">
+                    <i class="fa-solid fa-floppy-disk"></i> Save Configuration
+                </button>
+            </div>
+        </div>
+    @endif
+
+@else
 <div class="miller-container">
     {{-- Top Action Toolbar --}}
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
@@ -1432,6 +2303,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         </div>
 
         <div style="display: flex; align-items: center; gap: 8px;">
+            <x-admin.layout-trigger :mode="$layoutMode" />
             <button type="button" wire:click="startCreate" class="m-btn m-btn-primary">
                 <i class="fa-solid fa-plus"></i> New Role
             </button>
@@ -2393,7 +3265,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         @endif
     </div>
 
-    {{-- Super Admin Verification Modal --}}
+    
+@endif
+
+{{-- Super Admin Verification Modal --}}
     @if($showVerificationModal)
         <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center;">
             <div style="background: white; border-radius: 12px; padding: 24px; width: 420px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; gap: 18px; border: 1px solid #cbd5e1; font-family: 'Inter', system-ui, sans-serif;">

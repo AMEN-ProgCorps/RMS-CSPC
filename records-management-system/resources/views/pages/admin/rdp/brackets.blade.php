@@ -57,6 +57,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
     public string $successMessage = '';
     public string $errorMessage = '';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -69,12 +73,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         // It will be restored from the browser's localStorage in Alpine init() if previously opened.
     }
 
+    /**
+     * Resets messages and clears active selections.
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
+    /**
+     * Logs admin action.
+     *
+     * @param string $changes
+     *
+     * @return void
+     */
     private function logAdminAction(string $changes): void
     {
         try {
@@ -104,6 +119,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->broadcastPath();
     }
 
+    /**
+     * Selects main bracket and populates the details panel.
+     *
+     * @param int $mainId
+     *
+     * @return void
+     */
     public function selectMainBracket(int $mainId): void
     {
         $this->selectedMainBracketId = $mainId;
@@ -114,6 +136,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->broadcastPath();
     }
 
+    /**
+     * Selects sub bracket and populates the details panel.
+     *
+     * @param string|int $subId
+     *
+     * @return void
+     */
     public function selectSubBracket(string|int $subId): void
     {
         $this->selectedSubBracketId = $subId;
@@ -123,6 +152,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->broadcastPath();
     }
 
+    /**
+     * Selects office and populates the details panel.
+     *
+     * @param int $mappingId
+     * @param string $code
+     *
+     * @return void
+     */
     public function selectOffice(int $mappingId, string $code): void
     {
         $this->selectedOfficeMappingId = $mappingId;
@@ -130,6 +167,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->broadcastPath();
     }
 
+    /**
+     * Resets path and clears active selections.
+     * @return void
+     */
     public function clearPath(): void
     {
         $this->selectedTypeId = null;
@@ -141,6 +182,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->dispatch('path-cleared');
     }
 
+    /**
+     * Restores path.
+     *
+     * @param ?int $typeId
+     * @param ?int $mainId
+     * @param string|int|null $subId
+     * @param ?string $officeCode
+     * @param ?int $officeMapId
+     *
+     * @return void
+     */
     public function restorePath(?int $typeId = null, ?int $mainId = null, string|int|null $subId = null, ?string $officeCode = null, ?int $officeMapId = null): void
     {
         if (!$typeId || !DB::table('rdp_record_series_type')->where('id', $typeId)->exists()) {
@@ -171,6 +223,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         }
     }
 
+    /**
+     * Broadcasts path.
+     * @return void
+     */
     private function broadcastPath(): void
     {
         $this->dispatch('path-updated', [
@@ -182,6 +238,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         ]);
     }
 
+    /**
+     * Deletes or deactivates the specified first office.
+     * @return void
+     */
     public function removeFirstOffice(): void
     {
         $this->clearMessages();
@@ -241,6 +301,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->showTypeModal = true;
     }
 
+    /**
+     * Displays the edit type modal.
+     *
+     * @param ?int $id
+     *
+     * @return void
+     */
     public function openEditTypeModal(?int $id = null): void
     {
         $this->clearMessages();
@@ -257,6 +324,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->showTypeModal = true;
     }
 
+    /**
+     * Persists type changes to the database.
+     * @return void
+     */
     public function saveType(): void
     {
         $this->clearMessages();
@@ -310,6 +381,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->showMainModal = true;
     }
 
+    /**
+     * Displays the edit main modal.
+     *
+     * @param ?int $id
+     *
+     * @return void
+     */
     public function openEditMainModal(?int $id = null): void
     {
         $this->clearMessages();
@@ -326,6 +404,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->showMainModal = true;
     }
 
+    /**
+     * Persists main bracket changes to the database.
+     * @return void
+     */
     public function saveMainBracket(): void
     {
         $this->clearMessages();
@@ -380,6 +462,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->showSubModal = true;
     }
 
+    /**
+     * Displays the edit sub modal.
+     *
+     * @param ?int $id
+     *
+     * @return void
+     */
     public function openEditSubModal(?int $id = null): void
     {
         $this->clearMessages();
@@ -396,6 +485,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->showSubModal = true;
     }
 
+    /**
+     * Persists sub bracket changes to the database.
+     * @return void
+     */
     public function saveSubBracket(): void
     {
         $this->clearMessages();
@@ -471,6 +564,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->showAssignOfficeModal = true;
     }
 
+    /**
+     * Toggles the office selection setting or state.
+     *
+     * @param string $code
+     *
+     * @return void
+     */
     public function toggleOfficeSelection(string $code): void
     {
         if (in_array($code, $this->quickSelectedOffices)) {
@@ -480,6 +580,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         }
     }
 
+    /**
+     * Persists office assignments changes to the database.
+     * @return void
+     */
     public function saveOfficeAssignments(): void
     {
         $this->clearMessages();
@@ -536,6 +640,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         }
     }
 
+    /**
+     * Deletes or deactivates the specified office mapping.
+     *
+     * @param int $mappingId
+     *
+     * @return void
+     */
     public function removeOfficeMapping(int $mappingId): void
     {
         $this->clearMessages();
@@ -560,6 +671,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->showDeleteModal = true;
     }
 
+    /**
+     * Executes delete.
+     * @return void
+     */
     public function executeDelete(): void
     {
         $this->clearMessages();
@@ -633,6 +748,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         }
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';

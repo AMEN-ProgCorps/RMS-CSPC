@@ -23,6 +23,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $semesterId = '';
     public string $courseType = '';
 
+    /**
+     * Persists remark changes to the database.
+     *
+     * @param int $programId
+     * @param string $section
+     * @param string $status
+     *
+     * @return void
+     */
     public function saveRemark(int $programId, string $section, string $status): void
     {
         RegisterQueryHelper::assertFullDcsUser('reports');
@@ -41,6 +50,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         );
     }
 
+    /**
+     * Pcts span.
+     *
+     * @param mixed $pct
+     *
+     * @return string
+     */
     public function pctSpan(mixed $pct): string
     {
         $value = $pct === null || $pct === '' ? null : (float) $pct;
@@ -53,6 +69,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return '<span class="mon-pct mon-pct-' . $tone . '">' . e($label) . '</span>';
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $collegeId = $this->collegeId !== '' ? (int) $this->collegeId : null;

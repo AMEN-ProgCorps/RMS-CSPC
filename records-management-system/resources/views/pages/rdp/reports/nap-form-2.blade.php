@@ -23,6 +23,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public string $clusterName = '';
     public string $clusterNotes = '';
 
+    /**
+     * Displays the cluster modal.
+     * @return void
+     */
     public function openClusterModal(): void
     {
         if (empty($this->selectedIds)) {
@@ -48,11 +52,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $this->showClusterModal = true;
     }
 
+    /**
+     * Closes the cluster modal.
+     * @return void
+     */
     public function closeClusterModal(): void
     {
         $this->showClusterModal = false;
     }
 
+    /**
+     * Submits and processes cluster creation.
+     * @return void
+     */
     public function submitClusterCreation(): void
     {
         if (empty($this->selectedIds)) {
@@ -178,6 +190,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public string $executiveDirectorName = '';
     public string $executiveDirectorTitle = 'Executive Director, National Archives of the Philippines';
 
+    /**
+     * Initializes component state, authorization gates, and default configurations.
+     * @return void
+     */
     public function mount(): void
     {
         $user = Auth::user();
@@ -203,6 +219,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         }
     }
 
+    /**
+     * Displays the print modal.
+     *
+     * @param array $specificIds
+     *
+     * @return void
+     */
     public function openPrintModal(array $specificIds = []): void
     {
         $perms = Auth::user()?->permissions;
@@ -216,12 +239,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $this->showPrintModal = true;
     }
 
+    /**
+     * Closes the print modal.
+     * @return void
+     */
     public function closePrintModal(): void
     {
         $this->showPrintModal = false;
         $this->enableNumber = false;
     }
 
+    /**
+     * Lifecycle hook executed after updating the select all property.
+     *
+     * @param mixed $value
+     *
+     * @return void
+     */
     public function updatedSelectAll($value): void
     {
         if ($value) {
@@ -300,6 +334,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         }
     }
 
+    /**
+     * Displays the view modal.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function openViewModal(int $id): void
     {
         $query = DB::table('rdp_record_series')
@@ -337,12 +378,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         }
     }
 
+    /**
+     * Closes the view modal.
+     * @return void
+     */
     public function closeViewModal(): void
     {
         $this->showViewModal = false;
         $this->viewSeriesData = null;
     }
 
+    /**
+     * Displays the edit modal.
+     *
+     * @param int $id
+     *
+     * @return void
+     */
     public function openEditModal(int $id): void
     {
         $record = DB::table('rdp_record_series')->where('id', $id)->first();
@@ -384,6 +436,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         }
     }
 
+    /**
+     * Closes the edit modal.
+     * @return void
+     */
     public function closeEditModal(): void
     {
         $this->showEditModal = false;
@@ -391,6 +447,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $this->isSeriesUsedInNap1 = false;
     }
 
+    /**
+     * Resets record series and clears active selections.
+     * @return void
+     */
     public function cancelRecordSeries(): void
     {
         if (!$this->editingSeriesId) return;
@@ -457,6 +517,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         }
     }
 
+    /**
+     * Persists edit series changes to the database.
+     * @return void
+     */
     public function saveEditSeries(): void
     {
         if (!$this->editingSeriesId) return;
@@ -515,6 +579,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $this->editingSeriesId = null;
     }
 
+    /**
+     * Resets filters and clears active selections.
+     * @return void
+     */
     public function clearFilters(): void
     {
         $this->search = '';
@@ -526,6 +594,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $this->selectAll = false;
     }
 
+    /**
+     * Resolves effective retention.
+     *
+     * @param array $allSeriesMap
+     * @param object $record
+     *
+     * @return object
+     */
     private function resolveEffectiveRetention(array $allSeriesMap, object $record): object
     {
         $current = $record;
@@ -565,6 +641,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         ];
     }
 
+    /**
+     * Builds tree hierarchy.
+     *
+     * @param array $records
+     *
+     * @return array
+     */
     private function buildTreeHierarchy(array $records): array
     {
         $allParentIds = [];
@@ -642,6 +725,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         return $ordered;
     }
 
+    /**
+     * Supplies view data, query collections, and metrics to the Blade template.
+     * @return array
+     */
     public function with(): array
     {
         $user = Auth::user();

@@ -683,6 +683,12 @@ class DtsScannerTest extends TestCase
             ->call('openModal')
             ->assertSet('isOpen', true)
             ->assertSee('dts-scanner-widget-card')
+            ->call('openAvailableCodesModal')
+            ->assertSet('showAvailableModal', true)
+            ->assertSee('dts-available-inner-pane')
+            ->assertSee('Available Station Documents')
+            ->call('closeAvailableCodesModal')
+            ->assertSet('showAvailableModal', false)
             ->call('closeModal')
             ->assertSet('isOpen', false);
     }

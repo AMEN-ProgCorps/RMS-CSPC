@@ -2,6 +2,7 @@
 {{-- Always define stubs so onclick handlers never throw ReferenceError before the widget script loads. --}}
 <script>
     window.toggleMessifyWidget = window.toggleMessifyWidget || function () {};
+    window.toggleMessifyMaximize = window.toggleMessifyMaximize || function () {};
     window.reloadMessifyIframe = window.reloadMessifyIframe || function () {};
     window.hideMessifyLoader = window.hideMessifyLoader || function () {};
     window.updateMessifyUnreadBadge = window.updateMessifyUnreadBadge || function () {};
@@ -38,6 +39,11 @@
                 <!-- Refresh Button -->
                 <button type="button" onclick="reloadMessifyIframe()" title="Reload Chatify" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
                     <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                </button>
+                <!-- Expand / Fullscreen Button -->
+                <button type="button" id="messify-btn-maximize" onclick="typeof window.toggleMessifyMaximize==='function'&&window.toggleMessifyMaximize()" title="Expand Chatify" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
+                    <svg id="messify-icon-maximize" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+                    <svg id="messify-icon-restore" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m0 6v4a2 2 0 002 2h4m6 0h4a2 2 0 002-2v-4m0-6V5a2 2 0 00-2-2h-4"/></svg>
                 </button>
                 <!-- Minimize Button -->
                 <button type="button" onclick="typeof window.toggleMessifyWidget==='function'&&window.toggleMessifyWidget()" title="Minimize" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
@@ -151,6 +157,20 @@
 
 body.messify-widget-open #messify-global-widget {
     z-index: 1000010 !important;
+}
+
+#messify-widget-card.is-maximized {
+    position: fixed !important;
+    top: 24px !important;
+    left: 24px !important;
+    right: 24px !important;
+    bottom: 88px !important;
+    width: auto !important;
+    height: auto !important;
+    max-width: none !important;
+    max-height: none !important;
+    border-radius: 14px !important;
+    z-index: 1000030 !important;
 }
 
 .rms-messify-fab-icon {
@@ -731,6 +751,28 @@ body.messify-widget-open #messify-global-widget {
         setWidgetVisibility(isOpen, true);
         // Single refresh — no need for multiple setTimeouts.
         scheduleUnreadPoll(200);
+    };
+
+    let messifyIsMaximized = false;
+    window.toggleMessifyMaximize = function() {
+        const card = document.getElementById('messify-widget-card');
+        const iconMax = document.getElementById('messify-icon-maximize');
+        const iconRes = document.getElementById('messify-icon-restore');
+        const btn = document.getElementById('messify-btn-maximize');
+        if (!card) return;
+
+        messifyIsMaximized = !messifyIsMaximized;
+        if (messifyIsMaximized) {
+            card.classList.add('is-maximized');
+            if (iconMax) iconMax.style.display = 'none';
+            if (iconRes) iconRes.style.display = 'block';
+            if (btn) btn.title = 'Restore Normal Size';
+        } else {
+            card.classList.remove('is-maximized');
+            if (iconMax) iconMax.style.display = 'block';
+            if (iconRes) iconRes.style.display = 'none';
+            if (btn) btn.title = 'Expand Chatify';
+        }
     };
 
     window.reloadMessifyIframe = function() {

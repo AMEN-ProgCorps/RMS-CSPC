@@ -1056,8 +1056,8 @@ new class extends Component {
                     <!-- Available Directory Button -->
                     <button
                         type="button"
-                        wire:click="openAvailableCodesModal"
-                        class="scanner-header-pill-btn btn-cyan"
+                        wire:click="{{ $showAvailableModal ? 'closeAvailableCodesModal' : 'openAvailableCodesModal' }}"
+                        class="scanner-header-pill-btn btn-cyan {{ $showAvailableModal ? 'btn-cyan-active' : '' }}"
                         title="Browse pending documents for your station"
                     >
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
@@ -1242,9 +1242,12 @@ new class extends Component {
                     border-color: rgba(56, 189, 248, 0.45);
                     color: #38bdf8;
                 }
-                .scanner-header-pill-btn.btn-cyan:hover {
-                    background: rgba(2, 132, 199, 0.4);
-                    color: #ffffff;
+                .scanner-header-pill-btn.btn-cyan:hover,
+                .scanner-header-pill-btn.btn-cyan-active {
+                    background: rgba(2, 132, 199, 0.5) !important;
+                    border-color: #38bdf8 !important;
+                    color: #ffffff !important;
+                    box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
                 }
                 .scanner-header-pill-btn.btn-cyan .count-badge {
                     background: #0284c7;
@@ -1447,7 +1450,7 @@ new class extends Component {
             </style>
 
             <!-- Two-Column Body (Landscape 2:1 Split) -->
-            <div class="dts-scanner-widget-body">
+            <div class="dts-scanner-widget-body" style="{{ $showAvailableModal ? 'display: none !important;' : '' }}">
                 <!-- Left Pane: Viewport, Camera Controls, & Barcode Gun Input (Width: 390px) -->
                 <div class="dts-scanner-left-pane">
                     @if($successMessage)
@@ -1473,7 +1476,7 @@ new class extends Component {
                     <!-- Webcam Viewport -->
                     <div wire:ignore class="dts-scanner-viewport-container" style="position: relative; height: 185px; border-radius: 10px; overflow: hidden; background: #0f172a; flex-shrink: 0;">
                         <div id="modal-qr-preview"></div>
-                        <div id="camera-loading-placeholder" style="position: absolute; color: #94a3b8; font-size: 12px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 5;">
+                        <div id="camera-loading-placeholder" style="position: absolute; inset: 0; color: #94a3b8; font-size: 12px; font-weight: 500; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 12px; z-index: 5; background: rgba(15, 23, 42, 0.95);">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.85;">
                                 <path d="M23 7l-7 5 7 5V7z"></path>
                                 <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
@@ -1779,6 +1782,108 @@ new class extends Component {
                     @endif
                 </div>
             </div>
+
+            <!-- Available Documents Directory View (Contained 100% Inside Widget Card) -->
+            @if($showAvailableModal)
+                <div class="dts-available-inner-pane" style="flex: 1; display: flex; flex-direction: column; background: #ffffff; overflow: hidden; min-height: 0;">
+                    <!-- Sub-Header / Filters / Search -->
+                    <div style="padding: 10px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; flex-shrink: 0;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="width: 28px; height: 28px; border-radius: 7px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center;">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                            </div>
+                            <div>
+                                <div style="font-size: 13px; font-weight: 700; color: #0f172a;">Available Station Documents</div>
+                                <div style="font-size: 11px; color: #64748b;">Pending receipt or dispatch at your office</div>
+                            </div>
+                        </div>
+
+                        <button type="button" wire:click="closeAvailableCodesModal" style="padding: 5px 11px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11.5px; font-weight: 600; color: #475569; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.15s;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#ffffff'">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            <span>Back to Console</span>
+                        </button>
+                    </div>
+
+                    <!-- Filter Tabs & Search Row -->
+                    <div style="padding: 8px 16px; border-bottom: 1px solid #f1f5f9; background: #ffffff; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; flex-shrink: 0;">
+                        <div style="display: flex; gap: 4px; background: #f1f5f9; padding: 3px; border-radius: 8px;">
+                            <button type="button" wire:click="$set('availableFilter', 'all')"
+                                    style="padding: 4px 10px; border-radius: 6px; border: none; font-size: 11.5px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'all' ? 'background: #ffffff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                                All ({{ $this->availableCounts['all'] ?? 0 }})
+                            </button>
+                            <button type="button" wire:click="$set('availableFilter', 'incoming')"
+                                    style="padding: 4px 10px; border-radius: 6px; border: none; font-size: 11.5px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'incoming' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                                Incoming / To Receive ({{ $this->availableCounts['incoming'] ?? 0 }})
+                            </button>
+                            <button type="button" wire:click="$set('availableFilter', 'received')"
+                                    style="padding: 4px 10px; border-radius: 6px; border: none; font-size: 11.5px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'received' ? 'background: #ffffff; color: #16a34a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                                In Custody / To Forward ({{ $this->availableCounts['received'] ?? 0 }})
+                            </button>
+                        </div>
+
+                        <div style="position: relative; flex: 1; min-width: 180px; max-width: 280px;">
+                            <input type="text" wire:model.live.debounce.250ms="availableSearch" placeholder="Search control no, subject..." 
+                                   style="width: 100%; height: 32px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0 10px; font-size: 11.5px; outline: none; box-sizing: border-box;" />
+                        </div>
+                    </div>
+
+                    <!-- Scrollable Document Cards List -->
+                    <div style="padding: 12px 16px; overflow-y: auto; flex: 1; min-height: 0;">
+                        @if($this->availableTransactions->isNotEmpty())
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                @foreach($this->availableTransactions as $item)
+                                    <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #ffffff; transition: border-color 0.15s;" onmouseover="this.style.borderColor='#93c5fd'" onmouseout="this.style.borderColor='#e2e8f0'">
+                                        <div style="flex: 1; min-width: 0;">
+                                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap;">
+                                                <span style="font-family: monospace; font-size: 13px; font-weight: 800; color: #0f172a;">
+                                                    {{ $item->control_number }}
+                                                </span>
+                                                @if(!$item->is_received)
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">
+                                                        Pending Receipt
+                                                    </span>
+                                                @else
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">
+                                                        In Custody
+                                                    </span>
+                                                @endif
+                                                <span style="font-size: 10.5px; background: #f1f5f9; color: #475569; padding: 1px 6px; border-radius: 4px;">
+                                                    {{ $item->document_type ?? 'Document' }}
+                                                </span>
+                                            </div>
+                                            <div style="font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                {{ $item->subject ?: 'Untitled Transaction' }}
+                                            </div>
+                                            <div style="font-size: 10.5px; color: #64748b; display: flex; gap: 10px; flex-wrap: wrap;">
+                                                <span>Origin: <strong>{{ $item->originated_office_name ?? $item->originated_from }}</strong></span>
+                                                @if($item->requestor_name)
+                                                    <span>Requestor: <strong>{{ $item->requestor_name }}</strong></span>
+                                                @endif
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            wire:click="loadAvailableTransaction('{{ $item->qr_code }}')"
+                                            style="background: #0284c7; color: #ffffff; border: none; border-radius: 7px; padding: 7px 13px; font-size: 11.5px; font-weight: 700; cursor: pointer; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; transition: background 0.15s;"
+                                            onmouseover="this.style.background='#0369a1'"
+                                            onmouseout="this.style.background='#0284c7'"
+                                        >
+                                            <span>Load</span>
+                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                                        </button>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @else
+                            <div style="text-align: center; padding: 32px 16px; color: #94a3b8;">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 8px auto; opacity: 0.6;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                <p style="font-size: 13px; font-weight: 600; color: #64748b; margin: 0 0 3px 0;">No Documents Found</p>
+                                <p style="font-size: 11.5px; margin: 0;">No active documents matched the current station filter or search query.</p>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            @endif
         </div>
     @endif
 
@@ -1970,28 +2075,20 @@ new class extends Component {
         }
 
         const calculateModalQrboxSize = function(viewfinderWidth, viewfinderHeight) {
-            // Generous rectangular scanning zone (78% width, 75% height)
-            // Ensures QR codes are caught across almost the entire field of view
-            // without requiring users to hold paper in an exact pinpoint square.
-            const w = Math.floor(viewfinderWidth * 0.78);
-            const h = Math.floor(viewfinderHeight * 0.75);
+            // Generous rectangular scanning zone (72% of minimum dimension)
+            // Ensures QR box is always within viewfinder bounds and never exceeds height or width.
+            const minDim = Math.min(viewfinderWidth || 360, viewfinderHeight || 185);
+            const boxSize = Math.max(60, Math.floor(minDim * 0.72));
             return {
-                width: Math.max(220, Math.min(w, viewfinderWidth - 20)),
-                height: Math.max(220, Math.min(h, viewfinderHeight - 20))
+                width: Math.min(boxSize, Math.max(60, (viewfinderWidth || 360) - 10)),
+                height: Math.min(boxSize, Math.max(60, (viewfinderHeight || 185) - 10))
             };
         };
 
-        // Use ideal-only constraints with 10 FPS (optimal for ZXing CPU throughput & zero stutter)
-        // continuous autofocus is requested where supported by webcam hardware.
+        // Resilient constraints with 10 FPS (optimal for ZXing CPU throughput & zero stutter)
         const modalHdConfig = {
             fps: 10,
-            qrbox: calculateModalQrboxSize,
-            videoConstraints: {
-                width:  { ideal: 1280, max: 1920 },
-                height: { ideal: 720,  max: 1080 },
-                facingMode: { ideal: "environment" },
-                advanced: [{ focusMode: "continuous" }]
-            }
+            qrbox: calculateModalQrboxSize
         };
 
         const modalBareConfig = {
@@ -2217,46 +2314,45 @@ new class extends Component {
             };
             modalHtml5QrCode = createFreshModalDecoder();
 
-            const isFacingMode = (cameraTarget === 'environment' || cameraTarget === 'user');
             let attempts = [];
 
-            if (isFacingMode) {
-                modalFacingMode = cameraTarget;
-                modalActiveCameraId = null;
-                attempts = [
-                    { camera: { facingMode: cameraTarget }, stream: modalHdConfig },
-                    { camera: { facingMode: cameraTarget }, stream: modalBareConfig },
-                    { camera: { facingMode: { exact: cameraTarget } }, stream: modalBareConfig },
-                ];
-            } else if (cameraTarget && typeof cameraTarget === 'object' && cameraTarget.facingMode) {
-                modalFacingMode = cameraTarget.facingMode;
-                modalActiveCameraId = null;
-                attempts = [
-                    { camera: cameraTarget, stream: modalHdConfig },
-                    { camera: cameraTarget, stream: modalBareConfig },
-                ];
-            } else if (cameraTarget && typeof cameraTarget === 'string') {
+            // 1. Explicit camera device target passed
+            if (cameraTarget && typeof cameraTarget === 'string' && cameraTarget !== 'environment' && cameraTarget !== 'user') {
                 modalActiveCameraId = cameraTarget;
-                const camObj = modalAvailableCameras.find(c => c.id === cameraTarget);
-                if (camObj) {
-                    if (/front|user|selfie/i.test(camObj.label || '')) modalFacingMode = 'user';
-                    else if (/back|rear|environment|main/i.test(camObj.label || '')) modalFacingMode = 'environment';
-                }
-                attempts = [
-                    { camera: { deviceId: cameraTarget }, stream: modalHdConfig },
-                    { camera: { deviceId: cameraTarget }, stream: modalBareConfig },
-                    { camera: { deviceId: { exact: cameraTarget } }, stream: modalBareConfig },
-                    { camera: cameraTarget, stream: modalBareConfig },
-                ];
-            } else {
-                modalFacingMode = 'environment';
-                attempts = [
-                    { camera: { facingMode: "environment" }, stream: modalHdConfig },
-                    { camera: { facingMode: "environment" }, stream: modalBareConfig },
-                    { camera: { facingMode: "user" }, stream: modalHdConfig },
-                    { camera: { facingMode: "user" }, stream: modalBareConfig },
-                ];
+                attempts.push({ camera: { deviceId: cameraTarget }, stream: modalBareConfig });
+                attempts.push({ camera: cameraTarget, stream: modalBareConfig });
             }
+
+            // 2. Previously selected active camera
+            if (modalActiveCameraId) {
+                attempts.push({ camera: { deviceId: modalActiveCameraId }, stream: modalBareConfig });
+            }
+
+            // 3. Available enumerated system cameras (webcams, USB cameras, integrated laptop cameras)
+            if (modalAvailableCameras && modalAvailableCameras.length > 0) {
+                const backCam = modalAvailableCameras.find(c => /back|rear|environment/i.test(c.label || ''));
+                if (cameraTarget === 'environment' && backCam) {
+                    attempts.push({ camera: { deviceId: backCam.id }, stream: modalBareConfig });
+                }
+                for (const c of modalAvailableCameras) {
+                    if (c.id && !attempts.some(a => a.camera && (a.camera.deviceId === c.id || a.camera === c.id))) {
+                        attempts.push({ camera: { deviceId: c.id }, stream: modalBareConfig });
+                    }
+                }
+            }
+
+            // 4. Facing modes (environment for rear camera, user for front/selfie)
+            if (cameraTarget === 'user') {
+                attempts.push({ camera: { facingMode: 'user' }, stream: modalBareConfig });
+                attempts.push({ camera: { facingMode: 'environment' }, stream: modalBareConfig });
+            } else {
+                attempts.push({ camera: { facingMode: 'environment' }, stream: modalBareConfig });
+                attempts.push({ camera: { facingMode: 'user' }, stream: modalBareConfig });
+            }
+
+            // 5. Ultimate fallback: unconstrained default webcam (works on all PC webcams)
+            attempts.push({ camera: true, stream: modalBareConfig });
+            attempts.push({ camera: {}, stream: modalBareConfig });
 
             let started = false;
             let lastErr = null;
@@ -2280,29 +2376,12 @@ new class extends Component {
             }
 
             if (!started) {
-                try {
-                    await modalHtml5QrCode.start({ facingMode: "environment" }, modalBareConfig, onModalScanSuccess, () => {});
-                    started = true;
-                    modalFacingMode = 'environment';
-                } catch(e) {
-                    try {
-                        try { if (modalHtml5QrCode.isScanning) await modalHtml5QrCode.stop(); } catch(e3) {}
-                        modalHtml5QrCode = createFreshModalDecoder();
-                        await modalHtml5QrCode.start({ facingMode: "user" }, modalBareConfig, onModalScanSuccess, () => {});
-                        started = true;
-                        modalFacingMode = 'user';
-                    } catch(e2) {
-                        throw lastErr || e2;
-                    }
-                }
+                throw lastErr || new Error('No compatible camera could be started');
             }
 
             if (placeholder) placeholder.style.display = 'none';
 
-            // Refresh camera labels/ids now that permission may have just been
-            // granted (the pre-start enumeration can return empty ids on the
-            // first ever open). If this ever disturbs the live stream, the
-            // watchdog below detects the dead track and restarts the camera.
+            // Refresh camera labels/ids now that permission may have just been granted
             if (!modalAvailableCameras.length || modalAvailableCameras.some(c => !c.id)) {
                 try { await updateModalCameraUI(); } catch (e) { console.warn('Post-start camera refresh failed:', e); }
             }
@@ -2321,9 +2400,9 @@ new class extends Component {
                 const placeholder = document.getElementById('camera-loading-placeholder');
                 if (placeholder) {
                     placeholder.innerHTML = `
-                        <div style="color: #ef4444; font-size: 13px; text-align: center; padding: 10px;">
-                            <div>Camera switch failed.</div>
-                            <button type="button" onclick="window.flipModalCamera()" style="margin-top: 6px; padding: 5px 12px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 11px; cursor: pointer;">Retry Switching</button>
+                        <div style="color: #ef4444; font-size: 12px; text-align: center; padding: 10px;">
+                            <div style="font-weight: 600;">Camera switch failed.</div>
+                            <button type="button" onclick="window.flipModalCamera()" style="margin-top: 6px; padding: 4px 12px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 11px; cursor: pointer;">Retry Switching</button>
                         </div>
                     `;
                     placeholder.style.display = 'flex';
@@ -2386,7 +2465,15 @@ new class extends Component {
                     attempts++;
                 }
 
-                if (!document.getElementById('modal-qr-preview')) return;
+                const previewEl = document.getElementById('modal-qr-preview');
+                if (!previewEl) return;
+
+                // Wait until element is rendered with dimensions
+                let layoutAttempts = 0;
+                while (previewEl.clientHeight === 0 && layoutAttempts < 20) {
+                    await new Promise(r => setTimeout(r, 50));
+                    layoutAttempts++;
+                }
 
                 if (modalHtml5QrCode && modalHtml5QrCode.isScanning) {
                     const placeholder = document.getElementById('camera-loading-placeholder');
@@ -2395,17 +2482,23 @@ new class extends Component {
                 }
 
                 modalAutoRestarts = 0;
-                await startModalCamera({ facingMode: "environment" });
+                await startModalCamera(modalActiveCameraId || 'environment');
             } catch (err) {
                 console.error('Camera init error:', err);
                 const placeholder = document.getElementById('camera-loading-placeholder');
                 if (placeholder) {
+                    placeholder.style.display = 'flex';
                     placeholder.innerHTML = `
-                        <svg style="width: 24px; height: 24px; margin-bottom: 8px; stroke: #f59e0b;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg style="width: 24px; height: 24px; margin-bottom: 6px; stroke: #f59e0b;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                         </svg>
-                        <div>Camera Access Disabled / Unavailable</div>
-                        <small style="opacity: 0.8; font-size: 11px;">Please allow camera permission in your browser.</small>
+                        <div style="font-weight: 600; font-size: 11.5px; color: #cbd5e1;">Camera Not Connected / Permission Needed</div>
+                        <small style="opacity: 0.8; font-size: 10px; max-width: 260px; text-align: center; margin-top: 2px;">
+                            Please allow camera access in your browser or connect a webcam. You can also use a USB barcode gun below.
+                        </small>
+                        <button type="button" onclick="window.switchModalCamera()" style="margin-top: 8px; padding: 4px 12px; background: #0284c7; color: #ffffff; border: none; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">
+                            Retry Camera
+                        </button>
                     `;
                 }
             } finally {
@@ -2511,125 +2604,6 @@ new class extends Component {
         });
     })();
     </script>
-
-    <!-- Available Documents Directory Modal -->
-    @if($showAvailableModal)
-        <div class="available-modal-backdrop" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px); z-index: 100010; display: flex; align-items: center; justify-content: center; padding: 16px; animation: modalFadeIn 0.15s ease-out;" wire:click.self="closeAvailableCodesModal">
-            <div class="available-modal-card" style="background: #ffffff; border-radius: 16px; max-width: 860px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e2e8f0; overflow: hidden;">
-                
-                {{-- Modal Header --}}
-                <div class="available-modal-header" style="padding: 16px 22px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; background: #f8fafc;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <div style="width: 38px; height: 38px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 16px;">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                <polyline points="14 2 14 8 20 8"></polyline>
-                                <line x1="16" y1="13" x2="8" y2="13"></line>
-                                <line x1="16" y1="17" x2="8" y2="17"></line>
-                                <polyline points="10 9 9 9 8 9"></polyline>
-                            </svg>
-                        </div>
-                        <div>
-                            <h3 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0;">
-                                Available Documents for Station Action
-                            </h3>
-                            <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
-                                Documents stationed at your office pending receipt or dispatch.
-                            </p>
-                        </div>
-                    </div>
-                    <button type="button" wire:click="closeAvailableCodesModal" class="available-modal-close"
-                            style="width: 30px; height: 30px; border-radius: 8px; border: 1px solid #e2e8f0; background: #ffffff; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;">
-                        &times;
-                    </button>
-                </div>
-
-                {{-- Modal Filters & Search Bar --}}
-                <div style="padding: 14px 22px; border-bottom: 1px solid #f1f5f9; background: #ffffff; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;">
-                    <div style="display: flex; gap: 6px; background: #f1f5f9; padding: 4px; border-radius: 10px;">
-                        <button type="button" wire:click="$set('availableFilter', 'all')"
-                                style="padding: 5px 11px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'all' ? 'background: #ffffff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
-                            All ({{ $this->availableCounts['all'] ?? 0 }})
-                        </button>
-                        <button type="button" wire:click="$set('availableFilter', 'incoming')"
-                                style="padding: 5px 11px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'incoming' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
-                            Incoming / To Receive ({{ $this->availableCounts['incoming'] ?? 0 }})
-                        </button>
-                        <button type="button" wire:click="$set('availableFilter', 'received')"
-                                style="padding: 5px 11px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'received' ? 'background: #ffffff; color: #16a34a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
-                            In Custody / To Forward ({{ $this->availableCounts['received'] ?? 0 }})
-                        </button>
-                    </div>
-
-                    <div style="position: relative; flex: 1; min-width: 200px; max-width: 300px;">
-                        <input type="text" wire:model.live.debounce.250ms="availableSearch" placeholder="Search control no, subject..." 
-                               style="width: 100%; height: 34px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 12px; font-size: 12px; outline: none; box-sizing: border-box;" />
-                    </div>
-                </div>
-
-                {{-- Modal Body: Scrollable Document List --}}
-                <div style="padding: 16px 22px; overflow-y: auto; flex: 1; max-height: calc(88vh - 180px);">
-                    @if($this->availableTransactions->isNotEmpty())
-                        <div style="display: flex; flex-direction: column; gap: 8px;">
-                            @foreach($this->availableTransactions as $item)
-                                <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; background: #ffffff;">
-                                    <div style="flex: 1; min-width: 0;">
-                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
-                                            <span style="font-family: monospace; font-size: 13.5px; font-weight: 800; color: #0f172a;">
-                                                {{ $item->control_number }}
-                                            </span>
-                                            @if(!$item->is_received)
-                                                <span style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
-                                                    Pending Receipt
-                                                </span>
-                                            @else
-                                                <span style="font-size: 10px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
-                                                    In Custody
-                                                </span>
-                                            @endif
-                                            <span style="font-size: 11px; background: #f1f5f9; color: #475569; padding: 2px 6px; border-radius: 4px;">
-                                                {{ $item->document_type ?? 'Document' }}
-                                            </span>
-                                        </div>
-                                        <div style="font-size: 12.5px; font-weight: 600; color: #334155; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                            {{ $item->subject ?: 'Untitled Transaction' }}
-                                        </div>
-                                        <div style="font-size: 11px; color: #64748b; display: flex; gap: 10px; flex-wrap: wrap;">
-                                            <span>Origin: <strong>{{ $item->originated_office_name ?? $item->originated_from }}</strong></span>
-                                            @if($item->requestor_name)
-                                                <span>Requestor: <strong>{{ $item->requestor_name }}</strong></span>
-                                            @endif
-                                        </div>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        wire:click="loadAvailableTransaction('{{ $item->qr_code }}')"
-                                        style="background: #0284c7; color: #ffffff; border: none; border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; transition: background 0.15s;"
-                                    >
-                                        <span>Load</span>
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                                    </button>
-                                </div>
-                            @endforeach
-                        </div>
-                    @else
-                        <div style="text-align: center; padding: 36px 20px; color: #94a3b8;">
-                            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 10px auto; opacity: 0.6;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                            <p style="font-size: 13.5px; font-weight: 600; color: #64748b; margin: 0 0 4px 0;">No Documents Found</p>
-                            <p style="font-size: 12px; margin: 0;">No active documents matched the current station filter or search query.</p>
-                        </div>
-                    @endif
-                </div>
-
-                {{-- Modal Footer --}}
-                <div style="padding: 12px 22px; border-top: 1px solid #e2e8f0; background: #f8fafc; display: flex; justify-content: flex-end;">
-                    <button type="button" wire:click="closeAvailableCodesModal" style="background: #e2e8f0; color: #334155; border: none; border-radius: 8px; padding: 7px 16px; font-size: 12px; font-weight: 600; cursor: pointer;">
-                        Close
-                    </button>
-                </div>
-            </div>
-        </div>
-    @endif
 
     <!-- Office Hub Collective Modal for Forwarding -->
     <x-dts.hub-collective-modal 

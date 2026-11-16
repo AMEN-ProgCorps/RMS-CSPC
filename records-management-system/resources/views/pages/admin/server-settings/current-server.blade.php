@@ -16,6 +16,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     public bool $isAutoLabel = false;
     public string $customLabelInput = '';
     public bool $dtsEnableAvailableCodes = true;
+    public bool $dtsWorkingHoursEnabled = false;
+    public string $dtsWorkingHoursStart = '06:00';
+    public string $dtsWorkingHoursEnd = '17:00';
+    public string $dtsWorkingHoursDays = 'mon-fri';
 
     public string $successMessage = '';
     public string $errorMessage = '';
@@ -198,6 +202,52 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
         $val = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
         $this->dtsEnableAvailableCodes = ($val !== 'false');
+
+        $whVal = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_working_hours_enabled')->value('value');
+        $this->dtsWorkingHoursEnabled = ($whVal === 'true');
+
+        $whStart = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_working_hours_start')->value('value');
+        $this->dtsWorkingHoursStart = $whStart ?: '06:00';
+
+        $whEnd = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_working_hours_end')->value('value');
+        $this->dtsWorkingHoursEnd = $whEnd ?: '17:00';
+
+        $whDays = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_working_hours_days')->value('value');
+        $this->dtsWorkingHoursDays = in_array($whDays, ['mon-fri', 'all']) ? $whDays : 'mon-fri';
+    }
+
+    /**
+     * Toggles the DTS Working Hours Processing Restriction feature.
+     * @return void
+     */
+    public function toggleDtsWorkingHours(): void
+    {
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $this->dtsWorkingHoursEnabled = !$this->dtsWorkingHoursEnabled;
+        \Illuminate\Support\Facades\DB::table($sysTable)->updateOrInsert(
+            ['key' => 'dts_working_hours_enabled'],
+            [
+                'value' => $this->dtsWorkingHoursEnabled ? 'true' : 'false',
+                'updated_at' => now(),
+            ]
+        );
+
+        \App\Services\DtsWorkingHoursService::clearCache();
+
+        try {
+            $whatSys = \Illuminate\Support\Facades\DB::table('sys_subsystems')->where('subsystem_id', 2)->value('subsystem_id')
+                ?? (\Illuminate\Support\Facades\DB::table('sys_subsystems')->value('subsystem_id') ?? null);
+            if ($whatSys) {
+                \Illuminate\Support\Facades\DB::table('sys_admin_logs')->insert([
+                    'changes' => ($this->dtsWorkingHoursEnabled ? 'Enabled' : 'Disabled') . ' DTS Working Hours Processing Restriction via Server Settings',
+                    'admin_id' => auth()->id() ?? 1,
+                    'what_system' => $whatSys,
+                    'when_changes' => now(),
+                ]);
+            }
+        } catch (\Throwable) {}
+
+        $this->successMessage = 'DTS Working Hours Restriction ' . ($this->dtsWorkingHoursEnabled ? 'enabled' : 'disabled') . ' successfully.';
     }
 
     /**
@@ -700,6 +750,41 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
                         style="height: 38px; box-sizing: border-box; background: {{ $dtsEnableAvailableCodes ? '#0284c7' : '#64748b' }}; color: #ffffff; border: 1px solid {{ $dtsEnableAvailableCodes ? '#0369a1' : '#475569' }}; padding: 0 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25); transition: all 0.2s;">
                     <i class="fa-solid {{ $dtsEnableAvailableCodes ? 'fa-toggle-on' : 'fa-toggle-off' }}" style="font-size: 16px;"></i>
                     <span>{{ $dtsEnableAvailableCodes ? 'Available Codes: Enabled' : 'Available Codes: Disabled' }}</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- DTS Working Hours Processing Restriction Card -->
+    <div style="background: #ffffff; padding: 20px 24px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 6px rgba(0,0,0,0.02); display: flex; flex-direction: column; gap: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 42px; height: 42px; border-radius: 10px; background: #fef3c7; color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;">
+                    <i class="fa-solid fa-business-time"></i>
+                </div>
+                <div>
+                    <div style="font-size: 14px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                        <span>DTS Working Hours Processing Restriction</span>
+                        <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; background: {{ $dtsWorkingHoursEnabled ? '#ecfdf5' : '#f1f5f9' }}; color: {{ $dtsWorkingHoursEnabled ? '#059669' : '#64748b' }}; padding: 3px 8px; border-radius: 6px; border: 1px solid {{ $dtsWorkingHoursEnabled ? '#a7f3d0' : '#cbd5e1' }};">
+                            {{ $dtsWorkingHoursEnabled ? 'Working Hours Only' : '24/7 Unrestricted' }}
+                        </span>
+                    </div>
+                    <p style="font-size: 12px; color: #64748b; margin: 4px 0 0 0; max-width: 650px; line-height: 1.45;">
+                        Restricts document processing actions (Receive, Forward, Complete, Return) strictly to configured working hours:
+                        <strong>{{ \Carbon\Carbon::createFromFormat('H:i', $dtsWorkingHoursStart ?: '06:00')->format('g:i A') }} to {{ \Carbon\Carbon::createFromFormat('H:i', $dtsWorkingHoursEnd ?: '17:00')->format('g:i A') }} ({{ $dtsWorkingHoursDays === 'all' ? 'All Days' : 'Mon–Fri' }})</strong>.
+                        Outside of hours, transactions can still be viewed and created with delayed morning dispatch, while transaction elapsed times only accumulate during working hours.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Toggle Button -->
+            <div>
+                <button type="button" 
+                        wire:click="toggleDtsWorkingHours" 
+                        wire:loading.attr="disabled" 
+                        style="height: 38px; box-sizing: border-box; background: {{ $dtsWorkingHoursEnabled ? '#d97706' : '#64748b' }}; color: #ffffff; border: 1px solid {{ $dtsWorkingHoursEnabled ? '#b45309' : '#475569' }}; padding: 0 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 2px 6px rgba(217, 119, 6, 0.25); transition: all 0.2s;">
+                    <i class="fa-solid {{ $dtsWorkingHoursEnabled ? 'fa-toggle-on' : 'fa-toggle-off' }}" style="font-size: 16px;"></i>
+                    <span>{{ $dtsWorkingHoursEnabled ? 'Working Hours: Active' : 'Working Hours: Disabled' }}</span>
                 </button>
             </div>
         </div>

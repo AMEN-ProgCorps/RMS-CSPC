@@ -22,6 +22,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $dtsQrIncludeCodeDefault = false;
     public bool $dtsAllowCustomFlowScopeSelection = false;
     public bool $dtsEnableAvailableCodes = true;
+    public bool $dtsWorkingHoursEnabled = false;
+    public string $dtsWorkingHoursStart = '06:00';
+    public string $dtsWorkingHoursEnd = '17:00';
+    public string $dtsWorkingHoursDays = 'mon-fri';
     public bool $rdpRequiredUploadFile = false;
     public bool $rdpIncludeDescriptionOnPrint = false;
     public string $rdpPrintFontFamily = 'Arial, sans-serif';
@@ -552,6 +556,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $availCodes = \DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
         $this->dtsEnableAvailableCodes = ($availCodes !== 'false');
 
+        $whEnabled = \DB::table($sysTable)->where('key', 'dts_working_hours_enabled')->value('value');
+        $this->dtsWorkingHoursEnabled = ($whEnabled === 'true');
+
+        $whStart = \DB::table($sysTable)->where('key', 'dts_working_hours_start')->value('value');
+        $this->dtsWorkingHoursStart = $whStart ?: '06:00';
+
+        $whEnd = \DB::table($sysTable)->where('key', 'dts_working_hours_end')->value('value');
+        $this->dtsWorkingHoursEnd = $whEnd ?: '17:00';
+
+        $whDays = \DB::table($sysTable)->where('key', 'dts_working_hours_days')->value('value');
+        $this->dtsWorkingHoursDays = in_array($whDays, ['mon-fri', 'all']) ? $whDays : 'mon-fri';
+
         $rdpReq = \DB::table('sys_system_settings')->where('key', 'rdp_required_upload_file')->value('value');
         $this->rdpRequiredUploadFile = ($rdpReq === 'true');
 
@@ -1076,6 +1092,40 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         'updated_at' => now(),
                     ]
                 );
+
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_working_hours_enabled'],
+                    [
+                        'value' => $this->dtsWorkingHoursEnabled ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_working_hours_start'],
+                    [
+                        'value' => $this->dtsWorkingHoursStart ?: '06:00',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_working_hours_end'],
+                    [
+                        'value' => $this->dtsWorkingHoursEnd ?: '17:00',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_working_hours_days'],
+                    [
+                        'value' => $this->dtsWorkingHoursDays ?: 'mon-fri',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \App\Services\DtsWorkingHoursService::clearCache();
 
                 \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'rdp_required_upload_file'],
@@ -2342,6 +2392,60 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <input type="checkbox" wire:model="dtsEnableAvailableCodes">
                             <span class="slider"></span>
                         </label>
+                    </div>
+
+                    <!-- Setting: Working Hours Transaction Processing Restriction -->
+                    <div class="setting-item" style="flex-direction: column; align-items: stretch; gap: 14px; padding: 18px 0; border-top: 1px solid #f1f5f9;">
+                        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;">
+                            <div class="setting-details">
+                                <span class="setting-title" style="display: flex; align-items: center; gap: 8px;">
+                                    <span>Restrict Transaction Processing to Working Hours</span>
+                                    @if($dtsWorkingHoursEnabled)
+                                        <span style="font-size: 11px; font-weight: 700; background: #ecfdf5; color: #059669; padding: 2px 7px; border-radius: 5px; border: 1px solid #a7f3d0; text-transform: uppercase;">Active</span>
+                                    @else
+                                        <span style="font-size: 11px; font-weight: 700; background: #f1f5f9; color: #64748b; padding: 2px 7px; border-radius: 5px; border: 1px solid #cbd5e1; text-transform: uppercase;">Disabled (24/7)</span>
+                                    @endif
+                                </span>
+                                <span class="setting-desc">When enabled, transactions can only be received, forwarded, proceeded, and completed during active working hours. Outside of working hours, users can still view documents and draft/create transactions (which display a notification banner and are held for dispatch at the start of the next working hours window). All transaction elapsed times and durations will strictly count active working hours.</span>
+                            </div>
+                            <label class="switch" style="flex-shrink: 0;">
+                                <input type="checkbox" wire:model.live="dtsWorkingHoursEnabled">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
+                        @if($dtsWorkingHoursEnabled)
+                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 4px;">
+                            <div>
+                                <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
+                                    <i class="fa-solid fa-clock" style="color: #0284c7; margin-right: 4px;"></i> Start of Working Hours
+                                </label>
+                                <input type="time" wire:model="dtsWorkingHoursStart" style="width: 100%; height: 38px; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; color: #0f172a; background: #ffffff;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
+                                    <i class="fa-solid fa-clock" style="color: #0284c7; margin-right: 4px;"></i> End of Working Hours
+                                </label>
+                                <input type="time" wire:model="dtsWorkingHoursEnd" style="width: 100%; height: 38px; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; color: #0f172a; background: #ffffff;">
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
+                                    <i class="fa-solid fa-calendar-days" style="color: #0284c7; margin-right: 4px;"></i> Active Days
+                                </label>
+                                <select wire:model="dtsWorkingHoursDays" style="width: 100%; height: 38px; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; color: #0f172a; background: #ffffff;">
+                                    <option value="mon-fri">Monday – Friday (Standard Work Week)</option>
+                                    <option value="all">All Days (Monday – Sunday)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style="font-size: 12px; color: #0369a1; background: #e0f2fe; padding: 10px 14px; border-radius: 8px; border-left: 4px solid #0284c7;">
+                            <i class="fa-solid fa-circle-info" style="margin-right: 6px;"></i>
+                            Configured Window: <strong>{{ \Carbon\Carbon::createFromFormat('H:i', $dtsWorkingHoursStart ?: '06:00')->format('g:i A') }}</strong> to <strong>{{ \Carbon\Carbon::createFromFormat('H:i', $dtsWorkingHoursEnd ?: '17:00')->format('g:i A') }}</strong> ({{ $dtsWorkingHoursDays === 'all' ? 'All 7 Days' : 'Monday to Friday' }}).
+                        </div>
+                        @endif
                     </div>
                 </div>
             </div>

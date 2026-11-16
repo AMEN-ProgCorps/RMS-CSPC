@@ -311,7 +311,7 @@ class DtsExportHelper
 
             // Total Elapsed Days for the entire transaction lifecycle
             $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
-            $elapsedDays = $createdDateRaw ? (int) abs(now()->diffInDays(Carbon::parse($createdDateRaw))) : 0;
+            $elapsedDays = $createdDateRaw ? \App\Services\DtsWorkingHoursService::calculateWorkingDays($createdDateRaw) : 0;
 
             // Clean text representation of routing flow
             $flowSteps = [];
@@ -381,7 +381,7 @@ class DtsExportHelper
                 if ($fLog && $fLog->date_in) {
                     $start = Carbon::parse($fLog->date_in);
                     $end = $fLog->date_out ? Carbon::parse($fLog->date_out) : now();
-                    $diffDays = (int) abs($start->diffInDays($end));
+                    $diffDays = \App\Services\DtsWorkingHoursService::calculateWorkingDays($start, $end);
                     $fElapsedDays = $diffDays . ' day' . ($diffDays === 1 ? '' : 's');
                 }
 

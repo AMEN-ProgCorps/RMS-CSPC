@@ -662,7 +662,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                 ->orderBy('id', 'asc')
                 ->first();
             $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
-            $t->elapsed_days = $createdDateRaw ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($createdDateRaw))) : 0;
+            $t->elapsed_days = $createdDateRaw ? \App\Services\DtsWorkingHoursService::calculateWorkingDays($createdDateRaw) : 0;
 
             // Build Timeline Path
             $flow = DB::table('dts_transaction_details')

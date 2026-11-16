@@ -239,6 +239,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     public function receiveTransaction(): void
     {
         $this->clearMessages();
+
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+            return;
+        }
+
         if (!$this->activeTransaction) {
             return;
         }
@@ -353,6 +359,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     public function proceedTransaction(): void
     {
         $this->clearMessages();
+
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+            return;
+        }
+
         if (!$this->activeTransaction) {
             return;
         }

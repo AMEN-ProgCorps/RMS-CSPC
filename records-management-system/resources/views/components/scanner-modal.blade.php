@@ -612,6 +612,11 @@ new class extends Component {
     {
         $this->clearMessages();
 
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+            return;
+        }
+
         if (!$this->activeTransaction) {
             $this->errorMessage = 'No transaction selected.';
             return;

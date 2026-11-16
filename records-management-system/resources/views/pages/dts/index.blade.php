@@ -234,6 +234,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     {
         $this->currentRouteName = request()->route()?->getName() ?: 'dts';
 
+        \App\Services\DtsWorkingHoursService::dispatchPendingOutsideWorkingHoursTransactions();
+
         $openId = request()->query('open');
         if (!empty($openId)) {
             $exists = DB::table('dts_transactions')->where('transaction_id', $openId)->exists();
@@ -565,7 +567,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->first();
             $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
             $t->created_at_fmt = $createdDateRaw ? \Carbon\Carbon::parse($createdDateRaw)->format('M d, Y h:i A') : 'N/A';
-            $t->total_elapsed_days = $createdDateRaw ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($createdDateRaw))) : 0;
+            $t->total_elapsed_days = $createdDateRaw ? \App\Services\DtsWorkingHoursService::calculateWorkingDays($createdDateRaw) : 0;
 
             // 2. Incoming Elapsed Days (Duration of last office Forwarded to current office)
             $prevForwardedLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
@@ -574,7 +576,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->orderBy('id', 'desc')
                 ->first();
             $forwardedToUserAt = $prevForwardedLog?->date_out ?? $createdDateRaw;
-            $t->incoming_elapsed_days = $forwardedToUserAt ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($forwardedToUserAt))) : 0;
+            $t->incoming_elapsed_days = $forwardedToUserAt ? \App\Services\DtsWorkingHoursService::calculateWorkingDays($forwardedToUserAt) : 0;
 
             // 3. Current Office Log & Received Date/Elapsed Days
             $userOfficeLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
@@ -596,7 +598,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
             $receivedTimestamp = $userOfficeLog?->date_in;
             $t->received_at_fmt = $receivedTimestamp ? \Carbon\Carbon::parse($receivedTimestamp)->format('M d, Y h:i A') : 'N/A';
-            $t->received_elapsed_days = $receivedTimestamp ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($receivedTimestamp))) : 0;
+            $t->received_elapsed_days = $receivedTimestamp ? \App\Services\DtsWorkingHoursService::calculateWorkingDays($receivedTimestamp) : 0;
             $t->date_received = $receivedTimestamp ?: $createdDateRaw;
 
             // 4. Forwarded/Released Date & Released Elapsed Days (Date & Time forwarded by current office & days elapsed)
@@ -609,10 +611,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
             $releasedTimestamp = $releasedLog?->date_out;
             $t->released_at_fmt = $releasedTimestamp ? \Carbon\Carbon::parse($releasedTimestamp)->format('M d, Y h:i A') : 'N/A';
-            $t->released_elapsed_days = $releasedTimestamp ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($releasedTimestamp))) : 0;
+            $t->released_elapsed_days = $releasedTimestamp ? \App\Services\DtsWorkingHoursService::calculateWorkingDays($releasedTimestamp) : 0;
 
             $t->elapsed_days = $t->total_elapsed_days;
-            $t->diff_in_minutes = (int) abs(now()->diffInMinutes(\Carbon\Carbon::parse($t->date_received)));
+            $t->diff_in_minutes = \App\Services\DtsWorkingHoursService::calculateWorkingMinutes($t->date_received);
 
             // Previous office (from office)
             $prevLog = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
@@ -1491,6 +1493,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     {
         $this->showCompletionConfirmModal = false;
 
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            session()->flash('error', \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice());
+            return;
+        }
+
         if (!$this->selectedTransactionId || !$this->selectedTransaction) {
             return;
         }
@@ -1755,6 +1762,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
      */
     public function receiveTransaction(?string $transId = null): void
     {
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            session()->flash('error', \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice());
+            return;
+        }
+
         $perms = auth()->user()?->permissions;
         if ($perms && !$perms->is_sadm && !$perms->can_dts_user_received) {
             return;
@@ -1867,6 +1879,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
      */
     public function completeTransaction(): void
     {
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            session()->flash('error', \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice());
+            return;
+        }
+
         $perms = auth()->user()?->permissions;
         if ($perms && !$perms->is_sadm && !$perms->can_dts_user_received) {
             return;
@@ -1929,23 +1946,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             ->where('sequence_ranking', $this->selectedTransaction->sequence)
             ->first();
         if ($currentStep && $currentStep->date_in) {
-            $dateIn = \Carbon\Carbon::parse($currentStep->date_in);
-            $dateOut = now();
-            $diff = $dateIn->diff($dateOut);
-            $parts = [];
-            if ($diff->d > 0) {
-                $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
-            }
-            if ($diff->h > 0) {
-                $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
-            }
-            if ($diff->i > 0) {
-                $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
-            }
-            if (empty($parts)) {
-                $parts[] = 'less than a minute';
-            }
-            $duration = implode(' ', $parts);
+            $duration = \App\Services\DtsWorkingHoursService::calculateDurationString($currentStep->date_in);
         }
 
         // Update current step in sequence list
@@ -2591,6 +2592,22 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
         $canProcess = $isSadm || ($perms?->can_dts_user_received ?? false);
     @endphp
+
+    @if(\App\Services\DtsWorkingHoursService::isEnabled() && !\App\Services\DtsWorkingHoursService::isWithinWorkingHours())
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-left: 5px solid #d97706; padding: 12px 18px; margin: 0 0 16px 0; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <i class="fa-solid fa-business-time" style="color: #d97706; font-size: 18px; flex-shrink: 0;"></i>
+                <div>
+                    <strong style="font-size: 13px; color: #92400e; display: block;">System Outside Working Hours Mode</strong>
+                    <span style="font-size: 12px; color: #b45309; line-height: 1.4;">
+                        Document tracking &amp; viewing are available. Receiving, forwarding, proceeding, and completing are restricted outside configured hours ({{ \App\Services\DtsWorkingHoursService::getWorkingHoursWindowNotice() }}). New transactions created now will be held and dispatched at the start of the next working hours.
+                    </span>
+                </div>
+            </div>
+            <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; background: #fef3c7; color: #b45309; padding: 4px 8px; border-radius: 6px; white-space: nowrap; border: 1px solid #fcd34d;">Processing Paused</span>
+        </div>
+    @endif
+
     <div class="dts-topbar">
         <div class="dts-nav-group">
 

@@ -667,7 +667,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
 
             // Elapsed Days
             $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
-            $t->elapsed_days = $createdDateRaw ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($createdDateRaw))) : 0;
+            $t->elapsed_days = $createdDateRaw ? \App\Services\DtsWorkingHoursService::calculateWorkingDays($createdDateRaw) : 0;
 
             // Previous office (from office)
             $prevLog = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')

@@ -17,3 +17,11 @@ Schedule::command('dcs:purge-recycle-bin')->daily();
 
 // Automated Backup Scheduler (evaluates DB schedule frequency: daily at 23:59, weekly, or end-of-month)
 Schedule::command('backup:scheduled-run')->everyMinute()->withoutOverlapping();
+
+// DTS Working Hours Auto-Dispatch Scheduler
+Artisan::command('dts:dispatch-working-hours', function () {
+    $count = \App\Services\DtsWorkingHoursService::dispatchPendingOutsideWorkingHoursTransactions();
+    $this->info("Dispatched {$count} pending outside-working-hours transaction(s).");
+})->purpose('Dispatch transactions held during non-working hours once working hours start');
+
+Schedule::command('dts:dispatch-working-hours')->everyFiveMinutes()->withoutOverlapping();

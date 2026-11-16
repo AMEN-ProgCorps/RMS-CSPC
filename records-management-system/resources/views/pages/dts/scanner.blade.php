@@ -715,6 +715,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     {
         $this->clearAlerts();
 
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+            return;
+        }
+
         if (!$this->activeTransaction) {
             $this->errorMessage = 'No document selected.';
             return;
@@ -839,6 +844,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     public function executeForward(): void
     {
         $this->clearAlerts();
+
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+            return;
+        }
 
         if (!$this->activeTransaction) {
             $this->errorMessage = 'No document selected.';
@@ -1091,6 +1101,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     public function executeReturnRevision(): void
     {
         $this->clearAlerts();
+
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+            return;
+        }
 
         if (!$this->activeTransaction) {
             $this->errorMessage = 'No document selected.';

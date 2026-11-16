@@ -81,6 +81,10 @@ class DtsRoutingService
             throw new \Exception('Unauthorized: You do not have clearance to forward transactions to other offices.');
         }
 
+        if (!DtsWorkingHoursService::canProcessStationAction()) {
+            throw new \Exception(DtsWorkingHoursService::getStationActionRestrictionNotice());
+        }
+
         $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $userOfficeCode = $user?->details?->office?->office_code 
             ?? DocumentStorageService::resolveOfficeCode($user);

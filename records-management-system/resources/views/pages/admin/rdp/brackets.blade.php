@@ -69,6 +69,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
             return;
         }
 
+        // Auto-detect and sync compile sub-brackets from existing record series
+        \App\Services\RdpBracketSyncService::syncAllBrackets();
+
         // On initial opening, no path is pre-selected.
         // It will be restored from the browser's localStorage in Alpine init() if previously opened.
     }
@@ -133,6 +136,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $this->selectedOfficeCode = null;
         $this->selectedOfficeMappingId = null;
         $this->clearMessages();
+        \App\Services\RdpBracketSyncService::syncMainBracket($mainId);
         $this->broadcastPath();
     }
 
@@ -802,6 +806,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
         $subBrackets = collect();
         $generalizedCount = 0;
         if ($this->selectedMainBracketId) {
+            \App\Services\RdpBracketSyncService::syncMainBracket($this->selectedMainBracketId);
+
             $generalizedCount = DB::table('rdp_office_bracket')
                 ->where('main_bracket_id', $this->selectedMainBracketId)
                 ->whereNull('sub_bracket_id')
@@ -1676,7 +1682,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series Brackets')
                                 <span class="m-item-title" title="{{ $sb->sub_name }}">{{ $sb->sub_name }}</span>
                             </div>
                             <div style="display: flex; align-items: center; gap: 4px;">
-                                <span class="m-item-badge">{{ $sb->office_count }} off</span>
+                                @if($sb->series_count > 0)
+                                    <span class="m-item-badge" style="background: rgba(37,99,235,0.08); color: #1d4ed8; font-weight: 600;" title="{{ $sb->series_count }} Record Series">{{ $sb->series_count }} ser</span>
+                                @endif
+                                <span class="m-item-badge" title="{{ $sb->office_count }} Assigned Offices">{{ $sb->office_count }} off</span>
                                 <i class="fa-solid fa-chevron-right m-item-arrow"></i>
                             </div>
                         </div>

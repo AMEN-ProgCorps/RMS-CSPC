@@ -70,6 +70,13 @@ class AdminDefaultLayoutIntegrityTest extends TestCase
 
     public function test_offices_page_renders_visibly_in_both_layouts(): void
     {
+        $this->withoutExceptionHandling();
+        $response = $this->withSession([
+            'admin_offices_layout_mode' => 'default',
+            'admin_management_layout_mode' => 'default',
+        ])->get(route('admin.accounts.offices'));
+        $response->assertStatus(200);
+
         // 1. Default Mode
         $comp = Volt::test('pages.admin.accounts.offices')
             ->call('setLayoutMode', 'default')
@@ -125,6 +132,13 @@ class AdminDefaultLayoutIntegrityTest extends TestCase
 
     public function test_transaction_flows_page_renders_visibly_in_both_layouts(): void
     {
+        $this->withoutExceptionHandling();
+        $response = $this->withSession([
+            'admin_flows_layout_mode' => 'default',
+            'admin_management_layout_mode' => 'default',
+        ])->get(route('admin.dts.transaction-flows'));
+        $response->assertStatus(200);
+
         // 1. Default Mode
         $comp = Volt::test('pages.admin.dts.transaction-flows')
             ->call('setLayoutMode', 'default')
@@ -147,6 +161,13 @@ class AdminDefaultLayoutIntegrityTest extends TestCase
 
     public function test_tickets_page_renders_visibly_in_both_layouts(): void
     {
+        $this->withoutExceptionHandling();
+        $response = $this->withSession([
+            'admin_tickets_layout_mode' => 'default',
+            'admin_management_layout_mode' => 'default',
+        ])->get(route('admin.tickets'));
+        $response->assertStatus(200);
+
         // 1. Default Mode
         $comp = Volt::test('pages.admin.tickets.index')
             ->call('setLayoutMode', 'default')

@@ -2132,6 +2132,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     }
 };
 ?>
+<div>
 
 @push('styles')
     @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/subsystems.css', 'resources/css/admin/accounts_offices.css'])
@@ -5053,6 +5054,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     @endif
 </div>
 
+@endif
+
 <script>
     /**
      * Dts get livewire.
@@ -5061,7 +5064,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
      */
     window.dtsGetLivewire = function(el) {
         try {
-            const root = el ? el.closest('[wire\\:id]') : document.querySelector('.miller-container[wire\\:id]');
+            const root = el ? el.closest('[wire\\:id]') : document.querySelector('[wire\\:id]');
             if (root && window.Livewire) {
                 return window.Livewire.find(root.getAttribute('wire:id'));
             }
@@ -5127,6 +5130,5 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         }
     };
 </script>
-
-@endif
+</div>
 

@@ -1065,6 +1065,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
     }
 };
 ?>
+<div>
 
 @push('styles')
     @vite('resources/css/admin/accounts_users.css')
@@ -1709,9 +1710,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                     $selectedUser = \App\Models\User::with('details')->find($selectedUserId);
                     $selectedUserDet = $selectedUser?->details;
                     $selInitials = strtoupper(substr($selectedUserDet?->first_name ?: '?', 0, 1) . substr($selectedUserDet?->last_name ?: '?', 0, 1));
-                    $selDisplayName = $selectedUserDet ? ($selectedUserDet->first_name . ' ' . $selectedUserDet->last_name) : $selectedUser->username;
+                    $selDisplayName = $selectedUserDet ? ($selectedUserDet->first_name . ' ' . $selectedUserDet->last_name) : ($selectedUser?->username ?? 'Unknown User');
                     $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
-                    $selRoleKey = \DB::table($condKeyTbl)->where('id', $selectedUser->account_role)->first();
+                    $selRoleKey = ($selectedUser && $selectedUser->account_role) ? \DB::table($condKeyTbl)->where('id', $selectedUser->account_role)->first() : null;
                     $selRoleName = $selRoleKey?->key_name ?: 'User';
                     $isOnline = $selectedUserDet?->is_currently_online;
                 } else {
@@ -2865,6 +2866,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
     @endif
 </div>
 
+@endif
+
 <script>
     /**
      * Users get livewire.
@@ -2873,7 +2876,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
      */
     window.usersGetLivewire = function(el) {
         try {
-            const root = el ? el.closest('[wire\\:id]') : document.querySelector('.miller-container[wire\\:id]');
+            const root = el ? el.closest('[wire\\:id]') : document.querySelector('[wire\\:id]');
             if (root && window.Livewire) {
                 return window.Livewire.find(root.getAttribute('wire:id'));
             }
@@ -2911,5 +2914,4 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
     };
 </script>
-
-@endif
+</div>

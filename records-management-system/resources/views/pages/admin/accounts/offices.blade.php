@@ -1076,6 +1076,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
     }
 };
 ?>
+<div>
 
 @push('styles')
     @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/accounts_offices.css'])
@@ -3216,4 +3217,5 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
 </div>
 
 @endif
+</div>
 

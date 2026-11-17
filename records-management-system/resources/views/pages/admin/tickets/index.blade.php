@@ -516,6 +516,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
     }
 };
 ?>
+<div>
 
 @push('styles')
     @vite('resources/css/admin/activity_logs.css')
@@ -2162,3 +2163,4 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
 </div>
 
 @endif
+</div>

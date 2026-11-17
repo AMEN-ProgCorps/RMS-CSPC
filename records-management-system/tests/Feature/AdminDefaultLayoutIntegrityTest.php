@@ -14,9 +14,27 @@ class AdminDefaultLayoutIntegrityTest extends TestCase
     {
         parent::setUp();
 
-        $user = User::first();
-        if ($user) {
-            $this->actingAs($user);
+        $admin = null;
+        foreach (User::all() as $u) {
+            $p = $u->permissions;
+            if ($p && $p->is_sadm) {
+                $admin = $u;
+                break;
+            }
+        }
+
+        if (!$admin) {
+            foreach (User::all() as $u) {
+                $p = $u->permissions;
+                if ($p && ($p->is_sadm || $p->is_admin)) {
+                    $admin = $u;
+                    break;
+                }
+            }
+        }
+
+        if ($admin) {
+            $this->actingAs($admin);
         }
     }
 

@@ -1540,9 +1540,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
 @if($layoutMode === 'default')
 <div class="admin-users-outer">
     <!-- Tabs Header -->
-    <div class="tabs-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-            <div style="display: flex; align-items: center; gap: 10px; margin-right: 12px;">
+    <div class="tabs-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 10px;">
                 <h1 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px;">
                     <i class="fa-solid fa-users-gear" style="color: #0284c7;"></i> User Accounts & Credentials
                 </h1>
@@ -1550,12 +1550,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                     Default Layout
                 </span>
             </div>
-            <button type="button" class="tab-btn {{ $activeTab === 'users' ? 'active' : '' }}" wire:click="setTab('users')">
-                <i class="fa-solid fa-users" style="margin-right: 6px;"></i> System Users
-            </button>
-            <button type="button" class="tab-btn {{ $activeTab === 'requestors' ? 'active' : '' }}" wire:click="setTab('requestors')">
-                <i class="fa-solid fa-address-book" style="margin-right: 6px;"></i> DTS Requestors
-            </button>
+            <div class="admin-tabs-segmented" style="display: inline-flex; align-items: center; background: #e2e8f0; padding: 3px; border-radius: 8px; gap: 2px;">
+                <button type="button" 
+                        class="tab-btn {{ $activeTab === 'users' ? 'active' : '' }}" 
+                        wire:click="switchTab('users')"
+                        style="padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s ease; {{ $activeTab === 'users' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.12);' : 'background: transparent; color: #64748b;' }}">
+                    <i class="fa-solid fa-users"></i>
+                    <span>System Users</span>
+                </button>
+                <button type="button" 
+                        class="tab-btn {{ $activeTab === 'requestors' ? 'active' : '' }}" 
+                        wire:click="switchTab('requestors')"
+                        style="padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s ease; {{ $activeTab === 'requestors' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.12);' : 'background: transparent; color: #64748b;' }}">
+                    <i class="fa-solid fa-address-book"></i>
+                    <span>DTS Requestors</span>
+                </button>
+            </div>
         </div>
         <div style="display: flex; align-items: center; gap: 10px;">
             <x-admin.layout-trigger :mode="$layoutMode" />

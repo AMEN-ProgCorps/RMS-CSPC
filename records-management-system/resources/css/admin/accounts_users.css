@@ -1157,24 +1157,65 @@ input:checked + .slider:before {
     color: #cbd5e1;
 }
 
+/* Segmented Header Tabs for Default Layout */
+.admin-tabs-segmented {
+    display: inline-flex;
+    align-items: center;
+    background: #e2e8f0;
+    padding: 3px;
+    border-radius: 8px;
+    gap: 2px;
+}
+
+.admin-tabs-segmented .tab-btn {
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    color: #64748b;
+    transition: all 0.15s ease;
+    font-family: inherit;
+    line-height: 1.2;
+}
+
+.admin-tabs-segmented .tab-btn:hover:not(.active) {
+    color: #0f172a;
+}
+
+.admin-tabs-segmented .tab-btn.active {
+    background: #ffffff;
+    color: #0284c7;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
 [data-theme="dark"] .tabs-header {
     border-bottom-color: #1e293b !important;
 }
 
-[data-theme="dark"] .tab-btn {
-    color: #94a3b8 !important;
+[data-theme="dark"] .admin-tabs-segmented {
+    background: #0f172a !important;
+    border: 1px solid #334155 !important;
 }
 
-[data-theme="dark"] .tab-btn:hover {
+[data-theme="dark"] .admin-tabs-segmented .tab-btn {
+    color: #94a3b8 !important;
+    background: transparent !important;
+}
+
+[data-theme="dark"] .admin-tabs-segmented .tab-btn:hover:not(.active) {
     color: #f8fafc !important;
 }
 
-[data-theme="dark"] .tab-btn.active {
-    color: #60a5fa !important;
-}
-
-[data-theme="dark"] .tab-btn.active::after {
-    background: #3b82f6 !important;
+[data-theme="dark"] .admin-tabs-segmented .tab-btn.active {
+    background: #1e293b !important;
+    color: #38bdf8 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
 }
 
 [data-theme="dark"] .directory-panel {

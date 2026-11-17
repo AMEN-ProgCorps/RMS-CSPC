@@ -32,9 +32,20 @@ class AuthRedirect
         header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
         header('Pragma: no-cache');
 
-        // Server-side redirect, before any HTML/JS/CSS output. RMS_LOGIN_URL
-        // is defined once in config/db.php (default '/', same target
-        // logout.php already redirects to).
+        // Embedded Chatify iframe: never send the login page into the iframe.
+        // The RMS login view used to break out to window.top and kick the
+        // entire authenticated portal session right after load.
+        $fetchDest = $_SERVER['HTTP_SEC_FETCH_DEST'] ?? '';
+        if ($fetchDest === 'iframe' || $fetchDest === 'empty') {
+            header('Content-Type: text/html; charset=UTF-8');
+            echo '<!DOCTYPE html><html><head><meta charset="utf-8"><script>'
+                . 'try{parent.postMessage({type:"rms-chatify-auth-failed"},window.location.origin);}catch(e){}'
+                . 'location.replace("about:blank");'
+                . '</script></head><body></body></html>';
+            exit();
+        }
+
+        // Full-page Chatify entry: redirect to RMS login.
         header('Location: ' . RMS_LOGIN_URL);
         exit();
     }

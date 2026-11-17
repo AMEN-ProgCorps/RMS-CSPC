@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: PDF side-by-side compare core
+ * FILE: resources/js/dcs/pdf-compare.js
+ * DEBUG: PdfPageRenderer; review.css
+ */
+
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {

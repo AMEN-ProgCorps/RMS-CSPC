@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: Register revision PDF compare wiring
+ * FILE: resources/js/dcs/register-pdf-compare.js
+ * DEBUG: Register pages + pdf-compare.js
+ */
+
 import { runPdfCompare, buildCompareCacheKey } from './pdf-compare.js';
 import { hashFile, hashString } from './pdf-compare-cache.js';
 

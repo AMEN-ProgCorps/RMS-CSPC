@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: DCS chrome shell (layout around content)
+ * FILE: resources/css/dcs/chrome.css
+ * DEBUG: Prefer [data-theme="dark"] rules in dark.css for theme bugs; page-specific FOUC/layout here.
+ */
+
 /* DCS file: DCS shell around the page: sidebar offset, top bar, and content canvas. */
 @import './tokens.css';
 @import './rms-shared-header.css';

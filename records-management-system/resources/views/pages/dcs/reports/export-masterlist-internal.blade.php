@@ -1,4 +1,9 @@
 {{--
+  DCS PAGE: Internal masterlist export
+  FILE: resources/views/pages/dcs/reports/export-masterlist-internal.blade.php
+  DEBUG: ReportHelper export path
+--}}
+{{--
 DCS file: Masterlist print table. Document number, revision, title, and effectivity date are centered. Each comma-separated originator is its own line. Data is Arial 10pt.
 --}}
 <!DOCTYPE html>

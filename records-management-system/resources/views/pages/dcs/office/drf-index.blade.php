@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Office My DRF list
+  FILE: resources/views/pages/dcs/office/drf-index.blade.php
+  DEBUG: OfficeIntakeHelper::listMyDrf / paginateMyDrf
+--}}
 <?php
 
 /**

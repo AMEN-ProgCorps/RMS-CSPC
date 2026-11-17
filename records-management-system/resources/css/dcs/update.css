@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: Update module list/groups
+ * FILE: resources/css/dcs/update.css
+ * DEBUG: Prefer [data-theme="dark"] rules in dark.css for theme bugs; page-specific FOUC/layout here.
+ */
+
 /* DCS file: Update-registration screen. */
 @import './tokens.css';
 

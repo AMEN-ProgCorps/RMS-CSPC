@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Review / compare
+  FILE: resources/views/pages/dcs/review/index.blade.php
+  DEBUG: RegisterQueryHelper::reviewList/reviewCompare; review-pdf.js
+--}}
 <?php
 
 /**

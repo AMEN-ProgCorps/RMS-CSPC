@@ -6,22 +6,41 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Faculty ↔ college membership (part-timers may teach under several colleges).
+ * Faculty ↔ college membership for DCS Settings / syllabi (part-timers may teach under several colleges).
+ *
+ * Tables: dcs_faculties, dcs_faculty_colleges (pivot), optional legacy college_id.
+ * UI: DCS Settings faculty catalog.
+ *
+ * DEBUG MAP:
+ *   Faculty missing colleges in picker → usesPivot() / collegeIdsFor()
+ *   Legacy vs pivot mismatch           → hasLegacyCollegeColumn(); sync helpers below
  */
 class FacultyCollegeHelper
 {
+    // =====================================================================
+    // SECTION: FACULTY ↔ COLLEGE — pivot / legacy membership
+    // =====================================================================
+
+    /**
+     * Helper used for uses pivot.
+     */
     public static function usesPivot(): bool
     {
         return Schema::hasTable('dcs_faculty_colleges');
     }
 
+    /**
+     * Tells whether has legacy college column — used for access and UI decisions.
+     */
     public static function hasLegacyCollegeColumn(): bool
     {
         return Schema::hasTable('dcs_faculties')
             && Schema::hasColumn('dcs_faculties', 'college_id');
     }
 
-    /** @return list<int> */
+    /**
+     * Helper used for college ids for.
+     */
     public static function collegeIdsFor(int $facultyId): array
     {
         if ($facultyId < 1) {
@@ -48,6 +67,7 @@ class FacultyCollegeHelper
     }
 
     /**
+     * Helper used for college ids by faculty.
      * @param  list<int>  $facultyIds
      * @return array<int, list<int>> faculty_id => college_ids
      */
@@ -89,7 +109,9 @@ class FacultyCollegeHelper
         return $map;
     }
 
-    /** @param  list<int|string>  $collegeIds */
+    /**
+     * Saves data for sync.
+     */
     public static function sync(int $facultyId, array $collegeIds): void
     {
         if ($facultyId < 1) {
@@ -122,6 +144,9 @@ class FacultyCollegeHelper
         }
     }
 
+    /**
+     * Fills extra fields onto rows for the UI (attach).
+     */
     public static function attach(int $facultyId, int $collegeId): bool
     {
         if ($facultyId < 1 || $collegeId < 1) {

@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (dcn-docno-fields.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/dcn-docno-fields.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: DCN finder. The office types the current document number, title, and originator. Only the latest revision can be revised.
 --}}
 {{-- Confidential document finder: exact number + current title + originator. No result list. --}}

@@ -1,7 +1,12 @@
 <?php
 
 /**
- * DCS file: Blocks office-intake accounts from Admin DCS screens. Office users stay on the intake allowlist.
+ * Full-DCS gate: blocks limited (office-intake) accounts from Admin DCS screens.
+ *
+ * Limited users are redirected to office DRF index (or 403 JSON for APIs).
+ * Pair with EnforceDcsIntakeAllowlist for the routes they *are* allowed to use.
+ *
+ * DEBUG: office user reaches Register/Update URL → this middleware + isLimitedDcsUser().
  */
 
 namespace App\Http\Middleware;
@@ -14,6 +19,11 @@ use Symfony\Component\HttpFoundation\Response;
 
 class RequireFullDcs
 {
+    /**
+     * Blocks office-only users from Admin DCS pages; full DCS users continue.
+     *
+     * DEBUG: office account opens Register/Update/Settings → lands here.
+     */
     public function handle(Request $request, Closure $next): Response
     {
         if (! RegisterQueryHelper::isLimitedDcsUser()) {
@@ -31,6 +41,11 @@ class RequireFullDcs
             ->with('error', 'Full Document Control System access is required for that page.');
     }
 
+    /**
+     * Tells whether the client wants a JSON error instead of an HTML redirect.
+     *
+     * DEBUG: API got an HTML redirect → expectsJsonResponse was false for that request.
+     */
     private function expectsJsonResponse(Request $request): bool
     {
         if ($request->expectsJson() || $request->ajax() || $request->wantsJson()) {

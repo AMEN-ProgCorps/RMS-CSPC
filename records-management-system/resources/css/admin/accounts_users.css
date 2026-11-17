@@ -1755,9 +1755,17 @@ input:checked + .slider:before {
     border-bottom-color: #1e293b !important;
 }
 
+[data-theme="dark"] #article-container .users-dropdown-item strong {
+    color: inherit !important;
+}
+
 [data-theme="dark"] .users-dropdown-item:hover {
     background-color: #1e293b !important;
     color: #38bdf8 !important;
+}
+
+[data-theme="dark"] #article-container .users-dropdown-item:hover strong {
+    color: inherit !important;
 }
 
 [data-theme="dark"] .users-dropdown-item.placeholder-item {

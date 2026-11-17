@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (drf-recur-fields.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/drf-recur-fields.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: DRF recurring finder. Same confidential match as DCN / admin Recur:
 document number + current title + originator. Only the latest revision can be recurred.
 --}}

@@ -1534,6 +1534,73 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             background: #0f172a;
             border-color: #334155;
         }
+
+        /* Office / Role assignment dropdowns */
+        .users-custom-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 4px;
+            background: #ffffff;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 8px;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+            max-height: 180px;
+            overflow-y: auto;
+            z-index: 80;
+        }
+        .users-dropdown-item {
+            padding: 8px 12px;
+            font-size: 12.5px;
+            color: #0f172a;
+            cursor: pointer;
+            border-bottom: 1px solid #f1f5f9;
+            transition: background-color 0.12s ease, color 0.12s ease;
+            user-select: none;
+        }
+        .users-dropdown-item:last-child { border-bottom: none; }
+        .users-dropdown-item:hover {
+            background: #f1f5f9;
+            color: #0284c7;
+        }
+        .users-dropdown-item.placeholder-item {
+            color: #64748b;
+            font-style: italic;
+        }
+        .users-dropdown-empty {
+            padding: 10px 12px;
+            font-size: 12px;
+            color: #94a3b8;
+            text-align: center;
+            font-style: italic;
+        }
+
+        [data-theme="dark"] .users-custom-dropdown {
+            background: #0b1220;
+            border-color: #334155;
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+        }
+        [data-theme="dark"] .users-dropdown-item {
+            color: #e2e8f0;
+            border-bottom-color: #1e293b;
+        }
+        [data-theme="dark"] #article-container .users-dropdown-item strong {
+            color: inherit !important;
+        }
+        [data-theme="dark"] .users-dropdown-item:hover {
+            background: #1e293b;
+            color: #38bdf8;
+        }
+        [data-theme="dark"] #article-container .users-dropdown-item:hover strong {
+            color: inherit !important;
+        }
+        [data-theme="dark"] .users-dropdown-item.placeholder-item {
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .users-dropdown-empty {
+            color: #64748b;
+        }
     </style>
 @endpush
 
@@ -2500,16 +2567,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                             <label class="m-field-label">Assigned Office / Station</label>
                             <input type="text" class="m-field-input" placeholder="Search name or abbreviation…" wire:model.live.debounce.150ms="officeSearch" wire:focus="$set('showOfficeDropdown', true)" autocomplete="off">
                             @if($showOfficeDropdown)
-                                <div style="position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); z-index: 50; max-height: 180px; overflow-y: auto; margin-top: 2px;">
-                                    <div wire:click="selectOffice(null, 'No Assigned Office')" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #64748b;">
+                                <div class="users-custom-dropdown">
+                                    <div wire:click="selectOffice(null, 'No Assigned Office')" class="users-dropdown-item placeholder-item">
                                         None (Unassigned)
                                     </div>
                                     @forelse($assignableOffices as $o)
-                                        <div wire:click="selectOffice({{ $o->id }}, @js($o->office_name))" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #0f172a;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+                                        <div wire:click="selectOffice({{ $o->id }}, @js($o->office_name))" class="users-dropdown-item">
                                             <strong>{{ $o->office_name }}</strong> ({{ $o->office_code }})
                                         </div>
                                     @empty
-                                        <div style="padding: 10px; font-size: 12px; color: #64748b;">No office matches “{{ $officeSearch }}”.</div>
+                                        <div class="users-dropdown-empty">No office matches “{{ $officeSearch }}”.</div>
                                     @endforelse
                                 </div>
                             @endif
@@ -2521,13 +2588,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                             <label class="m-field-label">System Role & Clearance Level</label>
                             <input type="text" class="m-field-input" placeholder="Search and assign role…" wire:model.live.debounce.150ms="roleSearch" wire:focus="$set('showRoleDropdown', true)" autocomplete="off">
                             @if($showRoleDropdown)
-                                <div style="position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); z-index: 50; max-height: 180px; overflow-y: auto; margin-top: 2px;">
+                                <div class="users-custom-dropdown">
                                     @forelse($rolePickerOptions as $r)
-                                        <div wire:click="selectRole({{ $r->id }}, @js($r->key_name))" style="padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; color: #0f172a;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+                                        <div wire:click="selectRole({{ $r->id }}, @js($r->key_name))" class="users-dropdown-item">
                                             <strong>{{ $r->key_name }}</strong>
                                         </div>
                                     @empty
-                                        <div style="padding: 10px; font-size: 12px; color: #64748b;">No role matches “{{ $roleSearch }}”.</div>
+                                        <div class="users-dropdown-empty">No role matches “{{ $roleSearch }}”.</div>
                                     @endforelse
                                 </div>
                             @endif

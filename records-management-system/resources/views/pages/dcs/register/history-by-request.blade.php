@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Edit history by request
+  FILE: resources/views/pages/dcs/register/history-by-request.blade.php
+  DEBUG: RegisterEditHistoryHelper; editHistoryPage
+--}}
 <?php
 
 /**

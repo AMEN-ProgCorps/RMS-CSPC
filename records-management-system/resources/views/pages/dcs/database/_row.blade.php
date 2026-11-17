@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Inventory row partial
+  FILE: resources/views/pages/dcs/database/_row.blade.php
+  DEBUG: DcsDatabaseColumns group keys
+--}}
+{{--
 DCS file: One database table row. Originator names that were saved comma-separated render through x-dcs.originator-lines.
 Column expand/collapse is driven by [data-dcs-db-root][data-open-*] CSS (not per-cell x-show) so Livewire morphs keep working.
 --}}

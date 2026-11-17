@@ -13,22 +13,37 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 /**
+ * Document Registration UPDATES & DELETES — edit live docs, soft-delete, restore, purge.
  *
- * DCS file: RegisterUpdateHelper in app/ so Composer autoloads it.
- * Edits an existing registration and purges Recycle Bin rows older than one year.
- * Do not move this class back under resources/views.
- * Public methods:
- * update, destroy, restore, destroyDraftPermanently, collapseDuplicateDrafts,
- * permanentDestroy, purgeExpiredRecycleBin.
- */
+ * LOCATION: app/Helpers/RegisterUpdateHelper.php (Composer-autoloaded). Do not move under resources/views.
+ * Entry points: update(), destroy(), restore(), permanentDestroy(), purgeExpiredRecycleBin().
+ * Shares validation/scan helpers with RegisterPersistHelper.
+ *
+ * DEBUG MAP (symptom → start here):
+ *   Edit save fails / 422                  → update(), RegisterPersistHelper validators it calls
+ *   Soft-delete not appearing in bin       → destroy(), supportsSoftDelete, recycleBinList
+ *   Restore fails / wrong status           → restore()
+ *   Permanent delete blocked               → permanentDestroy, canPermanentlyDeleteDcsDocuments
+ *   Draft duplicates after autosave        → collapseDuplicateDrafts, destroyDraftPermanently
+ *   Recycle Bin still shows old rows       → purgeExpiredRecycleBin (scheduled) / purgeRequestRecords
+ *
+ * Related: RegisterPersistHelper (create), RegisterQueryHelper (assertCanEditDocument / lists).
+*/
 class RegisterUpdateHelper
 {
+    /**
+     * Stores an uploaded DCS scan PDF and returns the saved path.
+     *
+     * DEBUG: scan missing after save → DocumentStorageService + this method.
+     */
     private static function storeDcsScanUpload($file, array &$uploadedFiles, string $category, ?string $conventionBase = null, array $dccContext = []): string
     {
         return RegisterPersistHelper::storeDcsScanUpload($file, $uploadedFiles, $category, $conventionBase, $dccContext);
     }
 
-    /** Build a real RedirectResponse (avoid Livewire's redirect() Redirector). */
+    /**
+     * Helper used for flash redirect.
+     */
     private static function flashRedirect(string $route, string $type, string $message, array $params = []): RedirectResponse
     {
         session()->flash($type, $message);
@@ -36,6 +51,15 @@ class RegisterUpdateHelper
         return new RedirectResponse(route($route, $params, false));
     }
 
+    // =====================================================================
+    // SECTION: UPDATE — edit an existing registration (draft or final)
+    // =====================================================================
+    
+    /**
+     * Saves edits to an existing Document Registration (or draft autosave), including scans and related rows.
+     *
+     * DEBUG: edit save fails → validators inside update() + RegisterPersistHelper.
+     */
     public static function update(Request $request, int $id): RedirectResponse|\Illuminate\Http\JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('register');
@@ -986,6 +1010,15 @@ class RegisterUpdateHelper
         }
     }
 
+    // =====================================================================
+    // SECTION: SOFT DELETE — move request to Recycle Bin
+    // =====================================================================
+    
+    /**
+     * Soft-deletes a registration into the Recycle Bin.
+     *
+     * DEBUG: deleted doc not in bin → supportsSoftDelete + recycleBinList.
+     */
     public static function destroy(int $id, string $reason = ''): RedirectResponse
     {
         if (!RegisterQueryHelper::supportsSoftDelete()) {
@@ -1100,6 +1133,15 @@ class RegisterUpdateHelper
         }
     }
 
+    // =====================================================================
+    // SECTION: RESTORE — bring a soft-deleted request back
+    // =====================================================================
+    
+    /**
+     * Restores a soft-deleted registration from the Recycle Bin.
+     *
+     * DEBUG: restore fails / wrong status → this method.
+     */
     public static function restore(int $id): RedirectResponse
     {
         $docRequest = RegisterQueryHelper::findTrashedDocumentRequest($id);
@@ -1166,9 +1208,12 @@ class RegisterUpdateHelper
     }
 
     /**
-     * Permanently remove a live draft (not a registered document).
-     * Registered documents still go through Recycle Bin via destroy().
+     * Permanently deletes a draft registration.
      */
+    // =====================================================================
+    // SECTION: DRAFT CLEANUP — permanent draft delete + collapse duplicates
+    // =====================================================================
+    
     public static function destroyDraftPermanently(int $id, bool $redirect = true): ?RedirectResponse
     {
         $docRequest = RegisterQueryHelper::findDocumentRequest($id);
@@ -1252,6 +1297,8 @@ class RegisterUpdateHelper
 
     /**
      * Keep one draft per document number + type. Older copies are permanently removed.
+     *
+     * DEBUG: duplicate blocked or slipped through → check here.
      */
     public static function collapseDuplicateDrafts(?int $keepRequestId = null): void
     {
@@ -1339,9 +1386,14 @@ class RegisterUpdateHelper
     }
 
     /**
-     * Permanently remove a soft-deleted document and its files.
-     * Interactive deletes require Head of Document Control; retention purge skips the check.
+     * Permanently deletes a recycled registration and its related files/rows.
+     *
+     * DEBUG: permanent delete blocked → canPermanentlyDeleteDcsDocuments.
      */
+    // =====================================================================
+    // SECTION: PERMANENT DESTROY & PURGE — hard delete + expired bin purge
+    // =====================================================================
+    
     public static function permanentDestroy(int $id, bool $redirect = true): ?RedirectResponse
     {
         if ($redirect) {
@@ -1397,7 +1449,9 @@ class RegisterUpdateHelper
         }
     }
 
-    /** @return list<string> */
+    /**
+     * Removes or clears data for purge request records.
+     */
     private static function purgeRequestRecords(int $id): array
     {
         $filesToDelete = [];
@@ -1476,7 +1530,9 @@ class RegisterUpdateHelper
         return $filesToDelete;
     }
 
-    /** Permanently delete soft-deleted documents older than the Recycle Bin retention window. */
+    /**
+     * Removes Recycle Bin rows older than the retention period.
+     */
     public static function purgeExpiredRecycleBin(): int
     {
         if (!RegisterQueryHelper::supportsSoftDelete()) {
@@ -1502,6 +1558,9 @@ class RegisterUpdateHelper
         return $purged;
     }
 
+    /**
+     * Helper used for queue syllabi files.
+     */
     private static function queueSyllabiFiles(int $requestId, array &$filesToDelete, array $keepPaths = []): void
     {
         $old = DB::table('dcs_syllabi')->where('request_id', $requestId)->get();
@@ -1514,6 +1573,9 @@ class RegisterUpdateHelper
         }
     }
 
+    /**
+     * Helper used for invalidate syllabi stamps.
+     */
     private static function invalidateSyllabiStamps(int $requestId): void
     {
         $ids = DB::table('dcs_syllabi_drf as sd')

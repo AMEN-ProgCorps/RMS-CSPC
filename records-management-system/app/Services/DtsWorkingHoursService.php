@@ -504,6 +504,12 @@ class DtsWorkingHoursService
             return 0;
         }
 
+        // Column added by 2026_11_17_000001_add_working_hours_settings_and_columns.
+        // Skip quietly if the migration has not been applied yet.
+        if (!Schema::hasColumn('dts_transactions', 'pending_working_hours_dispatch')) {
+            return 0;
+        }
+
         // Find transactions marked with pending working hours dispatch
         $pendingTrans = DB::table('dts_transactions as dt')
             ->leftJoin('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')

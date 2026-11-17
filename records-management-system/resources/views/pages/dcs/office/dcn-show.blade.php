@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Office view DCN
+  FILE: resources/views/pages/dcs/office/dcn-show.blade.php
+  DEBUG: OfficeIntakeHelper::findOfficeDcn
+--}}
 <?php
 
 /**

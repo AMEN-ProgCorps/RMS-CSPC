@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: Office intake forms (create/edit)
+ * FILE: resources/js/dcs/office-intake.js
+ * DEBUG: OfficeIntakeHelper store/update; print-unlock partials
+ */
+
 (function () {
     'use strict';
 

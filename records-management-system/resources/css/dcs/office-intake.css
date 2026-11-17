@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: Office My DRF/DCN / incoming / print UI
+ * FILE: resources/css/dcs/office-intake.css
+ * DEBUG: Prefer [data-theme="dark"] rules in dark.css for theme bugs; page-specific FOUC/layout here.
+ */
+
 /* DCS file: Office DRF and DCN screens, including the locked print control. */
 @import './tokens.css';
 
@@ -3340,11 +3346,19 @@ body.ofi-modal-open {
     text-align: center;
     color: #475569;
 }
-.ofi-doc-empty i {
+/* Direct child only — do not restyle icons inside .ofi-btn (e.g. the + CTA). */
+.ofi-doc-empty > i {
     font-size: 28px;
     color: var(--dcs-accent, #043899);
     opacity: 0.55;
     margin-bottom: 4px;
+}
+.ofi-doc-empty .ofi-btn i,
+.ofi-list-empty .ofi-btn i {
+    font-size: 13px;
+    opacity: 1;
+    color: inherit;
+    margin-bottom: 0;
 }
 .ofi-doc-empty strong {
     font-size: 14px;
@@ -4747,8 +4761,13 @@ body.ofi-modal-open {
 [data-theme="dark"] .ofi-doc-empty strong {
     color: #f8fafc;
 }
-[data-theme="dark"] .ofi-doc-empty i {
+[data-theme="dark"] .ofi-doc-empty > i {
     color: #60a5fa;
+}
+[data-theme="dark"] .ofi-doc-empty .ofi-btn i,
+[data-theme="dark"] .ofi-list-empty .ofi-btn i {
+    color: inherit;
+    opacity: 1;
 }
 [data-theme="dark"] .ofi-nav-empty-hint {
     color: #64748b;

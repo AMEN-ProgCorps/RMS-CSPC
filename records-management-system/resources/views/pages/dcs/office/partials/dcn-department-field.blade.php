@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (dcn-department-field.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/dcn-department-field.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Locked Department / source unit on office DCN and DRF. Always the signed-in office.
 --}}
 @php

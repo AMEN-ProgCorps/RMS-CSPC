@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Inventory text clamp partial
+  FILE: resources/views/pages/dcs/database/_text-clamp.blade.php
+  DEBUG: CSS clamp helpers in database.css
+--}}
+{{--
 DCS file: Free-text cell clamped to two lines, with See more / See less.
 --}}
 {{-- Truncate free-form text to 2 lines; See more / See less matches distribution offices. --}}

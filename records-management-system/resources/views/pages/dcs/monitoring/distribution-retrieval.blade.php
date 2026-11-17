@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Distribution & Retrieval monitor
+  FILE: resources/views/pages/dcs/monitoring/distribution-retrieval.blade.php
+  DEBUG: DistributionRetrievalMonitorHelper::monitor
+--}}
 <?php
 
 /**

@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Office create DRF
+  FILE: resources/views/pages/dcs/office/drf-create.blade.php
+  DEBUG: OfficeIntakeHelper::storeDrf
+--}}
 <?php
 
 /**

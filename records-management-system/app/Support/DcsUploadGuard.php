@@ -5,12 +5,20 @@ namespace App\Support;
 use Illuminate\Http\UploadedFile;
 
 /**
- * Server-side upload checks. The browser Content-Type and filename are ignored.
+ * Server-side DCS PDF upload checks (ignores browser Content-Type / filename).
+ *
+ * DEBUG MAP:
+ *   Upload rejected as not PDF        → pdfProblem / pdfHeadProblem (%PDF- magic)
+ *   File too large                    → PDF_MAX_KB / caller maxKilobytes
+ *   Used from                         → DocumentStorageService::storeDcsScan*
  */
 class DcsUploadGuard
 {
     public const PDF_MAX_KB = 204800;
 
+    /**
+     * Validates an uploaded file is a real PDF within size limits.
+     */
     public static function pdfProblem(UploadedFile $file, int $maxKilobytes): ?string
     {
         if (! $file->isValid() || ! is_string($file->getRealPath()) || ! is_file($file->getRealPath())) {
@@ -30,6 +38,9 @@ class DcsUploadGuard
         return self::pdfHeadProblem(is_string($head) ? $head : '');
     }
 
+    /**
+     * Helper used for pdf contents problem.
+     */
     public static function pdfContentsProblem(string $contents, int $maxKilobytes): ?string
     {
         $size = strlen($contents);
@@ -44,7 +55,7 @@ class DcsUploadGuard
     }
 
     /**
-     * JPEG or PNG only, decided from the file bytes.
+     * Helper used for image kind.
      */
     public static function imageKind(UploadedFile $file, int $maxKilobytes): ?string
     {
@@ -71,6 +82,9 @@ class DcsUploadGuard
         return null;
     }
 
+    /**
+     * Helper used for pdf head problem.
+     */
     private static function pdfHeadProblem(string $head): ?string
     {
         return str_starts_with($head, '%PDF-') ? null : 'Only a PDF file can be uploaded.';

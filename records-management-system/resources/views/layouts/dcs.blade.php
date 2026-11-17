@@ -1,3 +1,9 @@
+{{--
+  DCS LAYOUT: Document Control System shell (sidebar, top tabs, Vite CSS/JS).
+  FILE: resources/views/layouts/dcs.blade.php
+  DEBUG: Wrong CSS loaded → @vite branches by route; dark bugs → css/dcs/dark.css;
+         access bounce → CanAccessDcs / RequireDcsModule / EnforceDcsIntakeAllowlist.
+--}}
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
@@ -120,6 +126,13 @@
     @endif
     @if(request()->routeIs('dcs', 'dcs.dashboard'))
         @vite(['resources/css/dcs/dashboard.css'])
+        @if(
+            auth()->check()
+            && !\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()
+            && !\App\Helpers\RegisterQueryHelper::isDcsPathPending()
+        )
+            @vite(['resources/css/dcs/floating-calendar.css'])
+        @endif
         @if(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser())
             @vite(['resources/css/dcs/office-intake.css'])
         @endif
@@ -268,9 +281,15 @@
     @endif
     <x-rms-error />
     <x-dcs.toast />
+    @if(request()->routeIs('dcs', 'dcs.dashboard'))
+        <x-dcs.floating-calendar />
+    @endif
     <x-messify.floating-widget />
     <x-dts.scanner-widget />
     <livewire:components.scanner-modal />
+    @auth
+        <script src="{{ asset('js/dcs/dashboard-page.js') }}?v={{ @filemtime(public_path('js/dcs/dashboard-page.js')) ?: time() }}"></script>
+    @endauth
     @stack('scripts')
     @livewireScripts
 </body>

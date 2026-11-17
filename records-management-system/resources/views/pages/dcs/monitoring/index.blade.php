@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Monitoring hub
+  FILE: resources/views/pages/dcs/monitoring/index.blade.php
+  DEBUG: InteractsWithDcsReport; ReportHelper
+--}}
 <?php
 
 /**

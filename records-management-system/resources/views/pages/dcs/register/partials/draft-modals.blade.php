@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Register partial (draft-modals.blade.php)
+  FILE: resources/views/pages/dcs/register/partials/draft-modals.blade.php
+  DEBUG: RegisterPersistHelper / RegisterQueryHelper; register.css
+--}}
+{{--
 DCS file: Confirm and leave-guard modals for registration drafts.
 --}}
 {{-- Draft confirm + leave-guard modals (Register create / edit) --}}

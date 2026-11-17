@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: DCS design tokens / CSS variables
+ * FILE: resources/css/dcs/tokens.css
+ * DEBUG: Prefer [data-theme="dark"] rules in dark.css for theme bugs; page-specific FOUC/layout here.
+ */
+
 /* DCS file: Shared DCS colors, type, and spacing. Page stylesheets import this first. */
 /* Shared DCS design tokens — imported by chrome + every page stylesheet. */
 :root {

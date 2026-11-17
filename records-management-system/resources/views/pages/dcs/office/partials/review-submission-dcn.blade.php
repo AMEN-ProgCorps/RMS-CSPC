@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (review-submission-dcn.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/review-submission-dcn.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Read-only DCN summary on the admin request screen.
 --}}
 @php

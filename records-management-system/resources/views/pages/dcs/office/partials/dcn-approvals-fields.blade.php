@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (dcn-approvals-fields.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/dcn-approvals-fields.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Repeatable approver name and position rows on the office DCN.
 --}}
 @php

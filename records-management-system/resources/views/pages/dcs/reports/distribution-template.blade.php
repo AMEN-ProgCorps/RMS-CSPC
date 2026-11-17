@@ -1,4 +1,9 @@
 {{--
+  DCS PAGE: Distribution report template
+  FILE: resources/views/pages/dcs/reports/distribution-template.blade.php
+  DEBUG: ReportTemplateHelper / ReportHelper
+--}}
+{{--
 DCS file: Print layout for a distribution and retrieval sheet.
 --}}
 <!DOCTYPE html>

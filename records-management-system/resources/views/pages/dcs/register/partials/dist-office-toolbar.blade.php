@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Register partial (dist-office-toolbar.blade.php)
+  FILE: resources/views/pages/dcs/register/partials/dist-office-toolbar.blade.php
+  DEBUG: RegisterPersistHelper / RegisterQueryHelper; register.css
+--}}
+{{--
 DCS file: Toolbar and modal for picking distribution offices and saving them as a group.
 --}}
 {{-- Shared toolbar + modal for distribution office multi-select / saved groups --}}

@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Office incoming docs
+  FILE: resources/views/pages/dcs/office/incoming.blade.php
+  DEBUG: OfficeIntakeHelper::paginateOfficeIncomingDocuments / markReceived
+--}}
 <?php
 
 /**

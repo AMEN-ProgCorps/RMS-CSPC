@@ -1744,6 +1744,140 @@ new class extends Component {
                         grid-template-columns: 1fr !important;
                     }
                 }
+
+                /* ------------------------------------------------------------------ */
+                /* Dark mode — match header chrome; no leftover white panels/inputs.  */
+                /* ------------------------------------------------------------------ */
+                [data-theme="dark"] .dts-scanner-widget-card {
+                    background: #0f172a;
+                    box-shadow: 0 24px 50px -10px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(51, 65, 85, 0.9);
+                }
+                [data-theme="dark"] .dts-scanner-widget-body {
+                    background: #0f172a;
+                }
+                [data-theme="dark"] .dts-scanner-left-pane {
+                    background: #111827;
+                    border-right-color: #1e293b;
+                }
+                [data-theme="dark"] .dts-scanner-right-pane {
+                    background: #0b1220;
+                }
+                [data-theme="dark"] .scanner-alert.alert-success {
+                    background: rgba(22, 101, 52, 0.25);
+                    border-color: #166534;
+                    color: #86efac;
+                }
+                [data-theme="dark"] .scanner-alert.alert-danger {
+                    background: rgba(127, 29, 29, 0.3);
+                    border-color: #7f1d1d;
+                    color: #fca5a5;
+                }
+                [data-theme="dark"] .scanner-badge.badge-completed {
+                    background: #1e293b;
+                    color: #cbd5e1;
+                    border-color: #334155;
+                }
+                [data-theme="dark"] .scanner-badge.badge-received {
+                    background: rgba(22, 101, 52, 0.25);
+                    color: #86efac;
+                    border-color: #166534;
+                }
+                [data-theme="dark"] .scanner-badge.badge-incoming {
+                    background: rgba(30, 64, 175, 0.25);
+                    color: #93c5fd;
+                    border-color: #1e3a8a;
+                }
+                [data-theme="dark"] .scanner-details-grid {
+                    color: #cbd5e1;
+                }
+                [data-theme="dark"] .scanner-code-input {
+                    background: #0f172a !important;
+                    border-color: #334155 !important;
+                    color: #f8fafc !important;
+                }
+                [data-theme="dark"] .scanner-code-input::placeholder {
+                    color: #64748b !important;
+                }
+                [data-theme="dark"] .scanner-code-input:focus {
+                    border-color: #38bdf8 !important;
+                }
+                [data-theme="dark"] .scanner-standby-panel {
+                    background: #111827 !important;
+                    border-color: #334155 !important;
+                }
+                [data-theme="dark"] .scanner-standby-panel h4 {
+                    color: #f8fafc !important;
+                }
+                [data-theme="dark"] .scanner-standby-panel p {
+                    color: #94a3b8 !important;
+                }
+                [data-theme="dark"] .scanner-standby-icon {
+                    background: #0c4a6e !important;
+                    color: #38bdf8 !important;
+                    box-shadow: 0 4px 14px rgba(2, 132, 199, 0.25) !important;
+                }
+                [data-theme="dark"] .scanner-stat-pending {
+                    background: rgba(22, 101, 52, 0.2) !important;
+                    border-color: #166534 !important;
+                }
+                [data-theme="dark"] .scanner-stat-pending > div {
+                    color: #86efac !important;
+                }
+                [data-theme="dark"] .scanner-stat-custody {
+                    background: rgba(30, 64, 175, 0.22) !important;
+                    border-color: #1e40af !important;
+                }
+                [data-theme="dark"] .scanner-stat-custody > div {
+                    color: #93c5fd !important;
+                }
+                [data-theme="dark"] .scanner-txn-card {
+                    background: #111827 !important;
+                    border-color: #334155 !important;
+                    box-shadow: none !important;
+                }
+                [data-theme="dark"] .scanner-txn-card h4 {
+                    color: #f8fafc !important;
+                }
+                [data-theme="dark"] .scanner-recent-item {
+                    background: #0f172a !important;
+                    border-color: #1e293b !important;
+                }
+                [data-theme="dark"] .scanner-recent-item:hover {
+                    background: #1e293b !important;
+                }
+                [data-theme="dark"] #modal-camera-select {
+                    background: #0f172a !important;
+                    border-color: #334155 !important;
+                    color: #e2e8f0 !important;
+                }
+                [data-theme="dark"] .dts-scanner-left-pane {
+                    color: #cbd5e1;
+                }
+                [data-theme="dark"] .dts-scanner-left-pane div[style*="border-top: 1px solid #f1f5f9"],
+                [data-theme="dark"] .dts-scanner-left-pane div[style*="border-top:1px solid #f1f5f9"] {
+                    border-top-color: #1e293b !important;
+                }
+                [data-theme="dark"] .dts-scanner-right-pane span[style*="background: #f1f5f9"],
+                [data-theme="dark"] .dts-scanner-right-pane span[style*="background:#f1f5f9"] {
+                    background: #1e293b !important;
+                    color: #cbd5e1 !important;
+                    border-color: #334155 !important;
+                }
+                [data-theme="dark"] .dts-scanner-right-pane span[style*="color: #64748b"],
+                [data-theme="dark"] .dts-scanner-right-pane span[style*="color:#64748b"] {
+                    color: #94a3b8 !important;
+                }
+                [data-theme="dark"] .dts-scanner-left-pane button[style*="background: #eff6ff"],
+                [data-theme="dark"] .dts-scanner-left-pane button[style*="background:#eff6ff"] {
+                    background: #0c4a6e !important;
+                    border-color: #0369a1 !important;
+                    color: #7dd3fc !important;
+                }
+                @media (max-width: 860px) {
+                    [data-theme="dark"] .dts-scanner-left-pane {
+                        border-bottom-color: #1e293b !important;
+                    }
+                }
             </style>
 
             <!-- Two-Column Body (Landscape 2:1 Split) -->
@@ -1829,13 +1963,14 @@ new class extends Component {
                     <div class="scanner-input-row">
                         <input 
                             type="text" 
-                            id="global-scanner-code-input" 
+                            id="global-scanner-code-input"
+                            class="scanner-code-input"
                             wire:model.live.debounce.300ms="scannedCode" 
                             wire:keydown.enter="loadTransactionManual" 
                             placeholder="Enter Control Number or QR Code..." 
-                            style="flex: 1; min-width: 0; padding: 8px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 12.5px; outline: none; transition: border-color 0.15s; box-sizing: border-box;" 
+                            style="flex: 1; min-width: 0; padding: 8px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 12.5px; outline: none; transition: border-color 0.15s; box-sizing: border-box; background: #ffffff; color: #0f172a;" 
                             onfocus="this.style.borderColor='#0284c7';" 
-                            onblur="this.style.borderColor='#cbd5e1';"
+                            onblur="this.style.borderColor=document.documentElement.getAttribute('data-theme')==='dark' ? '#334155' : '#cbd5e1';"
                         />
                         <button 
                             type="button" 
@@ -1877,7 +2012,7 @@ new class extends Component {
                 <!-- Right Pane: Active Transaction Details / Action Station (Flex: 1) -->
                 <div class="dts-scanner-right-pane">
                     @if($activeTransaction)
-                        <div style="background: #ffffff; border: 1.5px solid {{ $activeTransaction['is_completed'] ? '#cbd5e1' : ($activeTransaction['is_received_here'] ? '#bbf7d0' : '#bfdbfe') }}; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                        <div class="scanner-txn-card" style="background: #ffffff; border: 1.5px solid {{ $activeTransaction['is_completed'] ? '#cbd5e1' : ($activeTransaction['is_received_here'] ? '#bbf7d0' : '#bfdbfe') }}; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                             
                             <!-- Header Status Line -->
                             <div style="display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
@@ -2042,8 +2177,8 @@ new class extends Component {
                         </div>
                     @else
                         <!-- Standby State / Empty Console Panel -->
-                        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px 24px; background: #ffffff; border: 1.5px dashed #cbd5e1; border-radius: 12px;">
-                            <div style="width: 52px; height: 52px; border-radius: 14px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; box-shadow: 0 4px 14px rgba(2, 132, 199, 0.2);">
+                        <div class="scanner-standby-panel" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px 24px; background: #ffffff; border: 1.5px dashed #cbd5e1; border-radius: 12px;">
+                            <div class="scanner-standby-icon" style="width: 52px; height: 52px; border-radius: 14px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; box-shadow: 0 4px 14px rgba(2, 132, 199, 0.2);">
                                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
                                     <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
@@ -2060,12 +2195,12 @@ new class extends Component {
 
                                 <!-- Quick Stats Cards -->
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 420px; margin-bottom: 14px;">
-                                    <div wire:click="openAvailableCodesModal" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#4ade80';" onmouseout="this.style.borderColor='#bbf7d0';">
+                                    <div class="scanner-stat-card scanner-stat-pending" wire:click="openAvailableCodesModal" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#4ade80';" onmouseout="this.style.borderColor=document.documentElement.getAttribute('data-theme')==='dark' ? '#166534' : '#bbf7d0';">
                                         <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #166534; letter-spacing: 0.04em;">Pending Receipt</div>
                                         <div style="font-size: 20px; font-weight: 800; color: #15803d; margin-top: 2px;">{{ $this->availableCounts['incoming'] ?? 0 }}</div>
                                         <div style="font-size: 10.5px; color: #166534; margin-top: 2px;">Incoming documents</div>
                                     </div>
-                                    <div wire:click="openAvailableCodesModal" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#60a5fa';" onmouseout="this.style.borderColor='#bfdbfe';">
+                                    <div class="scanner-stat-card scanner-stat-custody" wire:click="openAvailableCodesModal" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#60a5fa';" onmouseout="this.style.borderColor=document.documentElement.getAttribute('data-theme')==='dark' ? '#1e40af' : '#bfdbfe';">
                                         <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #1e40af; letter-spacing: 0.04em;">In Custody</div>
                                         <div style="font-size: 20px; font-weight: 800; color: #1d4ed8; margin-top: 2px;">{{ $this->availableCounts['received'] ?? 0 }}</div>
                                         <div style="font-size: 10.5px; color: #1e40af; margin-top: 2px;">Ready to forward</div>

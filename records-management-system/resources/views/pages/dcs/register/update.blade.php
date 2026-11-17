@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Update module list
+  FILE: resources/views/pages/dcs/register/update.blade.php
+  DEBUG: RegisterQueryHelper::updateList; RegisterUpdateHelper
+--}}
 <?php
 
 /**

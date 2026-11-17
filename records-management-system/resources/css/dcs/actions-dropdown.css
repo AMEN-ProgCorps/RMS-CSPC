@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: Shared action dropdown menus in DCS lists
+ * FILE: resources/css/dcs/actions-dropdown.css
+ * DEBUG: Prefer [data-theme="dark"] rules in dark.css for theme bugs; page-specific FOUC/layout here.
+ */
+
 /* DCS file: Row action menu used on DCS tables. */
 /*
  * ACTIONS dropdown for DCS — same rules as resources/css/dashboard.css

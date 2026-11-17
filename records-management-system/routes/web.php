@@ -128,6 +128,9 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
         // Authenticate user
         Auth::loginUsingId($accountDetail->account_id);
         session()->regenerate();
+        // Mark this browser session so a stale admin force-logout flag cannot
+        // immediately bounce a brand-new login back to the login page.
+        session(['rms_login_at' => now()->timestamp]);
 
         // Log successful login
         $logSecurityEvent(1, $accountDetail->account_id); // Login Successful
@@ -145,6 +148,8 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
         $updateData = [
             'is_currently_online' => true,
             'last_online_time'    => now(),
+            // Consume any pending admin force-logout so a successful SSO login sticks.
+            'force_logout_at'     => null,
         ];
 
         if (!empty($avatarUrl)) {
@@ -995,7 +1000,17 @@ Route::middleware(['auth'])
         })->name('dts.view-document');
     });
 
-    // DCS — Document Control System (requires can_access_dcs or is_sadm)
+    // =====================================================================
+    // DCS ROUTE GROUP — Document Control System
+    // Middleware aliases (bootstrap/app.php):
+    //   can.access.dcs      → CanAccessDcs (desktop + can_access_dcs / Super Admin)
+    //   dcs.intake.allowlist → EnforceDcsIntakeAllowlist (limited office users)
+    //   dcs.full            → RequireFullDcs (block office users from Admin DCS)
+    //   dcs.module:{key}    → RequireDcsModule (register, review, reports, …)
+    // Pages: resources/views/pages/dcs/* (Livewire Volt)
+    // DEBUG: portal bounce → CanAccessDcs; office 403 on new API → allowlist;
+    //        module 403 → role flag + dcs.module param; logic → app/Helpers/*DCS*.
+    // =====================================================================
     Route::middleware(['can.access.dcs', 'dcs.intake.allowlist'])->group(function () {
         Volt::route('/dcs', 'pages.dcs.index')->name('dcs');
 

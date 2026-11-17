@@ -1,4 +1,9 @@
 {{--
+  DCS PAGE: Shared report table partial
+  FILE: resources/views/pages/dcs/partials/report-browser.blade.php
+  DEBUG: InteractsWithDcsReport
+--}}
+{{--
 DCS file: On-screen Generate Report and Monitoring table. Masterlist originators use x-dcs.originator-lines. Document number, revision, title, and effectivity date use the center alignment class.
 --}}
 <main class="rpt-page" id="rptPage">

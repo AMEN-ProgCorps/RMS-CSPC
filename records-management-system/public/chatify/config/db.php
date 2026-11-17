@@ -9,7 +9,12 @@
 // Dynamically load settings from Laravel's .env file
 // -----------------------------------------------------------------------------
 $GLOBALS['messify_env'] = [];
-$envFiles = [realpath(__DIR__ . '/../../../.env'), realpath(__DIR__ . '/../../../.env.docker')];
+// Prefer .env.docker when present (Docker compose env_file source of truth),
+// then .env. Process getenv() still wins in getEnvValue().
+$inDocker = file_exists('/.dockerenv') || getenv('DOCKER') !== false;
+$envFiles = $inDocker
+    ? [realpath(__DIR__ . '/../../../.env.docker'), realpath(__DIR__ . '/../../../.env')]
+    : [realpath(__DIR__ . '/../../../.env'), realpath(__DIR__ . '/../../../.env.docker')];
 foreach ($envFiles as $envPath) {
     if ($envPath && file_exists($envPath)) {
         $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
@@ -44,6 +49,29 @@ if (!function_exists('getEnvValue')) {
             return $_SERVER[$key];
         }
         return isset($GLOBALS['messify_env'][$key]) ? $GLOBALS['messify_env'][$key] : $default;
+    }
+}
+
+/**
+ * Wall-clock "now" in the same timezone Laravel uses for last_online_time.
+ * Chatify previously wrote gmdate() (UTC), which Asia/Manila Laravel then
+ * treated as local time — making users look ~8 hours idle and auto-logging
+ * them out right after login / Chatify heartbeat.
+ */
+if (!function_exists('rmsAppNow')) {
+    function rmsAppNow(): string
+    {
+        static $tz = null;
+        if ($tz === null) {
+            $name = (string) getEnvValue('APP_TIMEZONE', 'Asia/Manila');
+            try {
+                $tz = new DateTimeZone($name !== '' ? $name : 'Asia/Manila');
+            } catch (Throwable $e) {
+                $tz = new DateTimeZone('Asia/Manila');
+            }
+        }
+
+        return (new DateTime('now', $tz))->format('Y-m-d H:i:s');
     }
 }
 

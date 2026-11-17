@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (dcn-docno-script.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/dcn-docno-script.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Looks up the DCN finder values and fills the change form when the latest revision matches.
 --}}
 <script>

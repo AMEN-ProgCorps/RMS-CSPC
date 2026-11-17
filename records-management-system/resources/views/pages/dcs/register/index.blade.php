@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Document Registration create
+  FILE: resources/views/pages/dcs/register/index.blade.php
+  DEBUG: RegisterPersistHelper::persist; RegisterQueryHelper::jsCatalog
+--}}
 <?php
 
 /**

@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: Office view shared check
+  FILE: resources/views/pages/dcs/office/random-check-show.blade.php
+  DEBUG: RandomCheckHelper::officeCanViewCheck
+--}}
 <?php
 
 /**

@@ -12,11 +12,21 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
 /**
- * One error shape for every subsystem.
- * Call {@see forStatus()} or {@see from()} and return {@see toArray()} or {@see toResponse()}.
+ * One user-facing error shape for every subsystem (DCS, Admin, DTS, RDP).
+ *
+ * Call {@see forStatus()} or {@see from()} then {@see toArray()} / {@see toResponse()}.
+ *
+ * DEBUG MAP:
+ *   Opaque 500 page                    → from($e) / forStatus(); check specificMessage() + appFrame()
+ *   Slow connection shown as 500       → isSlowConnection() → status 408 notice
+ *   Wrong return URL after error       → returnUrl(request())
+ *   Ticket reference missing on page   → reference is filled by ErrorTicketRecorder after capture
  */
 class ErrorDiagnosis
 {
+    /**
+     * Helper used for construct.
+     */
     public function __construct(
         public string $kind,
         public int $status,
@@ -28,6 +38,9 @@ class ErrorDiagnosis
         public ?string $returnUrl = null,
     ) {}
 
+    /**
+     * Builds a user-facing error diagnosis from an exception.
+     */
     public static function from(Throwable $e): self
     {
         $status = $e instanceof HttpExceptionInterface ? $e->getStatusCode() : 500;
@@ -119,6 +132,9 @@ class ErrorDiagnosis
         );
     }
 
+    /**
+     * Builds a standard error diagnosis for an HTTP status code.
+     */
     public static function forStatus(int $status, ?string $message = null): self
     {
         if ($status < 400) {
@@ -142,6 +158,7 @@ class ErrorDiagnosis
     }
 
     /**
+     * Helper used for catalog.
      * @return array<int, array{kind: string, title: string, message: string}>
      */
     public static function catalog(): array
@@ -163,7 +180,9 @@ class ErrorDiagnosis
         ];
     }
 
-    /** @return array{status: int, error_kind: string, title: string, message: string, reference: ?string, file: ?string, line: ?int, return_url: ?string} */
+    /**
+     * Helper used for to array.
+     */
     public function toArray(): array
     {
         $clean = function (?string $val): ?string {
@@ -183,6 +202,9 @@ class ErrorDiagnosis
         ];
     }
 
+    /**
+     * Converts a Livewire redirector into a normal HTTP response.
+     */
     public function toResponse(Request $request): JsonResponse|Response
     {
         if (self::wantsJson($request)) {
@@ -192,6 +214,9 @@ class ErrorDiagnosis
         return response()->view('errors.diagnosed', ['error' => $this], $this->status);
     }
 
+    /**
+     * Helper used for wants json.
+     */
     public static function wantsJson(Request $request): bool
     {
         return $request->headers->has('X-Livewire')
@@ -201,11 +226,17 @@ class ErrorDiagnosis
             || $request->wantsJson();
     }
 
+    /**
+     * Tells whether is file response — used for access and UI decisions.
+     */
     public static function isFileResponse(Request $request): bool
     {
         return $request->is('dcs/view-document', 'dcs/view-document/*', 'dts/view-document', 'dts/view-document/*');
     }
 
+    /**
+     * Helper used for specific message.
+     */
     private static function specificMessage(Throwable $e): ?string
     {
         $haystack = '';
@@ -245,6 +276,9 @@ class ErrorDiagnosis
         return null;
     }
 
+    /**
+     * Tells whether is slow connection — used for access and UI decisions.
+     */
     private static function isSlowConnection(Throwable $e): bool
     {
         $haystack = '';
@@ -290,6 +324,7 @@ class ErrorDiagnosis
     }
 
     /**
+     * Helper used for app frame.
      * @return array{file: string, line: int}
      */
     private static function appFrame(Throwable $e): array
@@ -327,6 +362,9 @@ class ErrorDiagnosis
         return $fallback;
     }
 
+    /**
+     * Helper used for local path.
+     */
     private static function localPath(string $url, Request $request): string
     {
         if ($url === '') {
@@ -342,6 +380,9 @@ class ErrorDiagnosis
         return $path.(is_string($query) && $query !== '' ? '?'.$query : '');
     }
 
+    /**
+     * Tells whether is technical — used for access and UI decisions.
+     */
     private static function isTechnical(string $message): bool
     {
         return $message === ''

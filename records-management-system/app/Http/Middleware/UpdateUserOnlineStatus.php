@@ -99,8 +99,15 @@ class UpdateUserOnlineStatus
                     ], 401);
                 }
 
-                if ($request->is('open-chat', 'chatify*', 'messify*')) {
-                    return response('<!DOCTYPE html><html><head><script>if(window.top){window.top.location.href="' . route('login') . '";}</script></head><body></body></html>', 401)
+                // open-chat / chatify are loaded inside the Messify iframe.
+                // Never navigate window.top — that was kicking the whole RMS
+                // portal to login whenever Chatify SSO or idle checks failed.
+                if ($request->is('open-chat', 'chatify*', 'messify*')
+                    || $request->headers->get('Sec-Fetch-Dest') === 'iframe') {
+                    return response('<!DOCTYPE html><html><head><script>'
+                        . 'try{parent.postMessage({type:"rms-chatify-auth-failed"},window.location.origin);}catch(e){}'
+                        . 'location.replace("about:blank");'
+                        . '</script></head><body></body></html>', 401)
                         ->header('Content-Type', 'text/html');
                 }
 
@@ -110,42 +117,56 @@ class UpdateUserOnlineStatus
             // A. Check if Admin modified account (Forced Logout)
             // Admin-forced logout is always enforced, even on background polls,
             // because it is an explicit administrative action, not a passive timeout.
+            //
+            // Exception: if the current browser session started AFTER force_logout_at,
+            // the user already re-authenticated — clear the stale flag and continue.
             if ($details && $details->force_logout_at !== null) {
-                try {
-                    DB::table($secLogsTbl)->insert([
-                        'status' => 3, // Logout
-                        'account' => $user->id,
-                        'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
-                        'time' => $now,
-                    ]);
-                } catch (\Throwable) {}
+                $forceAt = \Carbon\Carbon::parse($details->force_logout_at);
+                $loginAtTs = (int) $request->session()->get('rms_login_at', 0);
+                $sessionIsNewerThanForce = $loginAtTs > 0 && $loginAtTs >= $forceAt->getTimestamp();
 
-                DB::table($accDetailsTbl)
-                    ->where('account_id', $user->id)
-                    ->update([
-                        'force_logout_at' => null,
-                        'is_currently_online' => false,
-                        'last_online_time' => $now,
-                    ]);
+                if ($sessionIsNewerThanForce) {
+                    DB::table($accDetailsTbl)
+                        ->where('account_id', $user->id)
+                        ->update(['force_logout_at' => null]);
+                    $details->force_logout_at = null;
+                } else {
+                    try {
+                        DB::table($secLogsTbl)->insert([
+                            'status' => 3, // Logout
+                            'account' => $user->id,
+                            'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
+                            'time' => $now,
+                        ]);
+                    } catch (\Throwable) {}
 
-                try {
-                    DB::table('sessions')->where('user_id', $user->id)->delete();
-                    $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
-                        ? public_path('chatify/core/WsPush.php')
-                        : public_path('messify/core/WsPush.php');
-                    if (is_file($wsPushFile)) {
-                        require_once $wsPushFile;
-                        if (class_exists('WsPush')) {
-                            \WsPush::forceDisconnect((int) $user->id, 'logged_out');
+                    DB::table($accDetailsTbl)
+                        ->where('account_id', $user->id)
+                        ->update([
+                            'force_logout_at' => null,
+                            'is_currently_online' => false,
+                            'last_online_time' => $now,
+                        ]);
+
+                    try {
+                        DB::table('sessions')->where('user_id', $user->id)->delete();
+                        $wsPushFile = is_file(public_path('chatify/core/WsPush.php'))
+                            ? public_path('chatify/core/WsPush.php')
+                            : public_path('messify/core/WsPush.php');
+                        if (is_file($wsPushFile)) {
+                            require_once $wsPushFile;
+                            if (class_exists('WsPush')) {
+                                \WsPush::forceDisconnect((int) $user->id, 'logged_out');
+                            }
                         }
-                    }
-                } catch (\Throwable) {}
+                    } catch (\Throwable) {}
 
-                Auth::logout();
-                $request->session()->invalidate();
-                $request->session()->regenerateToken();
+                    Auth::logout();
+                    $request->session()->invalidate();
+                    $request->session()->regenerateToken();
 
-                return $buildLogoutResponse('Your account details were updated by an Administrator. Please sign in again.');
+                    return $buildLogoutResponse('Your account details were updated by an Administrator. Please sign in again.');
+                }
             }
 
             // B. Check if inactive for longer than configured timeout
@@ -154,9 +175,32 @@ class UpdateUserOnlineStatus
             // this Laravel middleware entirely, so they never refresh last_online_time here.
             // Without this guard, a passive poll would see the stale timestamp and force a logout
             // even though the user is actively chatting — the poll should observe, not enforce.
-            if (! $isBackgroundPoll && ! $clientFresh && $details && $details->last_online_time !== null) {
+            //
+            // Also skip for a short post-login grace window so a brand-new SSO session is not
+            // bounced by a stale last_online_time before the first activity cookie is written.
+            $loginAtTs = (int) $request->session()->get('rms_login_at', 0);
+            $withinLoginGrace = $loginAtTs > 0 && ((time() - $loginAtTs) < 120);
+
+            if (! $isBackgroundPoll && ! $clientFresh && ! $withinLoginGrace && $details && $details->last_online_time !== null) {
                 $lastOnline = \Carbon\Carbon::parse($details->last_online_time);
-                if ($lastOnline->diffInMinutes($now) >= $logoutMinutes) {
+                // Carbon 3 diffs are signed; always use absolute idle minutes.
+                $idleMinutes = $lastOnline->diffInMinutes($now, true);
+
+                // Chatify used to write UTC via gmdate() while Laravel uses Asia/Manila.
+                // That made a just-active user look ~8 hours idle. Heal skew instead of
+                // logging them out when the gap is clearly a timezone artifact.
+                if ($idleMinutes >= 180 && $idleMinutes <= 12 * 60) {
+                    DB::table($accDetailsTbl)
+                        ->where('account_id', $user->id)
+                        ->update([
+                            'is_currently_online' => true,
+                            'last_online_time' => $now,
+                        ]);
+                    $details->last_online_time = $now;
+                    $idleMinutes = 0;
+                }
+
+                if ($idleMinutes >= $logoutMinutes) {
                     $statusId = 3;
                     try {
                         if (DB::table($secStatusTbl)->where('status_id', 8)->exists()) {
@@ -252,6 +296,12 @@ class UpdateUserOnlineStatus
     {
         // 1. Chat widget unread count badge polling
         if ($request->is('chat/unread-count')) {
+            return true;
+        }
+
+        // open-chat is a side-channel iframe handshake, not a user navigation.
+        // Do not treat it as activity-enforcing for idle logout.
+        if ($request->is('open-chat', 'chatify*', 'messify*')) {
             return true;
         }
 

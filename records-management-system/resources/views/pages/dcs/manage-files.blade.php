@@ -1,3 +1,8 @@
+{{--
+  DCS PAGE: DCS Manage Files
+  FILE: resources/views/pages/dcs/manage-files.blade.php
+  DEBUG: DocumentStorageService; manage-files.css
+--}}
 <?php
 
 /**

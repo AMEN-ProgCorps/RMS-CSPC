@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: Office intake modals
+ * FILE: resources/js/dcs/office-intake-modal.js
+ * DEBUG: OfficeIntakeHelper::modalPayload; office-intake.css
+ */
+
 (function () {
     let root = null;
     let listenersBound = false;

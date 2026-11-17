@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (drf-recur-script.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/drf-recur-script.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Looks up the DRF recurring finder values (same API as DCN) and seeds title / originator / type / distribution.
 --}}
 <script>

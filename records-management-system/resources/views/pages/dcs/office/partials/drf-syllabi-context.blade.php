@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (drf-syllabi-context.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/drf-syllabi-context.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Syllabi/TOS context fields on office DRF. Shown after Internal Forms + syllabi-like sub-type.
 --}}
 @php

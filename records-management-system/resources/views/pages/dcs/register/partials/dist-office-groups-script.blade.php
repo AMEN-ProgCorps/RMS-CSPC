@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Register partial (dist-office-groups-script.blade.php)
+  FILE: resources/views/pages/dcs/register/partials/dist-office-groups-script.blade.php
+  DEBUG: RegisterPersistHelper / RegisterQueryHelper; register.css
+--}}
+{{--
 DCS file: Saves and applies a named group of distribution offices on the register form.
 --}}
 <script>

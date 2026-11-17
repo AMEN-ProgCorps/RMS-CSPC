@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: PDF compare cache helpers
+ * FILE: resources/js/dcs/pdf-compare-cache.js
+ * DEBUG: register-pdf-compare / review-pdf
+ */
+
 const DB_NAME = 'dcs-drr-compare';
 const DB_VERSION = 1;
 const STORE = 'pairs';

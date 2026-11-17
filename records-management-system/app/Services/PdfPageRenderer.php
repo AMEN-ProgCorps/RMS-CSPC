@@ -6,13 +6,17 @@ use Illuminate\Support\Facades\Log;
 use Spatie\PdfToImage\Pdf;
 use Symfony\Component\Process\Process;
 
+/**
+ * Render PDF pages to images for Register/Review compare and OCR prep.
+ *
+ * DEBUG MAP:
+ *   Blank compare pages               → renderer binary / temp output path
+ *   Used by                           → register-pdf-compare.js, review-pdf.js, RegisterScanService
+ */
 class PdfPageRenderer
 {
     /**
-     * Rasterize one PDF page to JPEG.
-     *
-     * Tries Ghostscript (jpeg + png), Poppler pdftoppm, then Imagick/Spatie.
-     * Scanned DRF uploads often fail on one backend but succeed on another.
+     * Saves data for save page.
      */
     public static function savePage(string $pdfPath, string $imagePath, int $page = 1, int $dpi = 150): void
     {
@@ -114,7 +118,9 @@ class PdfPageRenderer
         return null;
     }
 
-    /** Lightweight stack probe for deploy debugging without shell access. */
+    /**
+     * Helper used for stack diagnostics.
+     */
     public static function stackDiagnostics(): array
     {
         $gs = self::ghostscriptBinary();
@@ -131,6 +137,9 @@ class PdfPageRenderer
         ];
     }
 
+    /**
+     * Helper used for with ghostscript.
+     */
     private static function withGhostscript(
         string $pdfPath,
         string $imagePath,
@@ -200,6 +209,9 @@ class PdfPageRenderer
         );
     }
 
+    /**
+     * Helper used for with pdftoppm.
+     */
     private static function withPdftoppm(string $pdfPath, string $imagePath, int $page, int $dpi): void
     {
         $bin = self::pdftoppmBinary();
@@ -252,6 +264,9 @@ class PdfPageRenderer
         @unlink($found);
     }
 
+    /**
+     * Helper used for with imagick.
+     */
     private static function withImagick(string $pdfPath, string $imagePath, int $page): void
     {
         if (! class_exists(Pdf::class)) {
@@ -265,6 +280,9 @@ class PdfPageRenderer
         (new Pdf($pdfPath))->selectPage($page)->save($imagePath);
     }
 
+    /**
+     * Helper used for finalize raster.
+     */
     private static function finalizeRaster(string $tmpPath, string $imagePath, bool $fromPng): void
     {
         if (! $fromPng) {
@@ -314,6 +332,9 @@ class PdfPageRenderer
         @unlink($tmpPath);
     }
 
+    /**
+     * Tells whether is valid image — used for access and UI decisions.
+     */
     private static function isValidImage(string $imagePath): bool
     {
         if (! is_file($imagePath) || filesize($imagePath) < 128) {
@@ -331,6 +352,9 @@ class PdfPageRenderer
         return $w >= 8 && $h >= 8;
     }
 
+    /**
+     * Helper used for page count via pdfinfo.
+     */
     private static function pageCountViaPdfinfo(string $pdfPath): ?int
     {
         $bin = self::pdfinfoBinary();
@@ -356,22 +380,32 @@ class PdfPageRenderer
         return null;
     }
 
+    /**
+     * Helper used for ghostscript binary.
+     */
     private static function ghostscriptBinary(): ?string
     {
         return self::findBinary(['gs', '/usr/bin/gs', '/usr/local/bin/gs']);
     }
 
+    /**
+     * Helper used for pdftoppm binary.
+     */
     private static function pdftoppmBinary(): ?string
     {
         return self::findBinary(['pdftoppm', '/usr/bin/pdftoppm', '/usr/local/bin/pdftoppm']);
     }
 
+    /**
+     * Helper used for pdfinfo binary.
+     */
     private static function pdfinfoBinary(): ?string
     {
         return self::findBinary(['pdfinfo', '/usr/bin/pdfinfo', '/usr/local/bin/pdfinfo']);
     }
 
     /**
+     * Loads or finds data for find binary.
      * @param  list<string>  $candidates
      */
     private static function findBinary(array $candidates): ?string
@@ -392,6 +426,9 @@ class PdfPageRenderer
         return null;
     }
 
+    /**
+     * Helper used for short error.
+     */
     private static function shortError(string $message): string
     {
         $message = preg_replace('/\s+/', ' ', trim($message)) ?? trim($message);

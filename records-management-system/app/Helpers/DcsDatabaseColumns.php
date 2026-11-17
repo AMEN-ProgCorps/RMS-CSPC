@@ -6,6 +6,15 @@
 
 namespace App\Helpers;
 
+/**
+ * DCS Inventory / Database table column groups (colspan + which cells a row shows).
+ *
+ * UI: resources/views/pages/dcs/database/* + database.css
+ *
+ * DEBUG MAP:
+ *   Wrong colspan / missing cells     → GROUP_KEYS, BUILTIN_COUNTS, group column defs below
+ *   New column not appearing          → add to the group list used by database/_row.blade.php
+ */
 class DcsDatabaseColumns
 {
     /** @var list<string> */
@@ -42,6 +51,13 @@ class DcsDatabaseColumns
     ];
 
     /** @return array<string, bool> */
+    // =====================================================================
+    // SECTION: COLUMN GROUPS FOR INVENTORY TABLE
+    // =====================================================================
+
+    /**
+     * Helper used for default visible groups.
+     */
     public static function defaultVisibleGroups(): array
     {
         $visible = [];
@@ -53,6 +69,7 @@ class DcsDatabaseColumns
     }
 
     /**
+     * Parses or normalizes values used by normalize visible groups.
      * @param  mixed  $stored
      * @return array<string, bool>
      */
@@ -72,12 +89,17 @@ class DcsDatabaseColumns
         return $defaults;
     }
 
-    /** @return list<string> */
+    /**
+     * Helper used for placement keys.
+     */
     public static function placementKeys(): array
     {
         return array_merge(['main'], self::GROUP_KEYS);
     }
 
+    /**
+     * Tells whether is valid placement — used for access and UI decisions.
+     */
     public static function isValidPlacement(string $groupKey): bool
     {
         return in_array($groupKey, self::placementKeys(), true);

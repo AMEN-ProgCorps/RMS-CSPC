@@ -7,12 +7,15 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
+ * Syllabi / TOS monitoring rows for the Monitoring screen.
  *
- * DCS file: SyllabiMonitoringHelper in app/ so Composer autoloads it.
- * Syllabi and TOS monitoring rows for the Monitoring screen.
- * Do not move this class back under resources/views.
- * Public methods:
- * yearLevelsForContext, subtypeId, build, availableDeadlines, saveStatus.
+ * UI: pages/dcs/monitoring/syllabi-tos.blade.php
+ * LOCATION: app/Helpers — do not move under resources/views.
+ *
+ * DEBUG MAP:
+ *   Empty syllabi grid                → build(); subtypeId(); Schema syllabi tables
+ *   Wrong year-level / course buckets → YEAR_LEVELS, COURSE_TYPES, yearLevelsForContext
+ *   Remark/status not saving          → saveStatus, availableDeadlines, OVERALL_DEADLINE sentinel
  */
 class SyllabiMonitoringHelper
 {
@@ -46,6 +49,13 @@ class SyllabiMonitoringHelper
      *
      * @return list<string>
      */
+    // =====================================================================
+    // SECTION: SYLLABI / TOS MONITORING
+    // =====================================================================
+
+    /**
+     * Helper used for year levels for context.
+     */
     public static function yearLevelsForContext(?int $collegeId, ?int $semesterId, ?string $courseType = null): array
     {
         if (! $collegeId || ! $semesterId || ! Schema::hasColumn('dcs_program_courses', 'year_level')) {
@@ -72,6 +82,9 @@ class SyllabiMonitoringHelper
         return array_values($found);
     }
 
+    /**
+     * Helper used for subtype id.
+     */
     public static function subtypeId(string $needle): ?int
     {
         $needle = strtolower($needle);
@@ -92,6 +105,9 @@ class SyllabiMonitoringHelper
             })?->id;
     }
 
+    /**
+     * Builds the Syllabi/TOS monitoring grid for the Monitoring screen.
+     */
     public static function build(?int $collegeId, ?int $schoolYearId, ?int $semesterId, ?string $deadline, ?string $yearLevel = null, ?string $courseType = null): array
     {
         $empty = [
@@ -330,7 +346,6 @@ class SyllabiMonitoringHelper
 
     /**
      * Distinct masterlist deadlines from syllabi registrations for this college/year/semester.
-     *
      * @return list<string> Y-m-d dates
      */
     public static function availableDeadlines(int $collegeId, int $schoolYearId, int $semesterId, ?string $yearLevel = null, ?string $courseType = null): array
@@ -373,6 +388,9 @@ class SyllabiMonitoringHelper
             ->all();
     }
 
+    /**
+     * Loads or finds data for load submissions.
+     */
     private static function loadSubmissions(int $collegeId, int $schoolYearId, int $semesterId, ?string $deadline, ?string $yearLevel = null, ?string $courseType = null)
     {
         $query = DB::table('dcs_syllabi as s')
@@ -435,6 +453,9 @@ class SyllabiMonitoringHelper
         });
     }
 
+    /**
+     * Saves a monitoring remark/status for a syllabi/TOS row.
+     */
     public static function saveStatus(
         int $collegeId,
         int $schoolYearId,
@@ -502,7 +523,9 @@ class SyllabiMonitoringHelper
         );
     }
 
-    /** @return array<int, array<string, mixed>> */
+    /**
+     * Saves data for saved status map.
+     */
     private static function savedStatusMap(int $collegeId, int $schoolYearId, int $semesterId, string $deadline): array
     {
         if (! Schema::hasTable('dcs_syllabi_monitoring_status')) {
@@ -523,6 +546,9 @@ class SyllabiMonitoringHelper
         return $map;
     }
 
+    /**
+     * Helper used for suggest status.
+     */
     private static function suggestStatus(int $actual, int $target, $subs, ?string $deadline): string
     {
         if ($target > 0 && $actual < $target) {
@@ -551,6 +577,9 @@ class SyllabiMonitoringHelper
         return '';
     }
 
+    /**
+     * Helper used for course label.
+     */
     private static function courseLabel(object $course): string
     {
         $code = trim((string) ($course->course_code ?? ''));
@@ -565,6 +594,7 @@ class SyllabiMonitoringHelper
     }
 
     /**
+     * Helper used for lacking course labels.
      * @param \Illuminate\Support\Collection<int, object> $catalog
      * @param \Illuminate\Support\Collection<int, mixed> $submittedIds
      * @return list<string>
@@ -578,6 +608,9 @@ class SyllabiMonitoringHelper
             ->all();
     }
 
+    /**
+     * Helper used for pct.
+     */
     private static function pct(int $actual, int $target): ?float
     {
         if ($target <= 0) {
@@ -587,6 +620,9 @@ class SyllabiMonitoringHelper
         return round(($actual / $target) * 100, 1);
     }
 
+    /**
+     * Helper used for unique dates.
+     */
     private static function uniqueDates($subs, string $field): string
     {
         $dates = [];
@@ -612,6 +648,9 @@ class SyllabiMonitoringHelper
         return implode(', ', array_keys($dates));
     }
 
+    /**
+     * Helper used for unique text.
+     */
     private static function uniqueText($subs, string $field): string
     {
         $values = [];
@@ -625,6 +664,9 @@ class SyllabiMonitoringHelper
         return implode('; ', array_keys($values));
     }
 
+    /**
+     * Builds or formats data for format date.
+     */
     private static function formatDate(mixed $value): ?string
     {
         if ($value === null || $value === '') {
@@ -637,6 +679,9 @@ class SyllabiMonitoringHelper
         }
     }
 
+    /**
+     * Helper used for empty totals.
+     */
     private static function emptyTotals(): array
     {
         return [

@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (print-unlock-list.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/print-unlock-list.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Same print-ready poll for the lock icons on My DRF and My DCN.
 --}}
 <script>

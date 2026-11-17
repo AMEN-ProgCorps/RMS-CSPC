@@ -9,10 +9,15 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Shared report browser for Generate Report and Monitoring.
- * DCS file: InteractsWithDcsReport in app/View/Components/Dcs so Composer autoloads it.
- * The table markup is resources/views/pages/dcs/partials/report-browser.blade.php.
- * Monitoring and Generate Report both use this trait. Do not move it back into a Blade file.
+ * Shared Livewire report-browser state for Generate Report and Monitoring.
+ *
+ * Table markup: resources/views/pages/dcs/partials/report-browser.blade.php
+ * Data: ReportHelper::payload/data. Do not move this trait into a Blade file.
+ *
+ * DEBUG MAP:
+ *   Filters not affecting table       → $category/$period/$asOf props → ReportHelper
+ *   Export columns empty              → $exportColumns / exportOpen wiring
+ *   Cache stale after save            → Cache bump keys in trait methods
  */
 trait InteractsWithDcsReport
 {
@@ -45,6 +50,9 @@ trait InteractsWithDcsReport
     /** Masterlist ids for select-all. Kept separate so the row payload stays off the page. */
     public array $allMlIds = [];
 
+    /**
+     * Supports DCS maintainability for: mount.
+     */
     public function mount(): void
     {
         $this->asOf = now('Asia/Manila')->toDateString();
@@ -63,6 +71,9 @@ trait InteractsWithDcsReport
         }
     }
 
+    /**
+     * Supports DCS maintainability for: go preview page.
+     */
     public function goPreviewPage(int $page): void
     {
         $this->previewPage = max(1, $page);
@@ -71,7 +82,7 @@ trait InteractsWithDcsReport
     /**
      * On-screen tables show one page so a large report does not freeze the browser.
      * Export and print still use the full result.
-     *
+     * /
      * @param  list<array<string, mixed>>  $rows
      * @return array{rows: list<array<string, mixed>>, page: int, last: int, total: int, from: int}
      */
@@ -93,6 +104,9 @@ trait InteractsWithDcsReport
         ];
     }
 
+    /**
+     * Supports DCS maintainability for: with.
+     */
     public function with(): array
     {
         $filters = Cache::remember('dcs.report.filter-options.v1', 90, function () {
@@ -143,7 +157,9 @@ trait InteractsWithDcsReport
         ];
     }
 
-    /** Inclusive dates the report will include, based on Period + ending date. */
+    /**
+     * Supports DCS maintainability for: period window.
+     */
     public function periodWindow(): array
     {
         $asOf = $this->asOf !== '' ? $this->asOf : now('Asia/Manila')->toDateString();
@@ -192,6 +208,9 @@ trait InteractsWithDcsReport
         ];
     }
 
+    /**
+     * Supports DCS maintainability for: select sub.
+     */
     public function selectSub(string $sub): void
     {
         $this->exportColumns = [];
@@ -233,6 +252,9 @@ trait InteractsWithDcsReport
         $this->loadReport();
     }
 
+    /**
+     * Supports DCS maintainability for: select sub type.
+     */
     public function selectSubType(string $id): void
     {
         $parentId = RegisterQueryHelper::parentTypeIdMap()[$this->sub] ?? null;
@@ -247,23 +269,37 @@ trait InteractsWithDcsReport
         $this->loadReport();
     }
 
+    /**
+     * Supports DCS maintainability for: open filters.
+     */
     public function openFilters(): void
     {
         $this->columnsOpen = false;
         $this->filterOpen = true;
     }
 
+    /**
+     * Supports DCS maintainability for: close filters.
+     */
     public function closeFilters(): void
     {
         $this->filterOpen = false;
     }
 
+    /**
+     * Apply query/scope constraint: apply filters.
+     *
+     * DEBUG: wrong rows visible for office/user → check this scope.
+     */
     public function applyFilters(): void
     {
         $this->filterOpen = false;
         $this->loadReport();
     }
 
+    /**
+     * Updates existing data for updated.
+     */
     public function updated($name): void
     {
         if ($this->category === 'others' && in_array($name, ['originator', 'sourceUnit', 'revisionStatus', 'revNo', 'subTypeIds'], true)) {
@@ -271,12 +307,18 @@ trait InteractsWithDcsReport
         }
     }
 
+    /**
+     * Supports DCS maintainability for: toggle sort dir.
+     */
     public function toggleSortDir(): void
     {
         $this->sortDir = $this->sortDir === 'asc' ? 'desc' : 'asc';
         $this->loadReport();
     }
 
+    /**
+     * Supports DCS maintainability for: select all sub types.
+     */
     public function selectAllSubTypes(): void
     {
         if ($this->category === 'monitoring' && $this->sub !== '') {
@@ -287,11 +329,17 @@ trait InteractsWithDcsReport
         $this->selectSub($this->sub);
     }
 
+    /**
+     * Removes or clears data for clear sub types.
+     */
     public function clearSubTypes(): void
     {
         $this->selectAllSubTypes();
     }
 
+    /**
+     * Supports DCS maintainability for: reset filters.
+     */
     public function resetFilters(): void
     {
         $this->period = in_array($this->category, ['masterlist', 'monitoring', 'opcr'], true) ? 'all' : 'annually';
@@ -315,6 +363,9 @@ trait InteractsWithDcsReport
         $this->filterOpen = false;
     }
 
+    /**
+     * Loads or finds data for load report.
+     */
     public function loadReport(): void
     {
         $this->previewPage = 1;
@@ -358,7 +409,7 @@ trait InteractsWithDcsReport
 
     /**
      * Full report rows live in cache. The Livewire snapshot keeps columns and the visible page only.
-     *
+     * /
      * @return list<array<string, mixed>>
      */
     public function reportRows(): array
@@ -388,7 +439,11 @@ trait InteractsWithDcsReport
         return [];
     }
 
-    /** @param  list<array<string, mixed>>  $rows */
+    /**
+     * Saves data for store report rows.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     private function storeReportRows(array $rows): void
     {
         if ($this->reportCacheKey === '') {
@@ -397,6 +452,9 @@ trait InteractsWithDcsReport
         Cache::put($this->reportCacheKey, array_values($rows), now()->addMinutes(20));
     }
 
+    /**
+     * Updates existing data for update cached report row.
+     */
     private function updateCachedReportRow(int $requestId, callable $mutate): void
     {
         $rows = $this->reportRows();
@@ -410,11 +468,17 @@ trait InteractsWithDcsReport
         $this->storeReportRows($rows);
     }
 
+    /**
+     * Supports DCS maintainability for: open columns.
+     */
     public function openColumns(): void
     {
         $this->columnsOpen = true;
     }
 
+    /**
+     * Supports DCS maintainability for: open excel export.
+     */
     public function openExcelExport(): void
     {
         $this->filterOpen = false;
@@ -422,16 +486,25 @@ trait InteractsWithDcsReport
         $this->columnsOpen = true;
     }
 
+    /**
+     * Supports DCS maintainability for: close columns.
+     */
     public function closeColumns(): void
     {
         $this->columnsOpen = false;
     }
 
+    /**
+     * Supports DCS maintainability for: select all export columns.
+     */
     public function selectAllExportColumns(): void
     {
         $this->exportColumns = array_keys($this->result['columns'] ?? []);
     }
 
+    /**
+     * Saves data for sync export columns.
+     */
     public function syncExportColumns(): void
     {
         $keys = array_keys($this->result['columns'] ?? []);
@@ -449,6 +522,9 @@ trait InteractsWithDcsReport
         $this->exportColumns = $kept !== [] ? $kept : $keys;
     }
 
+    /**
+     * Supports DCS maintainability for: preview url.
+     */
     public function previewUrl(): string
     {
         return route('dcs.reports.export', array_merge($this->queryInput(), [
@@ -457,6 +533,9 @@ trait InteractsWithDcsReport
         ]));
     }
 
+    /**
+     * Saves data for save rating field.
+     */
     public function saveRatingField(int $requestId, string $field, $value = null): void
     {
         $allowed = ['rating_q', 'rating_e', 'rating_t', 'rating_a', 'remarks'];
@@ -491,6 +570,9 @@ trait InteractsWithDcsReport
         });
     }
 
+    /**
+     * Saves data for save monitoring remark.
+     */
     public function saveMonitoringRemark(int $requestId, $value = null): void
     {
         if ($requestId < 1) {
@@ -510,6 +592,9 @@ trait InteractsWithDcsReport
         });
     }
 
+    /**
+     * Saves data for save monitoring forwarded drr.
+     */
     public function saveMonitoringForwardedDrr(int $requestId, $value = null): void
     {
         if ($requestId < 1) {
@@ -527,6 +612,9 @@ trait InteractsWithDcsReport
         });
     }
 
+    /**
+     * Supports DCS maintainability for: toggle masterlist selection.
+     */
     public function toggleMasterlistSelection(array $ids): void
     {
         $ids = array_values(array_filter(array_map('strval', $ids), fn ($id) => $id !== '' && $id !== '0'));
@@ -537,6 +625,9 @@ trait InteractsWithDcsReport
             : array_values(array_unique(array_merge($current, $ids)));
     }
 
+    /**
+     * Supports DCS maintainability for: export url.
+     */
     public function exportUrl(string $format): string
     {
         $query = $this->queryInput(forExport: true);
@@ -555,6 +646,9 @@ trait InteractsWithDcsReport
         return route('dcs.reports.export', $query);
     }
 
+    /**
+     * Supports DCS maintainability for: query input.
+     */
     private function queryInput(bool $forExport = false): array
     {
         $input = [

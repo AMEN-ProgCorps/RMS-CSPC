@@ -12,46 +12,41 @@ use App\Services\DocumentStorageService;
 use App\Services\DcsNotificationService;
 
 /**
- * Register writes via DB::table(). Real PK is always `id`.
- * DCS file: RegisterPersistHelper in app/ so Composer autoloads it.
- * Writes a registration through DB::table(). Scans, notices, and the office-intake handoff happen here.
- * Do not move this class back under resources/views.
- * Public methods:
- * logAdminChange, appendOfficeContext, logDcsAccess, logDcsBlockedAccess, scanFileRules,
- * masterlistOriginalNameFromRequest, applyMasterlistOriginalName,
- * syncExistingMasterlistScanName, syncDrfTitleForRequest,
- * syncMasterlistScanNameAfterCommit, syncSavedScanNamesAfterCommit,
- * rejectInactiveOfficeIds, blankStringsToNull, syncedDocTitle, resolveRevisedFromDocNo,
- * resolveReviseNo, parseSyllabiFacultyNames, resolveOriginator, validateCheckedSections,
- * safeDraftLeaveRedirect, validateMasterlistHasData, masterlistDeadlineValue,
- * withRequiredMasterlistChecklist, parentDocTypeCode, buildScanBasename,
- * dccGroupKeyFromDocType, dccSourceUnitFromRequest, dccContextFromRequest,
- * formatScanDatePart, titleToScanSegment, storeDcsScanUpload, isKnownPublicScanPath,
- * dcsScanFields, existingOfficeIdSet, syllabiDraftContext, saveDistributionOffices,
- * allowedDistributeOfficeIdsForDrfIntake, isAutosaveRequest, draftErrorResponse,
- * normalizeDrfNo, drfNoTaken, rejectDuplicateDrfNo, draftAutosaveSuccessResponse, persist,
- * dcsDocType, isSyllabiLikeSubTypeRow, normalizeSyllabiYearLevel, typeBlocksRevision,
- * effectiveAllowsRevision, pendingIntakeIsOfficeDcnRevision, versionIdIsRevised,
- * versionIdIsRecur, revisedVersionTypeId, newVersionTypeId,
- * applyAllowsRevisionToMasterlistRow, findMatchingRegistrationRows,
- * mismatchErrorMessageFromRow, rejectDuplicateSyllabiContext,
- * validateSyllabiLikeRequestRows, findSyllabiContextDuplicate,
- * masterlistScanPathForRevision, resolveRevisionScannedCopyPath, saveDcnOfficesById,
- * saveOriginsFromOfficeIds, saveRelatedDocumentIds, insertRows,
- * saveSyllabiRowsFromRequest, syncRevisionStatusForMasterlist, markLatestMasterlist,
- * promoteLatestForDoc, obsoleteSelectedRevisionSources, findLatestMasterlistForRecur,
- * supersedeLatestForRecur, applyRecurRevisedFrom.
+ * Document Registration WRITES — inserts/updates controlled documents via DB::table().
+ *
+ * LOCATION: app/Helpers/RegisterPersistHelper.php (Composer-autoloaded). Do not move under resources/views.
+ * Primary entry: persist(Request) — called from Register Volt pages and office-intake beginRegister handoff.
+ * PK on DCS registration tables is always `id` (not legacy composite keys).
+ *
+ * FLOW:
+ *   validate + scan upload → insert request/masterlist/DRF|DCN/distribution rows →
+ *   syncRevisionStatus / promoteLatest → office-intake close/mark → notices + admin_logs.
+ *
+ * DEBUG MAP (symptom → start here):
+ *   Registration save fails / 422          → persist, validateMasterlistHasData, rejectDuplicate*
+ *   Scan missing / wrong path              → storeDcsScanUpload, dcsScanFields, sync*ScanName*
+ *   Originator blank after save            → syncMasterlistOriginators, resolveOriginator*
+ *   Revision / recur status wrong          → syncRevisionStatusForMasterlist, promoteLatest*, supersede*
+ *   Office intake not closed after register→ closePendingIntakeForRegistration (OfficeIntakeHelper) called from persist
+ *   Activity log missing Area/Side         → logAdminChange, appendOfficeContext, dcsActionArea
+ *   Duplicate DRF number                   → rejectDuplicateDrfNo, drfNoTaken
+ *   Syllabi context collision              → rejectDuplicateSyllabiContext, findSyllabiContextDuplicate
+ *
+ * Related: RegisterQueryHelper (reads), RegisterUpdateHelper (edit/delete), OfficeIntakeHelper (office forms).
 */
 class RegisterPersistHelper
 {
     public const SCAN_MAX_KB = 204800;
 
     /**
-     * Shared admin_logs entry with Document Control System as what_system reference.
-     * Same pattern as RDP/Admin Console activity logging.
+     * Writes one DCS activity line to admin_logs (with Area / Side / office).
      *
-     * Every DCS line is stamped with Area (Office Intake or DCS) and the actor's office.
+     * DEBUG: missing activity text or wrong Area/Side → appendOfficeContext + this method.
      */
+    // =====================================================================
+    // SECTION: AUDIT LOG — admin_logs Area/Side stamping for DCS actions
+    // =====================================================================
+    
     public static function logAdminChange(string $changes, bool $includeOffice = true): void
     {
         try {
@@ -85,7 +80,9 @@ class RegisterPersistHelper
         }
     }
 
-    /** True when the current request is under Office Intake pages. */
+    /**
+     * Tells whether the current page/route is under Office Intake.
+     */
     public static function isOfficeIntakeArea(?string $routeName = null, ?string $path = null): bool
     {
         $routeName = $routeName ?? request()?->route()?->getName();
@@ -97,8 +94,7 @@ class RegisterPersistHelper
     }
 
     /**
-     * Office-intake staff share /dcs dashboard with Admin DCS, but their whole
-     * surface is Office Intake (same blade, conditional content).
+     * Tells whether the signed-in user is office-intake staff (same /dcs shell as Admin DCS, but Office Intake content only).
      */
     public static function actorIsOfficeIntakeUser(): bool
     {
@@ -107,7 +103,7 @@ class RegisterPersistHelper
     }
 
     /**
-     * Page area for logs: Office Intake or DCS (everything else).
+     * Returns “Office Intake” or “DCS” for activity-log Area.
      */
     public static function dcsActionArea(?string $routeName = null, ?string $path = null, ?string $changes = null): string
     {
@@ -127,13 +123,17 @@ class RegisterPersistHelper
         return 'DCS';
     }
 
-    /** @deprecated Use dcsActionArea() — kept for callers that still ask for "side". */
+    /**
+     * Returns the actor Side label for activity logs (office / Admin DCS / Super Admin).
+     */
     public static function dcsActorSide(?string $routeName = null, ?string $path = null): string
     {
         return self::dcsActionArea($routeName, $path);
     }
 
-    /** Office code + name for the signed-in user (empty parts omitted). */
+    /**
+     * Returns the actor’s office name/code for activity logs.
+     */
     public static function dcsActorOfficeLabel(): string
     {
         $code = RegisterQueryHelper::currentOfficeCode();
@@ -152,8 +152,7 @@ class RegisterPersistHelper
     }
 
     /**
-     * Append Area + Office to a DCS log line.
-     * Format: "… — Area: Office Intake — Office: CCS (College of Computer Studies)"
+     * Adds Area, Side, and office labels onto an admin log message.
      */
     public static function appendOfficeContext(string $changes): string
     {
@@ -173,8 +172,7 @@ class RegisterPersistHelper
     }
 
     /**
-     * Parse Area / Side / Office suffixes from a log line.
-     * Area is only "Office Intake" or "DCS" (older Side values are normalized).
+     * Reads Area, Side, and Office labels out of a stored admin_logs.changes line.
      *
      * @return array{area: string|null, office: string|null, action: string, is_office_intake: bool}
      */
@@ -211,7 +209,9 @@ class RegisterPersistHelper
         ];
     }
 
-    /** Map stored labels to Office Intake vs DCS. */
+    /**
+     * Converts older Area labels (Admin DCS / Main DCS / Super Admin) into the current “DCS” / “Office Intake” values.
+     */
     public static function normalizeLogArea(?string $stored, string $action = ''): ?string
     {
         if ($stored === 'Office Intake' || self::inferIsOfficeIntakeAction($action)) {
@@ -230,6 +230,9 @@ class RegisterPersistHelper
         return null;
     }
 
+    /**
+     * Guesses whether an old activity-log action belongs to Office Intake when Area was not stored.
+     */
     public static function inferIsOfficeIntakeAction(string $action): bool
     {
         $lower = mb_strtolower($action);
@@ -247,16 +250,16 @@ class RegisterPersistHelper
             || str_contains($lower, 'denied admin dcs page (office intake');
     }
 
-    /** @deprecated Use inferIsOfficeIntakeAction / normalizeLogArea. */
+    /**
+     * Guesses the actor Side from an old activity-log action text.
+     */
     public static function inferSideFromAction(string $action): ?string
     {
         return self::inferIsOfficeIntakeAction($action) ? 'Office Intake' : 'DCS';
     }
 
     /**
-     * Log DCS page visits promptly.
-     * Short per-route cooldown (not once-per-session) so Activity Logs feel live
-     * when users move between Office Intake / DCS pages.
+     * Logs a successful DCS page access for audit.
      */
     public static function logDcsAccess(Request $request): void
     {
@@ -282,7 +285,9 @@ class RegisterPersistHelper
         self::logAdminChange($label . $details);
     }
 
-    /** Log denied full-DCS or allowlist access attempts (once per session per path). */
+    /**
+     * Logs a blocked DCS access attempt (403 / allowlist / module deny).
+     */
     public static function logDcsBlockedAccess(Request $request, string $reason): void
     {
         try {
@@ -337,6 +342,11 @@ class RegisterPersistHelper
         }
     }
 
+    /**
+     * Tells whether should log dcs page visit — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     private static function shouldLogDcsPageVisit(Request $request): bool
     {
         if (! $request->isMethod('GET') && ! $request->isMethod('HEAD')) {
@@ -357,6 +367,9 @@ class RegisterPersistHelper
         return true;
     }
 
+    /**
+     * Helper used for dcs page action label.
+     */
     private static function dcsPageActionLabel(?string $routeName): ?string
     {
         if (in_array($routeName, ['dcs', 'dcs.dashboard'], true)) {
@@ -400,6 +413,9 @@ class RegisterPersistHelper
         };
     }
 
+    /**
+     * Helper used for dcs page action details.
+     */
     private static function dcsPageActionDetails(Request $request, ?string $routeName): string
     {
         $details = '';
@@ -432,6 +448,13 @@ class RegisterPersistHelper
         return $details;
     }
 
+    // =====================================================================
+    // SECTION: SCAN UPLOAD HELPERS — validation rules, naming, storage paths
+    // =====================================================================
+    
+    /**
+     * Returns Laravel validation rules for DCS scan PDF uploads.
+     */
     public static function scanFileRules(): array
     {
         $rule = ['nullable', 'file', 'max:'.self::SCAN_MAX_KB, function (string $attribute, mixed $value, \Closure $fail): void {
@@ -454,7 +477,9 @@ class RegisterPersistHelper
         ];
     }
 
-    /** Original client filename for the masterlist scan (when column exists). */
+    /**
+     * Helper used for masterlist original name from request.
+     */
     public static function masterlistOriginalNameFromRequest(Request $request): ?string
     {
         $convention = self::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate'));
@@ -462,6 +487,11 @@ class RegisterPersistHelper
         return DocumentStorageService::sanitizeDcsScanBasename($convention) . '.pdf';
     }
 
+    /**
+     * Applies a query filter/scope: apply masterlist original name.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     public static function applyMasterlistOriginalName(array &$row, Request $request, bool $onlyIfUploaded = true): void
     {
         if (!Schema::hasColumn('dcs_masterlist_registration', 'scanned_masterlist_original_name')) {
@@ -479,6 +509,8 @@ class RegisterPersistHelper
     /**
      * When title/date/rev change on update without a new upload, rename the stored scan
      * and refresh the display name to match the convention.
+     *
+     * DEBUG: missing/wrong scan path → check upload/naming here.
      */
     public static function syncExistingMasterlistScanName(Request $request, ?string $existingPath): array
     {
@@ -510,7 +542,11 @@ class RegisterPersistHelper
         return $result;
     }
 
-    /** Keep DRF title aligned with the masterlist / shared document title. */
+    /**
+     * Saves data for sync drf title for request.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     public static function syncDrfTitleForRequest(int $requestId, ?string $title): void
     {
         $title = trim((string) $title);
@@ -531,6 +567,8 @@ class RegisterPersistHelper
     /**
      * Rename masterlist scan after the registration transaction committed
      * (file moves are not transactional — avoid orphaning the PDF on rollback).
+     *
+     * DEBUG: missing/wrong scan path → check upload/naming here.
      */
     public static function syncMasterlistScanNameAfterCommit(Request $request, int $requestId): void
     {
@@ -564,6 +602,8 @@ class RegisterPersistHelper
     /**
      * After the registration is saved, rename every stored scan to the naming convention.
      * The name comes from the saved document, not from the file that was uploaded.
+     *
+     * DEBUG: missing/wrong scan path → check upload/naming here.
      */
     public static function syncSavedScanNamesAfterCommit(Request $request, int $requestId): void
     {
@@ -574,6 +614,9 @@ class RegisterPersistHelper
         self::renameStoredScan($request, $requestId, 'dcs_document_distribution', 'scanned_distribution', 'D&R', $distributionDate);
     }
 
+    /**
+     * Helper used for rename stored scan.
+     */
     private static function renameStoredScan(Request $request, int $requestId, string $table, string $column, string $token, mixed $date): void
     {
         if ($requestId < 1 || ! Schema::hasTable($table) || ! Schema::hasColumn($table, $column)) {
@@ -597,6 +640,15 @@ class RegisterPersistHelper
         DB::table($table)->where('id', $row->id)->update($payload);
     }
 
+    // =====================================================================
+    // SECTION: REQUEST NORMALIZATION — blank→null, inactive offices, titles
+    // =====================================================================
+    
+    /**
+     * Validates request input for reject inactive office ids.
+     *
+     * DEBUG: unexpected validation error/pass → check here.
+     */
     public static function rejectInactiveOfficeIds(Request $request): ?RedirectResponse
     {
         $ids = [];
@@ -629,6 +681,9 @@ class RegisterPersistHelper
         );
     }
 
+    /**
+     * Converts empty request strings to null before validation and save.
+     */
     public static function blankStringsToNull(Request $request): void
     {
         $multiline = [
@@ -651,7 +706,9 @@ class RegisterPersistHelper
         }
     }
 
-    /** Strip HTML/scripts from DCS form text; keep document numbers and punctuation. */
+    /**
+     * Helper used for sanitize incoming value.
+     */
     private static function sanitizeIncomingValue(mixed $value, string $key, array $multiline): mixed
     {
         if (is_array($value)) {
@@ -685,6 +742,9 @@ class RegisterPersistHelper
         return $value === '' ? null : $value;
     }
 
+    /**
+     * Returns the document title used consistently across DRF/DCN/masterlist on this request.
+     */
     public static function syncedDocTitle(Request $request): ?string
     {
         // Masterlist / syllabi title is the controlled-document source of truth.
@@ -703,9 +763,7 @@ class RegisterPersistHelper
     }
 
     /**
-     * Resolve lineage prior doc no for a revised registration.
-     * Prefer the form's revised_from when renumbering; otherwise inherit from
-     * any existing row of the new doc no so unlimited same-number revises keep the chain.
+     * Finds the document number this registration revises (revised_from).
      */
     public static function resolveRevisedFromDocNo(
         Request $request,
@@ -758,7 +816,7 @@ class RegisterPersistHelper
     }
 
     /**
-     * Revision number for masterlist: empty/null → 0; otherwise the entered integer (>= 0).
+     * Computes the next revision number for this document family.
      */
     public static function resolveReviseNo(Request $request, mixed $fallback = null): int
     {
@@ -784,6 +842,13 @@ class RegisterPersistHelper
      * such as "Bien Paolo Monsalve, MNE".
      *
      * @return list<string>
+     */
+    // =====================================================================
+    // SECTION: ORIGINATORS & SYLLABI PARSE — name lists ↔ account / junction rows
+    // =====================================================================
+    
+    /**
+     * Parses or normalizes values used by parse syllabi faculty names.
      */
     public static function parseSyllabiFacultyNames(?string $raw): array
     {
@@ -839,6 +904,7 @@ class RegisterPersistHelper
     }
 
     /**
+     * Parses or normalizes values used by parse originator name list.
      * @return list<string>
      */
     public static function parseOriginatorNameList(mixed $rawName): array
@@ -857,15 +923,16 @@ class RegisterPersistHelper
         return $names;
     }
 
-    /** Join originator chips or a comma-typed string into one stored value. */
+    /**
+     * Helper used for joined originator names.
+     */
     public static function joinedOriginatorNames(mixed $rawName): string
     {
         return implode(', ', self::parseOriginatorNameList($rawName));
     }
 
     /**
-     * Find-or-create each atomic originator name.
-     *
+     * Parses or normalizes values used by resolve originator ids.
      * @return array{ids: list<int>, names: list<string>, joined: string}
      */
     public static function resolveOriginatorIds(mixed $rawName): array
@@ -892,7 +959,11 @@ class RegisterPersistHelper
         return ['ids' => $ids, 'names' => $canonical, 'joined' => implode(', ', $canonical)];
     }
 
-    /** Replace junction rows and return the joined display string. */
+    /**
+     * Saves originator links for a masterlist row after register/edit.
+     *
+     * DEBUG: originator blank after register → this sync + resolveOriginatorIds.
+     */
     public static function syncMasterlistOriginators(int $masterlistId, mixed $rawName): string
     {
         $resolved = self::resolveOriginatorIds($rawName);
@@ -912,7 +983,11 @@ class RegisterPersistHelper
         return $resolved['joined'];
     }
 
-    /** Replace keyword rows and return the joined display string. */
+    /**
+     * Saves data for sync masterlist keywords.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     public static function syncMasterlistKeywords(int $masterlistId, mixed $raw): string
     {
         $parts = is_array($raw) ? $raw : [$raw];
@@ -947,6 +1022,9 @@ class RegisterPersistHelper
     }
 
     /**
+     * Loads or finds data for find or create originator row.
+     *
+     * DEBUG: blank/missing originator or Undefined property → check here.
      * @return array{id: int, name: string}|null
      */
     private static function findOrCreateOriginatorRow(string $name): ?array
@@ -984,6 +1062,7 @@ class RegisterPersistHelper
     }
 
     /**
+     * Helper used for originator seed from stored.
      * @return list<array{type: string, id: mixed, label: string}>
      */
     public static function originatorSeedFromStored(mixed $rawName, mixed $originatorId = null): array
@@ -1008,7 +1087,6 @@ class RegisterPersistHelper
 
     /**
      * Prefer junction rows (atomic originator ids) when seeding the register chips.
-     *
      * @return list<array{type: string, id: mixed, label: string}>
      */
     public static function originatorSeedFromMasterlist(int $masterlistId, mixed $rawName = null, mixed $originatorId = null): array
@@ -1033,8 +1111,7 @@ class RegisterPersistHelper
     }
 
     /**
-     * Resolve masterlist originator for analytics: find-or-create in dcs_originators.
-     * Returns ['originator_id' => int|null, 'originator_name' => string|null].
+     * Resolves a typed originator name into an id and display name.
      */
     public static function resolveOriginator(mixed $rawName): array
     {
@@ -1049,6 +1126,15 @@ class RegisterPersistHelper
         ];
     }
 
+    // =====================================================================
+    // SECTION: PRE-PERSIST VALIDATION — checklist, drafts, deadlines
+    // =====================================================================
+    
+    /**
+     * Validates request input for validate checked sections.
+     *
+     * DEBUG: unexpected validation error/pass → check here.
+     */
     public static function validateCheckedSections(Request $request): ?RedirectResponse
     {
         $checked = self::withRequiredMasterlistChecklist(
@@ -1066,7 +1152,9 @@ class RegisterPersistHelper
         return null;
     }
 
-    /** Allow only same-app relative paths after draft leave autosave. */
+    /**
+     * Helper used for safe draft leave redirect.
+     */
     public static function safeDraftLeaveRedirect(mixed $raw): ?string
     {
         $path = trim((string) $raw);
@@ -1081,8 +1169,7 @@ class RegisterPersistHelper
     }
 
     /**
-     * Masterlist must contain some substance (always on). Drafts cannot be empty shells
-     * or Document No alone — drafts need at least one other filled masterlist field.
+     * Ensures required masterlist fields (and scan when needed) are present before final save.
      */
     public static function validateMasterlistHasData(Request $request, bool $requireScan = false): RedirectResponse|\Illuminate\Http\JsonResponse|null
     {
@@ -1159,6 +1246,9 @@ class RegisterPersistHelper
         return null;
     }
 
+    /**
+     * Helper used for masterlist deadline value.
+     */
     public static function masterlistDeadlineValue(Request $request): ?string
     {
         if ($request->boolean('deadlineNotApplicable')) {
@@ -1170,7 +1260,9 @@ class RegisterPersistHelper
         return $deadline !== '' ? $deadline : null;
     }
 
-    /** Ensure checklist id 3 (Masterlist) is always included. */
+    /**
+     * Helper used for with required masterlist checklist.
+     */
     public static function withRequiredMasterlistChecklist(array $checked): array
     {
         $checked = array_values(array_unique(array_map('intval', $checked)));
@@ -1219,6 +1311,15 @@ class RegisterPersistHelper
      * {Y-m-d}_{FORM}_{DOCTYPE}_{Document_Title}_Rev{N}
      * FORM: DRF | DOC | D&R | DCN | DRR
      */
+    // =====================================================================
+    // SECTION: DCC SCAN CONTEXT — basename / source unit for stored PDFs
+    // =====================================================================
+    
+    /**
+     * Builds or formats data for build scan basename.
+     *
+     * DEBUG: missing/wrong scan path → check upload/naming here.
+     */
     public static function buildScanBasename(Request $request, string $formToken, ?string $date): string
     {
         $datePart = self::formatScanDatePart($date);
@@ -1237,12 +1338,17 @@ class RegisterPersistHelper
         return "{$datePart}_{$formToken}_{$typeCode}_{$titlePart}_Rev{$rev}";
     }
 
+    /**
+     * Helper used for dcc group key from doc type.
+     */
     public static function dccGroupKeyFromDocType(mixed $docTypeId): string
     {
         return DocumentStorageService::dccGroupKeyFromDocTypeId($docTypeId);
     }
 
-    /** @return array{cluster: string, office_name: string} */
+    /**
+     * Helper used for dcc source unit from request.
+     */
     public static function dccSourceUnitFromRequest(Request $request): array
     {
         $ids = array_values(array_filter(array_map('intval', array_merge(
@@ -1255,6 +1361,7 @@ class RegisterPersistHelper
     }
 
     /**
+     * Helper used for dcc context from request.
      * @return array<string, mixed>
      */
     public static function dccContextFromRequest(Request $request, string $category, bool $latest = true): array
@@ -1276,6 +1383,11 @@ class RegisterPersistHelper
         ];
     }
 
+    /**
+     * Builds or formats data for format scan date part.
+     *
+     * DEBUG: missing/wrong scan path → check upload/naming here.
+     */
     public static function formatScanDatePart(?string $date): string
     {
         $date = trim((string) $date);
@@ -1289,6 +1401,9 @@ class RegisterPersistHelper
         }
     }
 
+    /**
+     * Helper used for title to scan segment.
+     */
     public static function titleToScanSegment(string $title): string
     {
         $title = trim(preg_replace('/\s+/u', '_', $title) ?? '');
@@ -1299,6 +1414,11 @@ class RegisterPersistHelper
         return $title !== '' ? $title : 'Untitled';
     }
 
+    /**
+     * Stores an uploaded DCS scan PDF and returns the saved path.
+     *
+     * DEBUG: scan missing after save → DocumentStorageService + this method.
+     */
     public static function storeDcsScanUpload($file, array &$uploadedFiles, string $category, ?string $conventionBase = null, array $dccContext = []): string
     {
         $original = null;
@@ -1318,6 +1438,11 @@ class RegisterPersistHelper
         return $path;
     }
 
+    /**
+     * Tells whether is known public scan path — used for access and UI decisions.
+     *
+     * DEBUG: missing/wrong scan path → check upload/naming here.
+     */
     public static function isKnownPublicScanPath(string $path, array $extraAllowed = []): bool
     {
         $path = ltrim(str_replace(['../', '..\\'], '', $path), '/');
@@ -1331,12 +1456,16 @@ class RegisterPersistHelper
         return DocumentStorageService::dcsScanExists($path);
     }
 
+    /**
+     * Helper used for dcs scan fields.
+     */
     public static function dcsScanFields(string $table, string $pathColumn, ?string $path): array
     {
         return DocumentStorageService::dcsScanFields($table, $pathColumn, $path);
     }
 
     /**
+     * Helper used for existing office id set.
      * @param  list<int|string>  $ids
      * @return array<int, int> office id => office id, for isset() checks
      */
@@ -1361,6 +1490,7 @@ class RegisterPersistHelper
     }
 
     /**
+     * Helper used for syllabi draft context.
      * @return array{college_id: int, program_id: int, semester_id: int, school_year_id: int, course_type: string}
      */
     public static function syllabiDraftContext(Request $request): array
@@ -1374,6 +1504,15 @@ class RegisterPersistHelper
         ];
     }
 
+    // =====================================================================
+    // SECTION: DISTRIBUTION & DRAFT AUTOSAVE HELPERS
+    // =====================================================================
+    
+    /**
+     * Saves data for save distribution offices.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     public static function saveDistributionOffices(int $distributionId, Request $request): void
     {
         $officeIds = array_values(array_filter(array_map('intval', (array) $request->input('distOffice', []))));
@@ -1433,7 +1572,6 @@ class RegisterPersistHelper
 
     /**
      * Office IDs the DRF submitter selected for distribution (empty = no lock / unknown).
-     *
      * @return list<int>
      */
     public static function allowedDistributeOfficeIdsForDrfIntake(int $drfId): array
@@ -1446,6 +1584,11 @@ class RegisterPersistHelper
         return OfficeIntakeHelper::distributeOfficeIds($drfId);
     }
 
+    /**
+     * Tells whether this request is a draft autosave (JSON-friendly errors).
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function isAutosaveRequest(Request $request): bool
     {
         return $request->boolean('autosave')
@@ -1453,6 +1596,7 @@ class RegisterPersistHelper
     }
 
     /**
+     * Returns a JSON or redirect error response for draft/autosave flows.
      * @return \Illuminate\Http\JsonResponse|\Illuminate\Http\RedirectResponse
      */
     public static function draftErrorResponse(Request $request, string $message, int $status = 422)
@@ -1468,11 +1612,17 @@ class RegisterPersistHelper
         return back()->withInput()->with('error', $message);
     }
 
+    /**
+     * Parses or normalizes values used by normalize drf no.
+     */
     public static function normalizeDrfNo(mixed $raw): string
     {
         return trim((string) $raw);
     }
 
+    /**
+     * Helper used for drf no taken.
+     */
     public static function drfNoTaken(string $drfNo, int $excludeRequestId = 0): bool
     {
         $drfNo = self::normalizeDrfNo($drfNo);
@@ -1491,6 +1641,11 @@ class RegisterPersistHelper
         return $query->exists();
     }
 
+    /**
+     * Blocks saving when the DRF number is already used by another request.
+     *
+     * DEBUG: duplicate DRF No. errors → drfNoTaken + this method.
+     */
     public static function rejectDuplicateDrfNo(Request $request, int $excludeRequestId = 0): RedirectResponse|\Illuminate\Http\JsonResponse|null
     {
         $drfNo = self::normalizeDrfNo($request->input('drfNo'));
@@ -1505,6 +1660,7 @@ class RegisterPersistHelper
     }
 
     /**
+     * Returns the success JSON after a draft autosave.
      * @return \Illuminate\Http\JsonResponse
      */
     public static function draftAutosaveSuccessResponse(int $requestId, string $message = '')
@@ -1523,6 +1679,15 @@ class RegisterPersistHelper
         ]);
     }
 
+    // =====================================================================
+    // SECTION: MAIN WRITE — persist() creates the full registration graph
+    // =====================================================================
+    
+    /**
+     * Creates a full Document Registration (or draft): validates, saves scans, writes all related rows, and finishes office-intake handoff.
+     *
+     * DEBUG: registration save fails / wrong DB rows → step through persist() first.
+     */
     public static function persist(Request $request): RedirectResponse|\Illuminate\Http\JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('register');
@@ -2447,6 +2612,13 @@ class RegisterPersistHelper
         }
     }
 
+    // =====================================================================
+    // SECTION: DOC-TYPE / REVISION RULES — allows_revision, revised vs recur version ids
+    // =====================================================================
+    
+    /**
+     * Helper used for dcs doc type.
+     */
     public static function dcsDocType(mixed $id): ?object
     {
         if (!$id) {
@@ -2456,6 +2628,11 @@ class RegisterPersistHelper
         return DB::table('dcs_doc_types')->where('id', (int) $id)->first();
     }
 
+    /**
+     * Tells whether is syllabi like sub type row — used for access and UI decisions.
+     *
+     * DEBUG: unexpected allow/deny → check this predicate.
+     */
     public static function isSyllabiLikeSubTypeRow(?object $subType): bool
     {
         if (!$subType) {
@@ -2465,6 +2642,9 @@ class RegisterPersistHelper
         return RegisterQueryHelper::isSyllabiLikeName($subType->doc_type_name ?? null);
     }
 
+    /**
+     * Parses or normalizes values used by normalize syllabi year level.
+     */
     public static function normalizeSyllabiYearLevel(mixed $year): ?string
     {
         $year = trim((string) $year);
@@ -2475,12 +2655,17 @@ class RegisterPersistHelper
         return $year;
     }
 
-    /** True when the effective type/subtype does not allow Revised / DCN. */
+    /**
+     * Helper used for type blocks revision.
+     */
     public static function typeBlocksRevision(?object $typeRow): bool
     {
         return ! RegisterQueryHelper::typeAllowsRevision($typeRow);
     }
 
+    /**
+     * Helper used for effective allows revision.
+     */
     public static function effectiveAllowsRevision(mixed $docTypeId, mixed $subTypeId = null): bool
     {
         return RegisterQueryHelper::effectiveTypeAllowsRevision($docTypeId, $subTypeId);
@@ -2510,6 +2695,9 @@ class RegisterPersistHelper
         return false;
     }
 
+    /**
+     * Helper used for version id is revised.
+     */
     public static function versionIdIsRevised(int $versionId): bool
     {
         if ($versionId < 1) {
@@ -2520,6 +2708,9 @@ class RegisterPersistHelper
         return str_contains($name, 'revis');
     }
 
+    /**
+     * Helper used for version id is recur.
+     */
     public static function versionIdIsRecur(int $versionId): bool
     {
         if ($versionId < 1) {
@@ -2530,6 +2721,9 @@ class RegisterPersistHelper
         return str_contains($name, 'recur');
     }
 
+    /**
+     * Helper used for revised version type id.
+     */
     public static function revisedVersionTypeId(): ?int
     {
         static $id = null;
@@ -2545,6 +2739,9 @@ class RegisterPersistHelper
         return $id > 0 ? $id : null;
     }
 
+    /**
+     * Helper used for new version type id.
+     */
     public static function newVersionTypeId(): ?int
     {
         static $id = null;
@@ -2561,11 +2758,23 @@ class RegisterPersistHelper
         return $id > 0 ? $id : null;
     }
 
+    /**
+     * Applies a query filter/scope: apply allows revision to masterlist row.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     public static function applyAllowsRevisionToMasterlistRow(array &$row, bool $allowsRevision): void
     {
         // Legacy masterlist.allows_revision column was removed; no denormalized flag to store.
     }
 
+    // =====================================================================
+    // SECTION: DUPLICATE / MATCH LOOKUPS before insert
+    // =====================================================================
+    
+    /**
+     * Loads or finds data for find matching registration rows.
+     */
     public static function findMatchingRegistrationRows(string $docNo, int $docTypeId, ?int $subTypeId, bool $anySubType = false): array
     {
         $allMl = DB::table('dcs_masterlist_registration')->where('doc_no', $docNo)->get();
@@ -2647,6 +2856,9 @@ class RegisterPersistHelper
         ];
     }
 
+    /**
+     * Helper used for mismatch error message from row.
+     */
     public static function mismatchErrorMessageFromRow(string $docNo, array $result): string
     {
         $existingDr = $result['existing_dr'];
@@ -2670,6 +2882,7 @@ class RegisterPersistHelper
      * Block a second Syllabi/TOS pack for the same college + program + semester
      * + school year + course type, even when course rows were cleared.
      *
+     * DEBUG: duplicate blocked or slipped through → check here.
      * @return \Illuminate\Http\RedirectResponse|\Illuminate\Http\JsonResponse|null
      */
     public static function rejectDuplicateSyllabiContext(Request $request, ?int $exceptRequestId = null)
@@ -2716,6 +2929,11 @@ class RegisterPersistHelper
         );
     }
 
+    /**
+     * Validates request input for validate syllabi like request rows.
+     *
+     * DEBUG: unexpected validation error/pass → check here.
+     */
     public static function validateSyllabiLikeRequestRows(Request $request, ?int $exceptRequestId = null): ?RedirectResponse
     {
         $subType = self::dcsDocType($request->sub_type_id);
@@ -2889,6 +3107,8 @@ class RegisterPersistHelper
      * Syllabi / TOS-like registrations are once per college + program + semester
      * + school year + course type (+ document sub-type). Year levels live on
      * the course rows inside that one pack.
+     *
+     * DEBUG: duplicate blocked or slipped through → check here.
      */
     public static function findSyllabiContextDuplicate(
         int $collegeId,
@@ -2950,6 +3170,8 @@ class RegisterPersistHelper
      * Prior masterlist scanned copy for a DCN "Documents for Revision" row
      * (matched by document no. + revise_no). Used when dcs_doc_revision.scanned_copy
      * was never stored — the Database tip/obsolete rows still have scanned_masterlist.
+     *
+     * DEBUG: missing/wrong scan path → check upload/naming here.
      */
     public static function masterlistScanPathForRevision(
         string $docNo,
@@ -3002,6 +3224,9 @@ class RegisterPersistHelper
         return DocumentStorageService::dcsScanExists($path) ? $path : null;
     }
 
+    /**
+     * Parses or normalizes values used by resolve revision scanned copy path.
+     */
     public static function resolveRevisionScannedCopyPath(Request $request, int $i, array &$uploadedFiles, array $allowedPaths = []): ?string
     {
         if ($request->hasFile('scannedCopy') && isset($request->file('scannedCopy')[$i])) {
@@ -3051,6 +3276,15 @@ class RegisterPersistHelper
         return $source;
     }
 
+    // =====================================================================
+    // SECTION: CHILD ROW WRITERS — offices, origins, related docs, syllabi rows
+    // =====================================================================
+    
+    /**
+     * Saves data for save dcn offices by id.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     public static function saveDcnOfficesById(int $dcnId, array $officeIds): void
     {
         DB::table('dcs_dcn_offices')->where('dcn_id', $dcnId)->delete();
@@ -3074,6 +3308,11 @@ class RegisterPersistHelper
         self::insertRows('dcs_dcn_offices', $rows);
     }
 
+    /**
+     * Saves data for save origins from office ids.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     public static function saveOriginsFromOfficeIds(int $masterlistId, array $officeIds): void
     {
         $now = now();
@@ -3096,6 +3335,11 @@ class RegisterPersistHelper
         self::insertRows('dcs_masterlist_source_offices', $rows);
     }
 
+    /**
+     * Saves data for save related document ids.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     public static function saveRelatedDocumentIds(int $masterlistId, array $relatedIds): void
     {
         $now = now();
@@ -3137,7 +3381,11 @@ class RegisterPersistHelper
             ->update(['stack_group' => null, 'updated_at' => now()]);
     }
 
-    /** @param  list<array<string, mixed>>  $rows */
+    /**
+     * Saves data for insert rows.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     public static function insertRows(string $table, array $rows): void
     {
         if ($rows === []) {
@@ -3165,6 +3413,9 @@ class RegisterPersistHelper
         }
     }
 
+    /**
+     * Helper used for settings has syllabi courses.
+     */
     private static function settingsHasSyllabiCourses(Request $request): bool
     {
         if (! Schema::hasTable('dcs_program_courses') || empty($request->program_id) || empty($request->semester_id)) {
@@ -3186,6 +3437,9 @@ class RegisterPersistHelper
         return $query->exists();
     }
 
+    /**
+     * Helper used for settings course for syllabi row.
+     */
     private static function settingsCourseForSyllabiRow(Request $request, string $courseName, ?string $yearLevel): ?object
     {
         $courseName = trim($courseName);
@@ -3220,6 +3474,11 @@ class RegisterPersistHelper
             ?: $build(null, false);
     }
 
+    /**
+     * Saves data for save syllabi rows from request.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     public static function saveSyllabiRowsFromRequest(
         int $requestId,
         Request $request,
@@ -3370,6 +3629,9 @@ class RegisterPersistHelper
         }
     }
 
+    /**
+     * Helper used for program course code taken.
+     */
     private static function programCourseCodeTaken(
         int $programId,
         int $semesterId,
@@ -3395,6 +3657,11 @@ class RegisterPersistHelper
         return $query->exists();
     }
 
+    /**
+     * Saves data for store optional uploaded file.
+     *
+     * DEBUG: missing/wrong scan path → check upload/naming here.
+     */
     private static function storeOptionalUploadedFile(
         Request $request,
         string $inputName,
@@ -3429,6 +3696,15 @@ class RegisterPersistHelper
         );
     }
 
+    // =====================================================================
+    // SECTION: REVISION STATUS — mark latest / obsolete / supersede for recur
+    // =====================================================================
+    
+    /**
+     * Saves data for sync revision status for masterlist.
+     *
+     * DEBUG: save failures / wrong DB rows → step through this write path.
+     */
     public static function syncRevisionStatusForMasterlist(int $masterlistId): void
     {
         if (! RegisterQueryHelper::supportsRevisionStatus()) {
@@ -3460,12 +3736,18 @@ class RegisterPersistHelper
         );
     }
 
+    /**
+     * Helper used for mark latest masterlist.
+     */
     public static function markLatestMasterlist(string $docNo, int $docTypeId, ?int $subTypeId, int $latestMasterlistId): void
     {
         // Tip is always max revise_no in the renumber family (explicit id is ignored).
         self::promoteLatestForDoc($docNo, $docTypeId, $subTypeId);
     }
 
+    /**
+     * Helper used for promote latest for doc.
+     */
     public static function promoteLatestForDoc(string $docNo, int $docTypeId, ?int $subTypeId): void
     {
         if (! RegisterQueryHelper::supportsRevisionStatus()) {
@@ -3620,6 +3902,9 @@ class RegisterPersistHelper
     }
 
 
+    /**
+     * Helper used for obsolete selected revision sources.
+     */
     public static function obsoleteSelectedRevisionSources(Request $request, int $newRequestId, string $newDocNo): void
     {
         if (! RegisterQueryHelper::supportsRevisionStatus()) {
@@ -3720,8 +4005,7 @@ class RegisterPersistHelper
     }
 
     /**
-     * The current latest registration Recur will continue.
-     * Accepts a latest whose version type is New or Revise.
+     * Loads or finds data for find latest masterlist for recur.
      */
     public static function findLatestMasterlistForRecur(Request $request, int $exceptMasterlistId = 0): ?object
     {
@@ -3770,7 +4054,9 @@ class RegisterPersistHelper
         return $row ?: null;
     }
 
-    /** Mark the selected latest superseded before the new Recur row is inserted as latest. */
+    /**
+     * Helper used for supersede latest for recur.
+     */
     public static function supersedeLatestForRecur(Request $request, int $exceptMasterlistId = 0): void
     {
         if (! RegisterQueryHelper::supportsRevisionStatus()) {
@@ -3804,6 +4090,8 @@ class RegisterPersistHelper
     /**
      * Older obsolete or superseded copies of this same document join its stack.
      * Another latest that only shares the document number is left alone.
+     *
+     * DEBUG: blank/missing fields on list/show → check this hydrator.
      */
     private static function attachEmptyStackPredecessors(int $masterlistId, string $stackGroup): void
     {
@@ -3848,6 +4136,11 @@ class RegisterPersistHelper
             ->update(['stack_group' => $stackGroup, 'updated_at' => now()]);
     }
 
+    /**
+     * Applies a query filter/scope: apply recur revised from.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     public static function applyRecurRevisedFrom(array &$row, Request $request, string $mode): void
     {
         if ($mode !== 'recurring') {
@@ -3870,6 +4163,11 @@ class RegisterPersistHelper
         }
     }
 
+    /**
+     * Applies a query filter/scope: apply related stack group.
+     *
+     * DEBUG: wrong rows visible → check this scope/filter.
+     */
     private static function applyRelatedStackGroup(array &$row, Request $request): void
     {
         // Stacking two Latest copies of the same number is no longer offered.

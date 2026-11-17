@@ -1,3 +1,9 @@
+/**
+ * DCS ASSET: History / edit-history screens
+ * FILE: resources/css/dcs/history.css
+ * DEBUG: Prefer [data-theme="dark"] rules in dark.css for theme bugs; page-specific FOUC/layout here.
+ */
+
 /* DCS file: Revision history screen. */
 @import './tokens.css';
 

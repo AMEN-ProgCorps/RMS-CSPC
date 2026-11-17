@@ -1,4 +1,9 @@
 {{--
+  DCS PARTIAL: Office Intake partial (dcn-reviewers-script.blade.php)
+  FILE: resources/views/pages/dcs/office/partials/dcn-reviewers-script.blade.php
+  DEBUG: OfficeIntakeHelper + office-intake.js / office-intake.css
+--}}
+{{--
 DCS file: Adds and removes reviewer rows on the office DCN.
 --}}
 <script>

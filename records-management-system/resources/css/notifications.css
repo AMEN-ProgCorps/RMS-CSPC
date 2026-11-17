@@ -12,6 +12,17 @@
     justify-content: center;
     z-index: 15;
     pointer-events: none;
+    overflow: visible;
+}
+
+/* When the floating guide is open, lift the header stacking context so the
+   panel receives wheel/click events above page content. guide-container itself
+   stays pointer-events: none; the card re-enables them. */
+body.manual-widget-open header.rms-app-header {
+    z-index: 1000020;
+}
+body.manual-widget-open .guide-container {
+    z-index: 1000020;
 }
 
 .guide-wrapper {

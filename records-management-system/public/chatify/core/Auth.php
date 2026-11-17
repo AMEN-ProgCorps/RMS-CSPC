@@ -145,14 +145,26 @@ class Auth
                     if (!isset($_SESSION['last_presence_db_sync']) || ($nowTs - (int)$_SESSION['last_presence_db_sync']) >= 20) {
                         $_SESSION['last_presence_db_sync'] = $nowTs;
                         $upd = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = TRUE, last_online_time = :now WHERE account_id = :id');
-                        $upd->execute([':now' => gmdate('Y-m-d H:i:s'), ':id' => $laravelUserId]);
+                        $upd->execute([':now' => rmsAppNow(), ':id' => $laravelUserId]);
                     }
                 } catch (Throwable $e) {
                     // Non-fatal
                 }
             }
         } else {
-            // No active Laravel session -> invalidate local session immediately
+            // Laravel session cookie could not be read (key/cookie mismatch, race).
+            // Keep a freshly minted SSO chat session alive so auth_entry → index
+            // does not bounce to login inside the iframe and kick the parent portal.
+            if (
+                isset($_SESSION['chat_authenticated'])
+                && $_SESSION['chat_authenticated'] === true
+                && !empty($_SESSION['account_id'])
+                && isset($_SESSION['chat_sso_at'])
+                && (time() - (int) $_SESSION['chat_sso_at']) < 300
+            ) {
+                return !empty($_SESSION['first_name']);
+            }
+
             if (isset($_SESSION['chat_authenticated'])) {
                 self::destroy();
             }
@@ -376,6 +388,8 @@ class Auth
         // Regenerate session ID on privilege escalation
         session_regenerate_id(true);
 
+        $_SESSION['chat_sso_at'] = time();
+
         $fullName = trim(($userRow['first_name'] ?? '') . ' ' . ($userRow['last_name'] ?? ''));
         $email = $userRow['email'] ?? '';
 
@@ -384,7 +398,7 @@ class Auth
             $pdo = Database::getConnection();
             $stmt = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = TRUE, last_online_time = :now WHERE account_id = :id');
             $stmt->execute([
-                ':now' => gmdate('Y-m-d H:i:s'),
+                ':now' => rmsAppNow(),
                 ':id'  => (int) $userRow['account_id']
             ]);
         } catch (Throwable $e) {
@@ -430,7 +444,7 @@ class Auth
             $pdo = Database::getConnection();
             $stmt = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = FALSE, last_online_time = :now WHERE account_id = :id');
             $stmt->execute([
-                ':now' => gmdate('Y-m-d H:i:s'),
+                ':now' => rmsAppNow(),
                 ':id'  => $accountId
             ]);
         } catch (Throwable $e) {
@@ -449,7 +463,7 @@ class Auth
                 $pdo = Database::getConnection();
                 $stmt = $pdo->prepare('UPDATE ' . Database::t('account_details') . ' SET is_currently_online = FALSE, last_online_time = :now WHERE account_id = :id');
                 $stmt->execute([
-                    ':now' => gmdate('Y-m-d H:i:s'),
+                    ':now' => rmsAppNow(),
                     ':id'  => $accountId
                 ]);
             } catch (Throwable $e) {

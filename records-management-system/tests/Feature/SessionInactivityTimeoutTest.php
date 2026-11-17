@@ -194,8 +194,13 @@ class SessionInactivityTimeoutTest extends TestCase
             ],
         ], ['X-Livewire' => 'true']);
 
-        $response->assertStatus(401);
-        $response->assertHeader('X-Livewire-Redirect', route('login'));
+        // Pure wire:poll must not enforce idle logout (it only observes).
+        // A real page navigation / Livewire user action enforces the timeout.
+        $response->assertOk();
+        $this->assertTrue(Auth::check());
+
+        $nav = $this->actingAs($this->user)->get(route('portal'));
+        $nav->assertRedirect(route('login'));
         $this->assertFalse(Auth::check());
 
         $isOnline = DB::table($this->accDetailsTable)
@@ -213,6 +218,30 @@ class SessionInactivityTimeoutTest extends TestCase
 
         $this->assertNotNull($log);
         $this->assertContains((int) $log->status, [3, 8]);
+    }
+
+    public function test_stale_force_logout_does_not_bounce_fresh_login_session(): void
+    {
+        DB::table($this->accDetailsTable)
+            ->where('account_id', $this->user->id)
+            ->update([
+                'force_logout_at' => Carbon::now()->subMinutes(5),
+                'is_currently_online' => true,
+                'last_online_time' => Carbon::now(),
+            ]);
+
+        $this->actingAs($this->user);
+        session(['rms_login_at' => now()->timestamp]);
+
+        $response = $this->get(route('portal'));
+        $response->assertOk();
+        $this->assertTrue(Auth::check());
+
+        $forceLogoutAt = DB::table($this->accDetailsTable)
+            ->where('account_id', $this->user->id)
+            ->value('force_logout_at');
+
+        $this->assertNull($forceLogoutAt);
     }
 
     public function test_tab_closed_beacon_marks_user_offline(): void

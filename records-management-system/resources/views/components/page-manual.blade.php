@@ -368,6 +368,9 @@ new class extends Component {
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        /* Parent .guide-container uses pointer-events: none so the header
+           chrome stays click-through — re-enable so the panel can scroll. */
+        pointer-events: auto;
         font-family: Inter, system-ui, sans-serif;
         animation: rmsManualSlideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
@@ -450,10 +453,13 @@ new class extends Component {
         min-height: 0;
         overflow-y: auto;
         overflow-x: hidden;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
         padding: 16px;
         display: flex;
         flex-direction: column;
         gap: 12px;
+        pointer-events: auto;
     }
 
     .rms-manual-purpose {

@@ -128,6 +128,9 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
         // Authenticate user
         Auth::loginUsingId($accountDetail->account_id);
         session()->regenerate();
+        // Mark this browser session so a stale admin force-logout flag cannot
+        // immediately bounce a brand-new login back to the login page.
+        session(['rms_login_at' => now()->timestamp]);
 
         // Log successful login
         $logSecurityEvent(1, $accountDetail->account_id); // Login Successful
@@ -145,6 +148,8 @@ Route::get('/auth/google/callback', function () use ($resolveGoogleSsoCredential
         $updateData = [
             'is_currently_online' => true,
             'last_online_time'    => now(),
+            // Consume any pending admin force-logout so a successful SSO login sticks.
+            'force_logout_at'     => null,
         ];
 
         if (!empty($avatarUrl)) {
@@ -1415,7 +1420,7 @@ Route::get('/logout', function () {
                 : 'http://127.0.0.1/messify/invalidate_chat_session.php';
             \Illuminate\Support\Facades\Http::timeout(2)->post($targetUrl, [
                 'account_id' => $user->id,
-                'secret'     => (string) env('CHAT_SHARED_SECRET', ''),
+                'secret'     => (string) config('services.chatify.shared_secret', env('CHAT_SHARED_SECRET', '')),
             ]);
         } catch (\Throwable $e) {
             // Non-fatal — chat session already invalidated via WsPush above

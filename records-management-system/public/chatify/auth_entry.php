@@ -83,7 +83,7 @@ try {
                 last_online_time    = :now
           WHERE account_id = :id'
     );
-    $upd->execute([':now' => gmdate('Y-m-d H:i:s'), ':id' => $accountId]);
+    $upd->execute([':now' => rmsAppNow(), ':id' => $accountId]);
 } catch (PDOException $e) {
     // Non-fatal — continue
 }

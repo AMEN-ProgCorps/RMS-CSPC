@@ -9,8 +9,16 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
 
 @push('styles')
     <script>
+        // Chatify/Messify opens in an iframe. If SSO fails it may land on this
+        // login page inside that iframe. Never break out to window.top — that
+        // used to kick the parent RMS session back to login right after portal load.
         if (window.self !== window.top) {
-            window.top.location.href = window.location.href;
+            try {
+                window.top.postMessage({ type: 'rms-chatify-auth-failed' }, window.location.origin);
+            } catch (e) {}
+            try {
+                window.location.replace('about:blank');
+            } catch (e) {}
         }
     </script>
     @vite(['resources/css/login.css'])

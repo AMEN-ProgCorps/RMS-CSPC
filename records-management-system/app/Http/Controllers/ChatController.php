@@ -34,8 +34,8 @@ class ChatController extends Controller
         // Build payload
         $payload = $user->account_id . '|' . $expires;
 
-        // Generate HMAC SHA256 token
-        $secret = (string) env('CHAT_SHARED_SECRET', '');
+        // Generate HMAC SHA256 token (config() survives config:cache; env() does not)
+        $secret = (string) config('services.chatify.shared_secret', env('CHAT_SHARED_SECRET', ''));
         $token = hash_hmac('sha256', $payload, $secret);
 
         // Redirect user to standalone chat system using dynamic host

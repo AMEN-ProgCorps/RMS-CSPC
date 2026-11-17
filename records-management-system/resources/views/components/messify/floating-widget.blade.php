@@ -844,6 +844,17 @@ body.messify-widget-open #messify-global-widget {
         scheduleUnreadPoll(500);
     };
 
+    // Chatify SSO failure inside the iframe must never navigate the parent portal.
+    window.addEventListener('message', function (event) {
+        if (event.origin !== window.location.origin) return;
+        if (!event.data || event.data.type !== 'rms-chatify-auth-failed') return;
+        const iframe = document.getElementById('messify-iframe');
+        const loader = document.getElementById('messify-iframe-loader');
+        if (iframe) iframe.src = 'about:blank';
+        if (loader) loader.style.display = 'none';
+        messifyLoadedOnce = false;
+    });
+
     /**
      * Suppress browser password managers and autofill engines inside the embedded Chatify search bar.
      *

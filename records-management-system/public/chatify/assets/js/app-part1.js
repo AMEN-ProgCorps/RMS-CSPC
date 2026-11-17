@@ -1923,11 +1923,7 @@
       if (statusText === 'Active now') {
         isOnline = true;
       }
-      if (isOnline) {
-        el.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#31a24c;margin-right:5px;vertical-align:middle;box-shadow:0 0 4px #31a24c;"></span>Active now';
-      } else {
-        el.textContent = statusText;
-      }
+      el.textContent = statusText;
     }
     window.updateHeaderActiveStatus = updateHeaderActiveStatus;
 

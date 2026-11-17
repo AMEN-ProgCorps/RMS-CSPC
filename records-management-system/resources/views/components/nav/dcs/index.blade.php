@@ -367,11 +367,18 @@
         @endif
     </ul>
 
+    @php
+        $dcsOfficeName = trim((string) (auth()->user()?->details?->office?->office_name ?? ''))
+            ?: 'Records and Freedom of Information Office';
+        $dcsAccountEmail = trim((string) (auth()->user()?->details?->email ?? ''));
+    @endphp
     <div class="dcs-account-footer">
         @if(\App\Services\ServerManagementService::isMultiServerActive())
             <span class="dcs-account-server">{{ \App\Services\ServerManagementService::getServerLabel() }}</span>
         @endif
-        <span class="dcs-account-email">{{ auth()->user()?->details?->email }}</span>
-        <span class="dcs-account-office" title="{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</span>
+        @if($dcsAccountEmail !== '')
+            <span class="dcs-account-email">{{ $dcsAccountEmail }}</span>
+        @endif
+        <span class="dcs-account-office" title="{{ $dcsOfficeName }}">{{ $dcsOfficeName }}</span>
     </div>
 </nav>

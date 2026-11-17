@@ -1781,15 +1781,14 @@
       if (wsConfig && Number(wsConfig.accountId) > 0 && id === Number(wsConfig.accountId)) {
         return true;
       }
+      // When WebSocket presence snapshot is received, onlineAccountsSet is the single authoritative source of truth
+      if (hasReceivedPresenceSnapshot) {
+        return onlineAccountsSet.has(id);
+      }
       if (onlineAccountsSet.has(id)) {
         return true;
       }
       if (user && (user.is_currently_online || user.db_is_currently_online)) {
-        return true;
-      }
-      // If last_online_time is within 60 seconds, treat as online
-      const lastTs = getBestLastOnlineTime(id, user);
-      if (lastTs && (Math.floor(Date.now() / 1000) - lastTs) < 60) {
         return true;
       }
       return false;
@@ -1811,7 +1810,8 @@
       const diffDay = Math.floor(diffHour / 24);
 
       if (diffSec < 60) {
-        return 'Active now';
+        const sec = Math.max(1, diffSec);
+        return `Active ${sec} ${sec === 1 ? 'second' : 'seconds'} ago`;
       } else if (diffMin < 60) {
         return `Active ${diffMin} ${diffMin === 1 ? 'minute' : 'minutes'} ago`;
       } else if (diffHour < 24) {
@@ -1917,17 +1917,10 @@
       }
 
       const accId = Number(user.account_id);
-      let isOnline = isUserCurrentlyOnline(accId, user);
+      const isOnline = isUserCurrentlyOnline(accId, user);
       const lastTime = isOnline ? null : getBestLastOnlineTime(accId, user);
       const statusText = formatActiveStatus(isOnline, lastTime);
-      if (statusText === 'Active now') {
-        isOnline = true;
-      }
-      if (isOnline) {
-        el.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#31a24c;margin-right:5px;vertical-align:middle;box-shadow:0 0 4px #31a24c;"></span>Active now';
-      } else {
-        el.textContent = statusText;
-      }
+      el.textContent = statusText;
     }
     window.updateHeaderActiveStatus = updateHeaderActiveStatus;
 
@@ -1961,21 +1954,29 @@
         if (!isOnline) {
           user.last_online_time = wsLastOnlineTime.get(accId);
         }
+      }
 
-        const item = (typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null) || sidebarUserItems.get(user.username);
-        if (item) {
-          const dot = item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
-          if (dot) {
-            if (isOnline) {
-              dot.classList.add('online');
-              dot.classList.remove('offline');
-            } else {
-              dot.classList.remove('online');
-              dot.classList.add('offline');
-            }
-          }
+      const matchingItems = new Set();
+      if (user) {
+        const keyItem = typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null;
+        if (keyItem) matchingItems.add(keyItem);
+        if (user.username) {
+          const uItem = sidebarUserItems.get(user.username);
+          if (uItem) matchingItems.add(uItem);
         }
       }
+      document.querySelectorAll(`.user-item[data-account-id="${accId}"]`).forEach(el => matchingItems.add(el));
+
+      matchingItems.forEach(item => {
+        const dot = item._dot || item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
+        if (dot) {
+          if (isOnline) {
+            dot.className = 'status-dot online';
+          } else {
+            dot.className = 'status-dot offline';
+          }
+        }
+      });
 
       if (activeDM && Number(activeDMAccountId) === accId) {
         updateHeaderActiveStatus(user);
@@ -2005,24 +2006,31 @@
         const isOnline = onlineAccountsSet.has(accId);
         user.status = isOnline ? 'online' : 'offline';
         user.is_currently_online = isOnline;
+        user.db_is_currently_online = isOnline;
         if (!isOnline) {
           const bestTs = getBestLastOnlineTime(accId, user);
           if (bestTs) user.last_online_time = bestTs;
         }
 
-        const item = (typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null) || sidebarUserItems.get(user.username);
-        if (item) {
-          const dot = item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
+        const matchingItems = new Set();
+        const keyItem = typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null;
+        if (keyItem) matchingItems.add(keyItem);
+        if (user.username) {
+          const uItem = sidebarUserItems.get(user.username);
+          if (uItem) matchingItems.add(uItem);
+        }
+        document.querySelectorAll(`.user-item[data-account-id="${accId}"]`).forEach(el => matchingItems.add(el));
+
+        matchingItems.forEach(item => {
+          const dot = item._dot || item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
           if (dot) {
             if (isOnline) {
-              dot.classList.add('online');
-              dot.classList.remove('offline');
+              dot.className = 'status-dot online';
             } else {
-              dot.classList.remove('online');
-              dot.classList.add('offline');
+              dot.className = 'status-dot offline';
             }
           }
-        }
+        });
       });
 
       if (activeDM && activeDMAccountId) {
@@ -2238,13 +2246,13 @@
 
       // Preserve DB online indicator in db_is_currently_online and sync verified badges.
       // If the DB explicitly reports is_currently_online === true, seed into onlineAccountsSet
-      // as a progressive fallback before WebSocket presence events arrive.
+      // only as a progressive fallback before WebSocket presence events arrive.
       allUsersData.forEach(user => {
         user.db_is_currently_online = Boolean(user.is_currently_online);
         if (!user.is_office_gc && !user.is_custom_gc && user.account_id !== undefined && user.account_id !== null) {
           const uid = Number(user.account_id);
           if (!Number.isNaN(uid) && uid > 0) {
-            if (user.db_is_currently_online) {
+            if (!hasReceivedPresenceSnapshot && user.db_is_currently_online) {
               onlineAccountsSet.add(uid);
             }
             if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) {
@@ -2307,6 +2315,11 @@
         });
       }
 
+      if (sidebarUsers && sidebarUsers.scrollTop <= 20) {
+        sidebarRenderLimit = getSidebarScreenCapacity();
+      } else {
+        sidebarRenderLimit = Math.max(sidebarRenderLimit || 0, getSidebarScreenCapacity());
+      }
       renderSidebarUsers();
       if (typeof reloadOfficeMembersList === 'function') {
         reloadOfficeMembersList(true);
@@ -2413,6 +2426,52 @@
 
     const sidebarUserItems = new Map(); // user item key -> item element
     let latestTotalUnread = 0;
+
+    // Viewport-based progressive loading:
+    // Calculates how many conversation rows fit on the user's screen + safety buffer.
+    function getSidebarScreenCapacity() {
+      const containerHeight = (sidebarUsers && sidebarUsers.clientHeight > 0)
+        ? sidebarUsers.clientHeight
+        : (window.innerHeight ? Math.max(300, window.innerHeight - 180) : 600);
+      const rowHeight = 62; // approximate height of one .user-item in pixels
+      return Math.max(12, Math.ceil(containerHeight / rowHeight) + 8);
+    }
+
+    let sidebarRenderLimit = 20;
+    let sidebarScrollTicking = false;
+
+    if (sidebarUsers) {
+      sidebarUsers.addEventListener('scroll', function() {
+        if (sidebarScrollTicking) return;
+        sidebarScrollTicking = true;
+        requestAnimationFrame(() => {
+          sidebarScrollTicking = false;
+          if (!sidebarUsers || !Array.isArray(allUsersData)) return;
+          const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+          if (query !== '') return;
+
+          // When scrolled near bottom (within 160px), progressively render next slice
+          if (sidebarUsers.scrollTop + sidebarUsers.clientHeight >= sidebarUsers.scrollHeight - 160) {
+            if (sidebarRenderLimit < allUsersData.length) {
+              const step = getSidebarScreenCapacity();
+              sidebarRenderLimit = Math.min(allUsersData.length, sidebarRenderLimit + step);
+              renderSidebarUsers();
+            }
+          }
+        });
+      }, { passive: true });
+    }
+
+    window.addEventListener('resize', () => {
+      if (!sidebarUsers || !Array.isArray(allUsersData)) return;
+      const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+      if (query !== '') return;
+      const needed = getSidebarScreenCapacity();
+      if (needed > sidebarRenderLimit && sidebarRenderLimit < allUsersData.length) {
+        sidebarRenderLimit = Math.min(allUsersData.length, needed);
+        renderSidebarUsers();
+      }
+    }, { passive: true });
 
     // In-memory snapshot of the last-rendered page of messages per DM
     // partner, so re-opening a conversation already visited this session
@@ -2946,7 +3005,29 @@
 
       const seen = new Set();
 
-      allUsersData.forEach((u, index) => {
+      // Screen-based progressive windowing:
+      // Only render items that fit the user's screen + buffer, expanding as user scrolls.
+      const screenCap = getSidebarScreenCapacity();
+      if (!sidebarRenderLimit || sidebarRenderLimit < screenCap) {
+        sidebarRenderLimit = screenCap;
+      }
+
+      if (query === '' && (activeDM || activeDMAccountId || isGlobalChat)) {
+        const activeIdx = (allUsersData || []).findIndex(u => {
+          if (u.is_office_gc) return isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv;
+          if (u.is_custom_gc) return isGlobalChat && window.activeChannel === 'gc' && !activeDM && !activeAdminConv && window.activeCustomGc && (Number(window.activeCustomGc.gc_id) === Number(u.gc_id) || window.activeCustomGc.conv_id === u.conv_id);
+          return (!isGlobalChat && !activeAdminConv && ((activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM)));
+        });
+        if (activeIdx !== -1 && activeIdx >= sidebarRenderLimit) {
+          sidebarRenderLimit = activeIdx + 5;
+        }
+      }
+
+      const usersToRender = (query === '')
+        ? (allUsersData || []).slice(0, sidebarRenderLimit)
+        : (allUsersData || []);
+
+      usersToRender.forEach((u, index) => {
         let isThisActive = false;
         if (typeof isAdminAllChatsView !== 'undefined' && isAdminAllChatsView) {
           isThisActive = false;
@@ -3258,6 +3339,12 @@
       updateSidebarActiveHighlight();
       if (typeof prefetchTopConversations === 'function') {
         prefetchTopConversations();
+      }
+
+      // If initial items don't fill the visible container completely (e.g. ultra-wide / tall screen), auto-expand
+      if (query === '' && Array.isArray(allUsersData) && sidebarRenderLimit < allUsersData.length && sidebarUsers && sidebarUsers.scrollHeight <= (sidebarUsers.clientHeight + 20)) {
+        sidebarRenderLimit = Math.min(allUsersData.length, sidebarRenderLimit + screenCap);
+        setTimeout(renderSidebarUsers, 0);
       }
     }
 
@@ -7164,6 +7251,9 @@
       if (query === '') {
         // Immediately clear stale search results so sidebar shows loading state
         allUsersData = [];
+        if (typeof getSidebarScreenCapacity === 'function') {
+          sidebarRenderLimit = getSidebarScreenCapacity();
+        }
         renderSidebarUsers();
         fetchUsers();
       } else {

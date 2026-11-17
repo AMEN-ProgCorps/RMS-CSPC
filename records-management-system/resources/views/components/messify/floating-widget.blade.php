@@ -745,7 +745,7 @@ body.messify-widget-open #messify-global-widget {
     const handleCloseFromOtherWidget = function(e) {
         const detail = e ? e.detail : null;
         const w = (detail && typeof detail === 'object') ? (detail.widget || (Array.isArray(detail) ? detail[0]?.widget : null)) : detail;
-        if (w !== 'messify' && isOpen) {
+        if (w && w !== 'messify' && isOpen) {
             isOpen = false;
             sessionStorage.setItem('messify_widget_open', false);
             setWidgetVisibility(false, true);

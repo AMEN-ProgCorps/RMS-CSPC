@@ -26,6 +26,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
 
     /** @var string Classic layout directory view mode ('table' or 'grid') */
     public string $officeViewMode = 'table';
+    public string $otherOfficeViewMode = 'table';
 
     /** @var string Classic layout sorting column */
     public string $officeSortBy = 'name';

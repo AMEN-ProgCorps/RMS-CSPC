@@ -1,0 +1,133 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Livewire\Volt\Volt;
+use Tests\TestCase;
+
+class AdminDefaultLayoutIntegrityTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $user = User::first();
+        if ($user) {
+            $this->actingAs($user);
+        }
+    }
+
+    public function test_users_page_renders_visibly_in_both_layouts(): void
+    {
+        // 1. Default Mode
+        $comp = Volt::test('pages.admin.accounts.users')
+            ->call('setLayoutMode', 'default')
+            ->assertSet('layoutMode', 'default')
+            ->assertHasNoErrors()
+            ->assertSee('User Accounts & Credentials', false)
+            ->assertSee('Users Directory')
+            ->assertSee('admin-users-container');
+
+        // Verify requestors tab in Default mode
+        $comp->call('switchTab', 'requestors')
+            ->assertSet('activeTab', 'requestors')
+            ->assertHasNoErrors()
+            ->assertSee('Requestor Contacts Directory')
+            ->assertSee('admin-users-container');
+
+        // 2. Horizontal Mode
+        $comp->call('setLayoutMode', 'horizontal')
+            ->assertSet('layoutMode', 'horizontal')
+            ->assertHasNoErrors()
+            ->assertSee('miller-container');
+    }
+
+    public function test_offices_page_renders_visibly_in_both_layouts(): void
+    {
+        // 1. Default Mode
+        $comp = Volt::test('pages.admin.accounts.offices')
+            ->call('setLayoutMode', 'default')
+            ->assertSet('layoutMode', 'default')
+            ->assertHasNoErrors()
+            ->assertSee('Offices Directory')
+            ->assertSee('admin-offices-container');
+
+        // Verify other_offices tab in Default mode
+        $comp->call('switchTab', 'other_offices')
+            ->assertSet('activeTab', 'other_offices')
+            ->assertHasNoErrors()
+            ->assertSee('Registered External Entities')
+            ->assertSee('admin-offices-container');
+
+        // 2. Horizontal Mode
+        $comp->call('setLayoutMode', 'horizontal')
+            ->assertSet('layoutMode', 'horizontal')
+            ->assertHasNoErrors()
+            ->assertSee('miller-container');
+    }
+
+    public function test_roles_page_renders_visibly_in_both_layouts(): void
+    {
+        // 1. Default Mode (initial without selection)
+        $comp = Volt::test('pages.admin.accounts.roles')
+            ->call('setLayoutMode', 'default')
+            ->assertSet('layoutMode', 'default')
+            ->assertHasNoErrors()
+            ->assertSee('Roles Directory')
+            ->assertSee('admin-roles-container');
+
+        // Select create mode to render the permissions details panel
+        $comp->call('startCreate')
+            ->assertHasNoErrors()
+            ->assertSee('Modify Issuance Control Number')
+            ->assertSee('Modify Control Number');
+
+        // 2. Horizontal Mode
+        $comp->call('setLayoutMode', 'horizontal')
+            ->assertSet('layoutMode', 'horizontal')
+            ->assertHasNoErrors()
+            ->assertSee('miller-container');
+    }
+
+    public function test_transaction_flows_page_renders_visibly_in_both_layouts(): void
+    {
+        // 1. Default Mode
+        $comp = Volt::test('pages.admin.dts.transaction-flows')
+            ->call('setLayoutMode', 'default')
+            ->assertSet('layoutMode', 'default')
+            ->assertHasNoErrors()
+            ->assertSee('Predefined Flow Manager')
+            ->assertSee('activity-logs-container');
+
+        // Verify custom tab in Default mode
+        $comp->set('activeTab', 'custom')
+            ->assertHasNoErrors()
+            ->assertSee('Custom Flows Directory');
+
+        // 2. Horizontal Mode
+        $comp->call('setLayoutMode', 'horizontal')
+            ->assertSet('layoutMode', 'horizontal')
+            ->assertHasNoErrors()
+            ->assertSee('miller-container');
+    }
+
+    public function test_tickets_page_renders_visibly_in_both_layouts(): void
+    {
+        // 1. Default Mode
+        $comp = Volt::test('pages.admin.tickets.index')
+            ->call('setLayoutMode', 'default')
+            ->assertSet('layoutMode', 'default')
+            ->assertHasNoErrors()
+            ->assertSee('System Error Tickets')
+            ->assertSee('activity-logs-container');
+
+        // 2. Horizontal Mode
+        $comp->call('setLayoutMode', 'horizontal')
+            ->assertSet('layoutMode', 'horizontal')
+            ->assertHasNoErrors()
+            ->assertSee('miller-container');
+    }
+}

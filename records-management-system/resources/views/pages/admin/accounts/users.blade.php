@@ -34,6 +34,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
     /** @var string Classic layout sorting direction ('asc' or 'desc') */
     public string $sortDir = 'asc';
 
+    /** @var string Classic layout requestor view mode ('table' or 'grid') */
+    public string $reqViewMode = 'table';
+
+    /** @var string Classic layout requestor sorting column */
+    public string $reqSortBy = 'name';
+
+    /** @var string Classic layout requestor sorting direction ('asc' or 'desc') */
+    public string $reqSortDir = 'asc';
+
     /** @var string Active scope: 'users' (Internal Staff) or 'requestors' (DTS Document Requestors) */
     public string $activeTab = 'users';
 
@@ -111,6 +120,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
     public function toggleSortDir(): void
     {
         $this->sortDir = $this->sortDir === 'asc' ? 'desc' : 'asc';
+    }
+
+    /**
+     * Toggles the requestor sort dir setting or state.
+     * @return void
+     */
+    public function toggleReqSortDir(): void
+    {
+        $this->reqSortDir = $this->reqSortDir === 'asc' ? 'desc' : 'asc';
     }
 
     /**
@@ -1006,7 +1024,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             }
         }
         if ($this->layoutMode === 'default') {
-            $requestors = $requestorsQuery->paginate(20);
+            $sortCol = match($this->reqSortBy) {
+                'position' => 'req.requestor_position',
+                'office' => 'office_display_name',
+                'status' => 'req.is_active',
+                'date_created' => 'req.created_at',
+                default => 'req.requestor_name',
+            };
+            $requestors = $requestorsQuery->orderBy($sortCol, $this->reqSortDir)->paginate(20);
         } else {
             $requestors = $requestorsQuery->orderBy('req.requestor_name', 'asc')->get();
         }

@@ -1781,15 +1781,14 @@
       if (wsConfig && Number(wsConfig.accountId) > 0 && id === Number(wsConfig.accountId)) {
         return true;
       }
+      // When WebSocket presence snapshot is received, onlineAccountsSet is the single authoritative source of truth
+      if (hasReceivedPresenceSnapshot) {
+        return onlineAccountsSet.has(id);
+      }
       if (onlineAccountsSet.has(id)) {
         return true;
       }
       if (user && (user.is_currently_online || user.db_is_currently_online)) {
-        return true;
-      }
-      // If last_online_time is within 60 seconds, treat as online
-      const lastTs = getBestLastOnlineTime(id, user);
-      if (lastTs && (Math.floor(Date.now() / 1000) - lastTs) < 60) {
         return true;
       }
       return false;
@@ -1811,7 +1810,8 @@
       const diffDay = Math.floor(diffHour / 24);
 
       if (diffSec < 60) {
-        return 'Active now';
+        const sec = Math.max(1, diffSec);
+        return `Active ${sec} ${sec === 1 ? 'second' : 'seconds'} ago`;
       } else if (diffMin < 60) {
         return `Active ${diffMin} ${diffMin === 1 ? 'minute' : 'minutes'} ago`;
       } else if (diffHour < 24) {
@@ -1917,12 +1917,9 @@
       }
 
       const accId = Number(user.account_id);
-      let isOnline = isUserCurrentlyOnline(accId, user);
+      const isOnline = isUserCurrentlyOnline(accId, user);
       const lastTime = isOnline ? null : getBestLastOnlineTime(accId, user);
       const statusText = formatActiveStatus(isOnline, lastTime);
-      if (statusText === 'Active now') {
-        isOnline = true;
-      }
       el.textContent = statusText;
     }
     window.updateHeaderActiveStatus = updateHeaderActiveStatus;
@@ -1957,21 +1954,29 @@
         if (!isOnline) {
           user.last_online_time = wsLastOnlineTime.get(accId);
         }
+      }
 
-        const item = (typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null) || sidebarUserItems.get(user.username);
-        if (item) {
-          const dot = item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
-          if (dot) {
-            if (isOnline) {
-              dot.classList.add('online');
-              dot.classList.remove('offline');
-            } else {
-              dot.classList.remove('online');
-              dot.classList.add('offline');
-            }
-          }
+      const matchingItems = new Set();
+      if (user) {
+        const keyItem = typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null;
+        if (keyItem) matchingItems.add(keyItem);
+        if (user.username) {
+          const uItem = sidebarUserItems.get(user.username);
+          if (uItem) matchingItems.add(uItem);
         }
       }
+      document.querySelectorAll(`.user-item[data-account-id="${accId}"]`).forEach(el => matchingItems.add(el));
+
+      matchingItems.forEach(item => {
+        const dot = item._dot || item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
+        if (dot) {
+          if (isOnline) {
+            dot.className = 'status-dot online';
+          } else {
+            dot.className = 'status-dot offline';
+          }
+        }
+      });
 
       if (activeDM && Number(activeDMAccountId) === accId) {
         updateHeaderActiveStatus(user);
@@ -2001,24 +2006,31 @@
         const isOnline = onlineAccountsSet.has(accId);
         user.status = isOnline ? 'online' : 'offline';
         user.is_currently_online = isOnline;
+        user.db_is_currently_online = isOnline;
         if (!isOnline) {
           const bestTs = getBestLastOnlineTime(accId, user);
           if (bestTs) user.last_online_time = bestTs;
         }
 
-        const item = (typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null) || sidebarUserItems.get(user.username);
-        if (item) {
-          const dot = item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
+        const matchingItems = new Set();
+        const keyItem = typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null;
+        if (keyItem) matchingItems.add(keyItem);
+        if (user.username) {
+          const uItem = sidebarUserItems.get(user.username);
+          if (uItem) matchingItems.add(uItem);
+        }
+        document.querySelectorAll(`.user-item[data-account-id="${accId}"]`).forEach(el => matchingItems.add(el));
+
+        matchingItems.forEach(item => {
+          const dot = item._dot || item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
           if (dot) {
             if (isOnline) {
-              dot.classList.add('online');
-              dot.classList.remove('offline');
+              dot.className = 'status-dot online';
             } else {
-              dot.classList.remove('online');
-              dot.classList.add('offline');
+              dot.className = 'status-dot offline';
             }
           }
-        }
+        });
       });
 
       if (activeDM && activeDMAccountId) {
@@ -2234,13 +2246,13 @@
 
       // Preserve DB online indicator in db_is_currently_online and sync verified badges.
       // If the DB explicitly reports is_currently_online === true, seed into onlineAccountsSet
-      // as a progressive fallback before WebSocket presence events arrive.
+      // only as a progressive fallback before WebSocket presence events arrive.
       allUsersData.forEach(user => {
         user.db_is_currently_online = Boolean(user.is_currently_online);
         if (!user.is_office_gc && !user.is_custom_gc && user.account_id !== undefined && user.account_id !== null) {
           const uid = Number(user.account_id);
           if (!Number.isNaN(uid) && uid > 0) {
-            if (user.db_is_currently_online) {
+            if (!hasReceivedPresenceSnapshot && user.db_is_currently_online) {
               onlineAccountsSet.add(uid);
             }
             if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) {

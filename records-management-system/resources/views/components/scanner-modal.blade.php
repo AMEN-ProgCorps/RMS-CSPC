@@ -3132,14 +3132,17 @@ new class extends Component {
                 const detail = e.detail;
                 const w = (detail && typeof detail === 'object') ? (detail.widget || (Array.isArray(detail) ? detail[0]?.widget : null)) : detail;
                 if (w && w !== 'scanner') {
-                    const comp = resolveModalComponent();
-                    if (comp) {
-                        if (typeof comp.closeModal === 'function') {
-                            comp.closeModal();
-                        } else if (comp.$wire && typeof comp.$wire.closeModal === 'function') {
-                            comp.$wire.closeModal();
-                        } else if (typeof comp.call === 'function') {
-                            comp.call('closeModal');
+                    const isScannerDomOpen = document.getElementById('dts-scanner-widget-card') || document.querySelector('.global-scanner-modal');
+                    if (isScannerDomOpen) {
+                        const comp = resolveModalComponent();
+                        if (comp) {
+                            if (typeof comp.closeModal === 'function') {
+                                comp.closeModal();
+                            } else if (comp.$wire && typeof comp.$wire.closeModal === 'function') {
+                                comp.$wire.closeModal();
+                            } else if (typeof comp.call === 'function') {
+                                comp.call('closeModal');
+                            }
                         }
                     }
                 }

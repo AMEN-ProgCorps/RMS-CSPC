@@ -47,4 +47,8 @@ return [
         'redirect' => env('GOOGLE_TRACKING_REDIRECT_URI'),
     ],
 
+    'chatify' => [
+        'shared_secret' => env('CHAT_SHARED_SECRET', ''),
+    ],
+
 ];

@@ -35,13 +35,12 @@ class ChatController extends Controller
         $payload = $user->account_id . '|' . $expires;
 
         // Generate HMAC SHA256 token
-        $secret = (string) env('CHAT_SHARED_SECRET', '');
+        $secret = (string) (config('services.chatify.shared_secret') ?: env('CHAT_SHARED_SECRET', ''));
         $token = hash_hmac('sha256', $payload, $secret);
 
         // Redirect user to standalone chat system using dynamic host
-        $host = request()->getSchemeAndHttpHost();
         $chatDir = is_dir(public_path('chatify')) ? 'chatify' : 'messify';
-        $url = $host . '/' . $chatDir . '/auth_entry.php?' . http_build_query([
+        $url = url($chatDir . '/auth_entry.php') . '?' . http_build_query([
             'account_id' => $user->account_id,
             'expires'    => $expires,
             'token'      => $token,

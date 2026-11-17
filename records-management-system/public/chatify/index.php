@@ -765,7 +765,7 @@ try {
             <input type="text" id="gcMemberSearchInput" placeholder="Search user to add..." autocomplete="off"
               style="width:100%;box-sizing:border-box;padding:9px 12px 9px 34px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;">
           </div>
-          <div id="gcMemberSearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:0;margin-top:8px;"></div>
+          <div id="gcMemberSearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:0;margin-top:8px;max-height:280px;overflow-y:auto;"></div>
         </div>
 
 
@@ -820,7 +820,7 @@ try {
           <input type="text" id="addGcSearchInput" placeholder="Search by first or last name..." autocomplete="off"
             style="width:100%;box-sizing:border-box;padding:9px 12px 9px 34px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;">
         </div>
-        <div id="addGcSearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:40px;"></div>
+        <div id="addGcSearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:40px;max-height:280px;overflow-y:auto;"></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="modal-button cancel-button" onclick="closeAddGcMembersModal()">Close</button>

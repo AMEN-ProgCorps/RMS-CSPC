@@ -7649,10 +7649,10 @@
 
         _gcSearchTimer = setTimeout(() => {
           resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Searching...</div>';
-          fetch('search_users_gc.php?q=' + encodeURIComponent(q))
+          fetch('search_users_gc.php?q=' + encodeURIComponent(q) + '&limit=5')
             .then(r => r.json())
             .then(data => {
-              const users = (data.users || []).slice(0, 1);
+              const users = (data.users || []).slice(0, 5);
               if (users.length === 0) {
                 resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">No users found.</div>';
                 return;
@@ -7662,16 +7662,24 @@
                 const isSelected = window._gcSelectedMembers.has(u.account_id);
                 const row = document.createElement('div');
                 row.dataset.accountId = u.account_id;
-                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);flex-shrink:0;';
 
                 const nameSpan = document.createElement('span');
                 nameSpan.style.cssText = 'flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
 
                 const nameTextSpan = document.createElement('span');
-                nameTextSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                nameTextSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 nameTextSpan.textContent = u.full_name;
                 nameTextSpan.title = u.full_name;
                 nameSpan.appendChild(nameTextSpan);
+
+                if (u.office_code || u.office_name) {
+                  const offSpan = document.createElement('span');
+                  offSpan.style.cssText = 'font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 6px;border-radius:4px;flex-shrink:0;';
+                  offSpan.textContent = u.office_code || u.office_name;
+                  offSpan.title = (u.office_code && u.office_name && u.office_code !== u.office_name) ? `${u.office_code} • ${u.office_name}` : (u.office_name || u.office_code);
+                  nameSpan.appendChild(offSpan);
+                }
 
                 if (u.is_messify_verified) {
                   const b = document.createElement('span');
@@ -7902,13 +7910,13 @@
         _addGcSearchTimer = setTimeout(() => {
           resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Searching...</div>';
           const gcId = window.activeCustomGc ? window.activeCustomGc.gc_id : 0;
-          fetch('search_users_gc.php?q=' + encodeURIComponent(q) + (gcId ? '&group_id=' + encodeURIComponent(gcId) : ''))
+          fetch('search_users_gc.php?q=' + encodeURIComponent(q) + (gcId ? '&group_id=' + encodeURIComponent(gcId) : '') + '&limit=5')
             .then(r => r.json())
             .then(data => {
               const currentMembers = Array.isArray(window.activeCustomGcMembers) ? window.activeCustomGcMembers : [];
               const rawUsers = data.users || [];
               const availableUsers = rawUsers.filter(u => !currentMembers.some(m => Number(m.account_id) === Number(u.account_id)));
-              const users = availableUsers.slice(0, 1); // max 1 result only
+              const users = availableUsers.slice(0, 5); // tig-5 users lang
               if (users.length === 0) {
                 resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">No users found.</div>';
                 return;
@@ -7920,16 +7928,24 @@
                 const isAlreadyInGc = false;
                 const row = document.createElement('div');
                 row.dataset.accountId = u.account_id;
-                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);flex-shrink:0;';
 
                 const nameSpan = document.createElement('span');
                 nameSpan.style.cssText = 'flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
 
                 const nameTextSpan = document.createElement('span');
-                nameTextSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                nameTextSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 nameTextSpan.textContent = u.full_name;
                 nameTextSpan.title = u.full_name;
                 nameSpan.appendChild(nameTextSpan);
+
+                if (u.office_code || u.office_name) {
+                  const offSpan = document.createElement('span');
+                  offSpan.style.cssText = 'font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 6px;border-radius:4px;flex-shrink:0;';
+                  offSpan.textContent = u.office_code || u.office_name;
+                  offSpan.title = (u.office_code && u.office_name && u.office_code !== u.office_name) ? `${u.office_code} • ${u.office_name}` : (u.office_name || u.office_code);
+                  nameSpan.appendChild(offSpan);
+                }
 
                 if (u.is_messify_verified) {
                   const b = document.createElement('span');

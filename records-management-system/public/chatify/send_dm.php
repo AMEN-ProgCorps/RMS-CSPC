@@ -158,19 +158,25 @@ if (empty($errors) && !empty($allResults)) {
             );
         }
 
+        $convIdForUnread = ConversationManager::convId($senderId, $targetId);
+        $recipientUnread = ConversationManager::unreadCount($convIdForUnread, $targetId);
+
         $pushPayloads[] = [
+            'id'                => $msgData['id'],
+            'msg_uuid'          => $msgData['id'],
+            'conv_id'           => $convIdForUnread,
             'chat_type'         => 'private',
             'sender_id'         => $senderId,
             'sender_name'       => $_SESSION['full_name'] ?? ($_SESSION['first_name'] ?? ''),
             'sender_avatar'     => $_SESSION['avatar_url'] ?? null,
             'recipient_id'      => $targetId,
-            'msg_uuid'          => $msgData['id'],
             'message'           => $msgData['plaintext'] ?? '',
             'upload_file'       => $msgData['plaintext'] ?? '',
             'created_at'        => date('c'),
             'has_upload'        => ($msgData['type'] ?? '') === 'upload',
             'reply_to_msg_uuid' => $msgData['reply_to_msg_uuid'] ?? null,
             'reply_snippet'     => $replyPreview['snippet'] ?? null,
+            'unread_count'      => $recipientUnread,
         ];
     }
 

@@ -6,11 +6,6 @@
     // 991 directly, so there's a single place to change it.
     const MOBILE_BREAKPOINT = 991;
     function isMobileViewport() {
-      try {
-        if (window.self !== window.top) return true; // floating widget iframe
-      } catch (e) {
-        return true;
-      }
       return window.innerWidth <= MOBILE_BREAKPOINT;
     }
 
@@ -908,7 +903,13 @@
               }
               const otherUser = allUsersData.find(u => Number(u.account_id) === Number(data.sender_id));
               if (otherUser) {
-                bumpSidebarUser(otherUser.account_id || otherUser.username, { incrementUnread: true, lastMessage: data.message });
+                const exactUnread = (typeof data.unread_count === 'number' && data.unread_count >= 0)
+                  ? data.unread_count
+                  : ((otherUser.unreadCount || 0) + 1);
+                bumpSidebarUser(otherUser.account_id || otherUser.username, {
+                  unreadCount: exactUnread,
+                  lastMessage: data.message
+                });
               } else {
                 fetchUsers();
               }
@@ -1783,7 +1784,15 @@
       if (onlineAccountsSet.has(id)) {
         return true;
       }
-      return Boolean(user && (user.is_currently_online || user.db_is_currently_online));
+      if (user && (user.is_currently_online || user.db_is_currently_online)) {
+        return true;
+      }
+      // If last_online_time is within 60 seconds, treat as online
+      const lastTs = getBestLastOnlineTime(id, user);
+      if (lastTs && (Math.floor(Date.now() / 1000) - lastTs) < 60) {
+        return true;
+      }
+      return false;
     }
 
     function formatActiveStatus(isOnline, lastOnlineTime) {
@@ -1802,8 +1811,7 @@
       const diffDay = Math.floor(diffHour / 24);
 
       if (diffSec < 60) {
-        const sec = Math.max(1, diffSec);
-        return `Active ${sec} ${sec === 1 ? 'second' : 'seconds'} ago`;
+        return 'Active now';
       } else if (diffMin < 60) {
         return `Active ${diffMin} ${diffMin === 1 ? 'minute' : 'minutes'} ago`;
       } else if (diffHour < 24) {
@@ -1909,9 +1917,12 @@
       }
 
       const accId = Number(user.account_id);
-      const isOnline = isUserCurrentlyOnline(accId, user);
+      let isOnline = isUserCurrentlyOnline(accId, user);
       const lastTime = isOnline ? null : getBestLastOnlineTime(accId, user);
       const statusText = formatActiveStatus(isOnline, lastTime);
+      if (statusText === 'Active now') {
+        isOnline = true;
+      }
       if (isOnline) {
         el.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#31a24c;margin-right:5px;vertical-align:middle;box-shadow:0 0 4px #31a24c;"></span>Active now';
       } else {
@@ -2114,13 +2125,13 @@
         }
       } else {
         if (backButton) backButton.style.display = 'none';
+        if (sidebar) sidebar.classList.remove('open');
         if (!activeDM && !activeAdminConv && !isGlobalChat) {
-          if (chatBox && !chatBox.querySelector('#noChatSelectedState')) {
-            setNoChatSelected(true);
-          }
+          setNoChatSelected(true);
         }
       }
     }
+    window.setupMobileLayout = setupMobileLayout;
     let lastMessifyWindowWidth = window.innerWidth;
     function handleResizeSetupMobileLayout() {
       if (window.innerWidth !== lastMessifyWindowWidth) {
@@ -2781,6 +2792,8 @@
 
       if (isThisActive) {
         u.unreadCount = 0;
+      } else if (opts.unreadCount !== undefined) {
+        u.unreadCount = opts.unreadCount;
       } else if (opts.incrementUnread) {
         u.unreadCount = (u.unreadCount || 0) + 1;
       }

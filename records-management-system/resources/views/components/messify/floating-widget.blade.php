@@ -834,6 +834,21 @@ body.messify-widget-open #messify-global-widget {
             if (iconRes) iconRes.style.display = 'none';
             if (btn) btn.title = 'Expand Chatify';
         }
+
+        const triggerIframeResize = function() {
+            try {
+                const iframe = document.getElementById('messify-iframe');
+                if (iframe && iframe.contentWindow) {
+                    iframe.contentWindow.dispatchEvent(new Event('resize'));
+                    if (typeof iframe.contentWindow.setupMobileLayout === 'function') {
+                        iframe.contentWindow.setupMobileLayout();
+                    }
+                }
+            } catch (e) {}
+        };
+        triggerIframeResize();
+        setTimeout(triggerIframeResize, 50);
+        setTimeout(triggerIframeResize, 200);
     };
 
     /**

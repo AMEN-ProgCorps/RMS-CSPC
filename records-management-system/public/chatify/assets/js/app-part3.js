@@ -4994,7 +4994,7 @@
                 conv_id: isGlobalChat ? targetConvId : null,
                 recipient_id: activeDMAccountId || null
               }));
-            } else {
+            } else if (!confirmedMsg || !confirmedMsg.id) {
               const mentionedIds = (typeof activeMentions !== 'undefined' && Array.isArray(activeMentions))
                 ? activeMentions.map(m => m.account_id)
                 : [];

@@ -152,17 +152,37 @@ class Auth
                 }
             }
         } else {
-            // Laravel session cookie could not be read (key/cookie mismatch, race).
-            // Keep a freshly minted SSO chat session alive so auth_entry → index
-            // does not bounce to login inside the iframe and kick the parent portal.
-            if (
-                isset($_SESSION['chat_authenticated'])
-                && $_SESSION['chat_authenticated'] === true
-                && !empty($_SESSION['account_id'])
-                && isset($_SESSION['chat_sso_at'])
-                && (time() - (int) $_SESSION['chat_sso_at']) < 300
-            ) {
-                return !empty($_SESSION['first_name']);
+            // If the browser provides a Laravel session cookie, but getLaravelSessionUserId()
+            // returned null, that means the session in RMS is invalidated/logged out or a guest.
+            // Any existing chat session for this browser MUST be torn down immediately!
+            $laravelSessionId = self::getLaravelSessionId();
+            if ($laravelSessionId !== null) {
+                if (isset($_SESSION['chat_authenticated'])) {
+                    self::destroy();
+                }
+                return false;
+            }
+
+            // If no Laravel cookie was found (e.g. strict cross-site or isolated client),
+            // check whether the current chat session's account still has an active session in RMS.
+            if (isset($_SESSION['chat_authenticated']) && $_SESSION['chat_authenticated'] === true && !empty($_SESSION['account_id'])) {
+                try {
+                    $pdo = Database::getConnection();
+                    $stmt = $pdo->prepare('SELECT COUNT(*) FROM sessions WHERE user_id = :id');
+                    $stmt->execute([':id' => (int)$_SESSION['account_id']]);
+                    $activeSessions = (int)$stmt->fetchColumn();
+                    if ($activeSessions === 0) {
+                        // All RMS sessions for this account were deleted (logout)
+                        self::destroy();
+                        return false;
+                    }
+                } catch (Throwable $e) {
+                    // If DB fails, proceed to check chat_expires
+                }
+
+                if (!empty($_SESSION['first_name']) && (!isset($_SESSION['chat_expires']) || time() <= (int)$_SESSION['chat_expires'])) {
+                    return true;
+                }
             }
 
             if (isset($_SESSION['chat_authenticated'])) {
@@ -314,11 +334,8 @@ class Auth
     {
         if (!self::check()) {
             // check() already destroyed the local session if it found the
-            // RMS session gone. Report the most useful reason we can.
-            if (!isset($_SESSION['chat_authenticated'])) {
-                return ['valid' => false, 'reason' => 'no_session'];
-            }
-            return ['valid' => false, 'reason' => 'expired'];
+            // RMS session gone. Report 'logged_out' so client immediately redirects to logout.php.
+            return ['valid' => false, 'reason' => 'logged_out'];
         }
 
         // Belt-and-suspenders: also honor Messify's own local expiry clock
@@ -486,12 +503,31 @@ class Auth
      */
     public static function getLaravelSessionId(): ?string
     {
-        $cookieName = 'rms-cspc-session';
-        if (!isset($_COOKIE[$cookieName])) {
+        $possibleCookieNames = [
+            'rms-cspc-session',
+            'rms_cspc_session',
+            'laravel_session',
+            (string) getEnvValue('SESSION_COOKIE', ''),
+        ];
+        $cookieVal = null;
+        foreach ($possibleCookieNames as $cn) {
+            if (!empty($cn) && isset($_COOKIE[$cn])) {
+                $cookieVal = $_COOKIE[$cn];
+                break;
+            }
+        }
+        if (!$cookieVal) {
+            // Fallback: search for any cookie ending in -session or _session
+            foreach ($_COOKIE as $k => $v) {
+                if (is_string($v) && (str_ends_with($k, '-session') || str_ends_with($k, '_session'))) {
+                    $cookieVal = $v;
+                    break;
+                }
+            }
+        }
+        if (!$cookieVal) {
             return null;
         }
-
-        $cookieVal = $_COOKIE[$cookieName];
 
         // LARAVEL_PATH must be a real, environment-provided path (see
         // config/db.php: realpath(__DIR__ . '/../../..')). There is

@@ -94,6 +94,7 @@ if (!defined('LARAVEL_DB_PASS')) define('LARAVEL_DB_PASS', getEnvValue('DB_PASSW
 // Never fall back to a hardcoded default string.
 if (!defined('CHAT_SHARED_SECRET')) define('CHAT_SHARED_SECRET', (string) getEnvValue('CHAT_SHARED_SECRET', ''));
 if (!defined('INTERNAL_PUSH_SECRET')) define('INTERNAL_PUSH_SECRET', (string) getEnvValue('INTERNAL_PUSH_SECRET', CHAT_SHARED_SECRET));
+if (!defined('WS_INTERNAL_PUSH_URL')) define('WS_INTERNAL_PUSH_URL', (string) getEnvValue('WS_INTERNAL_PUSH_URL', 'http://websocket:8080/internal/push'));
 
 // -----------------------------------------------------------------------------
 // Token TTL - how many seconds a Laravel-issued entry token remains valid

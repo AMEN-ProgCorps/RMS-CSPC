@@ -1413,12 +1413,11 @@ Route::get('/logout', function () {
             // Non-fatal
         }
 
-        // Also keep HTTP fallback for standalone XAMPP setups
+        // Also keep HTTP fallback for standalone setups
         try {
-            $targetUrl = is_dir(public_path('chatify'))
-                ? 'http://127.0.0.1/chatify/invalidate_chat_session.php'
-                : 'http://127.0.0.1/messify/invalidate_chat_session.php';
-            \Illuminate\Support\Facades\Http::timeout(2)->post($targetUrl, [
+            $chatDir = is_dir(public_path('chatify')) ? 'chatify' : 'messify';
+            $targetUrl = url($chatDir . '/invalidate_chat_session.php');
+            \Illuminate\Support\Facades\Http::timeout(1)->post($targetUrl, [
                 'account_id' => $user->id,
                 'secret'     => (string) (config('services.chatify.shared_secret') ?: env('CHAT_SHARED_SECRET', '')),
             ]);

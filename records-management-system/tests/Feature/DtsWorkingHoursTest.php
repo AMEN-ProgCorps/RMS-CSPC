@@ -77,6 +77,16 @@ class DtsWorkingHoursTest extends TestCase
         // Sunday 10:00 AM -> Outside (weekend)
         $sundayDay = Carbon::parse('2026-11-22 10:00:00');
         $this->assertFalse(DtsWorkingHoursService::isWithinWorkingHours($sundayDay));
+
+        // Tuesday 08:22 AM -> Inside (User's reported screenshot scenario in Asia/Manila)
+        $tuesdayMorning = Carbon::parse('2026-11-17 08:22:00', 'Asia/Manila');
+        $this->assertTrue(DtsWorkingHoursService::isWithinWorkingHours($tuesdayMorning));
+
+        // When evaluating with no arguments at simulated Tuesday 8:22 AM Manila
+        Carbon::setTestNow($tuesdayMorning);
+        $this->assertTrue(DtsWorkingHoursService::isWithinWorkingHours());
+        $this->assertTrue(DtsWorkingHoursService::canProcessStationAction());
+        Carbon::setTestNow();
     }
 
     public function test_elapsed_working_seconds_and_duration_ignores_non_working_hours_and_weekends(): void

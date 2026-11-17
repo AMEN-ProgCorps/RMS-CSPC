@@ -146,6 +146,41 @@ class DtsWorkingHoursService
     }
 
     /**
+     * Get the configured timezone for working hours operations.
+     *
+     * Defaults to 'Asia/Manila' (Philippine Standard Time, UTC+8) for CSPC,
+     * or the application's configured timezone.
+     *
+     * @return string Timezone identifier.
+     */
+    public static function getTimezone(): string
+    {
+        $tz = env('APP_TIMEZONE') ?: config('app.timezone');
+        return (!empty($tz) && $tz !== 'UTC') ? $tz : 'Asia/Manila';
+    }
+
+    /**
+     * Resolve a reference timestamp to a Carbon instance in the working hours timezone.
+     *
+     * @param \Carbon\Carbon|string|null $time
+     * @return \Carbon\Carbon
+     */
+    public static function resolveTime(Carbon|string|null $time = null): Carbon
+    {
+        $tz = self::getTimezone();
+
+        if ($time === null) {
+            return Carbon::hasTestNow() ? Carbon::now()->timezone($tz) : Carbon::now($tz);
+        }
+
+        if ($time instanceof Carbon) {
+            return $time->copy()->timezone($tz);
+        }
+
+        return Carbon::parse($time, $tz)->timezone($tz);
+    }
+
+    /**
      * Determine if a given date is considered an active working day under current policy.
      *
      * Under 'all', every calendar day is considered a working day.
@@ -156,7 +191,7 @@ class DtsWorkingHoursService
      */
     public static function isWorkingDay(Carbon|string|null $date = null): bool
     {
-        $c = $date ? Carbon::parse($date) : Carbon::now();
+        $c = self::resolveTime($date);
         $daysConfig = self::getWorkingDays();
 
         if ($daysConfig === 'all') {
@@ -182,7 +217,7 @@ class DtsWorkingHoursService
             return true;
         }
 
-        $now = $time ? Carbon::parse($time) : Carbon::now();
+        $now = self::resolveTime($time);
 
         if (!self::isWorkingDay($now)) {
             return false;
@@ -221,7 +256,7 @@ class DtsWorkingHoursService
      */
     public static function getNextWorkingHoursStart(Carbon|string|null $from = null): Carbon
     {
-        $current = $from ? Carbon::parse($from) : Carbon::now();
+        $current = self::resolveTime($from);
         $startParts = explode(':', self::getStartHour());
         $startHour = (int) ($startParts[0] ?? 6);
         $startMin = (int) ($startParts[1] ?? 0);
@@ -303,8 +338,8 @@ class DtsWorkingHoursService
             return 0;
         }
 
-        $start = Carbon::parse($startDate);
-        $end = $endDate ? Carbon::parse($endDate) : Carbon::now();
+        $start = self::resolveTime($startDate);
+        $end = $endDate ? self::resolveTime($endDate) : self::resolveTime();
 
         if ($end->lessThanOrEqualTo($start)) {
             return 0;
@@ -361,7 +396,7 @@ class DtsWorkingHoursService
         $endH = (int) ($endParts[0] ?? 17);
         $endM = (int) ($endParts[1] ?? 0);
 
-        $dummy = Carbon::today();
+        $dummy = self::resolveTime();
         $wStart = $dummy->copy()->setTime($startH, $startM, 0);
         $wEnd = $dummy->copy()->setTime($endH, $endM, 0);
 
@@ -386,8 +421,8 @@ class DtsWorkingHoursService
         }
 
         if (!self::isEnabled()) {
-            $s = Carbon::parse($startDate);
-            $e = $endDate ? Carbon::parse($endDate) : Carbon::now();
+            $s = self::resolveTime($startDate);
+            $e = $endDate ? self::resolveTime($endDate) : self::resolveTime();
             return (int) abs($s->diffInDays($e));
         }
 

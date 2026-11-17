@@ -1024,8 +1024,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
     }
 };
 ?>
-<div>
-
 @push('styles')
     @vite(['resources/css/admin/accounts_roles.css', 'resources/css/admin/accounts_users.css'])
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
@@ -1538,6 +1536,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         }
     </style>
 @endpush
+
+<div>
 
 @if($layoutMode === 'default')
 <div class="admin-roles-outer">

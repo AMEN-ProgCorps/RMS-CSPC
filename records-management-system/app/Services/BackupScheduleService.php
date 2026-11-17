@@ -133,7 +133,8 @@ class BackupScheduleService
         try {
             $table = Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : (Schema::hasTable('system_settings') ? 'system_settings' : null);
             if ($table) {
-                $now = now()->toDateTimeString();
+                // Store last_run_at in app timezone so isDue() 5-minute dedup comparison is consistent.
+                $now = Carbon::now(config('app.timezone', 'Asia/Manila'))->toDateTimeString();
                 DB::table($table)->updateOrInsert(['key' => 'backup_schedule_last_run_at'], ['value' => $now]);
                 DB::table($table)->updateOrInsert(['key' => 'backup_schedule_last_run_status'], ['value' => $status]);
                 DB::table($table)->updateOrInsert(['key' => 'backup_schedule_last_run_filename'], ['value' => $filename]);
@@ -155,7 +156,12 @@ class BackupScheduleService
             return false;
         }
 
-        $now = $now ?? now();
+        // Always evaluate time in the app timezone (Asia/Manila) so that the
+        // configured backup time (e.g. 23:59) matches what the admin set in the UI,
+        // regardless of the Docker container's system clock (which runs UTC).
+        $appTz = config('app.timezone', 'Asia/Manila');
+        $now   = $now ?? Carbon::now($appTz);
+
         $targetTime = $settings['time'] ?? '23:59';
         [$targetHour, $targetMin] = array_map('intval', explode(':', $targetTime));
 
@@ -164,9 +170,10 @@ class BackupScheduleService
             return false;
         }
 
-        // Prevent duplicate execution within the same 5-minute window
+        // Prevent duplicate execution within the same 5-minute window.
+        // Parse last_run_at in app timezone to avoid UTC vs local comparison drift.
         if (!empty($settings['last_run_at'])) {
-            $lastRun = Carbon::parse($settings['last_run_at']);
+            $lastRun = Carbon::parse($settings['last_run_at'], $appTz);
             if ($now->diffInMinutes($lastRun) < 5) {
                 return false;
             }

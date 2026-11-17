@@ -19,11 +19,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const stampAllPages   = document.getElementById('stampAllPages');
 
-    const pdfPreview      = document.getElementById('pdfPreview');
     const previewFallback = document.getElementById('previewFallback');
     const openPdfLink     = document.getElementById('openPdfLink');
     const refreshPreview  = document.getElementById('refreshPreview');
     const stampOverlay    = document.getElementById('stampOverlay');
+    const pageStage       = document.getElementById('pageStage');
+    const pdfCanvas       = document.getElementById('pdfCanvas');
+    const previewScroll   = document.getElementById('previewScroll');
 
     const overlayTitle    = document.getElementById('overlayTitle');
     const overlayDivider  = document.getElementById('overlayDivider');
@@ -43,10 +45,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const restoreCancel   = document.getElementById('restoreCancel');
     const restoreConfirm  = document.getElementById('restoreConfirm');
 
-    const searchInput     = document.getElementById('stSearch');
-    const typeFilter      = document.getElementById('stTypeFilter');
-    const clearBtn        = document.getElementById('stClearBtn');
-
     const stampBox        = document.getElementById('stampBox');
 
     const autoPlace   = document.getElementById('autoPlace');
@@ -55,6 +53,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const prevPageBtn = document.getElementById('prevPage');
     const nextPageBtn = document.getElementById('nextPage');
     const pageIndicator = document.getElementById('pageIndicator');
+    const customPosHint = document.getElementById('customPosHint');
 
     // ═══════════════════════════════════════════
     // STATE
@@ -63,6 +62,7 @@ document.addEventListener('DOMContentLoaded', function () {
     let state = {
         files: [],
         selectedFile: null,
+        requestId: 0,
         docTitle: '',
         docNo: '',
         rev: '',
@@ -72,32 +72,74 @@ document.addEventListener('DOMContentLoaded', function () {
         currentPage: 1,
         pageCount: 1,
         placement: null,
+        xPct: null,
+        yPct: null,
+        widthPct: null,
+        pageWidthMm: null,
+        pageHeightMm: null,
+        stampWidthMm: 36,
+        stampHeightMm: 13,
+        pdfDoc: null,
+        pdfUrl: '',
     };
 
     let placementTimer = null;
     let placementRequestId = 0;
+    let dragState = null;
+    let renderToken = 0;
 
-    autoPlace.addEventListener('change', function () {
-        if (this.checked) {
-            state.position = 'auto';
-            manualWrap.style.display = 'none';
-        } else {
-            state.position = document.querySelector('.st-pos-dot.active')?.dataset.pos || 'bottom-right';
-            manualWrap.style.display = 'block';
-            state.placement = null;
-        }
-        updateOverlay();
-    });
+    const POS_LABELS = {
+        'top-left': 'Top Left',
+        'top-right': 'Top Right',
+        'center': 'Center',
+        'bottom-left': 'Bottom Left',
+        'bottom-right': 'Bottom Right',
+        'auto': 'Auto',
+        'custom': 'Custom (dragged)',
+    };
 
-    // ═══════════════════════════════════════════
-    // SEARCH handled server-side via Livewire
-    // ═══════════════════════════════════════════
+    /** Display / download title: "REFERENCE Document Title". */
+    function referenceDocTitle() {
+        var title = String(state.docTitle || '').trim();
+        if (!title) title = state.docNo || 'Document';
+        if (/^reference\b/i.test(title)) return title;
+        return 'REFERENCE ' + title;
+    }
+
+    function sanitizeDownloadName(name) {
+        return String(name || 'REFERENCE Document')
+            .replace(/[\\/:*?"<>|]+/g, '-')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 180);
+    }
+
+    if (autoPlace) {
+        autoPlace.addEventListener('change', function () {
+            if (this.checked) {
+                state.position = 'auto';
+                state.xPct = null;
+                state.yPct = null;
+                if (manualWrap) manualWrap.style.display = 'none';
+                if (customPosHint) customPosHint.style.display = 'none';
+            } else {
+                state.position = document.querySelector('.st-pos-dot.active')?.dataset.pos || 'bottom-right';
+                state.xPct = null;
+                state.yPct = null;
+                if (manualWrap) manualWrap.style.display = 'block';
+                state.placement = null;
+                if (customPosHint) customPosHint.style.display = 'none';
+                placePresetOnPage(state.position);
+            }
+            updateOverlay();
+        });
+    }
 
     // ═══════════════════════════════════════════
     // OPEN MODAL
     // ═══════════════════════════════════════════
 
-        document.addEventListener('click', function (e) {
+    document.addEventListener('click', function (e) {
         const btn = e.target.closest('.st-btn-stamp');
         if (!btn) return;
 
@@ -119,38 +161,22 @@ document.addEventListener('DOMContentLoaded', function () {
         state.pageCount   = 1;
         state.placement   = null;
         state.position    = 'auto';
-        // Only Reference stamp is allowed.
-        state.stampType   = 'reference';
+        state.stampType   = null;
+        state.xPct = null;
+        state.yPct = null;
+        state.widthPct = null;
 
-        // Find the first file — prefer unstamped, fallback to first stamped
         let defaultFile = files.find(f => !f.stamped) || files[0];
         state.selectedFile = defaultFile;
 
-        // Header info
-        modalDocInfo.textContent = state.docNo + ' — ' + state.docTitle + ' (Rev ' + state.rev + ')';
+        modalDocInfo.textContent = referenceDocTitle() + (state.docNo ? ' (' + state.docNo + ', Rev ' + state.rev + ')' : '');
 
-        // Build file selector
         buildFileSelector();
-
-        // Reset config UI then lock Reference
         resetConfigUI();
-        document.querySelectorAll('.st-type-pill').forEach(p => p.classList.remove('selected'));
-        const refPill = document.querySelector('.st-type-pill[data-type="reference"]');
-        if (refPill) refPill.classList.add('selected');
-        state.stampType = 'reference';
-        updateOverlay();
         checkReady();
-
-        // Load first preview
         loadPreview();
-
-        // Show
         stampModal.style.display = 'flex';
     });
-
-    // ═══════════════════════════════════════════
-    // FILE SELECTOR
-    // ═══════════════════════════════════════════
 
     function buildFileSelector() {
         fileOptions.innerHTML = '';
@@ -197,7 +223,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (this.checked) {
                     state.selectedFile = state.files[idx];
                     resetConfigUI();
-                    updateOverlay();
                     checkReady();
                     loadPreview();
                 }
@@ -205,37 +230,35 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // ═══════════════════════════════════════════
-    // RESET CONFIG UI
-    // ═══════════════════════════════════════════
-
     function resetConfigUI() {
         document.querySelectorAll('.st-type-pill').forEach(p => p.classList.remove('selected'));
-        const refPill = document.querySelector('.st-type-pill[data-type="reference"]');
-        if (refPill) refPill.classList.add('selected');
-        autoPlace.checked = true;
-        manualWrap.style.display = 'none';
+        if (autoPlace) autoPlace.checked = true;
+        if (manualWrap) manualWrap.style.display = 'none';
         state.position = 'auto';
+        state.xPct = null;
+        state.yPct = null;
+        state.widthPct = null;
 
         document.querySelectorAll('.st-pos-dot').forEach(d => d.classList.remove('active'));
-        document.querySelector('.st-pos-dot[data-pos="bottom-right"]').classList.add('active');
-        positionLabel.textContent = 'Bottom Right';
+        const br = document.querySelector('.st-pos-dot[data-pos="bottom-right"]');
+        if (br) br.classList.add('active');
+        if (positionLabel) positionLabel.textContent = 'Bottom Right';
+        if (customPosHint) customPosHint.style.display = 'none';
 
-        stampAllPages.checked = true;
-        stampOverlay.style.display = 'none';
+        if (stampAllPages) stampAllPages.checked = true;
+        state.allPages = true;
+        if (stampOverlay) stampOverlay.style.display = 'none';
         if (autoBadge) autoBadge.style.display = 'none';
         state.currentPage = 1;
-        state.pageCount = 1;
         state.placement = null;
-        state.stampType = 'reference';
+        state.stampType = null;
         updatePageNav();
-
-        downloadBtn.disabled = true;
-        applyBtn.disabled    = true;
+        updateOverlay();
+        checkReady();
     }
 
     // ═══════════════════════════════════════════
-    // LOAD PREVIEW
+    // PDF.js PAGE PREVIEW (page-accurate)
     // ═══════════════════════════════════════════
 
     function dcsPdfUrl(path, bust) {
@@ -258,15 +281,81 @@ document.addEventListener('DOMContentLoaded', function () {
             ? (state.selectedFile.preview_url + (state.selectedFile.preview_url.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(bust))
             : dcsPdfUrl(state.selectedFile.path, bust);
 
-        previewFallback.style.display = 'none';
-        pdfPreview.style.display      = 'block';
-        pdfPreview.src                = url;
-        openPdfLink.href              = url;
-
+        state.pdfUrl = url;
+        if (openPdfLink) openPdfLink.href = url;
         state.currentPage = 1;
         state.placement = null;
         updatePageNav();
-        updateOverlay();
+
+        if (!window.pdfjsLib) {
+            showFallbackPreview(url);
+            updateOverlay();
+            return;
+        }
+
+        if (previewFallback) previewFallback.style.display = 'none';
+        if (previewScroll) previewScroll.style.display = 'flex';
+
+        const token = ++renderToken;
+        window.pdfjsLib.getDocument({ url: url, withCredentials: true }).promise
+            .then(function (pdf) {
+                if (token !== renderToken) return;
+                state.pdfDoc = pdf;
+                state.pageCount = pdf.numPages || 1;
+                updatePageNav();
+                return renderCurrentPage(token);
+            })
+            .then(function () {
+                if (token !== renderToken) return;
+                updateOverlay();
+            })
+            .catch(function (err) {
+                console.warn('Stamp PDF preview failed', err);
+                if (token !== renderToken) return;
+                showFallbackPreview(url);
+                updateOverlay();
+            });
+    }
+
+    function showFallbackPreview(url) {
+        if (previewScroll) previewScroll.style.display = 'none';
+        if (previewFallback) previewFallback.style.display = 'flex';
+        if (openPdfLink) openPdfLink.href = url || '#';
+        state.pdfDoc = null;
+    }
+
+    function renderCurrentPage(token) {
+        if (!state.pdfDoc || !pdfCanvas || !pageStage) return Promise.resolve();
+        const pageNo = Math.max(1, Math.min(state.currentPage, state.pageCount || 1));
+        return state.pdfDoc.getPage(pageNo).then(function (page) {
+            if (token != null && token !== renderToken) return;
+
+            const unscaled = page.getViewport({ scale: 1 });
+            // Match FPDI mm units used by StampService (approx 72dpi points → mm).
+            state.pageWidthMm = unscaled.width * 25.4 / 72;
+            state.pageHeightMm = unscaled.height * 25.4 / 72;
+
+            const scrollW = (previewScroll && previewScroll.clientWidth) ? previewScroll.clientWidth - 32 : 700;
+            const fitScale = Math.max(0.5, Math.min(1.6, scrollW / unscaled.width));
+            const viewport = page.getViewport({ scale: fitScale });
+
+            const outputScale = window.devicePixelRatio || 1;
+            pdfCanvas.width = Math.floor(viewport.width * outputScale);
+            pdfCanvas.height = Math.floor(viewport.height * outputScale);
+            pdfCanvas.style.width = Math.floor(viewport.width) + 'px';
+            pdfCanvas.style.height = Math.floor(viewport.height) + 'px';
+            pageStage.style.width = Math.floor(viewport.width) + 'px';
+            pageStage.style.height = Math.floor(viewport.height) + 'px';
+
+            const ctx = pdfCanvas.getContext('2d');
+            const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
+
+            return page.render({
+                canvasContext: ctx,
+                viewport: viewport,
+                transform: transform,
+            }).promise;
+        });
     }
 
     function updatePageNav() {
@@ -282,7 +371,7 @@ document.addEventListener('DOMContentLoaded', function () {
             state.currentPage--;
             state.placement = null;
             updatePageNav();
-            updateOverlay();
+            renderCurrentPage().then(function () { updateOverlay(); });
         });
     }
 
@@ -292,8 +381,174 @@ document.addEventListener('DOMContentLoaded', function () {
             state.currentPage++;
             state.placement = null;
             updatePageNav();
-            updateOverlay();
+            renderCurrentPage().then(function () { updateOverlay(); });
         });
+    }
+
+    // ═══════════════════════════════════════════
+    // PAGE-ACCURATE STAMP PLACEMENT
+    // ═══════════════════════════════════════════
+
+    function stampWidthPct() {
+        if (state.pageWidthMm && state.stampWidthMm) {
+            return Math.max(8, Math.min(40, (state.stampWidthMm / state.pageWidthMm) * 100));
+        }
+        if (state.widthPct) return state.widthPct;
+        if (state.placement && state.placement.width_pct) return Math.max(14, state.placement.width_pct);
+        return 16;
+    }
+
+    function stampHeightPct() {
+        if (state.pageHeightMm && state.stampHeightMm) {
+            return Math.max(3, Math.min(25, (state.stampHeightMm / state.pageHeightMm) * 100));
+        }
+        return 6;
+    }
+
+    function presetPercents(pos) {
+        const w = stampWidthPct();
+        const h = stampHeightPct();
+        const m = 4; // visual margin % ≈ server 15mm on typical pages
+        switch (pos) {
+            case 'top-left': return { x: m, y: m, w: w };
+            case 'top-right': return { x: Math.max(0, 100 - w - m), y: m, w: w };
+            case 'bottom-left': return { x: m, y: Math.max(0, 100 - h - m), w: w };
+            case 'center': return { x: Math.max(0, (100 - w) / 2), y: Math.max(0, (100 - h) / 2), w: w };
+            case 'bottom-right':
+            default: return { x: Math.max(0, 100 - w - m), y: Math.max(0, 100 - h - m), w: w };
+        }
+    }
+
+    function placeOnPage(xPct, yPct, widthPct, mode) {
+        if (!stampOverlay) return;
+        const w = widthPct != null ? widthPct : stampWidthPct();
+        const h = stampHeightPct();
+        const maxX = Math.max(0, 100 - w);
+        const maxY = Math.max(0, 100 - h);
+        const x = clampPct(Math.min(maxX, xPct));
+        const y = clampPct(Math.min(maxY, yPct));
+
+        stampOverlay.style.display = 'block';
+        stampOverlay.className = 'st-stamp-overlay pos-' + (mode || 'custom');
+        stampOverlay.style.left = x + '%';
+        stampOverlay.style.top = y + '%';
+        stampOverlay.style.right = 'auto';
+        stampOverlay.style.bottom = 'auto';
+        stampOverlay.style.width = w + '%';
+        stampOverlay.style.minWidth = '0';
+        stampOverlay.style.transform = 'none';
+
+        state.xPct = Math.round(x * 100) / 100;
+        state.yPct = Math.round(y * 100) / 100;
+        state.widthPct = Math.round(w * 100) / 100;
+
+        if (mode === 'auto') {
+            if (autoBadge) autoBadge.style.display = 'inline-flex';
+            if (customPosHint) customPosHint.style.display = 'none';
+        } else if (mode === 'custom') {
+            if (autoBadge) autoBadge.style.display = 'none';
+            if (customPosHint) customPosHint.style.display = 'block';
+            if (positionLabel) positionLabel.textContent = 'Custom (dragged)';
+        } else {
+            if (autoBadge) autoBadge.style.display = 'none';
+            if (customPosHint) customPosHint.style.display = 'none';
+        }
+    }
+
+    function placePresetOnPage(pos) {
+        const p = presetPercents(pos);
+        placeOnPage(p.x, p.y, p.w, pos);
+    }
+
+    function applyAutoPlacement(data) {
+        if (!data) return;
+        if (data.stamp_width_mm) state.stampWidthMm = data.stamp_width_mm;
+        if (data.stamp_height_mm) state.stampHeightMm = data.stamp_height_mm;
+        if (data.page_width_mm) state.pageWidthMm = data.page_width_mm;
+        if (data.page_height_mm) state.pageHeightMm = data.page_height_mm;
+        placeOnPage(data.x_pct, data.y_pct, stampWidthPct(), 'auto');
+    }
+
+    function clampPct(v) {
+        return Math.max(0, Math.min(100, v));
+    }
+
+    /** Read stamp box position relative to the rendered PDF page stage. */
+    function captureStampPagePercents() {
+        if (!stampOverlay || !pageStage || stampOverlay.style.display === 'none') {
+            return null;
+        }
+        // Prefer style percentages already stored in page-space.
+        if (state.xPct != null && state.yPct != null) {
+            return {
+                x_pct: state.xPct,
+                y_pct: state.yPct,
+                width_pct: state.widthPct || stampWidthPct(),
+            };
+        }
+        const stage = pageStage.getBoundingClientRect();
+        const box = (stampBox || stampOverlay).getBoundingClientRect();
+        if (!stage.width || !stage.height) return null;
+        return {
+            x_pct: clampPct(((box.left - stage.left) / stage.width) * 100),
+            y_pct: clampPct(((box.top - stage.top) / stage.height) * 100),
+            width_pct: clampPct((box.width / stage.width) * 100),
+        };
+    }
+
+    function beginStampDrag(clientX, clientY) {
+        if (!stampOverlay || !pageStage || stampOverlay.style.display === 'none') return;
+        const stageRect = pageStage.getBoundingClientRect();
+        const overlayRect = stampOverlay.getBoundingClientRect();
+        dragState = {
+            offsetX: clientX - overlayRect.left,
+            offsetY: clientY - overlayRect.top,
+            stageW: stageRect.width,
+            stageH: stageRect.height,
+            stageLeft: stageRect.left,
+            stageTop: stageRect.top,
+            widthPct: state.widthPct || stampWidthPct(),
+        };
+        stampOverlay.classList.add('is-dragging');
+    }
+
+    function moveStampDrag(clientX, clientY) {
+        if (!dragState || !stampOverlay) return;
+        const leftPx = clientX - dragState.stageLeft - dragState.offsetX;
+        const topPx = clientY - dragState.stageTop - dragState.offsetY;
+        const widthPct = dragState.widthPct || stampWidthPct();
+        const heightPct = stampHeightPct();
+        const maxLeft = Math.max(0, 100 - widthPct);
+        const maxTop = Math.max(0, 100 - heightPct);
+        const xPct = clampPct(Math.min(maxLeft, (leftPx / dragState.stageW) * 100));
+        const yPct = clampPct(Math.min(maxTop, (topPx / dragState.stageH) * 100));
+
+        state.position = 'custom';
+        if (autoPlace) autoPlace.checked = false;
+        if (manualWrap) manualWrap.style.display = 'block';
+        placeOnPage(xPct, yPct, widthPct, 'custom');
+    }
+
+    function endStampDrag() {
+        if (!dragState) return;
+        dragState = null;
+        if (stampOverlay) stampOverlay.classList.remove('is-dragging');
+    }
+
+    if (stampOverlay) {
+        stampOverlay.addEventListener('pointerdown', function (e) {
+            if (e.button != null && e.button !== 0) return;
+            e.preventDefault();
+            stampOverlay.setPointerCapture?.(e.pointerId);
+            beginStampDrag(e.clientX, e.clientY);
+        });
+        stampOverlay.addEventListener('pointermove', function (e) {
+            if (!dragState) return;
+            e.preventDefault();
+            moveStampDrag(e.clientX, e.clientY);
+        });
+        stampOverlay.addEventListener('pointerup', endStampDrag);
+        stampOverlay.addEventListener('pointercancel', endStampDrag);
     }
 
     function fetchStampPlacement() {
@@ -302,7 +557,7 @@ document.addEventListener('DOMContentLoaded', function () {
         clearTimeout(placementTimer);
         placementTimer = setTimeout(function () {
             const reqId = ++placementRequestId;
-            const payload = Object.assign(buildPayload(), { page: state.currentPage });
+            const payload = Object.assign(buildPayload(true), { page: state.currentPage });
 
             fetch('/dcs/stamp/preview', {
                 method: 'POST',
@@ -328,90 +583,87 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (!data.success) throw new Error(data.message || 'Preview failed');
 
                 state.placement = data;
-                state.pageCount = data.page_count || 1;
-                updatePageNav();
+                if (data.page_count) {
+                    state.pageCount = data.page_count;
+                    updatePageNav();
+                }
                 renderOverlayContent();
                 applyAutoPlacement(data);
             })
             .catch(function (err) {
                 if (reqId !== placementRequestId) return;
                 if (autoBadge) autoBadge.style.display = 'none';
+                // Fall back to a visible bottom-right page placement.
+                placePresetOnPage('bottom-right');
                 showToast(err.message || 'Could not detect stamp placement.', 'error');
             });
         }, 250);
     }
 
-    function applyAutoPlacement(data) {
-        if (!stampOverlay || !data) return;
-
-        stampOverlay.style.display = 'block';
-        stampOverlay.className = 'st-stamp-overlay pos-auto';
-        stampOverlay.style.left = data.x_pct + '%';
-        stampOverlay.style.top = data.y_pct + '%';
-        stampOverlay.style.width = data.width_pct + '%';
-
-        if (autoBadge) autoBadge.style.display = 'inline-flex';
-    }
-
-    // Show fallback on iframe error
-    pdfPreview.addEventListener('error', function () {
-        previewFallback.style.display = 'flex';
-        pdfPreview.style.display      = 'none';
-    });
-
     // ═══════════════════════════════════════════
     // STAMP TYPE
     // ═══════════════════════════════════════════
 
-    typePills.addEventListener('click', function (e) {
-        const pill = e.target.closest('.st-type-pill');
-        if (!pill) return;
+    if (typePills) {
+        typePills.addEventListener('click', function (e) {
+            const pill = e.target.closest('.st-type-pill');
+            if (!pill) return;
 
-        document.querySelectorAll('.st-type-pill').forEach(p => p.classList.remove('selected'));
-        pill.classList.add('selected');
+            document.querySelectorAll('.st-type-pill').forEach(p => p.classList.remove('selected'));
+            pill.classList.add('selected');
 
-        state.stampType = pill.dataset.type;
+            state.stampType = pill.dataset.type;
+            state.xPct = null;
+            state.yPct = null;
+            if (autoPlace && autoPlace.checked) {
+                state.position = 'auto';
+                state.placement = null;
+            } else {
+                state.position = document.querySelector('.st-pos-dot.active')?.dataset.pos || 'bottom-right';
+            }
 
-        updateOverlay();
-        checkReady();
-    });
-
-    // ═══════════════════════════════════════════
-    // POSITION
-    // ═══════════════════════════════════════════
-
-    positionMap.addEventListener('click', function (e) {
-        const dot = e.target.closest('.st-pos-dot');
-        if (!dot) return;
-
-        document.querySelectorAll('.st-pos-dot').forEach(d => d.classList.remove('active'));
-        dot.classList.add('active');
-
-        state.position = dot.dataset.pos;
-
-        var labels = {
-            'top-left': 'Top Left',
-            'top-right': 'Top Right',
-            'center': 'Center',
-            'bottom-left': 'Bottom Left',
-            'bottom-right': 'Bottom Right',
-        };
-        positionLabel.textContent = labels[state.position] || state.position;
-
-        updateOverlay();
-    });
+            // Immediate visible place on the page while auto-detect runs.
+            placePresetOnPage(state.position === 'auto' ? 'bottom-right' : state.position);
+            renderOverlayContent();
+            updateOverlay();
+            checkReady();
+        });
+    }
 
     // ═══════════════════════════════════════════
-    // ALL PAGES
+    // POSITION PRESETS
     // ═══════════════════════════════════════════
 
-    stampAllPages.addEventListener('change', function () {
-        state.allPages = this.checked;
-        updateOverlay();
-    });
+    if (positionMap) {
+        positionMap.addEventListener('click', function (e) {
+            const dot = e.target.closest('.st-pos-dot');
+            if (!dot) return;
+
+            document.querySelectorAll('.st-pos-dot').forEach(d => d.classList.remove('active'));
+            dot.classList.add('active');
+
+            state.position = dot.dataset.pos;
+            state.xPct = null;
+            state.yPct = null;
+            if (autoPlace) autoPlace.checked = false;
+            if (manualWrap) manualWrap.style.display = 'block';
+            if (customPosHint) customPosHint.style.display = 'none';
+            if (positionLabel) positionLabel.textContent = POS_LABELS[state.position] || state.position;
+
+            placePresetOnPage(state.position);
+            updateOverlay();
+        });
+    }
+
+    if (stampAllPages) {
+        stampAllPages.addEventListener('change', function () {
+            state.allPages = this.checked;
+            updateOverlay();
+        });
+    }
 
     // ═══════════════════════════════════════════
-    // UPDATE STAMP OVERLAY
+    // UPDATE OVERLAY
     // ═══════════════════════════════════════════
 
     var STAMP_STYLES = {
@@ -420,27 +672,24 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function updateOverlay() {
         if (!state.stampType) {
-            stampOverlay.style.display = 'none';
+            if (stampOverlay) stampOverlay.style.display = 'none';
             if (autoBadge) autoBadge.style.display = 'none';
             return;
         }
 
         renderOverlayContent();
 
+        if (state.position === 'custom' && state.xPct != null && state.yPct != null) {
+            placeOnPage(state.xPct, state.yPct, state.widthPct, 'custom');
+            return;
+        }
+
         if (state.position === 'auto') {
             fetchStampPlacement();
             return;
         }
 
-        if (autoBadge) autoBadge.style.display = 'none';
-        stampOverlay.style.display = 'block';
-        stampOverlay.className = 'st-stamp-overlay pos-' + state.position;
-        stampOverlay.style.left = '';
-        stampOverlay.style.top = '';
-        stampOverlay.style.right = '';
-        stampOverlay.style.bottom = '';
-        stampOverlay.style.width = '';
-        stampOverlay.style.transform = '';
+        placePresetOnPage(state.position);
     }
 
     function renderOverlayContent() {
@@ -450,11 +699,19 @@ document.addEventListener('DOMContentLoaded', function () {
         var art = document.getElementById('overlayStampArt');
         var fallback = document.getElementById('overlayStampFallback');
 
+        if (fallback) fallback.style.display = 'none';
         if (art) {
             art.style.display = 'block';
-        }
-        if (fallback) {
-            fallback.style.display = 'none';
+            art.onerror = function () {
+                art.style.display = 'none';
+                if (fallback) fallback.style.display = 'block';
+            };
+            if (art.complete && art.naturalWidth === 0) {
+                art.style.display = 'none';
+                if (fallback) fallback.style.display = 'block';
+            }
+        } else if (fallback) {
+            fallback.style.display = 'block';
         }
 
         if (overlayTitle) {
@@ -465,16 +722,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (overlayDate) overlayDate.style.display = 'none';
         if (overlaySub) overlaySub.style.display = 'none';
 
-        overlayPages.textContent = state.allPages ? 'All pages' : 'First page only';
-
-        if (state.position === 'auto' && state.placement) {
-            applyAutoPlacement(state.placement);
+        if (overlayPages) {
+            overlayPages.textContent = state.allPages ? 'All pages' : ('Page ' + state.currentPage + ' only');
         }
     }
-
-    // ═══════════════════════════════════════════
-    // CHECK IF READY
-    // ═══════════════════════════════════════════
 
     function syncStampActions() {
         var stamped = !!(state.selectedFile && state.selectedFile.stamped);
@@ -490,192 +741,237 @@ document.addEventListener('DOMContentLoaded', function () {
         if (headerH3) {
             headerH3.textContent = stamped ? 'Remove Stamp' : 'Apply Stamp';
         }
+        if (downloadBtn) {
+            // Allow download of live stamped file, or a stamped copy while placing.
+            downloadBtn.disabled = !(stamped || state.stampType);
+            var label = downloadBtn.querySelector('span');
+            if (label) label.textContent = stamped ? 'Download Stamped' : 'Download Copy';
+        }
     }
 
     function checkReady() {
-        var ready = !!state.stampType;
-        downloadBtn.disabled = !ready;
         syncStampActions();
     }
 
-    // ═══════════════════════════════════════════
-    // CLOSE MODAL
-    // ═══════════════════════════════════════════
-
     function hideStampModal() {
         stampModal.style.display = 'none';
-        pdfPreview.src = '';
-        stampOverlay.style.display = 'none';
+        state.pdfDoc = null;
+        renderToken++;
+        if (stampOverlay) stampOverlay.style.display = 'none';
+        if (pdfCanvas) {
+            const ctx = pdfCanvas.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+        }
     }
 
-    closeModal.addEventListener('click', hideStampModal);
-    cancelBtn.addEventListener('click', hideStampModal);
-    stampModal.addEventListener('click', function (e) {
-        if (e.target === stampModal) hideStampModal();
-    });
+    if (closeModal) closeModal.addEventListener('click', hideStampModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', hideStampModal);
+    if (stampModal) {
+        stampModal.addEventListener('click', function (e) {
+            if (e.target === stampModal) hideStampModal();
+        });
+    }
+
+    if (refreshPreview) {
+        refreshPreview.addEventListener('click', function () {
+            if (state.selectedFile) loadPreview();
+        });
+    }
 
     // ═══════════════════════════════════════════
-    // REFRESH PREVIEW
+    // PAYLOAD — always page-accurate custom coords when placing
     // ═══════════════════════════════════════════
 
-    refreshPreview.addEventListener('click', function () {
-        if (state.selectedFile) loadPreview();
-    });
-
-    // ═══════════════════════════════════════════
-    // BUILD REQUEST PAYLOAD
-    // ═══════════════════════════════════════════
-
-    function buildPayload() {
-        return {
+    function buildPayload(forPreview) {
+        var payload = {
             file_path:    state.selectedFile.path,
             file_key:     state.selectedFile.key,
             request_id:   state.requestId,
             doc_no:       state.docNo,
             doc_title:    state.docTitle,
             rev:          String(state.rev),
-            stamp_type:   state.stampType,
-            position:     state.position,
+            stamp_type:   state.stampType || 'reference',
+            position:     state.position || 'auto',
             all_pages:    state.allPages,
         };
+
+        if (forPreview) {
+            return payload;
+        }
+
+        // Convert whatever is on the page into custom page percentages for FPDI.
+        var captured = captureStampPagePercents();
+        if (captured) {
+            payload.position = 'custom';
+            payload.x_pct = Math.round(captured.x_pct * 100) / 100;
+            payload.y_pct = Math.round(captured.y_pct * 100) / 100;
+            state.position = 'custom';
+            state.xPct = payload.x_pct;
+            state.yPct = payload.y_pct;
+        } else if (state.position === 'custom') {
+            payload.x_pct = state.xPct;
+            payload.y_pct = state.yPct;
+        }
+
+        return payload;
     }
 
     // ═══════════════════════════════════════════
-    // DOWNLOAD (stamped copy, no overwrite)
+    // DOWNLOAD
     // ═══════════════════════════════════════════
 
-    downloadBtn.addEventListener('click', function () {
-        if (!state.selectedFile || !state.stampType) return;
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', function () {
+            if (!state.selectedFile) return;
+            var stamped = !!state.selectedFile.stamped;
+            if (!stamped && !state.stampType) return;
 
-        var originalHTML = downloadBtn.innerHTML;
-        downloadBtn.disabled  = true;
-        downloadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Preparing...</span>';
+            var originalHTML = downloadBtn.innerHTML;
+            downloadBtn.disabled  = true;
+            downloadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Preparing...</span>';
 
-        fetch('/dcs/stamp/download', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                'Accept': 'application/pdf',
-            },
-            body: JSON.stringify(buildPayload()),
-        })
-        .then(function (res) {
-            if (!res.ok) throw new Error('Download failed');
-            return res.blob();
-        })
-        .then(function (blob) {
-            var url = URL.createObjectURL(blob);
-            var a   = document.createElement('a');
-            a.href     = url;
-            a.download = '[' + state.stampType.toUpperCase().replace(/_/g, ' ') + '] ' + state.docNo + '.pdf';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            showToast('Downloaded stamped copy.', 'success');
-        })
-        .catch(function () {
-            showToast('Download failed. Please try again.', 'error');
-        })
-        .finally(function () {
-            downloadBtn.innerHTML = originalHTML;
-            checkReady();
+            var body;
+            if (stamped) {
+                body = {
+                    use_live_file: true,
+                    request_id: state.requestId,
+                    file_key: state.selectedFile.key,
+                    doc_title: state.docTitle,
+                };
+            } else {
+                body = buildPayload(false);
+            }
+
+            fetch('/dcs/stamp/download', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/pdf',
+                },
+                body: JSON.stringify(body),
+            })
+            .then(function (res) {
+                if (!res.ok) throw new Error('Download failed');
+                return res.blob();
+            })
+            .then(function (blob) {
+                var url = URL.createObjectURL(blob);
+                var a   = document.createElement('a');
+                a.href     = url;
+                a.download = sanitizeDownloadName(referenceDocTitle()) + '.pdf';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showToast(stamped ? 'Downloaded stamped file.' : 'Downloaded stamped copy.', 'success');
+            })
+            .catch(function () {
+                showToast('Download failed. Please try again.', 'error');
+            })
+            .finally(function () {
+                downloadBtn.innerHTML = originalHTML;
+                checkReady();
+            });
         });
-    });
+    }
 
     // ═══════════════════════════════════════════
-    // APPLY (permanent — confirm first)
+    // APPLY
     // ═══════════════════════════════════════════
 
-    applyBtn.addEventListener('click', function () {
-        if (!state.selectedFile || !state.stampType) return;
+    if (applyBtn) {
+        applyBtn.addEventListener('click', function () {
+            if (!state.selectedFile || !state.stampType) return;
+            var cfg = STAMP_STYLES[state.stampType] || {};
+            if (confirmLabel) confirmLabel.textContent = cfg.title || state.stampType;
+            confirmModal.style.display = 'flex';
+        });
+    }
 
-        var cfg = STAMP_STYLES[state.stampType] || {};
-        confirmLabel.textContent = cfg.title || state.stampType;
-        confirmModal.style.display = 'flex';
-    });
-
-    confirmCancel.addEventListener('click', function () {
-        if (confirmApply && confirmApply.classList.contains('is-loading')) return;
-        confirmModal.style.display = 'none';
-    });
-
-    confirmModal.addEventListener('click', function (e) {
-        if (e.target === confirmModal) {
+    if (confirmCancel) {
+        confirmCancel.addEventListener('click', function () {
             if (confirmApply && confirmApply.classList.contains('is-loading')) return;
             confirmModal.style.display = 'none';
-        }
-    });
-
-    confirmApply.addEventListener('click', function () {
-        if (!state.selectedFile || !state.stampType) return;
-        if (confirmApply.disabled || confirmApply.classList.contains('is-loading')) return;
-
-        var originalHTML = confirmApply.innerHTML;
-        confirmApply.disabled  = true;
-        confirmApply.classList.add('is-loading');
-        confirmApply.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Applying...';
-        if (confirmCancel) confirmCancel.disabled = true;
-
-        fetch('/dcs/stamp/apply', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                'Accept': 'application/json',
-            },
-            body: JSON.stringify(buildPayload()),
-        })
-        .then(function (res) {
-            return res.json().catch(function () {
-                var msg = 'Stamping failed (server error).';
-                if (res.status === 419) {
-                    msg = 'Session expired — refresh the page and try again.';
-                } else if (res.status === 504) {
-                    msg = 'Stamping timed out. Large PDFs (400+ pages) can take several minutes — please wait and try again.';
-                }
-                throw new Error(msg);
-            }).then(function (data) {
-                if (!res.ok) throw new Error(data.message || 'Failed to apply stamp');
-                return data;
-            });
-        })
-        .then(function (data) {
-            showToast('Stamp applied successfully!', 'success');
-            confirmModal.style.display = 'none';
-            if (state.selectedFile) {
-                state.selectedFile.stamped    = true;
-                state.selectedFile.stamp_type   = state.stampType;
-            }
-            // Refresh preview only — skip full page reload (much faster).
-            loadPreview(Date.now());
-            checkReady();
-            document.querySelectorAll('.st-btn-stamp[data-request-id="' + state.requestId + '"]').forEach(function (btn) {
-                btn.classList.add('st-btn-stamp-change');
-                var tag = btn.closest('tr') && btn.closest('tr').querySelector('.st-file-tag');
-                if (tag) {
-                    tag.classList.add('st-file-stamped');
-                    var icon = tag.querySelector('i');
-                    if (icon) {
-                        icon.className = 'fa-solid fa-stamp';
-                    }
-                }
-            });
-            if (window.Livewire && typeof Livewire.dispatch === 'function') {
-                Livewire.dispatch('stamp-applied');
-            }
-        })
-        .catch(function (err) {
-            showToast(err.message || 'Failed to apply stamp.', 'error');
-        })
-        .finally(function () {
-            confirmApply.innerHTML = originalHTML;
-            confirmApply.classList.remove('is-loading');
-            confirmApply.disabled  = false;
-            if (confirmCancel) confirmCancel.disabled = false;
         });
-    });
+    }
+
+    if (confirmModal) {
+        confirmModal.addEventListener('click', function (e) {
+            if (e.target === confirmModal) {
+                if (confirmApply && confirmApply.classList.contains('is-loading')) return;
+                confirmModal.style.display = 'none';
+            }
+        });
+    }
+
+    if (confirmApply) {
+        confirmApply.addEventListener('click', function () {
+            if (!state.selectedFile || !state.stampType) return;
+            if (confirmApply.disabled || confirmApply.classList.contains('is-loading')) return;
+
+            var originalHTML = confirmApply.innerHTML;
+            confirmApply.disabled  = true;
+            confirmApply.classList.add('is-loading');
+            confirmApply.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Applying...';
+            if (confirmCancel) confirmCancel.disabled = true;
+
+            fetch('/dcs/stamp/apply', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify(buildPayload(false)),
+            })
+            .then(function (res) {
+                return res.json().catch(function () {
+                    var msg = 'Stamping failed (server error).';
+                    if (res.status === 419) {
+                        msg = 'Session expired — refresh the page and try again.';
+                    } else if (res.status === 504) {
+                        msg = 'Stamping timed out. Large PDFs can take several minutes — please wait and try again.';
+                    }
+                    throw new Error(msg);
+                }).then(function (data) {
+                    if (!res.ok) throw new Error(data.message || 'Failed to apply stamp');
+                    return data;
+                });
+            })
+            .then(function () {
+                showToast('Stamp applied successfully!', 'success');
+                confirmModal.style.display = 'none';
+                if (state.selectedFile) {
+                    state.selectedFile.stamped = true;
+                    state.selectedFile.stamp_type = state.stampType;
+                }
+                loadPreview(Date.now());
+                checkReady();
+                document.querySelectorAll('.st-btn-stamp[data-request-id="' + state.requestId + '"]').forEach(function (btn) {
+                    btn.classList.add('st-btn-stamp-change');
+                    var tag = btn.closest('tr') && btn.closest('tr').querySelector('.st-file-tag');
+                    if (tag) {
+                        tag.classList.add('st-file-stamped');
+                        var icon = tag.querySelector('i');
+                        if (icon) icon.className = 'fa-solid fa-stamp';
+                    }
+                });
+                if (window.Livewire && typeof Livewire.dispatch === 'function') {
+                    Livewire.dispatch('stamp-applied');
+                }
+            })
+            .catch(function (err) {
+                showToast(err.message || 'Failed to apply stamp.', 'error');
+            })
+            .finally(function () {
+                confirmApply.innerHTML = originalHTML;
+                confirmApply.classList.remove('is-loading');
+                confirmApply.disabled  = false;
+                if (confirmCancel) confirmCancel.disabled = false;
+            });
+        });
+    }
 
     if (restoreBtn) {
         restoreBtn.addEventListener('click', function () {
@@ -699,7 +995,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (restoreConfirm) {
         restoreConfirm.addEventListener('click', function () {
             if (!state.selectedFile) return;
-
             var originalHTML = restoreConfirm.innerHTML;
             restoreConfirm.disabled = true;
             restoreConfirm.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Restoring...';
@@ -717,23 +1012,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 }),
             })
             .then(function (res) {
-                return res.json().then(function (data) {
+                return res.json().catch(function () {
+                    throw new Error('Failed to restore original');
+                }).then(function (data) {
                     if (!res.ok) throw new Error(data.message || 'Failed to restore original');
                     return data;
                 });
             })
             .then(function () {
-                showToast('Stamp removed.', 'success');
                 restoreModal.style.display = 'none';
+                showToast('Stamp removed. Original restored.', 'success');
                 if (state.selectedFile) {
                     state.selectedFile.stamped = false;
                     state.selectedFile.stamp_type = null;
                 }
+                resetConfigUI();
                 loadPreview(Date.now());
                 checkReady();
-                document.querySelectorAll('.st-btn-stamp[data-request-id="' + state.requestId + '"]').forEach(function (btn) {
-                    btn.classList.remove('st-btn-stamp-change');
-                });
                 if (window.Livewire && typeof Livewire.dispatch === 'function') {
                     Livewire.dispatch('stamp-applied');
                 }
@@ -748,24 +1043,16 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // ═══════════════════════════════════════════
-    // KEYBOARD: ESC to close
-    // ═══════════════════════════════════════════
-
     document.addEventListener('keydown', function (e) {
         if (e.key !== 'Escape') return;
         if (restoreModal && restoreModal.style.display === 'flex') {
             restoreModal.style.display = 'none';
-        } else if (confirmModal.style.display === 'flex') {
+        } else if (confirmModal && confirmModal.style.display === 'flex') {
             confirmModal.style.display = 'none';
-        } else if (stampModal.style.display === 'flex') {
+        } else if (stampModal && stampModal.style.display === 'flex') {
             hideStampModal();
         }
     });
-
-    // ═══════════════════════════════════════════
-    // TOAST
-    // ═══════════════════════════════════════════
 
     function showToast(message, type) {
         if (window.dcsShowToast) {

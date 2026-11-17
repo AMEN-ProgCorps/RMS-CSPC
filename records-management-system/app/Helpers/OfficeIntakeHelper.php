@@ -1846,12 +1846,12 @@ class OfficeIntakeHelper
             }
         } else {
             $open = self::findOpenDuplicateDcn($docNo, $docTitle, '', [$originLabel], $exceptId);
-            if ($open) {
+        if ($open) {
                 $payload['open_request_type'] = 'dcn';
                 $payload['open_request_id'] = (int) $open->id;
-                $payload['open_dcn_id'] = (int) $open->id;
+            $payload['open_dcn_id'] = (int) $open->id;
                 $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $open->id], false);
-                $payload['open_request_message'] = self::duplicateDcnMessage($open);
+            $payload['open_request_message'] = self::duplicateDcnMessage($open);
             }
         }
         if ($found) {
@@ -8263,9 +8263,9 @@ class OfficeIntakeHelper
         return self::rememberOfficeInventory(
             'incoming.attention.v2.'.(int) ($officeId ?? 0),
             function () use ($officeId) {
-                $pending = self::officeDocumentTotal($officeId, 'pending');
+        $pending = self::officeDocumentTotal($officeId, 'pending');
                 $appraisable = 0;
-                $perms = auth()->user()?->permissions;
+        $perms = auth()->user()?->permissions;
                 if ($perms && ($perms->is_sadm || $perms->can_access_rdp) && $officeId) {
                     // SQL distinct count only — no row hydration for the nav badge.
                     $appraisable = self::officeDocumentTotal($officeId, 'received_for_appraisal');
@@ -8695,18 +8695,18 @@ class OfficeIntakeHelper
      */
     protected static function applyPendingAppraisalExists($q, string $officeCode): void
     {
-        $q->select(DB::raw(1))
-            ->from('rdp_received_documents as rdp_hold')
-            ->where('rdp_hold.source_subsystem', 'DCS')
-            ->where('rdp_hold.status', 'pending')
+            $q->select(DB::raw(1))
+                ->from('rdp_received_documents as rdp_hold')
+                ->where('rdp_hold.source_subsystem', 'DCS')
+                ->where('rdp_hold.status', 'pending')
             ->whereRaw('LOWER(rdp_hold.target_office) = ?', [strtolower($officeCode)])
-            ->where(function ($match) {
-                $match->whereColumn('rdp_hold.document_code', 'ml.doc_no')
-                    ->orWhereRaw("COALESCE(rdp_hold.metadata->>'dcs_request_id', '') = ml.request_id::text")
-                    ->orWhereRaw(
-                        "rdp_hold.document_code = CONCAT('DCS-REQ-', ml.request_id::text)"
-                    );
-            });
+                ->where(function ($match) {
+                    $match->whereColumn('rdp_hold.document_code', 'ml.doc_no')
+                        ->orWhereRaw("COALESCE(rdp_hold.metadata->>'dcs_request_id', '') = ml.request_id::text")
+                        ->orWhereRaw(
+                            "rdp_hold.document_code = CONCAT('DCS-REQ-', ml.request_id::text)"
+                        );
+        });
     }
 
     /**
@@ -9022,11 +9022,11 @@ class OfficeIntakeHelper
         $query = self::officeDocumentsFilteredQuery($groupKey, $officeId, $receiptFilter);
 
         $select = [
-            'ml.id',
-            'ml.doc_no',
-            'ml.revise_no',
-            'ml.doc_title',
-            'ml.effectivity_date',
+                'ml.id',
+                'ml.doc_no',
+                'ml.revise_no',
+                'ml.doc_title',
+                'ml.effectivity_date',
         ];
         if (Schema::hasColumn('dcs_masterlist_registration', 'no_pages')) {
             $select[] = 'ml.no_pages';

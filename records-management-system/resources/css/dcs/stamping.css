@@ -830,11 +830,30 @@ body {
     border: 1px solid var(--st-border);
 }
 
-.st-preview-frame iframe {
+.st-preview-scroll {
     width: 100%;
     height: 100%;
-    border: none;
+    overflow: auto;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 16px;
+    box-sizing: border-box;
+}
+
+.st-page-stage {
+    position: relative;
+    display: inline-block;
+    margin: 0 auto;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
+    background: #fff;
+    line-height: 0;
+}
+
+.st-page-stage canvas {
     display: block;
+    max-width: 100%;
+    height: auto;
 }
 
 .st-preview-fallback {
@@ -1117,7 +1136,18 @@ body {
 .st-stamp-overlay {
     position: absolute;
     z-index: 10;
-    pointer-events: none;
+    pointer-events: auto;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+    /* Width is set in % of the PDF page stage so preview matches FPDI page coords. */
+    width: 16%;
+    line-height: normal;
+}
+
+.st-stamp-overlay.is-dragging {
+    cursor: grabbing;
+    opacity: 0.95;
 }
 
 .st-stamp-overlay.pos-top-left     { top: 4%; left: 4%; right: auto; bottom: auto; transform: none; }
@@ -1125,7 +1155,8 @@ body {
 .st-stamp-overlay.pos-center       { top: 50%; left: 50%; right: auto; bottom: auto; transform: translate(-50%, -50%); }
 .st-stamp-overlay.pos-bottom-left  { bottom: 4%; left: 4%; top: auto; right: auto; transform: none; }
 .st-stamp-overlay.pos-bottom-right { bottom: 4%; right: 4%; top: auto; left: auto; transform: none; }
-.st-stamp-overlay.pos-auto {
+.st-stamp-overlay.pos-auto,
+.st-stamp-overlay.pos-custom {
     top: auto;
     right: auto;
     bottom: auto;
@@ -1154,8 +1185,9 @@ body {
 }
 
 .st-stamp-box-image {
-    width: 110px;
-    max-width: 20%;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
     overflow: visible;
 }
 
@@ -1164,14 +1196,15 @@ body {
     width: 100%;
     height: auto;
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.18));
+    background: transparent;
 }
 
 .st-stamp-inner {
     position: relative;
-    border: 1.8px solid #b03030;
-    padding: 6px 10px 10px;
+    border: 2.5px solid #b03030;
+    padding: 10px 14px 14px;
     text-align: center;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.92);
     overflow: visible;
 }
 
@@ -1197,9 +1230,9 @@ body {
 }
 
 .st-stamp-title {
-    font-size: 8px;
+    font-size: 15px;
     font-weight: 800;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     line-height: 1.1;
     color: #b03030;
     font-family: Arial Narrow, Arial, Helvetica, sans-serif;

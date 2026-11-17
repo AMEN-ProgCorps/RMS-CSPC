@@ -599,22 +599,25 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </button>
                     </div>
                     <div class="st-preview-frame" id="previewFrame">
-                        <iframe id="pdfPreview" src="" title="PDF Preview"></iframe>
-
-                        <div class="st-stamp-overlay pos-bottom-right" id="stampOverlay" style="display:none;">
-                            <div class="st-stamp-box st-stamp-box-image" id="stampBox">
-                                <img src="{{ asset('images/stamps/reference.png') }}" alt="REFERENCE" class="st-stamp-art" id="overlayStampArt">
-                                <div class="st-stamp-inner" id="overlayStampFallback" style="display:none;">
-                                    <div class="st-stamp-title" id="overlayTitle">REFERENCE</div>
-                                    <div class="st-stamp-divider" id="overlayDivider" style="display:none;"></div>
-                                    <div class="st-stamp-date" id="overlayDate" style="display:none;"></div>
-                                    <div class="st-stamp-sub" id="overlaySub" style="display:none;"></div>
+                        <div class="st-preview-scroll" id="previewScroll">
+                            <div class="st-page-stage" id="pageStage">
+                                <canvas id="pdfCanvas" aria-label="PDF page preview"></canvas>
+                                <div class="st-stamp-overlay pos-bottom-right" id="stampOverlay" style="display:none;">
+                                    <div class="st-stamp-box st-stamp-box-image" id="stampBox" title="Drag to move">
+                                        <img src="{{ asset('images/stamps/reference.png') }}?v={{ @filemtime(public_path('images/stamps/reference.png')) ?: time() }}" alt="REFERENCE" class="st-stamp-art" id="overlayStampArt">
+                                        <div class="st-stamp-inner" id="overlayStampFallback" style="display:none;">
+                                            <div class="st-stamp-title" id="overlayTitle">REFERENCE</div>
+                                            <div class="st-stamp-divider" id="overlayDivider" style="display:none;"></div>
+                                            <div class="st-stamp-date" id="overlayDate" style="display:none;"></div>
+                                            <div class="st-stamp-sub" id="overlaySub" style="display:none;"></div>
+                                        </div>
+                                    </div>
+                                    <span class="st-stamp-pages" id="overlayPages">All pages</span>
+                                    <span class="st-auto-badge" id="autoBadge" style="display:none;">
+                                        <i class="fa-solid fa-wand-magic-sparkles"></i> Empty area detected
+                                    </span>
                                 </div>
                             </div>
-                            <span class="st-stamp-pages" id="overlayPages">All pages</span>
-                            <span class="st-auto-badge" id="autoBadge" style="display:none;">
-                                <i class="fa-solid fa-wand-magic-sparkles"></i> Empty area detected
-                            </span>
                         </div>
 
                         <div class="st-preview-fallback" id="previewFallback" style="display:none;">
@@ -624,8 +627,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </div>
                     </div>
                     <p class="st-preview-note">
-                        <i class="fa-solid fa-eye"></i>
-                        Preview shows stamp on the detected empty area of the scanned page
+                        <i class="fa-solid fa-hand"></i>
+                        Stamp sticks to the PDF page (scroll-safe). Drag it on the page before applying.
                     </p>
                 </div>
 
@@ -638,8 +641,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
                     <div class="st-section">
                         <label class="st-label">Stamp Type</label>
+                        <p style="margin:0 0 8px;font-size:0.75rem;color:var(--st-text-subtle);">
+                            Click a stamp to place it on the preview, then drag it into position.
+                        </p>
                         <div class="st-type-pills" id="typePills">
-                            <button class="st-type-pill selected" data-type="reference" type="button">
+                            <button class="st-type-pill" data-type="reference" type="button">
                                 <span class="st-pill-color" style="background:#b03030"></span> Reference
                             </button>
                         </div>
@@ -650,7 +656,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <label class="st-checkbox-wrap" style="margin-bottom:10px;">
                             <input type="checkbox" id="autoPlace" checked>
                             <span class="st-checkbox-custom"></span>
-                            <span>Auto-place in empty area <small style="color:var(--st-text-subtle);font-weight:400;">(prefers bottom margin)</small></span>
+                            <span>Auto-place in empty area <small style="color:var(--st-text-subtle);font-weight:400;">(you can still drag afterward)</small></span>
                         </label>
 
                         <div id="manualPosWrap" style="display:none;">
@@ -665,6 +671,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <span class="st-pos-label" id="positionLabel">Bottom Right</span>
                             </div>
                         </div>
+                        <p class="st-pos-drag-hint" id="customPosHint" style="display:none;margin:8px 0 0;font-size:0.75rem;color:var(--st-text-subtle);">
+                            <i class="fa-solid fa-arrows-up-down-left-right"></i>
+                            Custom position — drag the stamp on the PDF preview
+                        </p>
                     </div>
 
                     <div class="st-section">
@@ -733,6 +743,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </div>
 
     <div wire:ignore>
-        <script src="{{ asset('js/stamping.js') }}"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <script>
+            if (window.pdfjsLib) {
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            }
+        </script>
+        <script src="{{ asset('js/stamping.js') }}?v={{ @filemtime(public_path('js/stamping.js')) ?: time() }}"></script>
     </div>
 </div>

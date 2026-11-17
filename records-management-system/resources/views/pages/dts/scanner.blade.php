@@ -42,11 +42,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     /** @var string Resubmit routing target: 'start' or 'requestor' */
     public string $resubmitTarget = 'requestor';
 
-    /** @var bool Continuous/Batch scanning mode */
-    public bool $continuousMode = false;
-
-    /** @var bool Auto action (Receive if incoming, Forward if received) immediately on scan */
-    public bool $autoAction = false;
+    public int $cooldownUntil = 0;
+    public bool $isManualInput = false;
 
     /** @var array Action needed options from DB */
     public array $actionOptions = [];
@@ -58,6 +55,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     public string $successMessage = '';
     public string $errorMessage = '';
     public string $infoMessage = '';
+    public bool $availableCodesEnabled = true;
 
     /** @var bool Available codes modal open state */
     public bool $showAvailableModal = false;
@@ -97,6 +95,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         $this->actionNeeded = $this->actionOptions[0] ?? 'For Action';
         $this->sessionScans = session()->get('dts_scanner_session_logs', []);
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $setting = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
+        $this->availableCodesEnabled = ($setting !== 'false');
     }
 
     /**
@@ -231,12 +233,13 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     }
 
     /**
-     * Toggles the continuous mode setting or state.
+     * Triggers manual search for code entered in input box ($isScan = false), requiring manual receipt verification.
+     *
      * @return void
      */
-    public function toggleContinuousMode(): void
+    public function loadTransactionManual(): void
     {
-        $this->continuousMode = !$this->continuousMode;
+        $this->loadTransaction(null, false);
     }
 
     /**
@@ -274,6 +277,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
      */
     public function openAvailableCodesModal(): void
     {
+        if (!$this->availableCodesEnabled) {
+            $this->showAvailableModal = false;
+            return;
+        }
         $this->availableSearch = '';
         $this->availableFilter = 'all';
         $this->showAvailableModal = true;
@@ -299,7 +306,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     {
         $this->showAvailableModal = false;
         $this->scannedCode = $code;
-        $this->loadTransaction();
+        $this->loadTransaction($code, false);
     }
 
     /**
@@ -448,8 +455,21 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
     /**
      * Search and load transaction details by scanned QR code or Control Number.
+     *
+     * Business rules:
+     * - Auto-Receive ($isScan = true): Triggered when code comes from camera feed or barcode gun.
+     *   If incoming to user's office, auto-receives custody, records receive log, updates sequence,
+     *   dispatches notification, and activates a 5-second scanner cooldown.
+     * - Manual Verification ($isScan = false): Triggered when code is typed into input box.
+     *   Leaves the transaction in its current incoming state and requires manual receipt verification.
+     * - Enforces office scoping: Rejects documents belonging to other stations.
+     * - Checks working hours: Auto-receive is blocked outside working hours with policy banner.
+     *
+     * @param string|null $codeToLoad Raw barcode/QR code string.
+     * @param bool $isScan Whether lookup originated from live optical scanning (true) or manual entry (false).
+     * @return void
      */
-    public function loadTransaction(?string $codeToLoad = null): void
+    public function loadTransaction(?string $codeToLoad = null, bool $isScan = false): void
     {
         $this->clearAlerts();
         $this->activeTransaction = null;
@@ -458,6 +478,19 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->forwardHubTempSelected = [];
         $this->showForwardHubModal = false;
         $this->forwardHubSearch = '';
+
+        if ($isScan) {
+            $this->isManualInput = false;
+            if ($this->cooldownUntil > time()) {
+                $waitSec = $this->cooldownUntil - time();
+                $this->errorMessage = "Scanner cooldown active ({$waitSec}s remaining). Please wait before scanning again.";
+                $this->dispatch('scanner-code-invalid');
+                $this->dispatch('scanner-audio-error');
+                return;
+            }
+        } else {
+            $this->isManualInput = true;
+        }
 
         if ($codeToLoad !== null && trim($codeToLoad) !== '') {
             $this->scannedCode = trim($codeToLoad);
@@ -677,13 +710,9 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->dispatch('scanner-audio-success');
         $this->logSessionScan($transaction->qr_code, $transaction->subject ?: 'Document Inspected', 'success');
 
-        // Auto-Action if enabled and eligible (Auto-Receive incoming OR Auto-Forward already received)
-        if ($this->autoAction && $transaction->current_office === $userOfficeCode) {
-            if (!$isReceivedAtUserOffice) {
-                $this->executeReceive();
-            } else {
-                $this->executeForward();
-            }
+        // Auto-Receive if scanned via camera or barcode gun and document is incoming to user office
+        if ($isScan && $transaction->current_office === $userOfficeCode && !$isReceivedAtUserOffice) {
+            $this->executeReceive();
         }
     }
 
@@ -700,11 +729,20 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     }
 
     /**
-     * Execute Receive action on active document.
+     * Executes the Receive action on the active document at the user's station.
+     * Enforces working hours restrictions, one-time receive guard with pessimistic row locking,
+     * updates sequence timing, dispatches notifications, and starts a 5-second scanner cooldown.
+     *
+     * @return void
      */
     public function executeReceive(): void
     {
         $this->clearAlerts();
+
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+            return;
+        }
 
         if (!$this->activeTransaction) {
             $this->errorMessage = 'No document selected.';
@@ -775,13 +813,26 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 if (!empty($this->activeTransaction['transaction_flow'])) {
                     $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->activeTransaction['transaction_flow'])->first();
                     if ($flow) {
+                        $seqRanking = $this->activeTransaction['sequence'];
+                        $prevSeq = DB::table('dts_sequence_list')
+                            ->where('control_id', $flow->id)
+                            ->where('sequence_ranking', $seqRanking - 1)
+                            ->first();
+                        $totalTimeReceived = null;
+                        if ($prevSeq && $prevSeq->date_out) {
+                            $totalTimeReceived = \App\Services\DtsWorkingHoursService::calculateDurationString($prevSeq->date_out, now());
+                        } elseif ($seqRanking == 1) {
+                            $totalTimeReceived = '-';
+                        }
+
                         DB::table('dts_sequence_list')
                             ->where('control_id', $flow->id)
-                            ->where('sequence_ranking', $this->activeTransaction['sequence'])
+                            ->where('sequence_ranking', $seqRanking)
                             ->update([
                                 'date_in' => now(),
                                 'account_received' => auth()->id(),
                                 'scanned_id' => true,
+                                'total_time_received' => $totalTimeReceived,
                             ]);
                     }
                 }
@@ -814,6 +865,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             $msg = "Document '{$this->activeTransaction['control_number']}' successfully RECEIVED at {$this->activeTransaction['current_office']}!";
             $this->dispatch('scanner-audio-action');
             $this->logSessionScan($this->activeTransaction['qr_code'], 'Received', 'action');
+            $this->cooldownUntil = time() + 5;
+            $this->dispatch('scanner-cooldown-start', ['seconds' => 5]);
 
             // Reset console to ensure the same scan cannot be actioned again
             // (e.g. accidentally Forwarding right after Receive).
@@ -830,6 +883,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     public function executeForward(): void
     {
         $this->clearAlerts();
+
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+            return;
+        }
 
         if (!$this->activeTransaction) {
             $this->errorMessage = 'No document selected.';
@@ -1061,11 +1119,19 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 }
             });
 
-            // TEMPORARY: hand a fully-completed transaction to RDP intake.
-            \App\Services\DtsRdpIntakeService::recordCompleted($this->activeTransaction['id'] ?? null);
+            $completedTransId = $this->activeTransaction['id'] ?? null;
+            $completedControlNo = $this->activeTransaction['control_number'] ?? '';
+            $isLastStep = $this->activeTransaction['is_last_step'] ?? false;
+
+            // Hand a fully-completed transaction to RDP intake.
+            \App\Services\DtsRdpIntakeService::recordCompleted($completedTransId);
 
             $this->dispatch('scanner-audio-action');
             $this->logSessionScan($this->activeTransaction['qr_code'], 'Forwarded', 'action');
+
+            if ($isLastStep && $completedTransId) {
+                $this->dispatch('open-dts-rdp-handoff', transactionId: $completedTransId, controlNumber: $completedControlNo);
+            }
 
             // Reset console to ensure document cannot be received/forwarded again from same scan
             $msg = $this->successMessage;
@@ -1082,6 +1148,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     public function executeReturnRevision(): void
     {
         $this->clearAlerts();
+
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+            return;
+        }
 
         if (!$this->activeTransaction) {
             $this->errorMessage = 'No document selected.';
@@ -1250,25 +1321,21 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         {{-- Console Toolbars & Controls --}}
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-            {{-- Continuous Mode Toggle --}}
-            <button type="button" wire:click="toggleContinuousMode" 
-                    style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; border: 1px solid {{ $continuousMode ? '#38bdf8' : '#e2e8f0' }}; background: {{ $continuousMode ? '#f0f9ff' : '#f8fafc' }}; color: {{ $continuousMode ? '#0284c7' : '#475569' }};">
-                <span style="width: 8px; height: 8px; border-radius: 50%; background: {{ $continuousMode ? '#0284c7' : '#94a3b8' }};"></span>
-                <span>Batch Mode: <strong>{{ $continuousMode ? 'ON' : 'OFF' }}</strong></span>
-            </button>
-
-            {{-- Auto Action Toggle --}}
-            <label title="Automatically receives incoming documents, or forwards already received documents upon scanning" style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 12px; border-radius: 10px; cursor: pointer;">
-                <input type="checkbox" wire:model.live="autoAction" style="cursor: pointer; accent-color: #0284c7; width: 15px; height: 15px;">
-                <span>Auto-Action on Scan</span>
-            </label>
-
             {{-- Reset / Clear Button --}}
             <button type="button" wire:click="resetConsole" 
                     style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid #e2e8f0; background: #ffffff; color: #475569;">
                 <i class="fa-solid fa-arrows-rotate"></i> Reset
             </button>
         </div>
+    </div>
+
+    {{-- Scan Cooldown Banner --}}
+    <div id="full-scanner-cooldown-banner" style="display: none; align-items: center; justify-content: center; gap: 8px; background: #0284c7; color: #ffffff; padding: 10px 18px; border-radius: 12px; margin-bottom: 20px; font-size: 13.5px; font-weight: 700; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <span>Scan Cooldown Active &bull; Ready for next scan in <strong id="full-scanner-cooldown-timer-val">5</strong>s</span>
     </div>
 
     {{-- Dynamic Alerts --}}
@@ -1308,12 +1375,13 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         {{-- Left Column: Scanner Hardware & Live Camera Viewport --}}
         <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
             
-            {{-- Direct Text / Barcode Gun Input --}}
+            {{-- Direct Text / Manual Input --}}
             <div style="margin-bottom: 20px;">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                     <label for="scanner-main-input" style="font-size: 13px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 4px; margin: 0;">
-                        <i class="fa-solid fa-barcode" style="color: #0284c7;"></i> Barcode Gun / Manual Input
+                        <i class="fa-solid fa-keyboard" style="color: #0284c7;"></i> Manual Input
                     </label>
+                    @if($availableCodesEnabled)
                     <button type="button" wire:click="openAvailableCodesModal" 
                             style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: #0284c7; background: #e0f2fe; border: 1px solid #bae6fd; padding: 4px 10px; border-radius: 8px; cursor: pointer; transition: all 0.2s;">
                         <i class="fa-solid fa-list-check"></i>
@@ -1324,13 +1392,14 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                             </span>
                         @endif
                     </button>
+                    @endif
                 </div>
                 <div style="position: relative;">
                     <input type="text" 
                            id="scanner-main-input" 
                            wire:model.live.debounce.250ms="scannedCode" 
-                           wire:keydown.enter="loadTransaction"
-                           placeholder="Scan barcode gun or enter Control / QR Code..." 
+                           wire:keydown.enter="loadTransactionManual"
+                           placeholder="Enter Control Number or QR Code..." 
                            autofocus
                            style="width: 100%; height: 46px; border: 2px solid #0284c7; border-radius: 12px; padding: 0 44px 0 16px; font-size: 15px; font-weight: 600; color: #0f172a; outline: none; background: #f0f9ff; transition: all 0.2s;" />
                     @if($scannedCode)
@@ -1341,8 +1410,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     @endif
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
-                    <span style="font-size: 11px; color: #64748b;">Press <kbd style="background: #e2e8f0; padding: 1px 4px; border-radius: 4px; font-family: monospace;">Enter</kbd> or trigger barcode gun</span>
-                    <button type="button" wire:click="loadTransaction" style="font-size: 12px; font-weight: 700; color: #0284c7; background: transparent; border: none; cursor: pointer;">
+                    <span style="font-size: 11px; color: #64748b;">Press <kbd style="background: #e2e8f0; padding: 1px 4px; border-radius: 4px; font-family: monospace;">Enter</kbd> or click Lookup</span>
+                    <button type="button" wire:click="loadTransactionManual" style="font-size: 12px; font-weight: 700; color: #0284c7; background: transparent; border: none; cursor: pointer;">
                         Lookup Code &rarr;
                     </button>
                 </div>
@@ -1413,7 +1482,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 <ul style="margin: 0; padding-left: 18px; line-height: 1.5;">
                     <li><strong>Webcam distance:</strong> Hold the QR code approximately <strong>25–35 cm (arm's length)</strong> away from laptop cameras so the fixed-focus lens stays sharp.</li>
                     <li><strong>Paste screenshot:</strong> Press <kbd style="background: #e2e8f0; padding: 1px 4px; border-radius: 4px; font-family: monospace;">Ctrl+V</kbd> anywhere on this page to immediately scan a copied QR code image.</li>
-                    <li>Handheld USB/Bluetooth barcode guns auto-focus and trigger instantly.</li>
+                    <li><strong>Manual Lookup:</strong> Type the Control Number or QR Code in the input field and press Enter.</li>
                 </ul>
             </div>
         </div>
@@ -1641,7 +1710,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     </div>
                     <h3 style="font-size: 16px; font-weight: 700; color: #1e293b; margin: 0 0 6px 0;">Awaiting Scanned Input</h3>
                     <p style="font-size: 13px; color: #64748b; max-width: 380px; margin: 0 auto 18px auto; line-height: 1.5;">
-                        Scan any document QR code via camera, trigger your handheld barcode scanner, or type a control number into the input box on the left.
+                        Scan any document QR code via camera, or type a Control Number into the input box on the left.
                     </p>
                     <div style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #0284c7; background: #e0f2fe; padding: 6px 14px; border-radius: 9999px;">
                         <span style="width: 6px; height: 6px; border-radius: 50%; background: #0284c7; animation: pulse 1.5s infinite;"></span>
@@ -1938,7 +2007,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     </style>
 
     {{-- Available Codes / Actionable Transactions Modal --}}
-    @if($showAvailableModal)
+    @if($showAvailableModal && $availableCodesEnabled)
         <div class="available-modal-backdrop" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 16px; animation: modalFadeIn 0.15s ease-out;">
             <div class="available-modal-card" style="background: #ffffff; border-radius: 16px; max-width: 860px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e2e8f0; overflow: hidden; animation: modalZoom 0.2s cubic-bezier(0.16, 1, 0.3, 1);">
                 
@@ -2230,12 +2299,52 @@ if (typeof Html5Qrcode === 'undefined') {
         return null;
     }
 
+    // ------------------------------------------------------------------
+    // Scan Cooldown Manager (5-Second Breathing Gap)
+    // ------------------------------------------------------------------
+    let isPageCoolingDown = false;
+    let pageCooldownInterval = null;
+
+    /**
+     * Activates a visual countdown cooldown banner on the full console after a successful scan.
+     * Prevents rapid back-to-back scan floods to give the server a 5-second breathing gap.
+     *
+     * @param {number} seconds Cooldown duration in seconds (defaults to 5).
+     * @returns {void}
+     */
+    const startPageCooldown = (seconds = 5) => {
+        isPageCoolingDown = true;
+        let remaining = seconds;
+        const banner = document.getElementById('full-scanner-cooldown-banner');
+        const valEl = document.getElementById('full-scanner-cooldown-timer-val');
+        if (banner) banner.style.display = 'flex';
+        if (valEl) valEl.textContent = remaining;
+
+        if (pageCooldownInterval) clearInterval(pageCooldownInterval);
+        pageCooldownInterval = setInterval(() => {
+            remaining -= 1;
+            if (valEl) valEl.textContent = remaining;
+            if (remaining <= 0) {
+                clearInterval(pageCooldownInterval);
+                pageCooldownInterval = null;
+                isPageCoolingDown = false;
+                if (banner) banner.style.display = 'none';
+            }
+        }, 1000);
+    };
+
+    window.addEventListener('scanner-cooldown-start', (e) => {
+        const sec = (e.detail && e.detail.seconds) ? e.detail.seconds : 5;
+        startPageCooldown(sec);
+    });
+
     /**
      * Calls load transaction.
      *
      * @param {*} code
+     * @param {boolean} isScan
      */
-    function callLoadTransaction(code) {
+    function callLoadTransaction(code, isScan = true) {
         let comp = getScannerComponent();
         if (!comp) {
             throw new Error('Scanner lost its connection to the page. Refresh the page (F5) and try again.');
@@ -2243,15 +2352,15 @@ if (typeof Html5Qrcode === 'undefined') {
 
         let result = null;
         if (typeof comp.call === 'function') {
-            result = comp.call('loadTransaction', code);
+            result = comp.call('loadTransaction', code, isScan);
         } else if (typeof comp.loadTransaction === 'function') {
-            result = comp.loadTransaction(code);
+            result = comp.loadTransaction(code, isScan);
         } else if (comp.$wire && typeof comp.$wire.call === 'function') {
-            result = comp.$wire.call('loadTransaction', code);
+            result = comp.$wire.call('loadTransaction', code, isScan);
         } else if (comp.$wire && typeof comp.$wire.loadTransaction === 'function') {
-            result = comp.$wire.loadTransaction(code);
+            result = comp.$wire.loadTransaction(code, isScan);
         } else if (typeof comp.$call === 'function') {
-            result = comp.$call('loadTransaction', code);
+            result = comp.$call('loadTransaction', code, isScan);
         } else {
             throw new Error('Scanner connection method not found. Refresh the page (F5) and try again.');
         }
@@ -2540,6 +2649,7 @@ if (typeof Html5Qrcode === 'undefined') {
 
         const onScanSuccess = (decodedText) => {
             if (!decodedText) return;
+            if (isPageCoolingDown) return;
             try {
                 const now = Date.now();
                 if (decodedText === lastScannedText && (now - lastScanTime) < 1500) {
@@ -2561,7 +2671,7 @@ if (typeof Html5Qrcode === 'undefined') {
                     input.value = code;
                 }
                 // Atomically load the scanned code in a single Livewire call
-                callLoadTransaction(code);
+                callLoadTransaction(code, true);
             } catch (err) {
                 // html5-qrcode swallows callback exceptions silently — surface them.
                 console.error('Scanner: failed to process scanned code:', err);

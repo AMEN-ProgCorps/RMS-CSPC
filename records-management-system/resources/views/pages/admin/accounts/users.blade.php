@@ -34,6 +34,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
     /** @var string Classic layout sorting direction ('asc' or 'desc') */
     public string $sortDir = 'asc';
 
+    /** @var string Classic layout requestor view mode ('table' or 'grid') */
+    public string $reqViewMode = 'table';
+
+    /** @var string Classic layout requestor sorting column */
+    public string $reqSortBy = 'name';
+
+    /** @var string Classic layout requestor sorting direction ('asc' or 'desc') */
+    public string $reqSortDir = 'asc';
+
     /** @var string Active scope: 'users' (Internal Staff) or 'requestors' (DTS Document Requestors) */
     public string $activeTab = 'users';
 
@@ -111,6 +120,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
     public function toggleSortDir(): void
     {
         $this->sortDir = $this->sortDir === 'asc' ? 'desc' : 'asc';
+    }
+
+    /**
+     * Toggles the requestor sort dir setting or state.
+     * @return void
+     */
+    public function toggleReqSortDir(): void
+    {
+        $this->reqSortDir = $this->reqSortDir === 'asc' ? 'desc' : 'asc';
     }
 
     /**
@@ -1006,7 +1024,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             }
         }
         if ($this->layoutMode === 'default') {
-            $requestors = $requestorsQuery->paginate(20);
+            $sortCol = match($this->reqSortBy) {
+                'position' => 'req.requestor_position',
+                'office' => 'office_display_name',
+                'status' => 'req.is_active',
+                'date_created' => 'req.created_at',
+                default => 'req.requestor_name',
+            };
+            $requestors = $requestorsQuery->orderBy($sortCol, $this->reqSortDir)->paginate(20);
         } else {
             $requestors = $requestorsQuery->orderBy('req.requestor_name', 'asc')->get();
         }
@@ -1040,6 +1065,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
     }
 };
 ?>
+<div>
 
 @push('styles')
     @vite('resources/css/admin/accounts_users.css')
@@ -1514,9 +1540,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
 @if($layoutMode === 'default')
 <div class="admin-users-outer">
     <!-- Tabs Header -->
-    <div class="tabs-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-            <div style="display: flex; align-items: center; gap: 10px; margin-right: 12px;">
+    <div class="tabs-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 10px;">
                 <h1 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px;">
                     <i class="fa-solid fa-users-gear" style="color: #0284c7;"></i> User Accounts & Credentials
                 </h1>
@@ -1524,22 +1550,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                     Default Layout
                 </span>
             </div>
-            <button type="button" class="tab-btn {{ $activeTab === 'users' ? 'active' : '' }}" wire:click="setTab('users')">
-                <i class="fa-solid fa-users" style="margin-right: 6px;"></i> System Users
-            </button>
-            <button type="button" class="tab-btn {{ $activeTab === 'requestors' ? 'active' : '' }}" wire:click="setTab('requestors')">
-                <i class="fa-solid fa-address-book" style="margin-right: 6px;"></i> DTS Requestors
-            </button>
+            <div class="admin-tabs-segmented" style="display: inline-flex; align-items: center; background: #e2e8f0; padding: 3px; border-radius: 8px; gap: 2px;">
+                <button type="button" 
+                        class="tab-btn {{ $activeTab === 'users' ? 'active' : '' }}" 
+                        wire:click="switchTab('users')"
+                        style="padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s ease; {{ $activeTab === 'users' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.12);' : 'background: transparent; color: #64748b;' }}">
+                    <i class="fa-solid fa-users"></i>
+                    <span>System Users</span>
+                </button>
+                <button type="button" 
+                        class="tab-btn {{ $activeTab === 'requestors' ? 'active' : '' }}" 
+                        wire:click="switchTab('requestors')"
+                        style="padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s ease; {{ $activeTab === 'requestors' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.12);' : 'background: transparent; color: #64748b;' }}">
+                    <i class="fa-solid fa-address-book"></i>
+                    <span>DTS Requestors</span>
+                </button>
+            </div>
         </div>
         <div style="display: flex; align-items: center; gap: 10px;">
             <x-admin.layout-trigger :mode="$layoutMode" />
         </div>
     </div>
-    @php
-        // Old tabs header replaced
-    @endphp
-    <div style="display: none;">
-
 
     @if($activeTab === 'users')
         <div class="admin-users-container {{ !$selectedUserId ? 'no-selection' : 'has-selection' }}" wire:key="tab-users-view">
@@ -1689,9 +1720,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
                     $selectedUser = \App\Models\User::with('details')->find($selectedUserId);
                     $selectedUserDet = $selectedUser?->details;
                     $selInitials = strtoupper(substr($selectedUserDet?->first_name ?: '?', 0, 1) . substr($selectedUserDet?->last_name ?: '?', 0, 1));
-                    $selDisplayName = $selectedUserDet ? ($selectedUserDet->first_name . ' ' . $selectedUserDet->last_name) : $selectedUser->username;
+                    $selDisplayName = $selectedUserDet ? ($selectedUserDet->first_name . ' ' . $selectedUserDet->last_name) : ($selectedUser?->username ?? 'Unknown User');
                     $condKeyTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
-                    $selRoleKey = \DB::table($condKeyTbl)->where('id', $selectedUser->account_role)->first();
+                    $selRoleKey = ($selectedUser && $selectedUser->account_role) ? \DB::table($condKeyTbl)->where('id', $selectedUser->account_role)->first() : null;
                     $selRoleName = $selRoleKey?->key_name ?: 'User';
                     $isOnline = $selectedUserDet?->is_currently_online;
                 } else {
@@ -2845,6 +2876,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
     @endif
 </div>
 
+@endif
+
 <script>
     /**
      * Users get livewire.
@@ -2853,7 +2886,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
      */
     window.usersGetLivewire = function(el) {
         try {
-            const root = el ? el.closest('[wire\\:id]') : document.querySelector('.miller-container[wire\\:id]');
+            const root = el ? el.closest('[wire\\:id]') : document.querySelector('[wire\\:id]');
             if (root && window.Livewire) {
                 return window.Livewire.find(root.getAttribute('wire:id'));
             }
@@ -2891,5 +2924,4 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
         }
     };
 </script>
-
-@endif
+</div>

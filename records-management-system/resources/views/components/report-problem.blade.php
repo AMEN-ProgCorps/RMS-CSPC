@@ -126,7 +126,9 @@ new class extends Component {
         }
     }"
     x-on:rms-open-report-problem.window="$wire.openModal($event.detail.reference || null, $event.detail.title || null, $event.detail.description || null, window.location.href)"
-    x-on:rms-widget-opened.window="if ($event.detail && $event.detail.widget !== 'report' && isOpen) { isOpen = false; $wire.closeModal(); }"
+    x-on:rms-widget-opened.window="if ($event.detail && ($event.detail.widget || (Array.isArray($event.detail) ? $event.detail[0]?.widget : null)) !== 'report' && isOpen) { isOpen = false; $wire.closeModal(); }"
+    x-on:scanner-modal-opened.window="if (isOpen) { isOpen = false; $wire.closeModal(); }"
+    x-on:close-report-modal.window="if (isOpen) { isOpen = false; $wire.closeModal(); }"
 >
     <!-- Floating Trigger Button -->
     <button

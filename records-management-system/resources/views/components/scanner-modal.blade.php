@@ -22,17 +22,28 @@ new class extends Component {
 
     // Advanced Scanner Modes & Available Directory
     public bool $isMaximized = false;
-    public bool $continuousMode = false;
-    public bool $autoAction = false;
+    public int $cooldownUntil = 0;
+    public bool $isManualInput = false;
+    public bool $availableCodesEnabled = true;
     public bool $showAvailableModal = false;
     public string $availableSearch = '';
     public string $availableFilter = 'all';
 
+    /**
+     * Toggles modal maximize state between standard docked dialog and full-viewport view.
+     *
+     * @return void
+     */
     public function toggleMaximize(): void
     {
         $this->isMaximized = !$this->isMaximized;
     }
 
+    /**
+     * Resets the scanner console inputs, active transaction, Hub selections, and refocuses input.
+     *
+     * @return void
+     */
     public function resetConsole(): void
     {
         $this->clearMessages();
@@ -52,37 +63,78 @@ new class extends Component {
     public array $forwardHubOffices = [];
     public array $forwardHubTempSelected = [];
 
-    public function toggleContinuousMode(): void
+    /**
+     * Triggers manual search for code entered in input box ($isScan = false), requiring manual receipt verification.
+     *
+     * @return void
+     */
+    public function loadTransactionManual(): void
     {
-        $this->continuousMode = !$this->continuousMode;
-        session()->put('dts_scanner_continuous', $this->continuousMode);
+        $this->loadTransaction(null, false);
     }
 
-    public function toggleAutoAction(): void
+    /**
+     * Toggles visibility of the Available Codes directory modal.
+     *
+     * @return void
+     */
+    public function toggleAvailableCodesModal(): void
     {
-        $this->autoAction = !$this->autoAction;
-        session()->put('dts_scanner_auto_action', $this->autoAction);
+        if (!$this->availableCodesEnabled) {
+            $this->showAvailableModal = false;
+            return;
+        }
+        if ($this->showAvailableModal) {
+            $this->closeAvailableCodesModal();
+        } else {
+            $this->openAvailableCodesModal();
+        }
     }
 
+    /**
+     * Opens the Available Codes directory modal and resets search and filter states.
+     *
+     * @return void
+     */
     public function openAvailableCodesModal(): void
     {
+        if (!$this->availableCodesEnabled) {
+            $this->showAvailableModal = false;
+            return;
+        }
         $this->availableSearch = '';
         $this->availableFilter = 'all';
         $this->showAvailableModal = true;
     }
 
+    /**
+     * Closes the Available Codes directory modal and clears the search query.
+     *
+     * @return void
+     */
     public function closeAvailableCodesModal(): void
     {
         $this->showAvailableModal = false;
         $this->availableSearch = '';
     }
 
+    /**
+     * Loads a specific transaction selected from the Available Codes directory.
+     *
+     * @param string $qrCode Scanned QR code or control number to load.
+     * @return void
+     */
     public function loadAvailableTransaction(string $qrCode): void
     {
         $this->closeAvailableCodesModal();
         $this->loadTransaction($qrCode);
     }
 
+    /**
+     * Opens the Office Hub collective broadcast modal and initializes staging selection.
+     *
+     * @return void
+     */
     public function openForwardHubModal(): void
     {
         $this->forwardHubTempSelected = $this->forwardHubOffices;
@@ -90,12 +142,23 @@ new class extends Component {
         $this->showForwardHubModal = true;
     }
 
+    /**
+     * Closes the Office Hub broadcast modal without applying uncommitted changes.
+     *
+     * @return void
+     */
     public function closeForwardHubModal(): void
     {
         $this->showForwardHubModal = false;
         $this->forwardHubSearch = '';
     }
 
+    /**
+     * Toggles an office code in the staged Hub broadcast selection list.
+     *
+     * @param string $officeCode Office code to add or remove.
+     * @return void
+     */
     public function toggleForwardHubOffice(string $officeCode): void
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -121,16 +184,31 @@ new class extends Component {
         }
     }
 
+    /**
+     * Selects all active system offices for full broadcast mode in the Office Hub modal.
+     *
+     * @return void
+     */
     public function selectAllForwardHubOffices(): void
     {
         $this->forwardHubTempSelected = ['ALL'];
     }
 
+    /**
+     * Clears all selected offices in the staged Office Hub selection.
+     *
+     * @return void
+     */
     public function clearForwardHubOffices(): void
     {
         $this->forwardHubTempSelected = [];
     }
 
+    /**
+     * Commits staged Office Hub selections into the active forwarding payload and closes modal.
+     *
+     * @return void
+     */
     public function applyForwardHubModal(): void
     {
         $this->forwardHubOffices = $this->forwardHubTempSelected;
@@ -138,6 +216,12 @@ new class extends Component {
         $this->forwardHubSearch = '';
     }
 
+    /**
+     * Removes an office by index from the committed forward Hub offices list.
+     *
+     * @param int $index Zero-based array index to remove.
+     * @return void
+     */
     public function removeForwardHubOffice(int $index): void
     {
         if (isset($this->forwardHubOffices[$index])) {
@@ -145,6 +229,11 @@ new class extends Component {
         }
     }
 
+    /**
+     * Initializes component action options, recent scans from session, and system settings.
+     *
+     * @return void
+     */
     public function mount(): void
     {
         try {
@@ -165,10 +254,17 @@ new class extends Component {
 
         $this->actionNeeded = $this->actionOptions[0] ?? 'For Approval';
         $this->recentScans = session()->get('dts_recent_scans', []);
-        $this->continuousMode = (bool) session()->get('dts_scanner_continuous', false);
-        $this->autoAction = (bool) session()->get('dts_scanner_auto_action', false);
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $setting = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
+        $this->availableCodesEnabled = ($setting !== 'false');
     }
 
+    /**
+     * Computed property retrieving available destination offices for dynamic forwarding.
+     *
+     * @return \Illuminate\Support\Collection<int, object>
+     */
     public function getAvailableTargetOfficesProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -176,6 +272,12 @@ new class extends Component {
         return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
     }
 
+    /**
+     * Computed property returning transactions available for station action at user's office.
+     * Applies search keywords and incoming/received filters.
+     *
+     * @return \Illuminate\Support\Collection<int, object>
+     */
     public function getAvailableTransactionsProperty()
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -257,6 +359,11 @@ new class extends Component {
         });
     }
 
+    /**
+     * Computed property summarizing count badges (total, incoming, received) for the Available Codes directory.
+     *
+     * @return array{all: int, incoming: int, received: int}
+     */
     public function getAvailableCountsProperty(): array
     {
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -308,6 +415,12 @@ new class extends Component {
         ];
     }
 
+    /**
+     * Toggles open/closed state of the scanner modal.
+     *
+     * @param string $code Optional barcode/QR code to prime modal with.
+     * @return void
+     */
     #[On('toggle-scanner-modal')]
     public function toggleModal(string $code = ''): void
     {
@@ -318,10 +431,22 @@ new class extends Component {
         }
     }
 
+    /**
+     * Opens the scanner modal, notifies other widgets to close, and initializes camera scanner.
+     *
+     * @param string $code Optional code to immediately look up.
+     * @param bool $isScan Whether this trigger originated from live optical scanning (true) or typing (false).
+     * @return void
+     */
     #[On('open-scanner-modal')]
-    public function openModal(string $code = ''): void
+    public function openModal(string $code = '', bool $isScan = false): void
     {
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $setting = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
+        $this->availableCodesEnabled = ($setting !== 'false');
+
         $this->isOpen = true;
+        $this->showAvailableModal = false;
         $this->clearMessages();
         $this->activeTransaction = null;
         $this->forwardToOfficeCode = '';
@@ -331,13 +456,35 @@ new class extends Component {
         $this->scannedCode = trim($code);
 
         if (!empty($this->scannedCode)) {
-            $this->loadTransaction($this->scannedCode);
+            $this->loadTransaction($this->scannedCode, $isScan);
         }
 
         $this->dispatch('scanner-modal-opened');
+        $this->dispatch('rms-widget-opened', widget: 'scanner');
         $this->dispatch('init-camera-scanner');
     }
 
+    /**
+     * Listener enforcing single-widget mutual exclusivity. Closes scanner modal when another widget opens.
+     *
+     * @param mixed $widget Widget name identifier string.
+     * @param mixed $detail Optional payload array containing widget info.
+     * @return void
+     */
+    #[On('rms-widget-opened')]
+    public function handleOtherWidgetOpened($widget = null, $detail = null): void
+    {
+        $widgetName = $widget ?? (is_array($detail) ? ($detail['widget'] ?? null) : null);
+        if ($widgetName && $widgetName !== 'scanner' && $this->isOpen) {
+            $this->closeModal();
+        }
+    }
+
+    /**
+     * Closes the scanner modal, halts camera feed, and resets console states.
+     *
+     * @return void
+     */
     #[On('close-scanner-modal')]
     public function closeModal(): void
     {
@@ -354,16 +501,50 @@ new class extends Component {
         $this->dispatch('stop-camera-scanner');
     }
 
+    /**
+     * Clears all active status alerts (successMessage and errorMessage).
+     *
+     * @return void
+     */
     public function clearMessages(): void
     {
         $this->successMessage = '';
         $this->errorMessage = '';
     }
 
-    public function loadTransaction(?string $codeToLoad = null): void
+    /**
+     * Look up and load a transaction by barcode, QR code, or Control Number.
+     *
+     * Business rules:
+     * - Auto-Receive ($isScan = true): Triggered when code comes from camera feed or barcode gun.
+     *   If incoming to user's office, auto-receives custody, records receive log, updates sequence,
+     *   dispatches notification, and activates a 5-second scanner cooldown.
+     * - Manual Verification ($isScan = false): Triggered when code is typed into input box.
+     *   Leaves the transaction in its current incoming state and requires manual receipt verification.
+     * - Enforces office scoping: Rejects documents belonging to other stations.
+     * - Checks working hours: Auto-receive is blocked outside working hours with policy banner.
+     *
+     * @param string|null $codeToLoad Raw barcode/QR code string.
+     * @param bool $isScan Whether lookup originated from live optical scanning (true) or manual entry (false).
+     * @return void
+     */
+    public function loadTransaction(?string $codeToLoad = null, bool $isScan = false): void
     {
         $this->clearMessages();
         $this->activeTransaction = null;
+
+        if ($isScan) {
+            $this->isManualInput = false;
+            if ($this->cooldownUntil > time()) {
+                $waitSec = $this->cooldownUntil - time();
+                $this->errorMessage = "Scanner cooldown active ({$waitSec}s remaining). Please wait before scanning again.";
+                $this->dispatch('scanner-code-invalid');
+                $this->dispatch('scanner-audio-error');
+                return;
+            }
+        } else {
+            $this->isManualInput = true;
+        }
 
         if ($codeToLoad !== null && trim($codeToLoad) !== '') {
             $this->scannedCode = trim($codeToLoad);
@@ -519,6 +700,114 @@ new class extends Component {
             ->first();
         $isReceivedAtUserOffice = \App\Services\DtsReceiveGuardService::isReceived($lastLog);
 
+        // Auto-Receive if scanned via camera or barcode gun and document is incoming to user office
+        if ($isScan && !$isReceivedAtUserOffice) {
+            if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+                $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+                $this->dispatch('scanner-code-invalid');
+                $this->dispatch('scanner-audio-error');
+                return;
+            }
+
+            if (\App\Services\DtsReceiveGuardService::alreadyReceived((string) $transaction->transaction_id, $userOfficeCode)) {
+                $this->errorMessage = "Transaction '{$transaction->control_number}' has already been received at your office.";
+                $this->dispatch('scanner-code-invalid');
+                $this->dispatch('scanner-audio-error');
+                return;
+            }
+
+            try {
+                DB::transaction(function () use ($transaction, $userOfficeCode) {
+                    $transId = $transaction->transaction_id;
+                    \App\Services\DtsReceiveGuardService::lockTransaction((string) $transId);
+                    if (\App\Services\DtsReceiveGuardService::alreadyReceived((string) $transId, $userOfficeCode)) {
+                        return;
+                    }
+
+                    $currentLog = DB::table('dts_transaction_logs')
+                        ->where('transaction_id', $transId)
+                        ->where('office_code', $userOfficeCode)
+                        ->orderBy('id', 'desc')
+                        ->first();
+
+                    if ($currentLog) {
+                        DB::table('dts_transaction_logs')
+                            ->where('id', $currentLog->id)
+                            ->update([
+                                'type' => 'received',
+                                'date_in' => now(),
+                                'performed_by' => auth()->id(),
+                            ]);
+                    } else {
+                        DB::table('dts_transaction_logs')->insert([
+                            'transaction_id' => $transId,
+                            'office_code' => $userOfficeCode,
+                            'type' => 'received',
+                            'date_in' => now(),
+                            'notes' => 'Received via Global Scanner',
+                            'performed_by' => auth()->id(),
+                        ]);
+                    }
+
+                    if (!empty($transaction->transaction_flow)) {
+                        $flow = DB::table('dts_transaction_flow')->where('flow_code', $transaction->transaction_flow)->first();
+                        if ($flow) {
+                            $seqRanking = $transaction->sequence;
+                            $prevSeq = DB::table('dts_sequence_list')
+                                ->where('control_id', $flow->id)
+                                ->where('sequence_ranking', $seqRanking - 1)
+                                ->first();
+                            $totalTimeReceived = null;
+                            if ($prevSeq && $prevSeq->date_out) {
+                                $totalTimeReceived = \App\Services\DtsWorkingHoursService::calculateDurationString($prevSeq->date_out, now());
+                            } elseif ($seqRanking == 1) {
+                                $totalTimeReceived = '-';
+                            }
+
+                            DB::table('dts_sequence_list')
+                                ->where('control_id', $flow->id)
+                                ->where('sequence_ranking', $seqRanking)
+                                ->update([
+                                    'date_in' => now(),
+                                    'account_received' => auth()->id(),
+                                    'scanned_id' => true,
+                                    'total_time_received' => $totalTimeReceived,
+                                ]);
+                        }
+                    }
+
+                    $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+                    $userFirstName = auth()->user()?->details?->first_name 
+                        ?: DB::table($accDetailsTbl)->where('account_id', auth()->id())->value('first_name')
+                        ?: auth()->user()?->username 
+                        ?: 'User';
+
+                    $controlNumber = $transaction->control_number ?? '';
+
+                    if ($userOfficeCode) {
+                        \App\Services\DtsNotificationService::notifyReceived($userOfficeCode, $userFirstName, $controlNumber, $transId);
+                    }
+
+                    $originatedFrom = $transaction->originated_from ?? null;
+                    if ($originatedFrom && $originatedFrom !== $userOfficeCode) {
+                        \App\Services\DtsNotificationService::notifyHubOfficeReceived($originatedFrom, $userOfficeCode, $controlNumber, $transId);
+                    }
+                });
+
+                $isReceivedAtUserOffice = true;
+                $currOfficeTitle = $transaction->current_office_name ?: $transaction->current_office;
+                $this->successMessage = "Transaction '{$transaction->control_number}' received successfully at {$currOfficeTitle}!";
+                $this->cooldownUntil = time() + 5;
+                $this->dispatch('scanner-cooldown-start', ['seconds' => 5]);
+                $this->dispatch('scanner-audio-action');
+            } catch (\Exception $e) {
+                $this->errorMessage = 'Failed to auto-receive transaction: ' . $e->getMessage();
+                $this->dispatch('scanner-code-invalid');
+                $this->dispatch('scanner-audio-error');
+                return;
+            }
+        }
+
         // Get next office in sequence if flow exists
         $nextOfficeName = 'End of Flow';
         $nextOfficeCode = null;
@@ -581,9 +870,25 @@ new class extends Component {
         $this->dispatch('scanner-code-success');
     }
 
+    /**
+     * Executes station processing actions on the currently active loaded transaction.
+     *
+     * Handles:
+     * - Case 1: Manual Receive of incoming document (with pessimistic lock & idempotency check).
+     * - Case 2: Dynamic forwarding to another office or Office Hub broadcast.
+     * - Case 3: Returning document to Origin for revision.
+     * - Case 4: Normal forward along pre-defined sequence flow or marking document completed.
+     *
+     * @return void
+     */
     public function processScanAction(): void
     {
         $this->clearMessages();
+
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+            return;
+        }
 
         if (!$this->activeTransaction) {
             $this->errorMessage = 'No transaction selected.';
@@ -654,13 +959,26 @@ new class extends Component {
                     if (!empty($this->activeTransaction['transaction_flow'])) {
                         $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->activeTransaction['transaction_flow'])->first();
                         if ($flow) {
+                            $seqRanking = $this->activeTransaction['sequence'];
+                            $prevSeq = DB::table('dts_sequence_list')
+                                ->where('control_id', $flow->id)
+                                ->where('sequence_ranking', $seqRanking - 1)
+                                ->first();
+                            $totalTimeReceived = null;
+                            if ($prevSeq && $prevSeq->date_out) {
+                                $totalTimeReceived = \App\Services\DtsWorkingHoursService::calculateDurationString($prevSeq->date_out, now());
+                            } elseif ($seqRanking == 1) {
+                                $totalTimeReceived = '-';
+                            }
+
                             DB::table('dts_sequence_list')
                                 ->where('control_id', $flow->id)
-                                ->where('sequence_ranking', $this->activeTransaction['sequence'])
+                                ->where('sequence_ranking', $seqRanking)
                                 ->update([
                                     'date_in' => now(),
                                     'account_received' => auth()->id(),
                                     'scanned_id' => true,
+                                    'total_time_received' => $totalTimeReceived,
                                 ]);
                         }
                     }
@@ -683,6 +1001,9 @@ new class extends Component {
                     }
 
                     $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' received successfully at {$this->activeTransaction['current_office']}!";
+                    $this->activeTransaction['is_received_here'] = true;
+                    $this->cooldownUntil = time() + 5;
+                    $this->dispatch('scanner-cooldown-start', ['seconds' => 5]);
                 } 
                 // Case 2: Forward received transaction
                 else {
@@ -992,6 +1313,7 @@ new class extends Component {
 
                             // Hand fully-completed transaction to RDP intake
                             \App\Services\DtsRdpIntakeService::recordCompleted($transId);
+                            $this->dispatch('open-dts-rdp-handoff', transactionId: $transId, controlNumber: $controlNumber);
 
                             $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' marked as COMPLETED!";
                         }
@@ -1053,11 +1375,12 @@ new class extends Component {
 
                 <!-- Header Actions Toolbar -->
                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    @if($availableCodesEnabled)
                     <!-- Available Directory Button -->
                     <button
                         type="button"
-                        wire:click="openAvailableCodesModal"
-                        class="scanner-header-pill-btn btn-cyan"
+                        wire:click="toggleAvailableCodesModal"
+                        class="scanner-header-pill-btn btn-cyan {{ $showAvailableModal ? 'btn-cyan-active' : '' }}"
                         title="Browse pending documents for your station"
                     >
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
@@ -1069,34 +1392,8 @@ new class extends Component {
                         <span>Available</span>
                         <span class="count-badge">{{ $this->availableCounts['all'] ?? 0 }}</span>
                     </button>
+                    @endif
 
-                    <!-- Batch / Continuous Intake Mode Toggle -->
-                    <button
-                        type="button"
-                        wire:click="toggleContinuousMode"
-                        class="scanner-header-pill-btn {{ $continuousMode ? 'btn-green-active' : '' }}"
-                        title="Batch Mode: Continuously scan documents without closing"
-                    >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="23 4 23 10 17 10"></polyline>
-                            <polyline points="1 20 1 14 7 14"></polyline>
-                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-                        </svg>
-                        <span>Batch: {{ $continuousMode ? 'ON' : 'OFF' }}</span>
-                    </button>
-
-                    <!-- Auto-Action Toggle -->
-                    <button
-                        type="button"
-                        wire:click="toggleAutoAction"
-                        class="scanner-header-pill-btn {{ $autoAction ? 'btn-amber-active' : '' }}"
-                        title="Auto-Action: Automatically execute Receive or Forward when scanned"
-                    >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                        </svg>
-                        <span>Auto: {{ $autoAction ? 'ON' : 'OFF' }}</span>
-                    </button>
 
                     <!-- Reset / Reload Console -->
                     <button
@@ -1242,9 +1539,12 @@ new class extends Component {
                     border-color: rgba(56, 189, 248, 0.45);
                     color: #38bdf8;
                 }
-                .scanner-header-pill-btn.btn-cyan:hover {
-                    background: rgba(2, 132, 199, 0.4);
-                    color: #ffffff;
+                .scanner-header-pill-btn.btn-cyan:hover,
+                .scanner-header-pill-btn.btn-cyan-active {
+                    background: rgba(2, 132, 199, 0.5) !important;
+                    border-color: #38bdf8 !important;
+                    color: #ffffff !important;
+                    box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
                 }
                 .scanner-header-pill-btn.btn-cyan .count-badge {
                     background: #0284c7;
@@ -1470,10 +1770,19 @@ new class extends Component {
                         </div>
                     @endif
 
+                    <!-- 5-Second Scan Cooldown Indicator -->
+                    <div id="scanner-modal-cooldown-banner" style="display: none; align-items: center; justify-content: center; gap: 8px; background: #0284c7; color: #ffffff; padding: 7px 14px; border-radius: 8px; font-size: 11.5px; font-weight: 700; margin-bottom: 8px; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        <span>Scan Cooldown Active &bull; Ready for next scan in <strong id="scanner-cooldown-timer-val">5</strong>s</span>
+                    </div>
+
                     <!-- Webcam Viewport -->
                     <div wire:ignore class="dts-scanner-viewport-container" style="position: relative; height: 185px; border-radius: 10px; overflow: hidden; background: #0f172a; flex-shrink: 0;">
                         <div id="modal-qr-preview"></div>
-                        <div id="camera-loading-placeholder" style="position: absolute; color: #94a3b8; font-size: 12px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 5;">
+                        <div id="camera-loading-placeholder" style="position: absolute; inset: 0; color: #94a3b8; font-size: 12px; font-weight: 500; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 12px; z-index: 5; background: rgba(15, 23, 42, 0.95);">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.85;">
                                 <path d="M23 7l-7 5 7 5V7z"></path>
                                 <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
@@ -1522,15 +1831,15 @@ new class extends Component {
                             type="text" 
                             id="global-scanner-code-input" 
                             wire:model.live.debounce.300ms="scannedCode" 
-                            wire:keydown.enter="loadTransaction" 
-                            placeholder="Scan barcode gun or enter Control/QR..." 
+                            wire:keydown.enter="loadTransactionManual" 
+                            placeholder="Enter Control Number or QR Code..." 
                             style="flex: 1; min-width: 0; padding: 8px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 12.5px; outline: none; transition: border-color 0.15s; box-sizing: border-box;" 
                             onfocus="this.style.borderColor='#0284c7';" 
                             onblur="this.style.borderColor='#cbd5e1';"
                         />
                         <button 
                             type="button" 
-                            wire:click="loadTransaction" 
+                            wire:click="loadTransactionManual" 
                             class="scanner-search-btn"
                             style="padding: 8px 14px; background: #0284c7; color: #ffffff; border: none; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; transition: background 0.15s; white-space: nowrap; flex-shrink: 0;"
                             onmouseover="this.style.background='#0369a1';" 
@@ -1744,41 +2053,175 @@ new class extends Component {
                                 </svg>
                             </div>
                             <h4 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">DTS Scanner Console Armed</h4>
-                            <p style="font-size: 12px; color: #64748b; margin: 0 0 16px 0; max-width: 380px; line-height: 1.45;">
-                                Aim your camera at a document QR code, use a handheld barcode scanner, or choose a document waiting at your station.
-                            </p>
+                            @if($availableCodesEnabled)
+                                <p style="font-size: 12px; color: #64748b; margin: 0 0 16px 0; max-width: 380px; line-height: 1.45;">
+                                    Aim your camera at a document QR code, or choose a document waiting at your station.
+                                </p>
 
-                            <!-- Quick Stats Cards -->
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 420px; margin-bottom: 14px;">
-                                <div wire:click="openAvailableCodesModal" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#4ade80';" onmouseout="this.style.borderColor='#bbf7d0';">
-                                    <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #166534; letter-spacing: 0.04em;">Pending Receipt</div>
-                                    <div style="font-size: 20px; font-weight: 800; color: #15803d; margin-top: 2px;">{{ $this->availableCounts['incoming'] ?? 0 }}</div>
-                                    <div style="font-size: 10.5px; color: #166534; margin-top: 2px;">Incoming documents</div>
+                                <!-- Quick Stats Cards -->
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 420px; margin-bottom: 14px;">
+                                    <div wire:click="openAvailableCodesModal" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#4ade80';" onmouseout="this.style.borderColor='#bbf7d0';">
+                                        <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #166534; letter-spacing: 0.04em;">Pending Receipt</div>
+                                        <div style="font-size: 20px; font-weight: 800; color: #15803d; margin-top: 2px;">{{ $this->availableCounts['incoming'] ?? 0 }}</div>
+                                        <div style="font-size: 10.5px; color: #166534; margin-top: 2px;">Incoming documents</div>
+                                    </div>
+                                    <div wire:click="openAvailableCodesModal" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#60a5fa';" onmouseout="this.style.borderColor='#bfdbfe';">
+                                        <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #1e40af; letter-spacing: 0.04em;">In Custody</div>
+                                        <div style="font-size: 20px; font-weight: 800; color: #1d4ed8; margin-top: 2px;">{{ $this->availableCounts['received'] ?? 0 }}</div>
+                                        <div style="font-size: 10.5px; color: #1e40af; margin-top: 2px;">Ready to forward</div>
+                                    </div>
                                 </div>
-                                <div wire:click="openAvailableCodesModal" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s;" onmouseover="this.style.borderColor='#60a5fa';" onmouseout="this.style.borderColor='#bfdbfe';">
-                                    <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #1e40af; letter-spacing: 0.04em;">In Custody</div>
-                                    <div style="font-size: 20px; font-weight: 800; color: #1d4ed8; margin-top: 2px;">{{ $this->availableCounts['received'] ?? 0 }}</div>
-                                    <div style="font-size: 10.5px; color: #1e40af; margin-top: 2px;">Ready to forward</div>
-                                </div>
-                            </div>
 
-                            <button
-                                type="button"
-                                wire:click="openAvailableCodesModal"
-                                style="background: #0284c7; color: #ffffff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);"
-                                onmouseover="this.style.background='#0369a1';"
-                                onmouseout="this.style.background='#0284c7';"
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                    <polyline points="14 2 14 8 20 8"></polyline>
-                                </svg>
-                                <span>Browse Available Documents ({{ $this->availableCounts['all'] ?? 0 }})</span>
-                            </button>
+                                <button
+                                    type="button"
+                                    wire:click="openAvailableCodesModal"
+                                    style="background: #0284c7; color: #ffffff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);"
+                                    onmouseover="this.style.background='#0369a1';"
+                                    onmouseout="this.style.background='#0284c7';"
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                        <polyline points="14 2 14 8 20 8"></polyline>
+                                    </svg>
+                                    <span>Browse Available Documents ({{ $this->availableCounts['all'] ?? 0 }})</span>
+                                </button>
+                            @else
+                                <p style="font-size: 12px; color: #64748b; margin: 0 0 16px 0; max-width: 400px; line-height: 1.45;">
+                                    Aim your camera at a document QR code, or enter the Control Number or QR Code below to process a transaction.
+                                </p>
+
+                                <!-- Priority Hardware Scanning & Manual Input Instructions -->
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 420px; margin-bottom: 14px;">
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; text-align: left;">
+                                        <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                                            <div style="width: 22px; height: 22px; border-radius: 6px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 11px;">
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h.01M17 7h.01M7 17h.01M17 17h.01"/></svg>
+                                            </div>
+                                            <span style="font-size: 11.5px; font-weight: 700; color: #0f172a;">Camera QR Scanner</span>
+                                        </div>
+                                        <div style="font-size: 10.5px; color: #64748b; line-height: 1.35;">
+                                            Position QR code in the viewfinder to automatically scan and load document.
+                                        </div>
+                                    </div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; text-align: left;">
+                                        <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                                            <div style="width: 22px; height: 22px; border-radius: 6px; background: #fef3c7; color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 11px;">
+                                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 7V4h16v3M4 17v3h16v-3M9 12h6"/></svg>
+                                            </div>
+                                            <span style="font-size: 11.5px; font-weight: 700; color: #0f172a;">Manual Input</span>
+                                        </div>
+                                        <div style="font-size: 10.5px; color: #64748b; line-height: 1.35;">
+                                            Type the Control Number or QR Code in the input box and click Search.
+                                        </div>
+                                    </div>
+                                </div>
+                            @endif
                         </div>
                     @endif
                 </div>
             </div>
+
+            <!-- Available Documents Directory View (Contained 100% Inside Widget Card) -->
+            @if($showAvailableModal && $availableCodesEnabled)
+                <div class="dts-available-inner-pane" style="position: absolute; top: 46px; left: 0; right: 0; bottom: 0; background: #ffffff; z-index: 50; display: flex; flex-direction: column; overflow: hidden;">
+                    <!-- Sub-Header / Filters / Search -->
+                    <div style="padding: 10px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; flex-shrink: 0;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="width: 28px; height: 28px; border-radius: 7px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center;">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                            </div>
+                            <div>
+                                <div style="font-size: 13px; font-weight: 700; color: #0f172a;">Available Station Documents</div>
+                                <div style="font-size: 11px; color: #64748b;">Pending receipt or dispatch at your office</div>
+                            </div>
+                        </div>
+
+                        <button type="button" wire:click="closeAvailableCodesModal" style="padding: 5px 11px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11.5px; font-weight: 600; color: #475569; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.15s;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#ffffff'">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            <span>Back to Console</span>
+                        </button>
+                    </div>
+
+                    <!-- Filter Tabs & Search Row -->
+                    <div style="padding: 8px 16px; border-bottom: 1px solid #f1f5f9; background: #ffffff; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; flex-shrink: 0;">
+                        <div style="display: flex; gap: 4px; background: #f1f5f9; padding: 3px; border-radius: 8px;">
+                            <button type="button" wire:click="$set('availableFilter', 'all')"
+                                    style="padding: 4px 10px; border-radius: 6px; border: none; font-size: 11.5px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'all' ? 'background: #ffffff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                                All ({{ $this->availableCounts['all'] ?? 0 }})
+                            </button>
+                            <button type="button" wire:click="$set('availableFilter', 'incoming')"
+                                    style="padding: 4px 10px; border-radius: 6px; border: none; font-size: 11.5px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'incoming' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                                Incoming / To Receive ({{ $this->availableCounts['incoming'] ?? 0 }})
+                            </button>
+                            <button type="button" wire:click="$set('availableFilter', 'received')"
+                                    style="padding: 4px 10px; border-radius: 6px; border: none; font-size: 11.5px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'received' ? 'background: #ffffff; color: #16a34a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
+                                In Custody / To Forward ({{ $this->availableCounts['received'] ?? 0 }})
+                            </button>
+                        </div>
+
+                        <div style="position: relative; flex: 1; min-width: 180px; max-width: 280px;">
+                            <input type="text" wire:model.live.debounce.250ms="availableSearch" placeholder="Search control no, subject..." 
+                                   style="width: 100%; height: 32px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0 10px; font-size: 11.5px; outline: none; box-sizing: border-box;" />
+                        </div>
+                    </div>
+
+                    <!-- Scrollable Document Cards List -->
+                    <div style="padding: 12px 16px; overflow-y: auto; flex: 1; min-height: 0;">
+                        @if($this->availableTransactions->isNotEmpty())
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                @foreach($this->availableTransactions as $item)
+                                    <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #ffffff; transition: border-color 0.15s;" onmouseover="this.style.borderColor='#93c5fd'" onmouseout="this.style.borderColor='#e2e8f0'">
+                                        <div style="flex: 1; min-width: 0;">
+                                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap;">
+                                                <span style="font-family: monospace; font-size: 13px; font-weight: 800; color: #0f172a;">
+                                                    {{ $item->control_number }}
+                                                </span>
+                                                @if(!$item->is_received)
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">
+                                                        Pending Receipt
+                                                    </span>
+                                                @else
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">
+                                                        In Custody
+                                                    </span>
+                                                @endif
+                                                <span style="font-size: 10.5px; background: #f1f5f9; color: #475569; padding: 1px 6px; border-radius: 4px;">
+                                                    {{ $item->document_type ?? 'Document' }}
+                                                </span>
+                                            </div>
+                                            <div style="font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                {{ $item->subject ?: 'Untitled Transaction' }}
+                                            </div>
+                                            <div style="font-size: 10.5px; color: #64748b; display: flex; gap: 10px; flex-wrap: wrap;">
+                                                <span>Origin: <strong>{{ $item->originated_office_name ?? $item->originated_from }}</strong></span>
+                                                @if($item->requestor_name)
+                                                    <span>Requestor: <strong>{{ $item->requestor_name }}</strong></span>
+                                                @endif
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            wire:click="loadAvailableTransaction('{{ $item->qr_code }}')"
+                                            style="background: #0284c7; color: #ffffff; border: none; border-radius: 7px; padding: 7px 13px; font-size: 11.5px; font-weight: 700; cursor: pointer; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; transition: background 0.15s;"
+                                            onmouseover="this.style.background='#0369a1'"
+                                            onmouseout="this.style.background='#0284c7'"
+                                        >
+                                            <span>Load</span>
+                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                                        </button>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @else
+                            <div style="text-align: center; padding: 32px 16px; color: #94a3b8;">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 8px auto; opacity: 0.6;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                <p style="font-size: 13px; font-weight: 600; color: #64748b; margin: 0 0 3px 0;">No Documents Found</p>
+                                <p style="font-size: 11.5px; margin: 0;">No active documents matched the current station filter or search query.</p>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            @endif
         </div>
     @endif
 
@@ -1873,6 +2316,11 @@ new class extends Component {
             if (input) input.focus();
         });
 
+        /**
+         * Stops and releases all active hardware media streams and tracks attached to modal video elements.
+         *
+         * @returns {void}
+         */
         function releaseAllModalMediaTracks() {
             try {
                 const modal = document.querySelector('.dts-scanner-widget-card, .global-scanner-modal');
@@ -1890,6 +2338,11 @@ new class extends Component {
             }
         }
 
+        /**
+         * Gracefully halts the Html5Qrcode camera instance, stops watchdog, releases hardware tracks, and clears DOM.
+         *
+         * @returns {Promise<void>}
+         */
         async function stopModalScanner() {
             stopModalWatchdog();
             if (modalHtml5QrCode) {
@@ -1927,6 +2380,11 @@ new class extends Component {
         // preview stays alive but QR detection silently stops. Watch the track
         // and auto-restart when it dies.
         // ------------------------------------------------------------------
+        /**
+         * Halts the background camera watchdog interval timer.
+         *
+         * @returns {void}
+         */
         function stopModalWatchdog() {
             if (modalWatchdogTimer) {
                 clearInterval(modalWatchdogTimer);
@@ -1934,6 +2392,11 @@ new class extends Component {
             }
         }
 
+        /**
+         * Starts periodic watchdog checking video track health, auto-restarting feed if stream unexpectedly ends.
+         *
+         * @returns {void}
+         */
         function startModalWatchdog() {
             stopModalWatchdog();
             modalWatchdogTimer = setInterval(async () => {
@@ -1969,29 +2432,28 @@ new class extends Component {
             }, 2500);
         }
 
+        /**
+         * Calculates responsive QR scanning viewfinder box bounding box.
+         *
+         * @param {number} viewfinderWidth Width of container element in pixels.
+         * @param {number} viewfinderHeight Height of container element in pixels.
+         * @returns {Object} Scanning box dimensions containing width and height numbers.
+         */
         const calculateModalQrboxSize = function(viewfinderWidth, viewfinderHeight) {
-            // Generous rectangular scanning zone (78% width, 75% height)
-            // Ensures QR codes are caught across almost the entire field of view
-            // without requiring users to hold paper in an exact pinpoint square.
-            const w = Math.floor(viewfinderWidth * 0.78);
-            const h = Math.floor(viewfinderHeight * 0.75);
+            // Generous rectangular scanning zone (72% of minimum dimension)
+            // Ensures QR box is always within viewfinder bounds and never exceeds height or width.
+            const minDim = Math.min(viewfinderWidth || 360, viewfinderHeight || 185);
+            const boxSize = Math.max(60, Math.floor(minDim * 0.72));
             return {
-                width: Math.max(220, Math.min(w, viewfinderWidth - 20)),
-                height: Math.max(220, Math.min(h, viewfinderHeight - 20))
+                width: Math.min(boxSize, Math.max(60, (viewfinderWidth || 360) - 10)),
+                height: Math.min(boxSize, Math.max(60, (viewfinderHeight || 185) - 10))
             };
         };
 
-        // Use ideal-only constraints with 10 FPS (optimal for ZXing CPU throughput & zero stutter)
-        // continuous autofocus is requested where supported by webcam hardware.
+        // Resilient constraints with 10 FPS (optimal for ZXing CPU throughput & zero stutter)
         const modalHdConfig = {
             fps: 10,
-            qrbox: calculateModalQrboxSize,
-            videoConstraints: {
-                width:  { ideal: 1280, max: 1920 },
-                height: { ideal: 720,  max: 1080 },
-                facingMode: { ideal: "environment" },
-                advanced: [{ focusMode: "continuous" }]
-            }
+            qrbox: calculateModalQrboxSize
         };
 
         const modalBareConfig = {
@@ -1999,6 +2461,12 @@ new class extends Component {
             qrbox: calculateModalQrboxSize
         };
 
+        /**
+         * Tests whether a scanned raw string is Base64 encoded and decodes it if valid printable ASCII.
+         *
+         * @param {string} raw Scanned barcode or QR text.
+         * @returns {string} Normalized or decoded code string.
+         */
         const decodeIfBase64 = (raw) => {
             if (!raw) return raw;
             const str = raw.trim();
@@ -2018,9 +2486,52 @@ new class extends Component {
             return str;
         };
 
+        // ------------------------------------------------------------------
+        // Scan Cooldown Manager (5-Second Breathing Gap)
+        // ------------------------------------------------------------------
+        let isModalCoolingDown = false;
+        let modalCooldownInterval = null;
+
+        /**
+         * Activates a visual countdown cooldown timer after successful scan to give server breathing gap.
+         *
+         * @param {number} seconds Cooldown duration in seconds (default 5).
+         * @returns {void}
+         */
+        const startModalCooldown = (seconds = 5) => {
+            isModalCoolingDown = true;
+            let remaining = seconds;
+            const banner = document.getElementById('scanner-modal-cooldown-banner');
+            const valEl = document.getElementById('scanner-cooldown-timer-val');
+            if (banner) banner.style.display = 'flex';
+            if (valEl) valEl.textContent = remaining;
+
+            if (modalCooldownInterval) clearInterval(modalCooldownInterval);
+            modalCooldownInterval = setInterval(() => {
+                remaining -= 1;
+                if (valEl) valEl.textContent = remaining;
+                if (remaining <= 0) {
+                    clearInterval(modalCooldownInterval);
+                    modalCooldownInterval = null;
+                    isModalCoolingDown = false;
+                    if (banner) banner.style.display = 'none';
+                }
+            }, 1000);
+        };
+
+        window.addEventListener('scanner-cooldown-start', (e) => {
+            const sec = (e.detail && e.detail.seconds) ? e.detail.seconds : 5;
+            startModalCooldown(sec);
+        });
+
         // Resolve the scanner component at call time (DOM wire:id first, compiled
         // "@this" as fallback) so scans never silently no-op when the compile-time
         // component reference is stale.
+        /**
+         * Resolves the Livewire component instance dynamically from DOM or Blade context.
+         *
+         * @returns {object|null} The resolved Livewire component proxy, or null if unresolvable.
+         */
         const resolveModalComponent = () => {
             try {
                 const modalEl = document.querySelector('.dts-scanner-widget-card')
@@ -2037,7 +2548,15 @@ new class extends Component {
             return null;
         };
 
-        const callModalLoadTransaction = (code) => {
+        /**
+         * Dispatches loadTransaction call to the backend Livewire component.
+         *
+         * @param {string} code Scanned or entered barcode/QR string.
+         * @param {boolean} isScan True if optical scan (triggers auto-receive), false if manual.
+         * @returns {Promise<any>|any} Component call promise.
+         * @throws {Error} When Livewire component is not reachable in DOM.
+         */
+        const callModalLoadTransaction = (code, isScan = true) => {
             const comp = resolveModalComponent();
             if (!comp) {
                 throw new Error('Scanner lost its connection to the page. Refresh the page (F5) and try again.');
@@ -2045,15 +2564,15 @@ new class extends Component {
 
             let result = null;
             if (typeof comp.call === 'function') {
-                result = comp.call('loadTransaction', code);
+                result = comp.call('loadTransaction', code, isScan);
             } else if (typeof comp.loadTransaction === 'function') {
-                result = comp.loadTransaction(code);
+                result = comp.loadTransaction(code, isScan);
             } else if (comp.$wire && typeof comp.$wire.call === 'function') {
-                result = comp.$wire.call('loadTransaction', code);
+                result = comp.$wire.call('loadTransaction', code, isScan);
             } else if (comp.$wire && typeof comp.$wire.loadTransaction === 'function') {
-                result = comp.$wire.loadTransaction(code);
+                result = comp.$wire.loadTransaction(code, isScan);
             } else if (typeof comp.$call === 'function') {
-                result = comp.$call('loadTransaction', code);
+                result = comp.$call('loadTransaction', code, isScan);
             } else {
                 throw new Error('Scanner connection method not found. Refresh the page (F5) and try again.');
             }
@@ -2067,8 +2586,18 @@ new class extends Component {
             return result;
         };
 
+        /**
+         * Callback fired by Html5Qrcode engine when a valid QR code is detected in camera feed.
+         * Debounces rapid duplicates, respects the 5s cooldown gap, and invokes loadTransaction.
+         *
+         * @param {string} decodedText Raw decoded barcode or QR text from camera.
+         * @returns {void}
+         */
         const onModalScanSuccess = (decodedText) => {
             if (!decodedText) return;
+            if (isModalCoolingDown) {
+                return; // Respect 5-second cooldown gap
+            }
             try {
                 const now = Date.now();
                 if (decodedText === lastModalScannedText && (now - lastModalScanTime) < 1500) {
@@ -2088,7 +2617,7 @@ new class extends Component {
                     input.value = code;
                 }
 
-                callModalLoadTransaction(code);
+                callModalLoadTransaction(code, true);
             } catch (err) {
                 // html5-qrcode swallows callback exceptions silently — surface them.
                 console.error('Scanner modal: failed to process scan:', err);
@@ -2096,6 +2625,11 @@ new class extends Component {
             }
         };
 
+        /**
+         * Enumerates available video input devices and updates the camera selection dropdown and flip button UI.
+         *
+         * @returns {Promise<void>}
+         */
         async function updateModalCameraUI() {
             try {
                 const cameras = await Html5Qrcode.getCameras();
@@ -2153,6 +2687,15 @@ new class extends Component {
             }
         }
 
+        /**
+         * Initializes and starts camera optical scanning stream using Html5Qrcode.
+         * Tries candidate targets in priority: explicit target deviceId, last active camera,
+         * enumerated cameras, and facing modes (environment/user).
+         *
+         * @param {string} cameraTarget Device ID string or facingMode ('environment'|'user').
+         * @returns {Promise<void>}
+         * @throws {Error} If no compatible camera could be opened or permission was denied.
+         */
         async function startModalCamera(cameraTarget) {
             const placeholder = document.getElementById('camera-loading-placeholder');
             if (placeholder) {
@@ -2217,58 +2760,62 @@ new class extends Component {
             };
             modalHtml5QrCode = createFreshModalDecoder();
 
-            const isFacingMode = (cameraTarget === 'environment' || cameraTarget === 'user');
-            let attempts = [];
+            const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
 
-            if (isFacingMode) {
-                modalFacingMode = cameraTarget;
-                modalActiveCameraId = null;
-                attempts = [
-                    { camera: { facingMode: cameraTarget }, stream: modalHdConfig },
-                    { camera: { facingMode: cameraTarget }, stream: modalBareConfig },
-                    { camera: { facingMode: { exact: cameraTarget } }, stream: modalBareConfig },
-                ];
-            } else if (cameraTarget && typeof cameraTarget === 'object' && cameraTarget.facingMode) {
-                modalFacingMode = cameraTarget.facingMode;
-                modalActiveCameraId = null;
-                attempts = [
-                    { camera: cameraTarget, stream: modalHdConfig },
-                    { camera: cameraTarget, stream: modalBareConfig },
-                ];
-            } else if (cameraTarget && typeof cameraTarget === 'string') {
+            let candidates = [];
+
+            // 1. Explicit camera device target passed
+            if (cameraTarget && typeof cameraTarget === 'string' && cameraTarget !== 'environment' && cameraTarget !== 'user') {
                 modalActiveCameraId = cameraTarget;
-                const camObj = modalAvailableCameras.find(c => c.id === cameraTarget);
-                if (camObj) {
-                    if (/front|user|selfie/i.test(camObj.label || '')) modalFacingMode = 'user';
-                    else if (/back|rear|environment|main/i.test(camObj.label || '')) modalFacingMode = 'environment';
+                candidates.push({ deviceId: cameraTarget });
+            }
+
+            // 2. Previously selected active camera
+            if (modalActiveCameraId && !candidates.some(c => c.deviceId === modalActiveCameraId)) {
+                candidates.push({ deviceId: modalActiveCameraId });
+            }
+
+            // 3. Available enumerated system cameras (webcams, USB cameras, integrated laptop cameras)
+            if (modalAvailableCameras && modalAvailableCameras.length > 0) {
+                if (isTouch) {
+                    const backCam = modalAvailableCameras.find(c => /back|rear|environment/i.test(c.label || ''));
+                    if (backCam) candidates.push({ deviceId: backCam.id });
+                } else {
+                    candidates.push({ deviceId: modalAvailableCameras[0].id });
                 }
-                attempts = [
-                    { camera: { deviceId: cameraTarget }, stream: modalHdConfig },
-                    { camera: { deviceId: cameraTarget }, stream: modalBareConfig },
-                    { camera: { deviceId: { exact: cameraTarget } }, stream: modalBareConfig },
-                    { camera: cameraTarget, stream: modalBareConfig },
-                ];
+                for (const c of modalAvailableCameras) {
+                    if (c.id && !candidates.some(cand => cand.deviceId === c.id)) {
+                        candidates.push({ deviceId: c.id });
+                    }
+                }
+            }
+
+            // 4. Facing modes (environment for rear camera, user for front/selfie)
+            if (isTouch) {
+                if (cameraTarget === 'user') {
+                    candidates.push({ facingMode: 'user' });
+                    candidates.push({ facingMode: 'environment' });
+                } else {
+                    candidates.push({ facingMode: 'environment' });
+                    candidates.push({ facingMode: 'user' });
+                }
             } else {
-                modalFacingMode = 'environment';
-                attempts = [
-                    { camera: { facingMode: "environment" }, stream: modalHdConfig },
-                    { camera: { facingMode: "environment" }, stream: modalBareConfig },
-                    { camera: { facingMode: "user" }, stream: modalHdConfig },
-                    { camera: { facingMode: "user" }, stream: modalBareConfig },
-                ];
+                candidates.push({ facingMode: 'user' });
+                candidates.push({ facingMode: 'environment' });
             }
 
             let started = false;
             let lastErr = null;
 
-            for (const att of attempts) {
+            for (const cand of candidates) {
                 try {
-                    await modalHtml5QrCode.start(att.camera, att.stream, onModalScanSuccess, () => {});
+                    await modalHtml5QrCode.start(cand, modalBareConfig, onModalScanSuccess, () => {});
                     started = true;
+                    if (cand.deviceId) modalActiveCameraId = cand.deviceId;
                     break;
                 } catch (err) {
                     lastErr = err;
-                    console.warn('Modal camera start attempt failed:', err);
+                    console.warn('Modal camera start attempt failed with candidate:', cand, err);
                     try { if (modalHtml5QrCode.isScanning) await modalHtml5QrCode.stop(); } catch(e) {}
                     try {
                         const clearing = modalHtml5QrCode.clear();
@@ -2280,29 +2827,12 @@ new class extends Component {
             }
 
             if (!started) {
-                try {
-                    await modalHtml5QrCode.start({ facingMode: "environment" }, modalBareConfig, onModalScanSuccess, () => {});
-                    started = true;
-                    modalFacingMode = 'environment';
-                } catch(e) {
-                    try {
-                        try { if (modalHtml5QrCode.isScanning) await modalHtml5QrCode.stop(); } catch(e3) {}
-                        modalHtml5QrCode = createFreshModalDecoder();
-                        await modalHtml5QrCode.start({ facingMode: "user" }, modalBareConfig, onModalScanSuccess, () => {});
-                        started = true;
-                        modalFacingMode = 'user';
-                    } catch(e2) {
-                        throw lastErr || e2;
-                    }
-                }
+                throw lastErr || new Error('No compatible camera could be started');
             }
 
             if (placeholder) placeholder.style.display = 'none';
 
-            // Refresh camera labels/ids now that permission may have just been
-            // granted (the pre-start enumeration can return empty ids on the
-            // first ever open). If this ever disturbs the live stream, the
-            // watchdog below detects the dead track and restarts the camera.
+            // Refresh camera labels/ids now that permission may have just been granted
             if (!modalAvailableCameras.length || modalAvailableCameras.some(c => !c.id)) {
                 try { await updateModalCameraUI(); } catch (e) { console.warn('Post-start camera refresh failed:', e); }
             }
@@ -2310,6 +2840,13 @@ new class extends Component {
             startModalWatchdog();
         }
 
+        /**
+         * Switches the active camera device to a specific target device or facing mode.
+         * Renders informative troubleshooting guidance if camera permission or access fails.
+         *
+         * @param {string} [cameraTarget] Device ID or facing mode string.
+         * @returns {Promise<void>}
+         */
         window.switchModalCamera = async function(cameraTarget) {
             if (isModalSwitching) return;
             isModalSwitching = true;
@@ -2320,11 +2857,26 @@ new class extends Component {
                 console.error('switchModalCamera failed:', err);
                 const placeholder = document.getElementById('camera-loading-placeholder');
                 if (placeholder) {
+                    const errName = (err && err.name) || '';
+                    const errMsg = (err && (err.message || String(err))) || 'Camera switch failed';
+                    let guidance = 'Please allow camera permission in your browser or connect a webcam.';
+                    if (errName === 'NotAllowedError' || /permission/i.test(errMsg)) {
+                        guidance = 'Camera access is blocked by your browser. Click the lock/tune icon in your address bar, select <b>Always allow</b>, and click Retry.';
+                    } else if (errName === 'NotFoundError' || /device not found/i.test(errMsg)) {
+                        guidance = 'No camera found. Check if your laptop privacy shutter is open or if Windows has "Camera off" toggled.';
+                    } else if (errName === 'NotReadableError') {
+                        guidance = 'Camera is in use by another application (e.g. Teams, Zoom, or another browser tab).';
+                    }
                     placeholder.innerHTML = `
-                        <div style="color: #ef4444; font-size: 13px; text-align: center; padding: 10px;">
-                            <div>Camera switch failed.</div>
-                            <button type="button" onclick="window.flipModalCamera()" style="margin-top: 6px; padding: 5px 12px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 11px; cursor: pointer;">Retry Switching</button>
-                        </div>
+                        <svg style="width: 24px; height: 24px; margin-bottom: 5px; stroke: #f59e0b;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                        <div style="font-weight: 700; font-size: 12px; color: #f8fafc;">Camera Access Unavailable</div>
+                        <div style="font-size: 10px; color: #cbd5e1; max-width: 280px; text-align: center; margin-top: 3px; line-height: 1.35;">${guidance}</div>
+                        <div style="font-size: 9.5px; font-family: monospace; color: #f87171; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; margin-top: 5px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${errMsg}">${errName ? errName + ': ' : ''}${errMsg}</div>
+                        <button type="button" onclick="window.switchModalCamera()" style="margin-top: 7px; padding: 4px 12px; background: #0284c7; color: #ffffff; border: none; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#0369a1'" onmouseout="this.style.background='#0284c7'">
+                            Retry Camera
+                        </button>
                     `;
                     placeholder.style.display = 'flex';
                 }
@@ -2333,6 +2885,11 @@ new class extends Component {
             }
         };
 
+        /**
+         * Cycles to the next available system camera or toggles between user (front) and environment (rear) lenses.
+         *
+         * @returns {Promise<void>}
+         */
         window.flipModalCamera = async function() {
             if (isModalSwitching) return;
 
@@ -2356,6 +2913,12 @@ new class extends Component {
             }
         };
 
+        /**
+         * Global helper to open scanner modal from anywhere in the application.
+         *
+         * @param {string} [code=''] Optional barcode/QR code to pre-populate.
+         * @returns {void}
+         */
         window.openScannerModal = function(code = '') {
             if (window.Livewire) {
                 Livewire.dispatch('open-scanner-modal', { code: code });
@@ -2365,6 +2928,12 @@ new class extends Component {
         let isModalStarting = false;
         let lastInitTime = 0;
 
+        /**
+         * Event handler for 'init-camera-scanner'. Waits for DOM container rendering,
+         * focuses the input field, and starts the optical camera feed.
+         *
+         * @returns {Promise<void>}
+         */
         const handleInitCameraScanner = async () => {
             const now = Date.now();
             if (now - lastInitTime < 500) return; // Prevent concurrent double-fires
@@ -2386,7 +2955,15 @@ new class extends Component {
                     attempts++;
                 }
 
-                if (!document.getElementById('modal-qr-preview')) return;
+                const previewEl = document.getElementById('modal-qr-preview');
+                if (!previewEl) return;
+
+                // Wait until element is rendered with dimensions
+                let layoutAttempts = 0;
+                while (previewEl.clientHeight === 0 && layoutAttempts < 20) {
+                    await new Promise(r => setTimeout(r, 50));
+                    layoutAttempts++;
+                }
 
                 if (modalHtml5QrCode && modalHtml5QrCode.isScanning) {
                     const placeholder = document.getElementById('camera-loading-placeholder');
@@ -2395,17 +2972,32 @@ new class extends Component {
                 }
 
                 modalAutoRestarts = 0;
-                await startModalCamera({ facingMode: "environment" });
+                await startModalCamera(modalActiveCameraId || 'environment');
             } catch (err) {
                 console.error('Camera init error:', err);
                 const placeholder = document.getElementById('camera-loading-placeholder');
                 if (placeholder) {
+                    placeholder.style.display = 'flex';
+                    const errName = (err && err.name) || '';
+                    const errMsg = (err && (err.message || String(err))) || 'Unknown camera error';
+                    let guidance = 'Please allow camera permission in your browser or connect a webcam.';
+                    if (errName === 'NotAllowedError' || /permission/i.test(errMsg)) {
+                        guidance = 'Camera access is blocked by your browser. Click the lock/camera icon in your address bar, select <b>Always allow</b>, and click Retry.';
+                    } else if (errName === 'NotFoundError' || /device not found/i.test(errMsg)) {
+                        guidance = 'No camera found. Check if your laptop privacy shutter is open or if Windows has "Camera off" toggled.';
+                    } else if (errName === 'NotReadableError') {
+                        guidance = 'Camera is in use by another application (e.g. Teams, Zoom, or another browser tab).';
+                    }
                     placeholder.innerHTML = `
-                        <svg style="width: 24px; height: 24px; margin-bottom: 8px; stroke: #f59e0b;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg style="width: 24px; height: 24px; margin-bottom: 5px; stroke: #f59e0b;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                         </svg>
-                        <div>Camera Access Disabled / Unavailable</div>
-                        <small style="opacity: 0.8; font-size: 11px;">Please allow camera permission in your browser.</small>
+                        <div style="font-weight: 700; font-size: 12px; color: #f8fafc;">Camera Access Unavailable</div>
+                        <div style="font-size: 10px; color: #cbd5e1; max-width: 280px; text-align: center; margin-top: 3px; line-height: 1.35;">${guidance}</div>
+                        <div style="font-size: 9.5px; font-family: monospace; color: #f87171; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; margin-top: 5px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${errMsg}">${errName ? errName + ': ' : ''}${errMsg}</div>
+                        <button type="button" onclick="window.switchModalCamera()" style="margin-top: 7px; padding: 4px 12px; background: #0284c7; color: #ffffff; border: none; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#0369a1'" onmouseout="this.style.background='#0284c7'">
+                            Retry Camera
+                        </button>
                     `;
                 }
             } finally {
@@ -2413,10 +3005,20 @@ new class extends Component {
             }
         };
 
+        /**
+         * Event handler for 'stop-camera-scanner'. Halts camera tracks when modal is dismissed.
+         *
+         * @returns {Promise<void>}
+         */
         const handleStopCameraScanner = async () => {
             await stopModalScanner();
         };
 
+        /**
+         * Visual feedback handler when an invalid QR code or barcode is scanned. Flashes input red.
+         *
+         * @returns {void}
+         */
         const handleScannerCodeInvalid = () => {
             const input = document.getElementById('global-scanner-code-input');
             if (input) {
@@ -2429,6 +3031,14 @@ new class extends Component {
 
         // Web Audio API Synthesizer Feedback for Scanner
         let audioCtx = null;
+        /**
+         * Generates synthesized audio beep feedback via Web Audio API for scanner feedback.
+         *
+         * @param {number} freq Audio frequency in Hz (e.g., 880 for success, 250 for error).
+         * @param {string} type Oscillator waveform type ('sine', 'triangle', 'sawtooth').
+         * @param {number} duration Tone duration in seconds.
+         * @returns {void}
+         */
         function playBeep(freq, type, duration) {
             try {
                 if (!audioCtx) {
@@ -2487,10 +3097,16 @@ new class extends Component {
             if (e.key === 'Enter') {
                 if (gunBarcodeBuffer.length >= 4) {
                     e.preventDefault();
-                    if (window.Livewire) {
-                        Livewire.dispatch('open-scanner-modal', { code: gunBarcodeBuffer.trim() });
+                    if (isModalCoolingDown) {
+                        gunBarcodeBuffer = '';
+                        window.__scannerToast('Scan cooldown active (5s). Please wait before scanning again.', 'info');
+                        return;
                     }
+                    const codeToScan = gunBarcodeBuffer.trim();
                     gunBarcodeBuffer = '';
+                    if (window.Livewire) {
+                        Livewire.dispatch('open-scanner-modal', { code: codeToScan, isScan: true });
+                    }
                 }
             } else if (e.key.length === 1) {
                 gunBarcodeBuffer += e.key;
@@ -2504,6 +3120,30 @@ new class extends Component {
             window.addEventListener('init-camera-scanner', handleInitCameraScanner);
             window.addEventListener('stop-camera-scanner', handleStopCameraScanner);
             window.addEventListener('scanner-code-invalid', handleScannerCodeInvalid);
+
+            window.addEventListener('scanner-modal-opened', () => {
+                window.dispatchEvent(new CustomEvent('rms-widget-opened', { detail: { widget: 'scanner' } }));
+                if (typeof window.closeMessifyWidget === 'function') {
+                    window.closeMessifyWidget();
+                }
+            });
+
+            window.addEventListener('rms-widget-opened', (e) => {
+                const detail = e.detail;
+                const w = (detail && typeof detail === 'object') ? (detail.widget || (Array.isArray(detail) ? detail[0]?.widget : null)) : detail;
+                if (w && w !== 'scanner') {
+                    const comp = resolveModalComponent();
+                    if (comp) {
+                        if (typeof comp.closeModal === 'function') {
+                            comp.closeModal();
+                        } else if (comp.$wire && typeof comp.$wire.closeModal === 'function') {
+                            comp.$wire.closeModal();
+                        } else if (typeof comp.call === 'function') {
+                            comp.call('closeModal');
+                        }
+                    }
+                }
+            });
         }
 
         window.addEventListener('beforeunload', () => {
@@ -2511,125 +3151,6 @@ new class extends Component {
         });
     })();
     </script>
-
-    <!-- Available Documents Directory Modal -->
-    @if($showAvailableModal)
-        <div class="available-modal-backdrop" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px); z-index: 100010; display: flex; align-items: center; justify-content: center; padding: 16px; animation: modalFadeIn 0.15s ease-out;" wire:click.self="closeAvailableCodesModal">
-            <div class="available-modal-card" style="background: #ffffff; border-radius: 16px; max-width: 860px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e2e8f0; overflow: hidden;">
-                
-                {{-- Modal Header --}}
-                <div class="available-modal-header" style="padding: 16px 22px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; background: #f8fafc;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <div style="width: 38px; height: 38px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 16px;">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                <polyline points="14 2 14 8 20 8"></polyline>
-                                <line x1="16" y1="13" x2="8" y2="13"></line>
-                                <line x1="16" y1="17" x2="8" y2="17"></line>
-                                <polyline points="10 9 9 9 8 9"></polyline>
-                            </svg>
-                        </div>
-                        <div>
-                            <h3 style="font-size: 15px; font-weight: 700; color: #0f172a; margin: 0;">
-                                Available Documents for Station Action
-                            </h3>
-                            <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
-                                Documents stationed at your office pending receipt or dispatch.
-                            </p>
-                        </div>
-                    </div>
-                    <button type="button" wire:click="closeAvailableCodesModal" class="available-modal-close"
-                            style="width: 30px; height: 30px; border-radius: 8px; border: 1px solid #e2e8f0; background: #ffffff; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;">
-                        &times;
-                    </button>
-                </div>
-
-                {{-- Modal Filters & Search Bar --}}
-                <div style="padding: 14px 22px; border-bottom: 1px solid #f1f5f9; background: #ffffff; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;">
-                    <div style="display: flex; gap: 6px; background: #f1f5f9; padding: 4px; border-radius: 10px;">
-                        <button type="button" wire:click="$set('availableFilter', 'all')"
-                                style="padding: 5px 11px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'all' ? 'background: #ffffff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
-                            All ({{ $this->availableCounts['all'] ?? 0 }})
-                        </button>
-                        <button type="button" wire:click="$set('availableFilter', 'incoming')"
-                                style="padding: 5px 11px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'incoming' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
-                            Incoming / To Receive ({{ $this->availableCounts['incoming'] ?? 0 }})
-                        </button>
-                        <button type="button" wire:click="$set('availableFilter', 'received')"
-                                style="padding: 5px 11px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'received' ? 'background: #ffffff; color: #16a34a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
-                            In Custody / To Forward ({{ $this->availableCounts['received'] ?? 0 }})
-                        </button>
-                    </div>
-
-                    <div style="position: relative; flex: 1; min-width: 200px; max-width: 300px;">
-                        <input type="text" wire:model.live.debounce.250ms="availableSearch" placeholder="Search control no, subject..." 
-                               style="width: 100%; height: 34px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 12px; font-size: 12px; outline: none; box-sizing: border-box;" />
-                    </div>
-                </div>
-
-                {{-- Modal Body: Scrollable Document List --}}
-                <div style="padding: 16px 22px; overflow-y: auto; flex: 1; max-height: calc(88vh - 180px);">
-                    @if($this->availableTransactions->isNotEmpty())
-                        <div style="display: flex; flex-direction: column; gap: 8px;">
-                            @foreach($this->availableTransactions as $item)
-                                <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; background: #ffffff;">
-                                    <div style="flex: 1; min-width: 0;">
-                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
-                                            <span style="font-family: monospace; font-size: 13.5px; font-weight: 800; color: #0f172a;">
-                                                {{ $item->control_number }}
-                                            </span>
-                                            @if(!$item->is_received)
-                                                <span style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
-                                                    Pending Receipt
-                                                </span>
-                                            @else
-                                                <span style="font-size: 10px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
-                                                    In Custody
-                                                </span>
-                                            @endif
-                                            <span style="font-size: 11px; background: #f1f5f9; color: #475569; padding: 2px 6px; border-radius: 4px;">
-                                                {{ $item->document_type ?? 'Document' }}
-                                            </span>
-                                        </div>
-                                        <div style="font-size: 12.5px; font-weight: 600; color: #334155; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                            {{ $item->subject ?: 'Untitled Transaction' }}
-                                        </div>
-                                        <div style="font-size: 11px; color: #64748b; display: flex; gap: 10px; flex-wrap: wrap;">
-                                            <span>Origin: <strong>{{ $item->originated_office_name ?? $item->originated_from }}</strong></span>
-                                            @if($item->requestor_name)
-                                                <span>Requestor: <strong>{{ $item->requestor_name }}</strong></span>
-                                            @endif
-                                        </div>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        wire:click="loadAvailableTransaction('{{ $item->qr_code }}')"
-                                        style="background: #0284c7; color: #ffffff; border: none; border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; transition: background 0.15s;"
-                                    >
-                                        <span>Load</span>
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                                    </button>
-                                </div>
-                            @endforeach
-                        </div>
-                    @else
-                        <div style="text-align: center; padding: 36px 20px; color: #94a3b8;">
-                            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 10px auto; opacity: 0.6;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                            <p style="font-size: 13.5px; font-weight: 600; color: #64748b; margin: 0 0 4px 0;">No Documents Found</p>
-                            <p style="font-size: 12px; margin: 0;">No active documents matched the current station filter or search query.</p>
-                        </div>
-                    @endif
-                </div>
-
-                {{-- Modal Footer --}}
-                <div style="padding: 12px 22px; border-top: 1px solid #e2e8f0; background: #f8fafc; display: flex; justify-content: flex-end;">
-                    <button type="button" wire:click="closeAvailableCodesModal" style="background: #e2e8f0; color: #334155; border: none; border-radius: 8px; padding: 7px 16px; font-size: 12px; font-weight: 600; cursor: pointer;">
-                        Close
-                    </button>
-                </div>
-            </div>
-        </div>
-    @endif
 
     <!-- Office Hub Collective Modal for Forwarding -->
     <x-dts.hub-collective-modal 

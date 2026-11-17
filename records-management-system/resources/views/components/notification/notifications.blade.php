@@ -805,6 +805,33 @@ new class extends Component {
     @rms-popout-setting-changed.window="popoutEnabled = !!($event.detail?.enabled ?? $event.detail)"
     @rms-notification-overlay-show.window="triggerOverlay($event.detail)"
 >
+    <style>
+        .notif-badge {
+            position: absolute;
+            top: -5px !important;
+            right: -6px !important;
+            min-width: 18px !important;
+            height: 18px !important;
+            padding: 0 4px !important;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+            color: #ffffff !important;
+            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            font-size: 10px !important;
+            font-weight: 700 !important;
+            line-height: 14px !important;
+            text-align: center !important;
+            border-radius: 9999px !important;
+            border: 2px solid #003699 !important;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35) !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            box-sizing: border-box !important;
+            pointer-events: none !important;
+            z-index: 5 !important;
+        }
+    </style>
+
     <!-- Bell Button -->
     <button
         class="notif-bell-btn"
@@ -827,7 +854,7 @@ new class extends Component {
             class="notif-badge"
             data-system-unread="{{ (int) $unreadCount }}"
             @if($unreadCount < 1) style="display: none;" @endif
-        ></span>
+        >{{ $unreadCount > 99 ? '99+' : $unreadCount }}</span>
     </button>
 
     <!-- Dropdown Menu -->

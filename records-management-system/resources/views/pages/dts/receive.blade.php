@@ -239,6 +239,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     public function receiveTransaction(): void
     {
         $this->clearMessages();
+
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+            return;
+        }
+
         if (!$this->activeTransaction) {
             return;
         }
@@ -302,13 +308,26 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     ->first();
 
                 if ($flow) {
+                    $seqRanking = $this->activeTransaction['sequence'];
+                    $prevSeq = DB::table('dts_sequence_list')
+                        ->where('control_id', $flow->id)
+                        ->where('sequence_ranking', $seqRanking - 1)
+                        ->first();
+                    $totalTimeReceived = null;
+                    if ($prevSeq && $prevSeq->date_out) {
+                        $totalTimeReceived = \App\Services\DtsWorkingHoursService::calculateDurationString($prevSeq->date_out, now());
+                    } elseif ($seqRanking == 1) {
+                        $totalTimeReceived = '-';
+                    }
+
                     DB::table('dts_sequence_list')
                         ->where('control_id', $flow->id)
-                        ->where('sequence_ranking', $this->activeTransaction['sequence'])
+                        ->where('sequence_ranking', $seqRanking)
                         ->update([
                             'date_in' => now(),
                             'account_received' => auth()->id(),
                             'scanned_id' => true,
+                            'total_time_received' => $totalTimeReceived,
                         ]);
                 }
 
@@ -353,6 +372,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
     public function proceedTransaction(): void
     {
         $this->clearMessages();
+
+        if (!\App\Services\DtsWorkingHoursService::canProcessStationAction()) {
+            $this->errorMessage = \App\Services\DtsWorkingHoursService::getStationActionRestrictionNotice();
+            return;
+        }
+
         if (!$this->activeTransaction) {
             return;
         }
@@ -642,9 +667,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
             <!-- Details Form / Input Panel -->
             <div style="display: flex; flex-direction: column; gap: 20px;">
-                <!-- Barcode Gun Entry Card -->
+                <!-- Manual Input Entry Card -->
                 <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
-                    <h3 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #1e293b; font-family: Outfit, sans-serif;">Barcode Gun / Text Scanner Input</h3>
+                    <h3 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #1e293b; font-family: Outfit, sans-serif;">Manual Input</h3>
                     <form wire:submit.prevent="loadTransaction" style="display: flex; gap: 8px;">
                         <div style="position: relative; flex: 1;">
                            <input 
@@ -764,7 +789,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                     <div style="background: #fff; border: 1.5px dashed #cbd5e1; border-radius: 12px; padding: 40px; text-align: center; color: #94a3b8; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);">
                         <i class="fa-solid fa-qrcode" style="font-size: 40px; margin-bottom: 12px; color: #cbd5e1;"></i>
                         <p style="font-size: 13px; margin: 0; font-family: Outfit, sans-serif; font-weight: 500;">No active scanned details</p>
-                        <p style="font-size: 12px; margin: 4px 0 0 0; color: #94a3b8;">Use webcam feed or barcode gun to load document context</p>
+                        <p style="font-size: 12px; margin: 4px 0 0 0; color: #94a3b8;">Use webcam feed or manual input to load document context</p>
                     </div>
                 @endif
 

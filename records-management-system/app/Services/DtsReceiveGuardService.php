@@ -16,7 +16,9 @@ use Illuminate\Support\Facades\Schema;
 class DtsReceiveGuardService
 {
     /**
-     * Transaction log table (renamed across versions).
+     * Resolve the active DTS transaction logs table name across legacy and modern schema revisions.
+     *
+     * @return string Active table name ('dts_transaction_logs' or 'sub_document_tracking_system_logs').
      */
     public static function logsTable(): string
     {
@@ -24,7 +26,11 @@ class DtsReceiveGuardService
     }
 
     /**
-     * Latest log row this office has for the transaction.
+     * Retrieve the most recent log record for a given transaction at a specific office.
+     *
+     * @param string|int|null $transactionId The unique transaction identifier.
+     * @param string|null $officeCode The office code to query logs for.
+     * @return object|null The most recent log row object, or null if none found.
      */
     public static function lastLogForOffice($transactionId, ?string $officeCode)
     {
@@ -40,8 +46,13 @@ class DtsReceiveGuardService
     }
 
     /**
-     * Does a log row mean "this office already has the document in custody"?
-     * Mirrors the flag used by the scanner / receive UI.
+     * Determine if a transaction log record signifies that the office has received custody of the document.
+     *
+     * Returns true if log type is 'received' or has non-empty date_in (and not yet forwarded).
+     * Mirrors the shared predicate used across scanners, widgets, and tables.
+     *
+     * @param object|null $log Log row object to evaluate.
+     * @return bool True if custody was received; false otherwise.
      */
     public static function isReceived($log): bool
     {
@@ -51,7 +62,13 @@ class DtsReceiveGuardService
     }
 
     /**
-     * Fast pre-check (no locks) used before starting an action.
+     * Fast optimistic pre-check (lockless) to test if an office has already received a transaction.
+     *
+     * Used before initiating workflows or displaying UI action buttons.
+     *
+     * @param string|int|null $transactionId The transaction ID.
+     * @param string|null $officeCode The office code.
+     * @return bool True if already received at the given office; false otherwise.
      */
     public static function alreadyReceived($transactionId, ?string $officeCode): bool
     {
@@ -59,11 +76,13 @@ class DtsReceiveGuardService
     }
 
     /**
-     * Serialize concurrent receive attempts for the same transaction.
+     * Acquire a pessimistic row-level lock on the transaction record to serialize concurrent operations.
      *
-     * Must be called as the FIRST statement inside the action's DB::transaction
-     * so the row lock (held until that transaction ends) makes the following
-     * alreadyReceived() re-check authoritative.
+     * Must be called as the FIRST statement inside a DB::transaction closure so the row lock
+     * is held until commit, preventing double-receive race conditions between cameras and guns.
+     *
+     * @param string|int|null $transactionId The transaction ID to lock.
+     * @return void
      */
     public static function lockTransaction($transactionId): void
     {

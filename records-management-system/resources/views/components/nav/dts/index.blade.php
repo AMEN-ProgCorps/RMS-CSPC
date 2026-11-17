@@ -54,24 +54,7 @@
     </div>
 </div>
 
-{{-- 2. Scanner Section --}}
-<div id="dts-scanner-id" class="button-section-container">
-    <div class="button-container" 
-         data-nav-guide="{{ $navGuides['Scanner'] ?? 'Scan barcode slips and verify document transaction status' }}"
-         onclick="window.Livewire ? Livewire.dispatch('open-scanner-modal') : window.dispatchEvent(new CustomEvent('open-scanner-modal'))"
-         title="Open Scanner Console (Modal)">
-        <div class="button-icon">
-            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
-                <path d="M3 8V5a2 2 0 0 1 2-2h3v2H5v3H3zm13-5h3a2 2 0 0 1 2 2v3h-2V5h-3V3zM3 16v3a2 2 0 0 0 2 2h3v-2H5v-3H3zm18 0v3a2 2 0 0 1-2 2h-3v-2h3v-3h2zM7 7h3.5v3.5H7V7zm6.5 0h3.5v3.5h-3.5V7zM7 13.5h3.5v3.5H7v-3.5zm6.5 0h3.5v3.5h-3.5v-3.5z" fill="#4F4F4F"/>
-            </svg>
-        </div>
-        <div class="button-label">
-            <span>Scanner</span>
-        </div>
-    </div>
-</div>
-
-{{-- 3. Create Transaction Section --}}
+{{-- 2. Create Transaction Section --}}
 @if($canAnyCreate)
 <div id="dts-create-id" class="button-section-container {{ (request()->routeIs('dts.create.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.create.*') ? 'force-active' : '' }}" 
@@ -110,7 +93,7 @@
 </div>
 @endif
 
-{{-- 4. List of Transactions Section --}}
+{{-- 3. List of Transactions Section --}}
 @if($canAnyCreate)
 <div id="dts-list-id" class="button-section-container {{ (request()->routeIs('dts.list.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.list.*') ? 'force-active' : '' }}" 
@@ -149,7 +132,7 @@
 </div>
 @endif
 
-{{-- 5. Transaction History Section --}}
+{{-- 4. Transaction History Section --}}
 @if($canAnyCreate)
 <div id="dts-history-id" class="button-section-container {{ (request()->routeIs('dts.history.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.history.*') ? 'force-active' : '' }}" 

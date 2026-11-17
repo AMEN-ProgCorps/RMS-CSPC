@@ -71,7 +71,7 @@ class NotificationsTest extends TestCase
                 'subsystem_version' => '1.0.0',
                 'created_at' => now(),
                 'update_at' => now(),
-            ]);
+            ], 'subsystem_id');
         }
     }
 

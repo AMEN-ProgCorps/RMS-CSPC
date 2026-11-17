@@ -175,6 +175,8 @@ class AdminMillerConsoleTest extends TestCase
         $comp->assertSet('layoutMode', 'horizontal');
         $comp->call('setLayoutMode', 'default');
         $comp->assertSet('layoutMode', 'default');
+        $comp->assertSee('Users Directory');
+        $comp->assertSee('admin-users-container');
         $comp->assertHasNoErrors();
     }
 
@@ -184,6 +186,8 @@ class AdminMillerConsoleTest extends TestCase
         $comp->assertSet('layoutMode', 'horizontal');
         $comp->call('setLayoutMode', 'default');
         $comp->assertSet('layoutMode', 'default');
+        $comp->assertSee('Roles Directory');
+        $comp->assertSee('admin-roles-container');
         $comp->assertHasNoErrors();
     }
 
@@ -193,6 +197,8 @@ class AdminMillerConsoleTest extends TestCase
         $comp->assertSet('layoutMode', 'horizontal');
         $comp->call('setLayoutMode', 'default');
         $comp->assertSet('layoutMode', 'default');
+        $comp->assertSee('Offices Directory');
+        $comp->assertSee('admin-offices-container');
         $comp->assertHasNoErrors();
     }
 
@@ -202,6 +208,17 @@ class AdminMillerConsoleTest extends TestCase
         $comp->assertSet('layoutMode', 'horizontal');
         $comp->call('setLayoutMode', 'default');
         $comp->assertSet('layoutMode', 'default');
+        $comp->assertSee('Predefined Flow Manager');
+        $comp->assertHasNoErrors();
+    }
+
+    public function test_tickets_layout_mode_switch()
+    {
+        $comp = Volt::test('pages.admin.tickets.index');
+        $comp->assertSet('layoutMode', 'horizontal');
+        $comp->call('setLayoutMode', 'default');
+        $comp->assertSet('layoutMode', 'default');
+        $comp->assertSee('System Error Tickets');
         $comp->assertHasNoErrors();
     }
 }

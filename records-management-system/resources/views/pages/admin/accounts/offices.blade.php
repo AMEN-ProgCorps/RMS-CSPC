@@ -26,6 +26,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
 
     /** @var string Classic layout directory view mode ('table' or 'grid') */
     public string $officeViewMode = 'table';
+    public string $otherOfficeViewMode = 'table';
 
     /** @var string Classic layout sorting column */
     public string $officeSortBy = 'name';
@@ -1075,6 +1076,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
     }
 };
 ?>
+<div>
 
 @push('styles')
     @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/accounts_offices.css'])
@@ -1527,9 +1529,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
 @if($layoutMode === 'default')
 <div class="activity-logs-container">
     <!-- Tabs Header -->
-    <div class="tabs-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-            <div style="display: flex; align-items: center; gap: 10px; margin-right: 12px;">
+    <div class="tabs-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 10px;">
                 <h1 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px;">
                     <i class="fa-solid fa-sitemap" style="color: #0284c7;"></i> Organizational Units & Offices
                 </h1>
@@ -1537,22 +1539,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
                     Default Layout
                 </span>
             </div>
-            <button type="button" class="tab-btn {{ $activeTab === 'offices' ? 'active' : '' }}" wire:click="$set('activeTab', 'offices')">
-                <i class="fa-solid fa-building" style="margin-right: 6px;"></i> Offices Directory
-            </button>
-            <button type="button" class="tab-btn {{ $activeTab === 'other-offices' ? 'active' : '' }}" wire:click="$set('activeTab', 'other-offices')">
-                <i class="fa-solid fa-globe" style="margin-right: 6px;"></i> Other Offices (External)
-            </button>
+            <div class="admin-tabs-segmented" style="display: inline-flex; align-items: center; background: #e2e8f0; padding: 3px; border-radius: 8px; gap: 2px;">
+                <button type="button" 
+                        class="tab-btn {{ $activeTab === 'offices' ? 'active' : '' }}" 
+                        wire:click="switchTab('offices')"
+                        style="padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s ease; {{ $activeTab === 'offices' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.12);' : 'background: transparent; color: #64748b;' }}">
+                    <i class="fa-solid fa-building"></i>
+                    <span>Offices Directory</span>
+                </button>
+                <button type="button" 
+                        class="tab-btn {{ $activeTab === 'other_offices' ? 'active' : '' }}" 
+                        wire:click="switchTab('other_offices')"
+                        style="padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s ease; {{ $activeTab === 'other_offices' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.12);' : 'background: transparent; color: #64748b;' }}">
+                    <i class="fa-solid fa-globe"></i>
+                    <span>Other Offices (External)</span>
+                </button>
+            </div>
         </div>
         <div style="display: flex; align-items: center; gap: 10px;">
             <x-admin.layout-trigger :mode="$layoutMode" />
         </div>
     </div>
-    @php
-        // Old tabs header replaced
-    @endphp
-    <div style="display: none;">
-
 
     @if($activeTab === 'offices')
         <div class="admin-offices-container {{ !$selectedOfficeId ? 'no-selection' : 'has-selection' }}" wire:key="tab-offices-view">
@@ -3220,4 +3227,5 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
 </div>
 
 @endif
+</div>
 

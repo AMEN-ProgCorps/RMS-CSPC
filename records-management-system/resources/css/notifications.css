@@ -98,13 +98,28 @@
 
 .notif-badge {
     position: absolute;
-    top: 2px; /* Adjusted for smaller button padding */
-    right: 2px; /* Adjusted for smaller button padding */
-    width: 10px;
-    height: 10px;
-    background-color: #ef4444; /* Vivid red */
-    border-radius: 50%;
+    top: -5px;
+    right: -6px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: #ffffff !important;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    line-height: 14px;
+    text-align: center;
+    border-radius: 9999px;
     border: 2px solid #003699; /* Outline color matching the header background */
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    pointer-events: none;
+    z-index: 5;
+    transition: transform 0.15s ease, background-color 0.15s ease;
 }
 
 /* Dropdown Menu */

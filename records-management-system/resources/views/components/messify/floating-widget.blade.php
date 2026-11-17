@@ -2,6 +2,9 @@
 {{-- Always define stubs so onclick handlers never throw ReferenceError before the widget script loads. --}}
 <script>
     window.toggleMessifyWidget = window.toggleMessifyWidget || function () {};
+    window.closeMessifyWidget = window.closeMessifyWidget || function () {};
+    window.openMessifyWidget = window.openMessifyWidget || function () {};
+    window.toggleMessifyMaximize = window.toggleMessifyMaximize || function () {};
     window.reloadMessifyIframe = window.reloadMessifyIframe || function () {};
     window.hideMessifyLoader = window.hideMessifyLoader || function () {};
     window.updateMessifyUnreadBadge = window.updateMessifyUnreadBadge || function () {};
@@ -38,6 +41,11 @@
                 <!-- Refresh Button -->
                 <button type="button" onclick="reloadMessifyIframe()" title="Reload Chatify" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
                     <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                </button>
+                <!-- Expand / Fullscreen Button -->
+                <button type="button" id="messify-btn-maximize" onclick="typeof window.toggleMessifyMaximize==='function'&&window.toggleMessifyMaximize()" title="Expand Chatify" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
+                    <svg id="messify-icon-maximize" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+                    <svg id="messify-icon-restore" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m0 6v4a2 2 0 002 2h4m6 0h4a2 2 0 002-2v-4m0-6V5a2 2 0 00-2-2h-4"/></svg>
                 </button>
                 <!-- Minimize Button -->
                 <button type="button" onclick="typeof window.toggleMessifyWidget==='function'&&window.toggleMessifyWidget()" title="Minimize" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='#94a3b8'">
@@ -151,6 +159,18 @@
 
 body.messify-widget-open #messify-global-widget {
     z-index: 1000010 !important;
+}
+
+#messify-widget-card.is-maximized {
+    position: fixed !important;
+    bottom: 88px !important;
+    right: 24px !important;
+    width: calc(100vw - 48px) !important;
+    height: calc(100vh - 112px) !important;
+    max-width: none !important;
+    max-height: none !important;
+    border-radius: 14px !important;
+    z-index: 1000030 !important;
 }
 
 .rms-messify-fab-icon {
@@ -650,7 +670,8 @@ body.messify-widget-open #messify-global-widget {
         // 3. Update Header Bell Notification Badge (respect Notification Manager mutes)
         const bellBadge = document.getElementById('header-notif-badge') || document.querySelector('.notif-badge');
         if (bellBadge) {
-            bellBadge.style.display = systemCount > 0 ? 'block' : 'none';
+            bellBadge.style.display = systemCount > 0 ? 'inline-flex' : 'none';
+            bellBadge.textContent = systemCount > 99 ? '99+' : String(systemCount);
             bellBadge.setAttribute('data-system-unread', String(systemCount));
         }
 
@@ -714,14 +735,60 @@ body.messify-widget-open #messify-global-widget {
         playNotificationSound();
     });
 
-    window.addEventListener('rms-widget-opened', function(e) {
-        if (e.detail && e.detail.widget !== 'messify' && isOpen) {
+    /**
+     * Handler invoked when another floating modal or widget is opened.
+     * Enforces single-widget mutual exclusivity by closing Chatify if another widget opens.
+     *
+     * @param {CustomEvent} e Event payload containing { detail: { widget: string } }.
+     * @returns {void}
+     */
+    const handleCloseFromOtherWidget = function(e) {
+        const detail = e ? e.detail : null;
+        const w = (detail && typeof detail === 'object') ? (detail.widget || (Array.isArray(detail) ? detail[0]?.widget : null)) : detail;
+        if (w !== 'messify' && isOpen) {
             isOpen = false;
             sessionStorage.setItem('messify_widget_open', false);
             setWidgetVisibility(false, true);
         }
-    });
+    };
 
+    window.addEventListener('rms-widget-opened', handleCloseFromOtherWidget);
+    window.addEventListener('open-scanner-modal', function() { handleCloseFromOtherWidget({ detail: { widget: 'scanner' } }); });
+    window.addEventListener('scanner-modal-opened', function() { handleCloseFromOtherWidget({ detail: { widget: 'scanner' } }); });
+
+    /**
+     * Explicitly close the Chatify floating widget and persist state to sessionStorage.
+     *
+     * @returns {void}
+     */
+    window.closeMessifyWidget = function() {
+        if (isOpen) {
+            isOpen = false;
+            sessionStorage.setItem('messify_widget_open', false);
+            setWidgetVisibility(false, true);
+        }
+    };
+
+    /**
+     * Explicitly open the Chatify floating widget, load iframe if needed, and poll unread count.
+     *
+     * @returns {void}
+     */
+    window.openMessifyWidget = function() {
+        if (!isTabletOrDesktop()) return;
+        if (!isOpen) {
+            isOpen = true;
+            sessionStorage.setItem('messify_widget_open', true);
+            setWidgetVisibility(true, true);
+            scheduleUnreadPoll(200);
+        }
+    };
+
+    /**
+     * Toggle the open/closed state of the Chatify widget card.
+     *
+     * @returns {void}
+     */
     window.toggleMessifyWidget = function() {
         if (!isTabletOrDesktop()) {
             return;
@@ -733,6 +800,38 @@ body.messify-widget-open #messify-global-widget {
         scheduleUnreadPoll(200);
     };
 
+    let messifyIsMaximized = false;
+    /**
+     * Toggle full expanded modal view for the Chatify widget card.
+     *
+     * @returns {void}
+     */
+    window.toggleMessifyMaximize = function() {
+        const card = document.getElementById('messify-widget-card');
+        const iconMax = document.getElementById('messify-icon-maximize');
+        const iconRes = document.getElementById('messify-icon-restore');
+        const btn = document.getElementById('messify-btn-maximize');
+        if (!card) return;
+
+        messifyIsMaximized = !messifyIsMaximized;
+        if (messifyIsMaximized) {
+            card.classList.add('is-maximized');
+            if (iconMax) iconMax.style.display = 'none';
+            if (iconRes) iconRes.style.display = 'block';
+            if (btn) btn.title = 'Restore Normal Size';
+        } else {
+            card.classList.remove('is-maximized');
+            if (iconMax) iconMax.style.display = 'block';
+            if (iconRes) iconRes.style.display = 'none';
+            if (btn) btn.title = 'Expand Chatify';
+        }
+    };
+
+    /**
+     * Hard-reload the Chatify iframe content with cache-busting timestamp.
+     *
+     * @returns {void}
+     */
     window.reloadMessifyIframe = function() {
         const iframe = document.getElementById('messify-iframe');
         const loader = document.getElementById('messify-iframe-loader');
@@ -745,6 +844,11 @@ body.messify-widget-open #messify-global-widget {
         scheduleUnreadPoll(500);
     };
 
+    /**
+     * Suppress browser password managers and autofill engines inside the embedded Chatify search bar.
+     *
+     * @returns {void}
+     */
     function disableMessifySearchAutoInput() {
         const iframe = document.getElementById('messify-iframe');
         if (!iframe) return;
@@ -804,6 +908,11 @@ body.messify-widget-open #messify-global-widget {
         }
     }
 
+    /**
+     * Hide the connecting loader overlay once the Chatify iframe triggers its onload event.
+     *
+     * @returns {void}
+     */
     window.hideMessifyLoader = function() {
         messifyLoadedOnce = true;
         const loader = document.getElementById('messify-iframe-loader');
@@ -815,6 +924,13 @@ body.messify-widget-open #messify-global-widget {
         setTimeout(updateUnreadBadge, 600);
     };
 
+    /**
+     * Set visual visibility of the Chatify widget card, trigger animation, and manage mutual exclusivity.
+     *
+     * @param {boolean} show Whether to show or hide the widget card.
+     * @param {boolean} animate Whether to apply smooth CSS transition.
+     * @returns {void}
+     */
     function setWidgetVisibility(show, animate) {
         const card = document.getElementById('messify-widget-card');
         const btn = document.getElementById('messify-widget-btn');
@@ -832,6 +948,12 @@ body.messify-widget-open #messify-global-widget {
         if (show) {
             document.body.classList.add('messify-widget-open');
             window.dispatchEvent(new CustomEvent('rms-widget-opened', { detail: { widget: 'messify' } }));
+            if (window.Livewire && typeof window.Livewire.dispatch === 'function') {
+                window.Livewire.dispatch('close-scanner-modal');
+                window.Livewire.dispatch('close-report-modal');
+            }
+            window.dispatchEvent(new CustomEvent('close-scanner-modal'));
+            window.dispatchEvent(new CustomEvent('close-report-modal'));
             const labelEl = document.getElementById('messify-widget-btn-label');
             if (labelEl) labelEl.textContent = 'Close';
 

@@ -1191,6 +1191,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             $autoFwdSetting = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
             $shouldAutoForward = ($autoFwdSetting !== 'false') && (count($resolvedOffices) > 1);
 
+            $isOutsideWorkingHours = \App\Services\DtsWorkingHoursService::isEnabled() && !\App\Services\DtsWorkingHoursService::isWithinWorkingHours();
+            if ($isOutsideWorkingHours) {
+                $shouldAutoForward = false;
+            }
+
             $nextOfficeCode = $resolvedOffices[1] ?? $originOfficeCode;
             $currentOffice = $shouldAutoForward ? $nextOfficeCode : ($resolvedOffices[0] ?? $originOfficeCode);
             $initialSequence = $shouldAutoForward ? 2 : 1;
@@ -1212,7 +1217,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     'date_out' => ($rank === 0 && $shouldAutoForward) ? now() : null,
                     'account_forwarded' => ($rank === 0 && $shouldAutoForward) ? auth()->id() : null,
                     'action_needed' => ($rank === 0) ? 'Created' : null,
-                    'note' => ($rank === 0) ? ($shouldAutoForward ? 'Created & auto-forwarded transaction' : 'Created application letter transaction') : null,
+                    'note' => ($rank === 0) ? ($isOutsideWorkingHours ? 'Created outside working hours. Scheduled for dispatch at ' . \App\Services\DtsWorkingHoursService::getNextWorkingHoursStart()->format('M d, Y g:i A') : ($shouldAutoForward ? 'Created & auto-forwarded transaction' : 'Created application letter transaction')) : null,
+                    'total_time_received' => ($rank === 0) ? '-' : null,
                     'total_time_completed' => null,
                 ]);
             }
@@ -1231,6 +1237,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 'current_office' => $currentOffice,
                 'status' => 'ongoing',
                 'sequence' => $initialSequence,
+                'pending_working_hours_dispatch' => $isOutsideWorkingHours,
             ]);
 
             $copyFilledId = null;
@@ -1335,7 +1342,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     'type' => 'received',
                     'date_in' => now(),
                     'date_out' => null,
-                    'notes' => 'Application document transaction created',
+                    'notes' => $isOutsideWorkingHours
+                        ? 'Application document transaction created outside working hours. Scheduled for dispatch at ' . \App\Services\DtsWorkingHoursService::getNextWorkingHoursStart()->format('M d, Y g:i A')
+                        : 'Application document transaction created',
                     'performed_by' => auth()->id(),
                 ]);
             }
@@ -1395,6 +1404,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
     <div class="rms-header">
         <h2>Application Document</h2>
     </div>
+
+    @if(\App\Services\DtsWorkingHoursService::isEnabled() && !\App\Services\DtsWorkingHoursService::isWithinWorkingHours())
+        <div style="margin-bottom: 20px; padding: 14px 18px; background: #fffbeb; border: 1.5px solid #fcd34d; border-radius: 8px; color: #92400e; font-size: 13px; font-weight: 500; display: flex; align-items: flex-start; gap: 12px; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.1);">
+            <i class="fa-solid fa-clock-rotate-left" style="font-size: 18px; color: #d97706; margin-top: 2px; flex-shrink: 0;"></i>
+            <div>
+                <strong style="color: #92400e; font-size: 13.5px; display: block; margin-bottom: 2px;">Outside Working Hours Notice</strong>
+                <span style="color: #b45309; font-size: 12.5px; line-height: 1.45;">
+                    {{ \App\Services\DtsWorkingHoursService::getCreationNoticeBanner() }}
+                </span>
+            </div>
+        </div>
+    @endif
 
     @if ($rateLimitError)
         <div style="margin-bottom: 20px; padding: 14px 18px; background: #fef2f2; border: 1.5px solid #fca5a5; border-radius: 8px; color: #991b1b; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 12px; box-shadow: 0 1px 3px rgba(220, 38, 38, 0.1);">

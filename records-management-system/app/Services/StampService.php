@@ -46,8 +46,9 @@ class StampService
             'title'     => 'REFERENCE',
             'subtitle'  => '',
             'color'     => [176, 48, 48],
-            'width'     => 28,
-            'height'    => 12,
+            // Aspect matches reference.png (~2.8:1) including signature overhang.
+            'width'     => 36,
+            'height'    => 13,
             'titleSize' => 9,
             'subSize'   => 5,
             'image'     => 'images/stamps/reference.png',
@@ -1474,7 +1475,7 @@ class StampService
         $w = $cfg['width'];
         $h = $cfg['height'];
 
-        // Prefer clean stamp artwork (REFERENCE box only — no signature).
+        // Prefer stamp artwork: red REFERENCE box + blue signature at bottom-right.
         $imageRel = (string) ($cfg['image'] ?? '');
         if ($imageRel !== '') {
             $imagePath = public_path($imageRel);
@@ -1484,14 +1485,27 @@ class StampService
             }
         }
 
-        // Fallback: red rectangle + REFERENCE text only.
+        // Fallback: red rectangle + REFERENCE text + simple blue signature mark.
         [$r, $g, $b] = $cfg['color'];
+        $boxH = max(8.0, $h * 0.72);
         $pdf->SetDrawColor($r, $g, $b);
         $pdf->SetLineWidth(0.7);
-        $pdf->Rect($x, $y, $w, $h);
+        $pdf->Rect($x, $y, $w, $boxH);
         $pdf->SetFont('Helvetica', 'B', $cfg['titleSize']);
         $pdf->SetTextColor($r, $g, $b);
-        $pdf->SetXY($x, $y + ($h / 2) - 3.5);
+        $pdf->SetXY($x, $y + ($boxH / 2) - 3.5);
         $pdf->Cell($w, 7, $cfg['title'], 0, 0, 'C');
+
+        // Blue signature flourish overlapping the bottom-right corner.
+        $pdf->SetDrawColor(30, 79, 216);
+        $pdf->SetLineWidth(0.45);
+        $sx = $x + ($w * 0.55);
+        $sy = $y + $boxH - 1.2;
+        $pdf->Line($sx, $sy + 1.5, $sx + 3.2, $sy - 1.8);
+        $pdf->Line($sx + 3.2, $sy - 1.8, $sx + 6.0, $sy + 2.2);
+        $pdf->Line($sx + 6.0, $sy + 2.2, $sx + 9.5, $sy - 1.0);
+        $pdf->Line($sx + 9.5, $sy - 1.0, $sx + 13.0, $sy + 1.8);
+        $pdf->Line($sx + 13.0, $sy + 1.8, $sx + 16.5, $sy - 0.6);
+        $pdf->Line($sx + 2.0, $sy + 3.0, $sx + 15.5, $sy + 3.6);
     }
 }

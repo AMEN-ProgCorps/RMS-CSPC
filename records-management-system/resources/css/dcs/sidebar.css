@@ -248,41 +248,63 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-divider {
     margin: 0 16px;
 }
 
+/* Match DTS/RDP .account-container placement (dashboard.css):
+   list bottom pad 10px + account padding-top 10px, label gap 2px */
 .dcs-account-footer {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    padding: 12px 18px;
+    gap: 2px;
     margin-top: auto;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 12px 14px 16px;
+    border-top: none;
     flex-shrink: 0;
+    max-width: 280px;
+    white-space: nowrap;
+    overflow: hidden;
 }
 
 .dcs-account-server {
-    font-size: 12px;
+    font-family: 'Inter', Roboto, sans-serif;
+    font-size: 13px;
     font-weight: 700;
-    color: #38bdf8;
+    line-height: 120%;
+    color: #043899;
 }
 
 .dcs-account-email {
-    font-size: 11px;
-    color: #94a3b8;
+    font-family: Roboto, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 117%;
+    letter-spacing: 0%;
+    color: #A2A2A2;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .dcs-account-office {
-    font-size: 12.5px;
-    font-weight: 600;
-    color: #f1f5f9;
-    line-height: 1.35;
+    font-family: Roboto, sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 117%;
+    letter-spacing: 0%;
+    color: #043899;
     overflow: hidden;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    word-break: break-word;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+[data-theme="dark"] .dcs-account-server {
+    color: #60a5fa;
+}
+
+[data-theme="dark"] .dcs-account-email {
+    color: #94a3b8;
+}
+
+[data-theme="dark"] .dcs-account-office {
+    color: #f1f5f9;
 }
 
 /* ─── Nav Links ─── */

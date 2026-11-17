@@ -207,6 +207,25 @@
     color: #60a5fa !important;
 }
 
+[data-theme="dark"] .settings-subtabs {
+    background: rgba(148, 163, 184, 0.08) !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .settings-subtab {
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .settings-subtab:hover,
+[data-theme="dark"] .settings-subtab.active {
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .settings-subtab.active {
+    background: rgba(96, 165, 250, 0.12) !important;
+    border-color: rgba(96, 165, 250, 0.35) !important;
+}
+
 [data-theme="dark"] .settings-main .panel-subtitle,
 [data-theme="dark"] .panel-subtitle {
     color: #94a3b8 !important;

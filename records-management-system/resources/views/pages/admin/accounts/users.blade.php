@@ -1535,11 +1535,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users & Accounts')] clas
             <x-admin.layout-trigger :mode="$layoutMode" />
         </div>
     </div>
-    @php
-        // Old tabs header replaced
-    @endphp
-    <div style="display: none;">
-
 
     @if($activeTab === 'users')
         <div class="admin-users-container {{ !$selectedUserId ? 'no-selection' : 'has-selection' }}" wire:key="tab-users-view">

@@ -2985,11 +2985,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             <x-admin.layout-trigger :mode="$layoutMode" />
         </div>
     </div>
-    @php
-        // Old tabs header replaced
-    @endphp
-    <div style="display: none;">
-
 
     <!-- Tab 1: Predefined Flow Manager -->
     @if($activeTab === 'predefined')

@@ -1548,11 +1548,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Organizational
             <x-admin.layout-trigger :mode="$layoutMode" />
         </div>
     </div>
-    @php
-        // Old tabs header replaced
-    @endphp
-    <div style="display: none;">
-
 
     @if($activeTab === 'offices')
         <div class="admin-offices-container {{ !$selectedOfficeId ? 'no-selection' : 'has-selection' }}" wire:key="tab-offices-view">

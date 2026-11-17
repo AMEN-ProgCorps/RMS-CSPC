@@ -933,15 +933,10 @@ class StampService
             if (!$fullLive) {
                 return response()->json(['success' => false, 'message' => 'File not found.'], 404);
             }
-            $docTitle = trim((string) $request->input('doc_title', ''));
-            if ($docTitle === '') {
-                $relative = $this->storedScanRelativePath($requestId, $fileKey) ?: basename($fullLive);
-                $docTitle = pathinfo($relative, PATHINFO_FILENAME);
-            }
-            if (! preg_match('/^reference\b/i', $docTitle)) {
-                $docTitle = 'REFERENCE ' . $docTitle;
-            }
-            $filename = $this->safeDownloadFilename($docTitle) . '.pdf';
+            $filename = $this->referenceScanDownloadFilename(
+                (string) $request->input('scan_name', ''),
+                $this->storedScanRelativePath($requestId, $fileKey) ?: basename($fullLive)
+            );
 
             return response()->download($fullLive, $filename, ['Content-Type' => 'application/pdf']);
         }
@@ -976,14 +971,10 @@ class StampService
                 ]
             );
 
-            $docTitle = trim((string) ($validated['doc_title'] ?? ''));
-            if ($docTitle === '') {
-                $docTitle = pathinfo($validated['file_path'], PATHINFO_FILENAME);
-            }
-            if (! preg_match('/^reference\b/i', $docTitle)) {
-                $docTitle = 'REFERENCE ' . $docTitle;
-            }
-            $filename = $this->safeDownloadFilename($docTitle) . '.pdf';
+            $filename = $this->referenceScanDownloadFilename(
+                (string) $request->input('scan_name', ''),
+                $validated['file_path']
+            );
 
             return response()
                 ->download($outputPath, $filename, ['Content-Type' => 'application/pdf'])
@@ -1475,19 +1466,30 @@ class StampService
     }
 
     /**
-     * Build a filesystem-safe download basename: "REFERENCE Document Title".
+     * Download name matching masterlist scan convention:
+     * REFERENCE (YYYY-MM-DD_DOC_…_RevN).pdf
      */
-    private function safeDownloadFilename(string $title): string
+    private function referenceScanDownloadFilename(string $scanName, string $fallbackPath): string
     {
-        $name = trim($title);
-        if ($name === '') {
-            $name = 'REFERENCE Document';
+        $base = trim($scanName);
+        if ($base === '') {
+            $base = pathinfo($fallbackPath, PATHINFO_FILENAME);
         }
-        $name = preg_replace('/[\\\\\/:\*\?"<>\|]+/', '-', $name) ?? $name;
-        $name = preg_replace('/\s+/', ' ', $name) ?? $name;
-        $name = trim($name, " .\t\n\r\0\x0B-");
+        $base = preg_replace('/\.pdf$/i', '', $base) ?? $base;
+        $base = preg_replace('/[\\\\\/:\*\?"<>\|]+/', '-', $base) ?? $base;
+        $base = trim($base, " .\t\n\r\0\x0B-");
+        if ($base === '') {
+            $base = 'document';
+        }
 
-        return mb_substr($name !== '' ? $name : 'REFERENCE Document', 0, 180);
+        // Avoid REFERENCE (REFERENCE (...))
+        if (preg_match('/^REFERENCE\s*\(/i', $base)) {
+            $name = $base;
+        } else {
+            $name = 'REFERENCE (' . $base . ')';
+        }
+
+        return mb_substr($name, 0, 180) . '.pdf';
     }
 
     /**

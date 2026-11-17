@@ -98,16 +98,26 @@ document.addEventListener('DOMContentLoaded', function () {
         'custom': 'Custom (dragged)',
     };
 
-    /** Display / download title: "REFERENCE Document Title". */
+    /** Masterlist scan basename without extension. */
+    function scanBaseName() {
+        var raw = String(
+            (state.selectedFile && (state.selectedFile.label || state.selectedFile.abbr || state.selectedFile.path))
+            || state.docTitle
+            || state.docNo
+            || 'document'
+        ).trim();
+        raw = raw.replace(/^.*[\\/]/, ''); // strip path
+        raw = raw.replace(/\.pdf$/i, '');
+        return raw || 'document';
+    }
+
+    /** Download / display name: REFERENCE (scan-name). */
     function referenceDocTitle() {
-        var title = String(state.docTitle || '').trim();
-        if (!title) title = state.docNo || 'Document';
-        if (/^reference\b/i.test(title)) return title;
-        return 'REFERENCE ' + title;
+        return 'REFERENCE (' + scanBaseName() + ')';
     }
 
     function sanitizeDownloadName(name) {
-        return String(name || 'REFERENCE Document')
+        return String(name || 'REFERENCE (document)')
             .replace(/[\\/:*?"<>|]+/g, '-')
             .replace(/\s+/g, ' ')
             .trim()
@@ -836,10 +846,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     use_live_file: true,
                     request_id: state.requestId,
                     file_key: state.selectedFile.key,
-                    doc_title: state.docTitle,
+                    scan_name: scanBaseName(),
                 };
             } else {
-                body = buildPayload(false);
+                body = Object.assign(buildPayload(false), { scan_name: scanBaseName() });
             }
 
             fetch('/dcs/stamp/download', {

@@ -2303,6 +2303,11 @@
         });
       }
 
+      if (sidebarUsers && sidebarUsers.scrollTop <= 20) {
+        sidebarRenderLimit = getSidebarScreenCapacity();
+      } else {
+        sidebarRenderLimit = Math.max(sidebarRenderLimit || 0, getSidebarScreenCapacity());
+      }
       renderSidebarUsers();
       if (typeof reloadOfficeMembersList === 'function') {
         reloadOfficeMembersList(true);
@@ -2409,6 +2414,52 @@
 
     const sidebarUserItems = new Map(); // user item key -> item element
     let latestTotalUnread = 0;
+
+    // Viewport-based progressive loading:
+    // Calculates how many conversation rows fit on the user's screen + safety buffer.
+    function getSidebarScreenCapacity() {
+      const containerHeight = (sidebarUsers && sidebarUsers.clientHeight > 0)
+        ? sidebarUsers.clientHeight
+        : (window.innerHeight ? Math.max(300, window.innerHeight - 180) : 600);
+      const rowHeight = 62; // approximate height of one .user-item in pixels
+      return Math.max(12, Math.ceil(containerHeight / rowHeight) + 8);
+    }
+
+    let sidebarRenderLimit = 20;
+    let sidebarScrollTicking = false;
+
+    if (sidebarUsers) {
+      sidebarUsers.addEventListener('scroll', function() {
+        if (sidebarScrollTicking) return;
+        sidebarScrollTicking = true;
+        requestAnimationFrame(() => {
+          sidebarScrollTicking = false;
+          if (!sidebarUsers || !Array.isArray(allUsersData)) return;
+          const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+          if (query !== '') return;
+
+          // When scrolled near bottom (within 160px), progressively render next slice
+          if (sidebarUsers.scrollTop + sidebarUsers.clientHeight >= sidebarUsers.scrollHeight - 160) {
+            if (sidebarRenderLimit < allUsersData.length) {
+              const step = getSidebarScreenCapacity();
+              sidebarRenderLimit = Math.min(allUsersData.length, sidebarRenderLimit + step);
+              renderSidebarUsers();
+            }
+          }
+        });
+      }, { passive: true });
+    }
+
+    window.addEventListener('resize', () => {
+      if (!sidebarUsers || !Array.isArray(allUsersData)) return;
+      const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+      if (query !== '') return;
+      const needed = getSidebarScreenCapacity();
+      if (needed > sidebarRenderLimit && sidebarRenderLimit < allUsersData.length) {
+        sidebarRenderLimit = Math.min(allUsersData.length, needed);
+        renderSidebarUsers();
+      }
+    }, { passive: true });
 
     // In-memory snapshot of the last-rendered page of messages per DM
     // partner, so re-opening a conversation already visited this session
@@ -2942,7 +2993,29 @@
 
       const seen = new Set();
 
-      allUsersData.forEach((u, index) => {
+      // Screen-based progressive windowing:
+      // Only render items that fit the user's screen + buffer, expanding as user scrolls.
+      const screenCap = getSidebarScreenCapacity();
+      if (!sidebarRenderLimit || sidebarRenderLimit < screenCap) {
+        sidebarRenderLimit = screenCap;
+      }
+
+      if (query === '' && (activeDM || activeDMAccountId || isGlobalChat)) {
+        const activeIdx = (allUsersData || []).findIndex(u => {
+          if (u.is_office_gc) return isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv;
+          if (u.is_custom_gc) return isGlobalChat && window.activeChannel === 'gc' && !activeDM && !activeAdminConv && window.activeCustomGc && (Number(window.activeCustomGc.gc_id) === Number(u.gc_id) || window.activeCustomGc.conv_id === u.conv_id);
+          return (!isGlobalChat && !activeAdminConv && ((activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM)));
+        });
+        if (activeIdx !== -1 && activeIdx >= sidebarRenderLimit) {
+          sidebarRenderLimit = activeIdx + 5;
+        }
+      }
+
+      const usersToRender = (query === '')
+        ? (allUsersData || []).slice(0, sidebarRenderLimit)
+        : (allUsersData || []);
+
+      usersToRender.forEach((u, index) => {
         let isThisActive = false;
         if (typeof isAdminAllChatsView !== 'undefined' && isAdminAllChatsView) {
           isThisActive = false;
@@ -3254,6 +3327,12 @@
       updateSidebarActiveHighlight();
       if (typeof prefetchTopConversations === 'function') {
         prefetchTopConversations();
+      }
+
+      // If initial items don't fill the visible container completely (e.g. ultra-wide / tall screen), auto-expand
+      if (query === '' && Array.isArray(allUsersData) && sidebarRenderLimit < allUsersData.length && sidebarUsers && sidebarUsers.scrollHeight <= (sidebarUsers.clientHeight + 20)) {
+        sidebarRenderLimit = Math.min(allUsersData.length, sidebarRenderLimit + screenCap);
+        setTimeout(renderSidebarUsers, 0);
       }
     }
 
@@ -7160,6 +7239,9 @@
       if (query === '') {
         // Immediately clear stale search results so sidebar shows loading state
         allUsersData = [];
+        if (typeof getSidebarScreenCapacity === 'function') {
+          sidebarRenderLimit = getSidebarScreenCapacity();
+        }
         renderSidebarUsers();
         fetchUsers();
       } else {

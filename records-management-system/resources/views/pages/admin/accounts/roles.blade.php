@@ -1024,6 +1024,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
     }
 };
 ?>
+<div>
 
 @push('styles')
     @vite(['resources/css/admin/accounts_roles.css', 'resources/css/admin/accounts_users.css'])
@@ -1539,10 +1540,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
 @endpush
 
 @if($layoutMode === 'default')
-
-    {-- ======================================================== --}
-    {-- MODE: DEFAULT (CLASSIC DUAL-PANE VIEW) --}
-    {-- ======================================================== --}
+<div class="admin-roles-outer">
+    {{-- ======================================================== --}}
+    {{-- MODE: DEFAULT (CLASSIC DUAL-PANE VIEW) --}}
+    {{-- ======================================================== --}}
     <div style="max-width: 1600px; margin: 0 auto; padding: 16px 20px 0 20px; box-sizing: border-box;">
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
             <div style="display: flex; align-items: center; gap: 10px;">
@@ -2283,6 +2284,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
             </div>
         </div>
     @endif
+</div>
 </div>
 
 @else

@@ -22,6 +22,13 @@ class AdminDefaultLayoutIntegrityTest extends TestCase
 
     public function test_users_page_renders_visibly_in_both_layouts(): void
     {
+        $this->withoutExceptionHandling();
+        $response = $this->withSession([
+            'admin_users_layout_mode' => 'default',
+            'admin_management_layout_mode' => 'default',
+        ])->get(route('admin.accounts.users'));
+        $response->assertStatus(200);
+
         // 1. Default Mode
         $comp = Volt::test('pages.admin.accounts.users')
             ->call('setLayoutMode', 'default')
@@ -30,6 +37,22 @@ class AdminDefaultLayoutIntegrityTest extends TestCase
             ->assertSee('User Accounts & Credentials', false)
             ->assertSee('Users Directory')
             ->assertSee('admin-users-container');
+
+        // Test clicking New User in Default mode
+        $comp->call('startCreate')
+            ->assertSet('selectedUserId', -1)
+            ->assertHasNoErrors()
+            ->assertSee('Configure New User')
+            ->assertSee('user-details-panel--1');
+
+        // Test selecting an existing user
+        $testUser = User::first();
+        if ($testUser) {
+            $comp->call('selectUser', $testUser->id)
+                ->assertSet('selectedUserId', $testUser->id)
+                ->assertHasNoErrors()
+                ->assertSee('user-details-panel-' . $testUser->id);
+        }
 
         // Verify requestors tab in Default mode
         $comp->call('switchTab', 'requestors')
@@ -71,6 +94,14 @@ class AdminDefaultLayoutIntegrityTest extends TestCase
 
     public function test_roles_page_renders_visibly_in_both_layouts(): void
     {
+        $this->withoutExceptionHandling();
+        // Full HTTP route test with default layout in session
+        $response = $this->withSession([
+            'admin_roles_layout_mode' => 'default',
+            'admin_management_layout_mode' => 'default',
+        ])->get(route('admin.accounts.roles'));
+        $response->assertStatus(200);
+
         // 1. Default Mode (initial without selection)
         $comp = Volt::test('pages.admin.accounts.roles')
             ->call('setLayoutMode', 'default')

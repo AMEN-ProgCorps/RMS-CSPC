@@ -1119,11 +1119,19 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 }
             });
 
-            // TEMPORARY: hand a fully-completed transaction to RDP intake.
-            \App\Services\DtsRdpIntakeService::recordCompleted($this->activeTransaction['id'] ?? null);
+            $completedTransId = $this->activeTransaction['id'] ?? null;
+            $completedControlNo = $this->activeTransaction['control_number'] ?? '';
+            $isLastStep = $this->activeTransaction['is_last_step'] ?? false;
+
+            // Hand a fully-completed transaction to RDP intake.
+            \App\Services\DtsRdpIntakeService::recordCompleted($completedTransId);
 
             $this->dispatch('scanner-audio-action');
             $this->logSessionScan($this->activeTransaction['qr_code'], 'Forwarded', 'action');
+
+            if ($isLastStep && $completedTransId) {
+                $this->dispatch('open-dts-rdp-handoff', transactionId: $completedTransId, controlNumber: $completedControlNo);
+            }
 
             // Reset console to ensure document cannot be received/forwarded again from same scan
             $msg = $this->successMessage;

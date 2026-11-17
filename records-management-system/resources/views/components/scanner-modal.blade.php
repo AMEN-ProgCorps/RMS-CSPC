@@ -1313,6 +1313,7 @@ new class extends Component {
 
                             // Hand fully-completed transaction to RDP intake
                             \App\Services\DtsRdpIntakeService::recordCompleted($transId);
+                            $this->dispatch('open-dts-rdp-handoff', transactionId: $transId, controlNumber: $controlNumber);
 
                             $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' marked as COMPLETED!";
                         }

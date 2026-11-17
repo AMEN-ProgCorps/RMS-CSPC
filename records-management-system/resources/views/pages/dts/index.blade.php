@@ -4539,8 +4539,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                  $textColor = '#dc2626';
                                              }
 
-                                             $isCurrentOffice = $step->is_active_step && !is_null($step->date_in) && is_null($step->date_out) && $selectedTransaction->status !== 'completed';
-                                             $isInTransitToThisOffice = $step->is_active_step && is_null($step->date_in) && $selectedTransaction->status !== 'completed';
+                                             $isCurrentOffice = !empty($step->is_active_step) && !is_null($step->date_in) && is_null($step->date_out) && $selectedTransaction->status !== 'completed';
+                                             $isInTransitToThisOffice = !empty($step->is_active_step) && is_null($step->date_in) && $selectedTransaction->status !== 'completed';
                                              $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
                                              $isOnHubArea = $isHubStep && (!empty($step->is_active_step) || ($selectedTransaction->current_office ?? '') === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
                                          @endphp
@@ -4729,7 +4729,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                      </div>
                                                  </td>
                                                  <td class="action-cell" style="white-space: nowrap; text-align: center;">
-                                                     @if ($step->is_active_step && $canProcess && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
+                                                     @if (!empty($step->is_active_step) && $canProcess && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
                                                          <select wire:model.live="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
                                                              @foreach($this->actionOptions as $opt)
                                                                  <option value="{{ $opt }}">{{ $opt }}</option>
@@ -4795,7 +4795,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                      @endif
                                                  </td>
                                                  <td>
-                                                     @if ($step->is_active_step && $canProcess && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
+                                                     @if (!empty($step->is_active_step) && $canProcess && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
                                                          <input type="text" wire:model="activeNotes" class="active-notes-input" placeholder="Type notes here...">
                                                      @else
                                                          {{ $step->note ?: '-' }}

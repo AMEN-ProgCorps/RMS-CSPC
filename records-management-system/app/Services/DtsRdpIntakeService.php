@@ -163,9 +163,8 @@ class DtsRdpIntakeService
             $trans = DB::table('dts_transactions as dt')
                 ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
                 ->where(function ($q) use ($numId) {
-                    $q->where('dt.transaction_id', $numId)
-                      ->orWhere('dtd.id', $numId)
-                      ->orWhere('dt.id', $numId);
+                    $q->where('dt.transaction_id', (string)$numId)
+                      ->orWhere('dtd.id', $numId);
                 })
                 ->select('dt.*', 'dtd.id as details_id', 'dtd.control_number', 'dtd.subject', 'dtd.originated_from', 'dtd.transaction_flow', 'dtd.date_created')
                 ->first();

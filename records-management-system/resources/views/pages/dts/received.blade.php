@@ -579,10 +579,18 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                 }
             });
 
-            // TEMPORARY: hand a fully-completed transaction to RDP intake.
+            $isLastStep = ($tData['is_last_step'] ?? false);
+            $completedTransId = $this->forwardTransId;
+            $completedControlNo = $tData['control_number'] ?? '';
+
+            // Hand a fully-completed transaction to RDP intake.
             \App\Services\DtsRdpIntakeService::recordCompleted($this->forwardTransId);
 
             $this->closeForwardModal();
+
+            if ($isLastStep && $completedTransId) {
+                $this->dispatch('open-dts-rdp-handoff', transactionId: $completedTransId, controlNumber: $completedControlNo);
+            }
         } catch (\Throwable $e) {
             $this->errorMessage = 'Failed to forward transaction: ' . $e->getMessage();
         }

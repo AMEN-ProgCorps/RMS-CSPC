@@ -13,6 +13,11 @@ class DtsRoutingService
 {
     /**
      * Check if a user has clearance to dynamically forward a transaction to an ad-hoc other office.
+     *
+     * Evaluates super admin (is_sadm) or specific can_dts_forward_to_other_office permission.
+     *
+     * @param \App\Models\User|null $user The user model to evaluate; defaults to authenticated user.
+     * @return bool True if authorized to forward to other offices; false otherwise.
      */
     public static function canForwardToOtherOffice(?User $user = null): bool
     {
@@ -32,7 +37,11 @@ class DtsRoutingService
     /**
      * Retrieve available offices for dynamic forwarding, excluding placeholder codes and the current office.
      *
-     * @return Collection<int, object>
+     * Optionally prepends the virtual Office Hub [HUB] broadcast option for multi-recipient dispatches.
+     *
+     * @param string|null $excludeOfficeCode Office code to exclude (typically sender's current station).
+     * @param bool $includeHub Whether to include the '[HUB]' virtual broadcasting option.
+     * @return \Illuminate\Support\Collection<int, object> Collection of office records.
      */
     public static function getAvailableTargetOffices(?string $excludeOfficeCode = null, bool $includeHub = true): Collection
     {
@@ -65,7 +74,16 @@ class DtsRoutingService
      * Dynamically insert an ad-hoc office into the active transaction sequence flow and route to it.
      * Supports routing to an individual office or multi-mode broadcasting via Office Hub [HUB].
      *
-     * @throws \Exception
+     * Clones flow into custom FLOW-CUSTOM-* if necessary, recalculates step durations, shifts sequences,
+     * logs the forwarding audit event, and delivers notification alerts.
+     *
+     * @param string $transactionId Unique transaction identifier.
+     * @param string $targetOfficeCode Target office code, or '[HUB]' for multi-office broadcasting.
+     * @param string|null $notes Forwarding notes or routing instructions.
+     * @param int|null $userId User ID performing the action; defaults to auth()->id().
+     * @param array<int, string> $hubOffices List of recipient office codes when target is '[HUB]'.
+     * @return array Routing result payload containing transaction details and destination name.
+     * @throws \Exception When user lacks permissions, working hours are restricted, or transaction is invalid.
      */
     public static function forwardToOtherOffice(
         string $transactionId,
@@ -79,6 +97,10 @@ class DtsRoutingService
 
         if (!self::canForwardToOtherOffice($user)) {
             throw new \Exception('Unauthorized: You do not have clearance to forward transactions to other offices.');
+        }
+
+        if (!DtsWorkingHoursService::canProcessStationAction()) {
+            throw new \Exception(DtsWorkingHoursService::getStationActionRestrictionNotice());
         }
 
         $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
@@ -213,6 +235,7 @@ class DtsRoutingService
                         'date_out' => $s->date_out,
                         'action_needed' => $s->action_needed,
                         'note' => $s->note,
+                        'total_time_received' => $s->total_time_received ?? null,
                         'total_time_completed' => $s->total_time_completed,
                         'scanned_id' => $s->scanned_id ?? false,
                         'account_received' => $s->account_received ?? null,
@@ -275,6 +298,7 @@ class DtsRoutingService
                 'date_out' => null,
                 'action_needed' => null,
                 'note' => null,
+                'total_time_received' => null,
                 'total_time_completed' => null,
                 'scanned_id' => false,
             ]);

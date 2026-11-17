@@ -1191,11 +1191,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             $officeCode = $this->resolveOfficeCode($this->editOfficeCode);
         }
 
+        $subBracketId = \App\Services\RdpBracketSyncService::resolveSubBracketId($bracketId, $officeCode);
+
         DB::table('rdp_record_series')->where('id', $this->editingId)->update([
             'item_number'                  => $itemNumberVal,
             'series_title'                 => $title,
             'parent_id'                    => $newParentId,
             'bracket_id'                   => $bracketId,
+            'sub_bracket_id'               => $subBracketId,
             'recorded_at_office'           => $officeCode,
             'retention_period'             => $retentionId,
             'is_retention_period_permanent' => $this->editIsPermanent,
@@ -1231,6 +1234,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
                 DB::table('rdp_record_series')->where('id', $branchId)->update([
                     'bracket_id'         => $parentRow->bracket_id,
+                    'sub_bracket_id'     => $subBracketId,
                     'recorded_at_office' => $parentRow->recorded_at_office,
                     'updated_at'         => now(),
                 ]);
@@ -1286,11 +1290,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 ->where('parent_id', $currentParentId)
                 ->first();
 
+            $subBracketId = \App\Services\RdpBracketSyncService::resolveSubBracketId($bracketId, $officeCode);
+
             $seriesData = [
                 'item_number'                  => ($idx === 0) ? $rootItemNumber : ($existing->item_number ?? null),
                 'series_title'                 => $t,
                 'parent_id'                    => $currentParentId,
                 'bracket_id'                   => $bracketId,
+                'sub_bracket_id'               => $subBracketId,
                 'recorded_at_office'           => $officeCode,
                 'series_type'                  => $seriesTypeId,
                 'retention_period'             => $isLeaf ? $leafRetentionId : ($existing->retention_period ?? null),
@@ -1675,6 +1682,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 }
 
                 $existing = $existingQuery->first();
+                $subBracketId = \App\Services\RdpBracketSyncService::resolveSubBracketId($bId, $oCode);
 
                 if ($existing) {
                     $updateData = ['updated_at' => now()];
@@ -1686,6 +1694,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     }
                     if ($pendingIsPermanent) {
                         $updateData['is_retention_period_permanent'] = true;
+                    }
+                    if ($subBracketId) {
+                        $updateData['sub_bracket_id'] = $subBracketId;
                     }
 
                     DB::table('rdp_record_series')->where('id', $existing->id)->update($updateData);
@@ -1701,6 +1712,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                         'series_title'                 => $pendingTitle,
                         'parent_id'                    => $parentId,
                         'bracket_id'                   => $bId,
+                        'sub_bracket_id'               => $subBracketId,
                         'recorded_at_office'           => $oCode,
                         'series_type'                  => $seriesTypeId,
                         'retention_period'             => $retentionId,
@@ -1854,6 +1866,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             }
 
             $flushPending();
+
+            \App\Services\RdpBracketSyncService::syncAllBrackets();
 
             DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes'      => "Imported {$importedCount} Record Series entries from text file",

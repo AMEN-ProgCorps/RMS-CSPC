@@ -683,7 +683,241 @@ class DtsScannerTest extends TestCase
             ->call('openModal')
             ->assertSet('isOpen', true)
             ->assertSee('dts-scanner-widget-card')
+            ->call('openAvailableCodesModal')
+            ->assertSet('showAvailableModal', true)
+            ->assertSee('dts-available-inner-pane')
+            ->assertSee('Available Station Documents')
+            ->call('closeAvailableCodesModal')
+            ->assertSet('showAvailableModal', false)
             ->call('closeModal')
+            ->assertSet('isOpen', false);
+    }
+
+    /**
+     * Test server settings toggle for disabling Available Codes enforces priority scanning mode.
+     */
+    public function test_scanner_available_codes_toggle_enforces_priority_scanning_when_disabled()
+    {
+        $user = $this->testUser;
+        Auth::login($user);
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+
+        // 1. Verify toggle in Current Server settings page
+        DB::table($sysTable)->updateOrInsert(['key' => 'dts_enable_available_codes'], ['value' => 'true']);
+        Volt::test('pages.admin.server-settings.current-server')
+            ->assertSet('dtsEnableAvailableCodes', true)
+            ->call('toggleAvailableCodes')
+            ->assertSet('dtsEnableAvailableCodes', false);
+
+        $this->assertEquals('false', DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value'));
+
+        // 2. When disabled, scanner modal hides Available Codes directory and enforces priority scanning
+        Volt::test('components.scanner-modal')
+            ->call('openModal')
+            ->assertSet('isOpen', true)
+            ->assertSet('availableCodesEnabled', false)
+            ->assertDontSee('Browse Available Documents')
+            ->assertSee('Camera QR Scanner')
+            ->assertSee('Manual Input')
+            ->call('openAvailableCodesModal')
+            ->assertSet('showAvailableModal', false); // Remains blocked/closed
+
+        // 3. Re-enable via server settings and verify directory returns
+        Volt::test('pages.admin.server-settings.current-server')
+            ->call('toggleAvailableCodes')
+            ->assertSet('dtsEnableAvailableCodes', true);
+
+        $this->assertEquals('true', DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value'));
+
+        Volt::test('components.scanner-modal')
+            ->call('openModal')
+            ->assertSet('availableCodesEnabled', true)
+            ->assertSee('Browse Available Documents')
+            ->call('openAvailableCodesModal')
+            ->assertSet('showAvailableModal', true);
+    }
+
+    /**
+     * Test scanning an incoming document auto-receives it immediately and initiates 5s cooldown.
+     */
+    public function test_scanner_scan_auto_receives_incoming_document_and_triggers_cooldown()
+    {
+        $user = $this->testUser;
+        Auth::login($user);
+
+        // Setup mock QR code and incoming transaction
+        $flowId = 998;
+        DB::table('dts_transaction_flow')->insert([
+            'id' => $flowId,
+            'flow_name' => 'Auto-Receive Flow',
+            'flow_code' => 'FLOW-AUTO-RCV',
+            'added_by' => $user->id,
+            'date_added' => now(),
+            'flow_use' => 'internal',
+            'is_active' => true,
+        ]);
+
+        DB::table('dts_sequence_list')->insert([
+            'control_id' => $flowId,
+            'sequence_ranking' => 1,
+            'office_code' => $this->myOfficeCode,
+            'date_in' => null,
+            'date_out' => null,
+            'scanned_id' => false,
+        ]);
+
+        DB::table('dts_qr_code')->insert([
+            'code_id' => 'QR-AUTO-RCV-1',
+            'qr_status' => 'used',
+            'created_at' => now(),
+        ]);
+
+        $transId = 'TRANS-AUTO-RCV-1';
+        DB::table('dts_transactions')->insert([
+            'transaction_id' => $transId,
+            'trans_type' => 'internal',
+            'qr_code' => 'QR-AUTO-RCV-1',
+            'current_office' => $this->myOfficeCode,
+            'status' => 'ongoing',
+            'sequence' => 1,
+        ]);
+
+        DB::table('dts_transaction_details')->insert([
+            'id' => $transId,
+            'type' => 'internal',
+            'created_by' => $user->id,
+            'originated_from' => $this->myOfficeCode,
+            'current_office_hold' => $this->myOfficeCode,
+            'status' => 'ongoing',
+            'control_number' => 'CTRL-AUTO-RCV-1',
+            'subject' => 'Test Auto Receive on Scan',
+            'transaction_flow' => 'FLOW-AUTO-RCV',
+            'date_created' => now(),
+        ]);
+
+        // When scanned (isScan = true): auto-receives immediately
+        Volt::test('components.scanner-modal')
+            ->call('openModal')
+            ->call('loadTransaction', 'QR-AUTO-RCV-1', true)
+            ->assertSet('errorMessage', '')
+            ->assertDispatched('scanner-cooldown-start')
+            ->assertSet('activeTransaction.is_received_here', true)
+            ->assertSee('received successfully');
+
+        // Verify in DB that it was marked received
+        $log = DB::table($this->logsTable)
+            ->where('transaction_id', $transId)
+            ->where('office_code', $this->myOfficeCode)
+            ->first();
+
+        $this->assertNotNull($log);
+        $this->assertEquals('received', $log->type);
+    }
+
+    /**
+     * Test typing code manually requires verification via Receive button instead of auto-receiving.
+     */
+    public function test_scanner_manual_type_requires_verification_receive_button()
+    {
+        $user = $this->testUser;
+        Auth::login($user);
+
+        $flowId = 999;
+        DB::table('dts_transaction_flow')->insert([
+            'id' => $flowId,
+            'flow_name' => 'Manual Verify Flow',
+            'flow_code' => 'FLOW-MANUAL-VERIFY',
+            'added_by' => $user->id,
+            'date_added' => now(),
+            'flow_use' => 'internal',
+            'is_active' => true,
+        ]);
+
+        DB::table('dts_sequence_list')->insert([
+            'control_id' => $flowId,
+            'sequence_ranking' => 1,
+            'office_code' => $this->myOfficeCode,
+            'date_in' => null,
+            'date_out' => null,
+            'scanned_id' => false,
+        ]);
+
+        DB::table('dts_qr_code')->insert([
+            'code_id' => 'QR-MANUAL-VERIFY-1',
+            'qr_status' => 'used',
+            'created_at' => now(),
+        ]);
+
+        $transId = 'TRANS-MANUAL-VERIFY-1';
+        DB::table('dts_transactions')->insert([
+            'transaction_id' => $transId,
+            'trans_type' => 'internal',
+            'qr_code' => 'QR-MANUAL-VERIFY-1',
+            'current_office' => $this->myOfficeCode,
+            'status' => 'ongoing',
+            'sequence' => 1,
+        ]);
+
+        DB::table('dts_transaction_details')->insert([
+            'id' => $transId,
+            'type' => 'internal',
+            'created_by' => $user->id,
+            'originated_from' => $this->myOfficeCode,
+            'current_office_hold' => $this->myOfficeCode,
+            'status' => 'ongoing',
+            'control_number' => 'CTRL-MANUAL-VERIFY-1',
+            'subject' => 'Test Manual Verify',
+            'transaction_flow' => 'FLOW-MANUAL-VERIFY',
+            'date_created' => now(),
+        ]);
+
+        // When typed manually (loadTransactionManual / isScan = false):
+        // Does NOT auto-receive, activeTransaction is incoming, shows "Receive Transaction"
+        Volt::test('components.scanner-modal')
+            ->call('openModal')
+            ->set('scannedCode', 'QR-MANUAL-VERIFY-1')
+            ->call('loadTransactionManual')
+            ->assertSet('isManualInput', true)
+            ->assertSet('activeTransaction.is_received_here', false)
+            ->assertSee('Receive Transaction');
+
+        // DB log should NOT exist yet
+        $logCount = DB::table($this->logsTable)
+            ->where('transaction_id', $transId)
+            ->where('office_code', $this->myOfficeCode)
+            ->count();
+        $this->assertEquals(0, $logCount);
+    }
+
+    /**
+     * Test cooldown blocks rapid scanning within 5 seconds.
+     */
+    public function test_scanner_cooldown_blocks_rapid_scans()
+    {
+        $user = $this->testUser;
+        Auth::login($user);
+
+        Volt::test('components.scanner-modal')
+            ->call('openModal')
+            ->set('cooldownUntil', time() + 5)
+            ->call('loadTransaction', 'SOME-CODE', true)
+            ->assertSee('Scanner cooldown active')
+            ->assertDispatched('scanner-code-invalid');
+    }
+
+    /**
+     * Test single widget open rule: scanner closes when another widget opens.
+     */
+    public function test_scanner_closes_when_another_widget_opens()
+    {
+        $user = $this->testUser;
+        Auth::login($user);
+
+        Volt::test('components.scanner-modal')
+            ->call('openModal')
+            ->assertSet('isOpen', true)
+            ->dispatch('rms-widget-opened', widget: 'messify')
             ->assertSet('isOpen', false);
     }
 }

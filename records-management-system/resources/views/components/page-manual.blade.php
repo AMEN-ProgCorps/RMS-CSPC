@@ -101,7 +101,8 @@ new class extends Component {
         }
     }"
     x-on:rms-open-manual.window="$wire.openManual($event.detail?.name || $event.detail)"
-    x-on:rms-widget-opened.window="if ($event.detail && $event.detail.widget !== 'manual' && isOpen) { isOpen = false; $wire.closeModal(); }"
+    x-on:rms-widget-opened.window="if ($event.detail && ($event.detail.widget || (Array.isArray($event.detail) ? $event.detail[0]?.widget : null)) !== 'manual' && isOpen) { isOpen = false; $wire.closeModal(); }"
+    x-on:scanner-modal-opened.window="if (isOpen) { isOpen = false; $wire.closeModal(); }"
 >
     <!-- Header Guide Button (rendered when manual exists for current route) -->
     @if($manual)

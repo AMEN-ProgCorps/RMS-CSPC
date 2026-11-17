@@ -20,6 +20,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
     public string $priorityFilter = '';
     public string $sourceFilter = '';
 
+    public bool $showDetail = false;
     public ?int $selectedId = null;
     public string $editStatus = 'open';
     public string $editPriority = 'medium';
@@ -185,7 +186,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
         $this->editPriority = $ticket->priority;
         $this->editAssignedTo = $ticket->assigned_to ? (string) $ticket->assigned_to : '';
         $this->editAdminNotes = (string) ($ticket->admin_notes ?? '');
+        $this->showDetail = true;
         $this->clearMessages();
+    }
+
+    /**
+     * Closes the active ticket details modal.
+     * @return void
+     */
+    public function closeDetail(): void
+    {
+        $this->showDetail = false;
+        $this->selectedId = null;
     }
 
     /**
@@ -262,6 +274,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
             'when_changes' => now(),
         ]);
 
+        $this->showDetail = false;
         $this->successMessage = "Ticket {$ticket->ticket_number} updated successfully.";
     }
 
@@ -503,6 +516,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
     }
 };
 ?>
+<div>
 
 @push('styles')
     @vite('resources/css/admin/activity_logs.css')
@@ -1266,11 +1280,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
             </div>
         </div>
     </div>
-    @php
-        // Old header replaced
-    @endphp
-    <div style="display: none;">
-
 
     @if(!$hasTable)
         <div class="logs-table-card">
@@ -2154,3 +2163,4 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Error Tickets')] class e
 </div>
 
 @endif
+</div>

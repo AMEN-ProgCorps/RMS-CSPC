@@ -2132,6 +2132,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     }
 };
 ?>
+<div>
 
 @push('styles')
     @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/subsystems.css', 'resources/css/admin/accounts_offices.css'])
@@ -2957,6 +2958,195 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         [data-theme="dark"] .miller-container input:checked + .slider {
             background-color: #10b981 !important;
         }
+
+        /* Sequence Path Editor Box */
+        .sequence-editor-box {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .sequence-list-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 9px 14px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+            transition: all 0.15s ease;
+            box-sizing: border-box;
+        }
+
+        .sequence-list-item:hover {
+            border-color: #cbd5e1;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.06);
+        }
+
+        .seq-index {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 28px;
+            height: 24px;
+            padding: 0 6px;
+            border-radius: 6px;
+            background: #e0f2fe;
+            color: #0284c7;
+            font-size: 11.5px;
+            font-weight: 800;
+            flex-shrink: 0;
+            box-sizing: border-box;
+        }
+
+        .seq-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: #1e293b;
+            line-height: 1.3;
+        }
+
+        .seq-code-badge {
+            font-size: 11px;
+            font-weight: 700;
+            color: #475569;
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 1px 6px;
+            letter-spacing: 0.02em;
+        }
+
+        .seq-fixed-badge {
+            font-size: 11.5px;
+            font-weight: 700;
+            color: #475569;
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            padding: 4px 10px;
+            border-radius: 6px;
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .seq-actions {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .btn-seq-nav {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #475569;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            font-size: 11px;
+            padding: 0;
+        }
+
+        .btn-seq-nav:hover:not(:disabled) {
+            background: #f8fafc;
+            color: #0284c7;
+            border-color: #93c5fd;
+            transform: translateY(-1px);
+        }
+
+        .btn-seq-nav:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            border-color: #e2e8f0;
+            background: #f8fafc;
+        }
+
+        .btn-seq-remove {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            border: 1px solid #fecaca;
+            background: #fef2f2;
+            color: #dc2626;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            font-size: 11px;
+            margin-left: 4px;
+            padding: 0;
+        }
+
+        .btn-seq-remove:hover {
+            background: #fee2e2;
+            color: #b91c1c;
+            border-color: #f87171;
+            transform: translateY(-1px);
+        }
+
+        /* Dark theme support */
+        [data-theme="dark"] .sequence-list-item {
+            background: #131c2e;
+            border-color: #1e293b;
+            box-shadow: none;
+        }
+
+        [data-theme="dark"] .sequence-list-item:hover {
+            border-color: #334155;
+            background: #182438;
+        }
+
+        [data-theme="dark"] .seq-index {
+            background: #0c4a6e;
+            color: #38bdf8;
+        }
+
+        [data-theme="dark"] .seq-name {
+            color: #f1f5f9;
+        }
+
+        [data-theme="dark"] .seq-code-badge {
+            background: #1e293b;
+            color: #94a3b8;
+            border-color: #334155;
+        }
+
+        [data-theme="dark"] .seq-fixed-badge {
+            background: #1e293b;
+            color: #94a3b8;
+            border-color: #334155;
+        }
+
+        [data-theme="dark"] .btn-seq-nav {
+            background: #1e293b;
+            border-color: #334155;
+            color: #cbd5e1;
+        }
+
+        [data-theme="dark"] .btn-seq-nav:hover:not(:disabled) {
+            background: #334155;
+            color: #38bdf8;
+            border-color: #0284c7;
+        }
+
+        [data-theme="dark"] .btn-seq-remove {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #f87171;
+        }
+
+        [data-theme="dark"] .btn-seq-remove:hover {
+            background: rgba(239, 68, 68, 0.25);
+            color: #fca5a5;
+            border-color: #ef4444;
+        }
     </style>
 @endpush
 
@@ -2964,9 +3154,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 <div class="activity-logs-container">
 
     <!-- Tab Selection -->
-    <div class="tabs-header" style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-            <div style="display: flex; align-items: center; gap: 10px; margin-right: 12px;">
+    <div class="tabs-header" style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 10px;">
                 <h1 style="font-size: 18px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px;">
                     <i class="fa-solid fa-bezier-curve" style="color: #0284c7;"></i> Predefined Transaction Flows
                 </h1>
@@ -2974,22 +3164,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                     Default Layout
                 </span>
             </div>
-            <button type="button" class="tab-btn {{ $activeTab === 'predefined' ? 'active' : '' }}" wire:click="$set('activeTab', 'predefined')">
-                <i class="fa-solid fa-gears" style="margin-right: 6px;"></i> Predefined Flow Manager
-            </button>
-            <button type="button" class="tab-btn {{ $activeTab === 'custom' ? 'active' : '' }}" wire:click="$set('activeTab', 'custom')">
-                <i class="fa-solid fa-bezier-curve" style="margin-right: 6px;"></i> Custom Flows Directory
-            </button>
+            <div class="admin-tabs-segmented" style="display: inline-flex; align-items: center; background: #e2e8f0; padding: 3px; border-radius: 8px; gap: 2px;">
+                <button type="button" 
+                        class="tab-btn {{ $activeTab === 'predefined' ? 'active' : '' }}" 
+                        wire:click="$set('activeTab', 'predefined')"
+                        style="padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s ease; {{ $activeTab === 'predefined' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.12);' : 'background: transparent; color: #64748b;' }}">
+                    <i class="fa-solid fa-gears"></i>
+                    <span>Predefined Flow Manager</span>
+                </button>
+                <button type="button" 
+                        class="tab-btn {{ $activeTab === 'custom' ? 'active' : '' }}" 
+                        wire:click="$set('activeTab', 'custom')"
+                        style="padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s ease; {{ $activeTab === 'custom' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.12);' : 'background: transparent; color: #64748b;' }}">
+                    <i class="fa-solid fa-bezier-curve"></i>
+                    <span>Custom Flows Directory</span>
+                </button>
+            </div>
         </div>
         <div style="display: flex; align-items: center; gap: 10px;">
             <x-admin.layout-trigger :mode="$layoutMode" />
         </div>
     </div>
-    @php
-        // Old tabs header replaced
-    @endphp
-    <div style="display: none;">
-
 
     <!-- Tab 1: Predefined Flow Manager -->
     @if($activeTab === 'predefined')
@@ -3391,12 +3586,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                         @forelse($flowOffices as $index => $officeCode)
                                             @php
                                                 $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
-                                                $displayName = ($officeCode === 'ORIGIN') ? 'Originated Office' : ($officeObj ? $officeObj->office_name : $officeCode);
+                                                $displayName = ($officeCode === 'ORIGIN') 
+                                                    ? 'Originated Office' 
+                                                    : ($officeCode === '[H]' 
+                                                        ? 'Cluster Division Head' 
+                                                        : ($officeCode === '[HUB]' 
+                                                            ? 'Designated Central Hub' 
+                                                            : ($officeObj ? $officeObj->office_name : $officeCode)));
                                             @endphp
                                             <div class="sequence-list-item" wire:key="seq-node-{{ $index }}">
-                                                <div style="display: flex; align-items: center;">
+                                                <div style="display: flex; align-items: center; gap: 8px;">
                                                     <span class="seq-index">#{{ $index + 1 }}</span>
-                                                    <span class="seq-name" @if($officeCode === 'ORIGIN') style="font-weight: 700; color: #0f172a;" @endif>{{ $displayName }} ({{ $officeCode }})</span>
+                                                    <span class="seq-name" @if($officeCode === 'ORIGIN') style="font-weight: 700; color: #0f172a;" @endif>{{ $displayName }}</span>
+                                                    <span class="seq-code-badge">{{ $officeCode }}</span>
                                                 </div>
                                                 <div class="seq-actions">
                                                     @if($index > 0)
@@ -3410,7 +3612,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                                             <i class="fa-solid fa-trash-can"></i>
                                                         </button>
                                                     @else
-                                                        <span style="font-size: 11px; font-weight: 600; color: #64748b; background: #f1f5f9; padding: 4px 8px; border-radius: 6px;">
+                                                        <span class="seq-fixed-badge">
                                                             <i class="fa-solid fa-lock" style="margin-right: 4px;"></i> Fixed First Step
                                                         </span>
                                                     @endif
@@ -3960,31 +4162,40 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                     </button>
                                 </div>
 
-                                <div class="sequence-editor-box">
+                                <div class="sequence-editor-box" style="margin-top: 14px;">
                                     @foreach($customFlowOffices as $index => $officeCode)
                                         @php
                                             $officeObj = $activeOffices->firstWhere('office_code', $officeCode);
-                                            $displayName = $officeObj ? $officeObj->office_name : ($officeCode === 'ORIGIN' ? 'Origin Office' : ($officeCode === '[H]' ? 'Cluster Head' : $officeCode));
+                                            $displayName = ($officeCode === 'ORIGIN') 
+                                                ? 'Origin Office' 
+                                                : ($officeCode === '[H]' 
+                                                    ? 'Cluster Division Head' 
+                                                    : ($officeCode === '[HUB]' 
+                                                        ? 'Designated Central Hub' 
+                                                        : ($officeObj ? $officeObj->office_name : $officeCode)));
                                             $isOrigin = $index === 0;
                                         @endphp
-                                        <div class="sequence-list-item">
-                                            <div>
-                                                <span class="seq-index">Step {{ $index + 1 }}:</span>
-                                                <span class="seq-name">{{ $displayName }} ({{ $officeCode }})</span>
+                                        <div class="sequence-list-item" wire:key="custom-seq-node-{{ $index }}">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <span class="seq-index">#{{ $index + 1 }}</span>
+                                                <span class="seq-name" @if($isOrigin) style="font-weight: 700; color: #0f172a;" @endif>{{ $displayName }}</span>
+                                                <span class="seq-code-badge">{{ $officeCode }}</span>
                                             </div>
                                             <div class="seq-actions">
                                                 @if(!$isOrigin)
-                                                    <button type="button" class="btn-seq-nav" wire:click="moveCustomOfficeUp({{ $index }})" {{ $index <= 1 ? 'disabled' : '' }}>
-                                                        <i class="fa-solid fa-arrow-up"></i>
+                                                    <button type="button" class="btn-seq-nav" wire:click="moveCustomOfficeUp({{ $index }})" {{ $index <= 1 ? 'disabled' : '' }} title="Move Up">
+                                                        <i class="fa-solid fa-chevron-up"></i>
                                                     </button>
-                                                    <button type="button" class="btn-seq-nav" wire:click="moveCustomOfficeDown({{ $index }})" {{ $index >= count($customFlowOffices) - 1 ? 'disabled' : '' }}>
-                                                        <i class="fa-solid fa-arrow-down"></i>
+                                                    <button type="button" class="btn-seq-nav" wire:click="moveCustomOfficeDown({{ $index }})" {{ $index >= count($customFlowOffices) - 1 ? 'disabled' : '' }} title="Move Down">
+                                                        <i class="fa-solid fa-chevron-down"></i>
                                                     </button>
-                                                    <button type="button" class="btn-seq-remove" wire:click="removeCustomOffice({{ $index }})">
-                                                        <i class="fa-solid fa-trash"></i>
+                                                    <button type="button" class="btn-seq-remove" wire:click="removeCustomOffice({{ $index }})" title="Remove">
+                                                        <i class="fa-solid fa-trash-can"></i>
                                                     </button>
                                                 @else
-                                                    <span style="font-size: 11px; color: #94a3b8; font-style: italic; padding: 4px 8px;">Initial Origin</span>
+                                                    <span class="seq-fixed-badge">
+                                                        <i class="fa-solid fa-lock" style="margin-right: 4px;"></i> Initial Origin
+                                                    </span>
                                                 @endif
                                             </div>
                                         </div>
@@ -5058,6 +5269,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     @endif
 </div>
 
+@endif
+
 <script>
     /**
      * Dts get livewire.
@@ -5066,7 +5279,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
      */
     window.dtsGetLivewire = function(el) {
         try {
-            const root = el ? el.closest('[wire\\:id]') : document.querySelector('.miller-container[wire\\:id]');
+            const root = el ? el.closest('[wire\\:id]') : document.querySelector('[wire\\:id]');
             if (root && window.Livewire) {
                 return window.Livewire.find(root.getAttribute('wire:id'));
             }
@@ -5132,6 +5345,5 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         }
     };
 </script>
-
-@endif
+</div>
 

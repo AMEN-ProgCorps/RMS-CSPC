@@ -1024,7 +1024,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
     }
 };
 ?>
-
 @push('styles')
     @vite(['resources/css/admin/accounts_roles.css', 'resources/css/admin/accounts_users.css'])
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
@@ -1538,11 +1537,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
     </style>
 @endpush
 
-@if($layoutMode === 'default')
+<div>
 
-    {-- ======================================================== --}
-    {-- MODE: DEFAULT (CLASSIC DUAL-PANE VIEW) --}
-    {-- ======================================================== --}
+@if($layoutMode === 'default')
+<div class="admin-roles-outer">
+    {{-- ======================================================== --}}
+    {{-- MODE: DEFAULT (CLASSIC DUAL-PANE VIEW) --}}
+    {{-- ======================================================== --}}
     <div style="max-width: 1600px; margin: 0 auto; padding: 16px 20px 0 20px; box-sizing: border-box;">
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
             <div style="display: flex; align-items: center; gap: 10px;">
@@ -1562,18 +1563,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         </div>
     </div>
 
-    <div 
-                                    <!-- Modify Issuance Control Number -->
-                                    <div class="permission-toggle-row">
-                                        <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">Modify Issuance Control Number</span>
-                                            <span class="permission-toggle-desc">Allows user to manually edit control numbers on Issuances. Restrict exclusively to President/VP functions without full general communication modification clearance.</span>
-                                        </div>
-                                        <label class="switch">
-                                            <input type="checkbox" wire:model="canDtsModifyIssuanceControlNo">
-                                            <span class="slider"></span>
-                                        </label>
-                                    </div>class="admin-roles-container {{ !$selectedRoleId ? 'no-selection' : 'has-selection' }}">
+    <div class="admin-roles-container {{ !$selectedRoleId ? 'no-selection' : 'has-selection' }}">
     <!-- Left Pane: Roles Directory -->
     <div class="directory-panel">
         <div class="directory-header-row">
@@ -2012,6 +2002,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                                             <span class="slider"></span>
                                         </label>
                                     </div>
+                                    <!-- Modify Issuance Control Number -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Modify Issuance Control Number</span>
+                                            <span class="permission-toggle-desc">Allows user to manually edit control numbers on Issuances. Restrict exclusively to President/VP functions without full general communication modification clearance.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsModifyIssuanceControlNo">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
                                     <!-- View All Scanner Codes -->
                                     <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
@@ -2283,6 +2284,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
             </div>
         </div>
     @endif
+</div>
+</div>
 
 @else
 <div class="miller-container">

@@ -10,13 +10,38 @@
 <div
     x-data="{
         isOpen: false,
+        /**
+         * Toggle the floating scanner modal open or closed.
+         * Enforces single-widget mutual exclusivity: dispatches 'rms-widget-opened'
+         * and calls closeMessifyWidget() before opening the scanner modal.
+         *
+         * @returns {void}
+         */
         openScanner() {
-            if (window.Livewire) {
-                Livewire.dispatch('toggle-scanner-modal');
+            if (this.isOpen) {
+                if (window.Livewire) {
+                    Livewire.dispatch('close-scanner-modal');
+                } else {
+                    window.dispatchEvent(new CustomEvent('close-scanner-modal'));
+                }
             } else {
-                window.dispatchEvent(new CustomEvent('toggle-scanner-modal'));
+                window.dispatchEvent(new CustomEvent('rms-widget-opened', { detail: { widget: 'scanner' } }));
+                if (typeof window.closeMessifyWidget === 'function') {
+                    window.closeMessifyWidget();
+                }
+                if (window.Livewire) {
+                    Livewire.dispatch('open-scanner-modal');
+                } else {
+                    window.dispatchEvent(new CustomEvent('open-scanner-modal'));
+                }
             }
         },
+        /**
+         * Initializes widget DOM styling watchers and keyboard shortcuts.
+         * Registers Alt+S and Ctrl+Shift+S hotkeys for opening the scanner modal.
+         *
+         * @returns {void}
+         */
         init() {
             const syncMessifyPresent = () => {
                 if (!document.getElementById('messify-global-widget')) {
@@ -40,6 +65,7 @@
     }"
     x-on:scanner-modal-opened.window="isOpen = true"
     x-on:scanner-modal-closed.window="isOpen = false"
+    x-on:rms-widget-opened.window="if ($event.detail && ($event.detail.widget || (Array.isArray($event.detail) ? $event.detail[0]?.widget : null)) !== 'scanner' && isOpen) { isOpen = false; if (window.Livewire) { Livewire.dispatch('close-scanner-modal'); } else { window.dispatchEvent(new CustomEvent('close-scanner-modal')); } }"
 >
     <!-- Floating Scanner Trigger Button -->
     <button
@@ -50,7 +76,7 @@
         :data-tooltip="isOpen ? 'Close Scanner (Alt+S)' : 'DTS QR Scanner (Alt+S)'"
         @click="openScanner()"
         aria-label="Toggle Scanner"
-        :title="isOpen ? 'Close DTS Scanner (Alt+S)' : 'DTS Barcode & QR Scanner (Alt+S)'"
+        :title="isOpen ? 'Close DTS Scanner (Alt+S)' : 'DTS QR Scanner (Alt+S)'"
     >
         <span class="rms-scanner-fab-icon" aria-hidden="true">
             <!-- Viewfinder / QR Scanner SVG -->

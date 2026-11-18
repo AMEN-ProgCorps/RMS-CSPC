@@ -21,6 +21,13 @@ try {
         -- User verification badge: managed by Super Admin via User Verification modal
         ALTER TABLE {$table} ADD COLUMN IF NOT EXISTS is_messify_verified BOOLEAN DEFAULT FALSE;
         UPDATE {$table} SET is_messify_verified = FALSE WHERE is_messify_verified IS NULL;
+
+        -- Per-account customizable reaction emojis (JSON array of 3 emojis)
+        ALTER TABLE {$table} ADD COLUMN IF NOT EXISTS chatify_reaction_emojis TEXT DEFAULT '[\"😆\",\"❤️\",\"👍\"]';
+        UPDATE {$table} SET chatify_reaction_emojis = '[\"😆\",\"❤️\",\"👍\"]' WHERE chatify_reaction_emojis IS NULL;
+
+        -- Widen reaction emoji column to support any multi-codepoint emoji from Chatify's catalog
+        ALTER TABLE messify_chat_reactions ALTER COLUMN emoji TYPE VARCHAR(32);
     ");
     echo "SCHEMA_UPDATED_SUCCESSFULLY\n";
 } catch (Throwable $e) {

@@ -118,14 +118,20 @@ try {
 }
 
 
-// Load user communication settings (default ON for all users)
+// Load user communication settings (default ON for all users) and custom reaction emojis
 $user_comm_settings = [
     'allow_typing_preview'     => true,
     'allow_see_typing_preview' => true,
 ];
+$user_reaction_emojis = Reactions::DEFAULT_EMOJIS;
 try {
     $pdo = Database::getConnection();
-    $stmt = $pdo->prepare('SELECT allow_typing_preview, allow_see_typing_preview FROM ' . Database::t('account_details') . ' WHERE account_id = ? LIMIT 1');
+    SelfHealCache::once('account_details_reaction_emojis_col_init', function () use ($pdo) {
+        $table = Database::t('account_details');
+        $pdo->exec("ALTER TABLE {$table} ADD COLUMN IF NOT EXISTS chatify_reaction_emojis TEXT DEFAULT '[\"😆\",\"❤️\",\"👍\"]'");
+        $pdo->exec("ALTER TABLE messify_chat_reactions ALTER COLUMN emoji TYPE VARCHAR(32)");
+    });
+    $stmt = $pdo->prepare('SELECT allow_typing_preview, allow_see_typing_preview, chatify_reaction_emojis FROM ' . Database::t('account_details') . ' WHERE account_id = ? LIMIT 1');
     $stmt->execute([$_current_account_id]);
     $cRow = $stmt->fetch();
     if ($cRow) {
@@ -135,6 +141,9 @@ try {
         $user_comm_settings['allow_see_typing_preview'] = (isset($cRow['allow_see_typing_preview']) && $cRow['allow_see_typing_preview'] !== null)
             ? (!in_array($cRow['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
             : true;
+        if (!empty($cRow['chatify_reaction_emojis'])) {
+            $user_reaction_emojis = Reactions::normalizeUserReactionEmojis($cRow['chatify_reaction_emojis']);
+        }
     }
 } catch (Throwable $e) {
     // Non-fatal
@@ -181,6 +190,8 @@ try {
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"></noscript>
   <script>
     window.currentUserCommSettings = <?php echo json_encode($user_comm_settings); ?>;
+    window.currentUserReactionEmojis = <?php echo json_encode($user_reaction_emojis, JSON_UNESCAPED_UNICODE); ?>;
+    window.defaultReactionEmojis = <?php echo json_encode(Reactions::DEFAULT_EMOJIS, JSON_UNESCAPED_UNICODE); ?>;
     window._messifyHasAgreedToLegal = window._messifyHasAgreedToLegal = <?php echo json_encode($hasAgreedToLegal); ?>;
     window.verifiedAccountIds = <?php echo json_encode($verified_account_ids); ?>;
     const verifiedAccountIds = new Set((window.verifiedAccountIds || []).map(Number));
@@ -393,6 +404,28 @@ try {
           </svg>
         </button>
         <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
+        <!-- Independent Emoji Picker Button & Popover -->
+        <div class="emoji-picker-anchor" id="emojiPickerAnchor">
+          <button type="button" id="emojiPickerBtn" class="emoji-picker-btn" title="Choose an emoji" aria-label="Choose an emoji" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M8 14s1.5 2 4 2 4-2 4-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="9" y1="9" x2="9.01" y2="9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="15" y1="9" x2="15.01" y2="9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <div id="emojiPickerPopover" class="emoji-picker-popover" aria-hidden="true">
+            <div class="emoji-picker-header">
+              <div class="emoji-picker-search-wrap">
+                <svg class="emoji-picker-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="emojiPickerSearch" class="emoji-picker-search" placeholder="Search emojis..." autocomplete="off" spellcheck="false">
+                <button type="button" id="emojiPickerSearchClear" class="emoji-picker-search-clear" title="Clear search" aria-label="Clear search" style="display:none;">&times;</button>
+              </div>
+              <div class="emoji-picker-tabs" id="emojiPickerTabs" role="tablist"></div>
+            </div>
+            <div class="emoji-picker-body" id="emojiPickerBody"></div>
+          </div>
+        </div>
         <!-- Wraps the real textarea + its @mention highlight layer so the
              layer can sit pixel-perfectly behind it. The textarea's own
              text is made transparent (see .message-input-wrap #messageInput
@@ -649,6 +682,9 @@ try {
       <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;">
         <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Settings</h3>
         <div style="display:flex;align-items:center;gap:8px;">
+          <button type="button" id="customReactionSettingsBtn" onclick="openCustomReactionModalFromSettings()" title="Customize Reaction Emojis" class="admin-key-header-btn" style="width:34px;height:34px;border-radius:50%;border:none;background:#1b74e4;color:#ffffff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.15s, opacity 0.15s;padding:0;outline:none;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
+          </button>
           <?php if ($is_admin): ?>
           <button type="button" id="adminKeyToggleBtn" onclick="openAdminKeyModalFromSettings()" title="Change Deletion Secret Key" class="admin-key-header-btn" style="width:34px;height:34px;border-radius:50%;border:none;background:#1b74e4;color:#ffffff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.15s, opacity 0.15s;padding:0;outline:none;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"></circle><path d="m10.7 12.3 8.8-8.8"></path><path d="m15.5 4.5 3 3"></path><path d="m18 7 3 3"></path></svg>
@@ -716,6 +752,47 @@ try {
     </div>
   </div>
 
+  <!-- Customize Reaction Emojis Modal -->
+  <div class="modal" id="customReactionModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:420px;min-height:0;">
+      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
+          <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Customize Reactions</h3>
+        </div>
+        <button type="button" id="resetReactionEmojisBtn" onclick="resetCustomReactionEmojis()" title="Reset to Default Emojis" style="background:none;border:1px solid var(--border-color);border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--text-secondary);cursor:pointer;transition:all 0.15s;outline:none;">
+          Reset
+        </button>
+      </div>
+      <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:12px;text-align:left;">
+        <p style="margin:0;font-size:12.5px;color:var(--text-secondary);line-height:1.45;">
+          Tap a reaction slot below, then choose any emoji from Chatify's emoji set to customize your message reactions.
+        </p>
+        <div class="custom-reaction-slots" id="customReactionSlots">
+          <button type="button" class="custom-reaction-slot active" data-slot="0" title="Reaction slot 1"></button>
+          <button type="button" class="custom-reaction-slot" data-slot="1" title="Reaction slot 2"></button>
+          <button type="button" class="custom-reaction-slot" data-slot="2" title="Reaction slot 3"></button>
+        </div>
+        <div class="custom-reaction-picker-box">
+          <div class="emoji-picker-header" style="padding:8px 8px 0 8px;">
+            <div class="emoji-picker-search-wrap" style="margin-bottom:6px;">
+              <svg class="emoji-picker-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="customReactionSearch" class="emoji-picker-search" placeholder="Search emojis..." autocomplete="off" spellcheck="false">
+              <button type="button" id="customReactionSearchClear" class="emoji-picker-search-clear" title="Clear search" aria-label="Clear search" style="display:none;">&times;</button>
+            </div>
+            <div class="emoji-picker-tabs" id="customReactionTabs" role="tablist"></div>
+          </div>
+          <div class="emoji-picker-body" id="customReactionBody" style="height:210px;max-height:210px;"></div>
+        </div>
+        <div id="customReactionStatus" style="font-size:12px;font-weight:600;text-align:center;display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" onclick="closeCustomReactionModal()">Cancel</button>
+        <button type="button" class="modal-button confirm-button" id="saveCustomReactionBtn" onclick="saveCustomReactionEmojis()">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- User Verification Modal (Super Admin only) -->
   <div class="modal" id="userVerificationModal" aria-hidden="true">
     <div class="modal-content" style="max-width:460px;min-width:300px;box-sizing:border-box;">
@@ -765,7 +842,7 @@ try {
             <input type="text" id="gcMemberSearchInput" placeholder="Search user to add..." autocomplete="off"
               style="width:100%;box-sizing:border-box;padding:9px 12px 9px 34px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;">
           </div>
-          <div id="gcMemberSearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:0;margin-top:8px;"></div>
+          <div id="gcMemberSearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:0;margin-top:8px;max-height:280px;overflow-y:auto;"></div>
         </div>
 
 
@@ -820,7 +897,7 @@ try {
           <input type="text" id="addGcSearchInput" placeholder="Search by first or last name..." autocomplete="off"
             style="width:100%;box-sizing:border-box;padding:9px 12px 9px 34px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;">
         </div>
-        <div id="addGcSearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:40px;"></div>
+        <div id="addGcSearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:40px;max-height:280px;overflow-y:auto;"></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="modal-button cancel-button" onclick="closeAddGcMembersModal()">Close</button>

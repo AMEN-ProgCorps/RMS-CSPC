@@ -2156,21 +2156,49 @@
     // shortcut for the same emoji (re-tap removes it, same "one reaction
     // per user per message" rule as the picker). Keep this list in sync
     // with Reactions::ALLOWED in core/Reactions.php.
-    const REACTION_EMOJIS = ['😆', '❤️', '👍'];
+    const DEFAULT_REACTION_EMOJIS = (Array.isArray(window.defaultReactionEmojis) && window.defaultReactionEmojis.length === 3)
+      ? window.defaultReactionEmojis.slice()
+      : ['😆', '❤️', '👍'];
+    let REACTION_EMOJIS = (Array.isArray(window.currentUserReactionEmojis) && window.currentUserReactionEmojis.length === 3)
+      ? window.currentUserReactionEmojis.slice()
+      : DEFAULT_REACTION_EMOJIS.slice();
     const LONG_PRESS_MS = 280;
     const LONG_PRESS_MOVE_TOLERANCE = 10;
 
     const reactionPicker = document.createElement('div');
     reactionPicker.className = 'reaction-picker';
     reactionPicker.id = 'reactionPicker';
-    reactionPicker.innerHTML = REACTION_EMOJIS.map(function(e) {
-      return '<button type="button" class="reaction-picker-btn" data-emoji="' + e + '">' + e + '</button>';
-    }).join('')
-    + '<button type="button" class="rp-copy" aria-label="Copy message">'
-    + '<svg class="rp-copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
-    + '<span class="rp-copy-label">Copy</span>'
-    + '</button>';
+
+    function renderReactionPickerButtons() {
+      reactionPicker.textContent = '';
+      REACTION_EMOJIS.forEach(function(e) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'reaction-picker-btn';
+        btn.setAttribute('data-emoji', e);
+        btn.textContent = e;
+        reactionPicker.appendChild(btn);
+      });
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'rp-copy';
+      copyBtn.setAttribute('aria-label', 'Copy message');
+      copyBtn.innerHTML = '<svg class="rp-copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="rp-copy-label">Copy</span>';
+      reactionPicker.appendChild(copyBtn);
+    }
+    renderReactionPickerButtons();
     document.body.appendChild(reactionPicker);
+
+    window.getUserReactionEmojis = function() {
+      return REACTION_EMOJIS.slice();
+    };
+    window.updateUserReactionEmojis = function(newEmojis) {
+      if (!Array.isArray(newEmojis) || newEmojis.length !== 3) return;
+      REACTION_EMOJIS = newEmojis.slice();
+      window.currentUserReactionEmojis = REACTION_EMOJIS.slice();
+      pickerDims = null;
+      renderReactionPickerButtons();
+    };
 
     let copyFeedbackTimeout = null;
 
@@ -2279,30 +2307,56 @@
 
       const emojiCounts = {};
       reactions.forEach(function(r) {
-        const e = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        const e = (r.emoji === '❤') ? '❤️' : r.emoji;
         emojiCounts[e] = (emojiCounts[e] || 0) + 1;
       });
 
-      let tabsHtml = '<button type="button" class="reactions-tab' + (activeReactionFilter === 'all' ? ' active' : '') + '" data-filter="all"><span>All ' + totalLabel + '</span></button>';
-
+      const tabEmojis = [];
       REACTION_EMOJIS.forEach(function(e) {
-        if (emojiCounts[e]) {
-          tabsHtml += '<button type="button" class="reactions-tab' + (activeReactionFilter === e ? ' active' : '') + '" data-filter="' + e + '"><span>' + e + '</span> <span>' + emojiCounts[e] + '</span></button>';
+        if (emojiCounts[e] && tabEmojis.indexOf(e) === -1) {
+          tabEmojis.push(e);
+        }
+      });
+      Object.keys(emojiCounts).forEach(function(e) {
+        if (tabEmojis.indexOf(e) === -1) {
+          tabEmojis.push(e);
         }
       });
 
-      tabsEl.innerHTML = tabsHtml;
+      tabsEl.textContent = '';
+      const allBtn = document.createElement('button');
+      allBtn.type = 'button';
+      allBtn.className = 'reactions-tab' + (activeReactionFilter === 'all' ? ' active' : '');
+      allBtn.setAttribute('data-filter', 'all');
+      const allSpan = document.createElement('span');
+      allSpan.textContent = 'All ' + totalLabel;
+      allBtn.appendChild(allSpan);
+      allBtn.addEventListener('click', function() {
+        renderReactionsModalContent('all');
+      });
+      tabsEl.appendChild(allBtn);
 
-      const tabBtns = tabsEl.querySelectorAll('.reactions-tab');
-      tabBtns.forEach(function(btn) {
-        btn.addEventListener('click', function() {
-          const filter = btn.getAttribute('data-filter');
-          renderReactionsModalContent(filter);
+      tabEmojis.forEach(function(e) {
+        if (!emojiCounts[e]) return;
+        const tabBtn = document.createElement('button');
+        tabBtn.type = 'button';
+        tabBtn.className = 'reactions-tab' + (activeReactionFilter === e ? ' active' : '');
+        tabBtn.setAttribute('data-filter', e);
+        const emSpan = document.createElement('span');
+        emSpan.textContent = e;
+        const cntSpan = document.createElement('span');
+        cntSpan.textContent = String(emojiCounts[e]);
+        tabBtn.appendChild(emSpan);
+        tabBtn.appendChild(document.createTextNode(' '));
+        tabBtn.appendChild(cntSpan);
+        tabBtn.addEventListener('click', function() {
+          renderReactionsModalContent(e);
         });
+        tabsEl.appendChild(tabBtn);
       });
 
       const filteredReactions = reactions.filter(function(r) {
-        const e = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        const e = (r.emoji === '❤') ? '❤️' : r.emoji;
         return activeReactionFilter === 'all' || e === activeReactionFilter;
       });
 
@@ -2312,7 +2366,7 @@
       }
 
       bodyEl.innerHTML = filteredReactions.map(function(r) {
-        const emoji = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        const emoji = (r.emoji === '❤') ? '❤️' : r.emoji;
         const initials = ((r.first_name ? r.first_name[0] : '') + (r.last_name ? r.last_name[0] : '')).toUpperCase() || '??';
         let avatarHtml = initials;
         if (r.avatar_url) {
@@ -2449,7 +2503,7 @@
       Object.keys(reactionMap).forEach(function(rawEmoji) {
         const ids = reactionMap[rawEmoji] || [];
         if (ids.length > 0) {
-          const emoji = (rawEmoji === '❤' || rawEmoji === '🖤' || rawEmoji === '🤍') ? '❤️' : rawEmoji;
+          const emoji = (rawEmoji === '❤') ? '❤️' : rawEmoji;
           if (distinctEmojis.indexOf(emoji) === -1) {
             distinctEmojis.push(emoji);
           }
@@ -3119,13 +3173,22 @@
     }
 
     // ── Emoji-only detection ──
-    // Returns true when the entire trimmed string is composed only of emoji characters.
+    // Returns true when the entire trimmed string is composed only of emoji characters
+    // AND does not exceed the "Read More..." limit (up to 25 emojis stay jumbo without a
+    // bubble; >25 render inside a regular chat bubble with "Read More...").
     function isEmojiOnly(str) {
-      if (!str || !str.trim()) return false;
+      if (!str) return false;
+      if (typeof isEmojiOnlyText === 'function') {
+        if (!isEmojiOnlyText(str)) return false;
+        if (typeof countEmojiUnits === 'function') {
+          return countEmojiUnits(str, 25) <= 25;
+        }
+      }
+      if (typeof readMoreNeeded === 'function' && readMoreNeeded(str)) return false;
       const stripped = str.replace(/\s/g, '');
-      if (!stripped) return false;
-      const emojiRegex = /^(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}|\p{Emoji}\uFE0F|\uD83C[\uDDE0-\uDDFF][\uD83C][\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\u200D)+$/u;
-      return emojiRegex.test(stripped);
+      if (!stripped || /[a-zA-Z]/.test(stripped)) return false;
+      const stripRe = /(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u200D\uFE0F]|\uD83C[\uDDE0-\uDDFF]\uD83C[\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\p{Emoji}\uFE0F)/gu;
+      return stripped.replace(stripRe, '') === '';
     }
 
     // ── Auto-linkify URLs inside message text ──
@@ -3140,25 +3203,33 @@
       var linkifyContent = window.linkifyContent;
     }
 
-    // Walk all rendered bubbles and apply / remove the emoji-only class.
+    // Walk all rendered bubbles (within optional root, defaulting to chatBox)
+    // and apply / remove the emoji-only class + "Read More..." truncation.
     // Also force image/audio (.message-media) timestamps to stay permanently
     // visible — unlike text bubbles, their date/time should never be hidden
     // by the click-to-toggle behavior below.
-    function applyEmojiOnly() {
-      chatBox.querySelectorAll('.message-bubble').forEach(function(bubble) {
+    function applyEmojiOnly(rootEl) {
+      const scope = rootEl || chatBox;
+      if (!scope || !scope.querySelectorAll) return;
+      scope.querySelectorAll('.message-bubble').forEach(function(bubble) {
         const contentEl = bubble.querySelector('.message-content');
         if (!contentEl) return;
+        if (contentEl.dataset.emojiChecked === '1' && contentEl.dataset.readmoreChecked === '1') {
+          return;
+        }
         linkifyContent(contentEl);
-        const text = contentEl.textContent || '';
-        if (isEmojiOnly(text)) {
+        applyReadMoreToElement(contentEl);
+        const text = contentEl.dataset.fullText || contentEl.textContent || '';
+        const hasReadMore = !!contentEl.dataset.fullText || !!contentEl.querySelector('.read-more-link');
+        if (!hasReadMore && isEmojiOnly(text)) {
           bubble.classList.add('emoji-only');
         } else {
           bubble.classList.remove('emoji-only');
         }
-        applyReadMoreToElement(contentEl);
+        contentEl.dataset.emojiChecked = '1';
       });
 
-      chatBox.querySelectorAll('.message-media').forEach(function(media) {
+      scope.querySelectorAll('.message-media').forEach(function(media) {
         const wrapper = media.closest('.bubble-wrapper');
         const timestamp = wrapper && wrapper.querySelector('.message-click-timestamp');
         if (timestamp) timestamp.classList.add('show-timestamp');
@@ -3177,15 +3248,17 @@
         const msgId = el.getAttribute('data-msg-id');
         if (msgId) {
           const isMoved = el.classList && el.classList.contains('user-moved') ? 'moved' : 'active';
+          const editCount = el.getAttribute('data-edit-count') || '0';
           const mc = el.querySelector('.message-content');
-          const content = (mc ? (mc.dataset.fullText || mc.textContent) : (el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent)?.trim() || '';
+          const rawContent = (mc ? (mc.dataset.fullText || mc.textContent) : (el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent)?.trim() || '';
+          const contentSig = rawContent.length > 64 ? (rawContent.length + ':' + rawContent.slice(0, 48)) : rawContent;
           const replyTo = el.getAttribute('data-reply-to') || '';
           const rqEl = el.querySelector('.reply-quote');
-          const rqText = rqEl ? (rqEl.getAttribute('data-reply-file') || rqEl.getAttribute('data-filename') || rqEl.textContent?.trim() || '') : '';
+          const rqText = rqEl ? (rqEl.getAttribute('data-reply-file') || rqEl.getAttribute('data-filename') || rqEl.textContent?.trim()?.slice(0, 32) || '') : '';
           const mediaFile = el.querySelector('.chat-viewable-image, .chat-image-lazy-load, .chat-image-broken')?.getAttribute('data-file-name')
             || el.querySelector('.chat-viewable-image, .chat-image-lazy-load, .chat-image-broken')?.getAttribute('data-filename') || '';
           const bubbleType = el.querySelector('.message-bubble') ? 'bubble' : (el.querySelector('.message-media') ? 'media' : 'file');
-          return msgId + '|' + isMoved + '|' + replyTo + '|' + rqText + '|' + mediaFile + '|' + bubbleType + '|' + content;
+          return msgId + '|' + isMoved + '|' + editCount + '|' + replyTo + '|' + rqText + '|' + mediaFile + '|' + bubbleType + '|' + contentSig;
         }
       }
       if (el && el.classList && el.classList.contains('empty-chat')) {
@@ -3194,8 +3267,9 @@
       const sender  = (el.querySelector('.message-sender')?.textContent?.trim() || '').toLowerCase();
       const time    = (el.querySelector('.message-time') || el.querySelector('.message-click-timestamp'))?.textContent?.trim() || '';
       const mc      = el.querySelector('.message-content');
-      const content = (mc ? (mc.dataset.fullText || mc.textContent) : (el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent)?.trim() || '';
-      return sender + '|' + time + '|' + content;
+      const rawContent = (mc ? (mc.dataset.fullText || mc.textContent) : (el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent)?.trim() || '';
+      const contentSig = rawContent.length > 64 ? (rawContent.length + ':' + rawContent.slice(0, 48)) : rawContent;
+      return sender + '|' + time + '|' + contentSig;
     }
 
     // Track if this is the first load (page refresh/initial visit)
@@ -3381,8 +3455,9 @@
       }).length;
       chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #noChatSelectedState, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
-      // Deduplicate newMessages during full re-render
+      // Deduplicate newMessages during full re-render using an off-DOM DocumentFragment
       const renderedIds = new Set();
+      const frag = document.createDocumentFragment();
       newMessages.forEach(el => {
         if (el.classList.contains('message-container')) {
           const msgId = el.getAttribute('data-msg-id');
@@ -3391,8 +3466,11 @@
             renderedIds.add(msgId);
           }
         }
-        chatBox.appendChild(el);
+        frag.appendChild(el);
       });
+      // Pre-process emoji truncation & classes off-DOM before layout
+      applyEmojiOnly(frag);
+      chatBox.appendChild(frag);
       
       if (isFirstLoad) {
         isFirstLoad = false;
@@ -3409,7 +3487,7 @@
           }
         }
       }
-      applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
+      applyAdminBadges(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
       gcCursor = data.nextCursor || '';
       if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching) {
@@ -3848,6 +3926,7 @@
       chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #noChatSelectedState, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       const renderedIdsF = new Set();
+      const fragF = document.createDocumentFragment();
       newMessages.forEach(el => {
         if (el.classList.contains('message-container')) {
           const msgId = el.getAttribute('data-msg-id');
@@ -3856,10 +3935,13 @@
             renderedIdsF.add(msgId);
           }
         }
-        chatBox.appendChild(el);
+        fragF.appendChild(el);
       });
+      // Pre-process emoji truncation & classes off-DOM before layout
+      applyEmojiOnly(fragF);
+      chatBox.appendChild(fragF);
       
-      applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
+      applyAdminBadges(); attachImageLoadListeners();
       
       if (isFirstLoad) {
         isFirstLoad = false;
@@ -7649,10 +7731,10 @@
 
         _gcSearchTimer = setTimeout(() => {
           resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Searching...</div>';
-          fetch('search_users_gc.php?q=' + encodeURIComponent(q))
+          fetch('search_users_gc.php?q=' + encodeURIComponent(q) + '&limit=5')
             .then(r => r.json())
             .then(data => {
-              const users = (data.users || []).slice(0, 1);
+              const users = (data.users || []).slice(0, 5);
               if (users.length === 0) {
                 resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">No users found.</div>';
                 return;
@@ -7662,16 +7744,24 @@
                 const isSelected = window._gcSelectedMembers.has(u.account_id);
                 const row = document.createElement('div');
                 row.dataset.accountId = u.account_id;
-                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);flex-shrink:0;';
 
                 const nameSpan = document.createElement('span');
                 nameSpan.style.cssText = 'flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
 
                 const nameTextSpan = document.createElement('span');
-                nameTextSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                nameTextSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 nameTextSpan.textContent = u.full_name;
                 nameTextSpan.title = u.full_name;
                 nameSpan.appendChild(nameTextSpan);
+
+                if (u.office_code || u.office_name) {
+                  const offSpan = document.createElement('span');
+                  offSpan.style.cssText = 'font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 6px;border-radius:4px;flex-shrink:0;';
+                  offSpan.textContent = u.office_code || u.office_name;
+                  offSpan.title = (u.office_code && u.office_name && u.office_code !== u.office_name) ? `${u.office_code} • ${u.office_name}` : (u.office_name || u.office_code);
+                  nameSpan.appendChild(offSpan);
+                }
 
                 if (u.is_messify_verified) {
                   const b = document.createElement('span');
@@ -7902,13 +7992,13 @@
         _addGcSearchTimer = setTimeout(() => {
           resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Searching...</div>';
           const gcId = window.activeCustomGc ? window.activeCustomGc.gc_id : 0;
-          fetch('search_users_gc.php?q=' + encodeURIComponent(q) + (gcId ? '&group_id=' + encodeURIComponent(gcId) : ''))
+          fetch('search_users_gc.php?q=' + encodeURIComponent(q) + (gcId ? '&group_id=' + encodeURIComponent(gcId) : '') + '&limit=5')
             .then(r => r.json())
             .then(data => {
               const currentMembers = Array.isArray(window.activeCustomGcMembers) ? window.activeCustomGcMembers : [];
               const rawUsers = data.users || [];
               const availableUsers = rawUsers.filter(u => !currentMembers.some(m => Number(m.account_id) === Number(u.account_id)));
-              const users = availableUsers.slice(0, 1); // max 1 result only
+              const users = availableUsers.slice(0, 5); // tig-5 users lang
               if (users.length === 0) {
                 resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">No users found.</div>';
                 return;
@@ -7920,16 +8010,24 @@
                 const isAlreadyInGc = false;
                 const row = document.createElement('div');
                 row.dataset.accountId = u.account_id;
-                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);flex-shrink:0;';
 
                 const nameSpan = document.createElement('span');
                 nameSpan.style.cssText = 'flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
 
                 const nameTextSpan = document.createElement('span');
-                nameTextSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                nameTextSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 nameTextSpan.textContent = u.full_name;
                 nameTextSpan.title = u.full_name;
                 nameSpan.appendChild(nameTextSpan);
+
+                if (u.office_code || u.office_name) {
+                  const offSpan = document.createElement('span');
+                  offSpan.style.cssText = 'font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 6px;border-radius:4px;flex-shrink:0;';
+                  offSpan.textContent = u.office_code || u.office_name;
+                  offSpan.title = (u.office_code && u.office_name && u.office_code !== u.office_name) ? `${u.office_code} • ${u.office_name}` : (u.office_name || u.office_code);
+                  nameSpan.appendChild(offSpan);
+                }
 
                 if (u.is_messify_verified) {
                   const b = document.createElement('span');
@@ -8298,4 +8396,949 @@
         chatBox.addEventListener('scroll', hideAvatarTooltip, { passive: true });
       }
       window.addEventListener('scroll', hideAvatarTooltip, { passive: true });
+    })();
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // BUILT-IN INDEPENDENT EMOJI PICKER
+    // Self-contained emoji catalog with categories, recently used persistence,
+    // instant keyword search, and cursor-aware insertion into #messageInput.
+    // ═══════════════════════════════════════════════════════════════════════════
+    (function() {
+      const emojiPickerAnchor = document.getElementById('emojiPickerAnchor');
+      const emojiPickerBtn = document.getElementById('emojiPickerBtn');
+      const emojiPickerPopover = document.getElementById('emojiPickerPopover');
+      const emojiPickerSearch = document.getElementById('emojiPickerSearch');
+      const emojiPickerSearchClear = document.getElementById('emojiPickerSearchClear');
+      const emojiPickerTabs = document.getElementById('emojiPickerTabs');
+      const emojiPickerBody = document.getElementById('emojiPickerBody');
+      const msgInput = document.getElementById('messageInput');
+
+      if (!emojiPickerBtn || !emojiPickerPopover || !emojiPickerBody || !msgInput) return;
+
+      const RECENT_STORAGE_KEY = 'chatify_recent_emojis_v1';
+      const MAX_RECENT = 24;
+
+      const EMOJI_CATEGORIES = [
+        {
+          id: 'recent',
+          label: 'Recently Used',
+          icon: '🕒',
+          items: []
+        },
+        {
+          id: 'smileys',
+          label: 'Smileys & Emotion',
+          icon: '😀',
+          items: [
+            ['😀','grinning smile happy'],['😃','smiley happy joy'],['😄','smile grin happy'],['😁','beaming grin happy'],['😆','laughing xd satisfied'],
+            ['😅','sweat smile relief'],['🤣','rofl rolling floor laughing'],['😂','joy tears laugh'],['🙂','slightly smiling'],['🙃','upside down silly'],
+            ['😉','wink'],['😊','blush smiling warm'],['😇','innocent halo angel'],['🥰','smiling hearts love adore'],['😍','heart eyes love'],
+            ['🤩','star struck excited'],['😘','kissing heart love'],['😗','kissing'],['😚','kissing closed eyes'],['😙','kissing smiling'],
+            ['🥲','smiling tear proud grateful'],['😋','yummy delicious tongue'],['😛','tongue out'],['😜','winking tongue crazy'],['🤪','zany goofy crazy'],
+            ['😝','squinting tongue'],['🤑','money mouth rich'],['🤗','hugging warm'],['🤭','hand over mouth giggle'],['🤫','shushing quiet secret'],
+            ['🤔','thinking hmm'],['🫡','saluting respect yes'],['🤐','zipper mouth silent'],['🤨','raised eyebrow skeptical'],['😐','neutral straight face'],
+            ['😑','expressionless'],['😶','no mouth speechless'],['🫥','dotted line invisible'],['😏','smirk'],['😒','unamused'],
+            ['🙄','eye roll'],['😬','grimacing awkward'],['😮‍💨','exhaling sigh relief'],['🤥','lying pinocchio'],['😌','relieved calm'],
+            ['😔','pensive sad'],['😪','sleepy'],['🤤','drooling'],['😴','sleeping zzz'],['😷','mask sick'],
+            ['🤒','thermometer fever sick'],['🤕','head bandage hurt'],['🤢','nauseated green'],['🤮','vomiting sick'],['🤧','sneezing'],
+            ['🥵','hot sweating'],['🥶','cold freezing'],['🥴','woozy dizzy'],['😵','dizzy knocked out'],['🤯','exploding head mind blown'],
+            ['🤠','cowboy hat'],['🥳','partying celebrate birthday'],['🥸','disguised glasses'],['😎','sunglasses cool'],['🤓','nerd glasses'],
+            ['🧐','monocle inspect'],['😕','confused'],['🫤','diagonal mouth unsure'],['😟','worried'],['🙁','slightly frowning'],
+            ['☹️','frowning sad'],['😮','open mouth surprised'],['😯','hushed'],['😲','astonished shocked'],['😳','flushed embarrassed'],
+            ['🥺','pleading puppy eyes'],['🥹','holding back tears touched'],['😦','frowning open mouth'],['😧','anguished'],['😨','fearful scared'],
+            ['😰','anxious cold sweat'],['😥','sad relieved'],['😢','crying tear sad'],['😭','loudly crying sobbing'],['😱','screaming fear shock'],
+            ['😖','confounded'],['😣','persevering'],['😞','disappointed'],['😓','downcast sweat'],['😩','weary tired'],
+            ['😫','tired exhausted'],['🥱','yawning sleepy'],['😤','steam nose triumph huff'],['😡','pouting angry mad rage'],['😠','angry mad'],
+            ['🤬','cursing symbols angry'],['😈','smiling devil horns'],['👿','angry devil'],['💀','skull dead'],['☠️','skull crossbones'],
+            ['💩','poop'],['🤡','clown'],['👻','ghost boo'],['👽','alien'],['🤖','robot'],
+            ['💋','kiss mark'],['💌','love letter'],['💘','heart arrow'],['💝','heart ribbon'],['💖','sparkling heart'],
+            ['💗','growing heart'],['💓','beating heart'],['💞','revolving hearts'],['💕','two hearts'],['💟','heart decoration'],
+            ['❣️','heart exclamation'],['💔','broken heart'],['❤️‍🔥','heart on fire'],['❤️‍🩹','mending heart'],['❤️','red heart love'],
+            ['🩷','pink heart'],['🧡','orange heart'],['💛','yellow heart'],['💚','green heart'],['💙','blue heart'],
+            ['🩵','light blue heart'],['💜','purple heart'],['🤎','brown heart'],['🖤','black heart'],['🩶','grey heart'],
+            ['🤍','white heart'],['💯','hundred points 100'],['💢','anger symbol'],['💥','collision boom'],['💫','dizzy star'],
+            ['💦','sweat droplets'],['💨','dashing away wind'],['🕳️','hole'],['💬','speech balloon chat'],['💤','zzz sleep']
+          ]
+        },
+        {
+          id: 'gestures',
+          label: 'People & Gestures',
+          icon: '👋',
+          items: [
+            ['👋','wave hello hi bye'],['🤚','raised back hand'],['🖐️','hand fingers splayed'],['✋','raised hand stop high five'],['🖖','vulcan salute'],
+            ['🫱','rightwards hand'],['🫲','leftwards hand'],['🫳','palm down'],['🫴','palm up'],['🫷','leftwards pushing hand'],
+            ['🫸','rightwards pushing hand'],['👌','ok hand perfect'],['🤌','pinched fingers italian'],['🤏','pinching hand small'],['✌️','victory peace'],
+            ['🤞','crossed fingers luck'],['🫰','hand with index finger and thumb crossed heart'],['🤟','love you gesture'],['🤘','sign of the horns rock'],['🤙','call me shaka'],
+            ['👈','point left'],['👉','point right'],['👆','point up'],['🖕','middle finger'],['👇','point down'],
+            ['☝️','index pointing up'],['🫵','index pointing at viewer you'],['👍','thumbs up like approve yes'],['👎','thumbs down dislike no'],['✊','raised fist power'],
+            ['👊','oncoming fist bump'],['🤛','left fist'],['🤜','right fist'],['👏','clapping hands applause bravo'],['🙌','raising hands hooray celebrate'],
+            ['🫶','heart hands love'],['👐','open hands'],['🤲','palms up together'],['🤝','handshake deal agree'],['🙏','folded hands pray please thank you'],
+            ['✍️','writing hand'],['💅','nail polish slay'],['🤳','selfie'],['💪','flexed biceps strong muscle'],['🦾','mechanical arm'],
+            ['🦵','leg'],['🦶','foot'],['👂','ear listen'],['👃','nose'],['🧠','brain smart'],
+            ['👀','eyes look see'],['👁️','eye'],['👅','tongue'],['👄','mouth lips'],['🫦','biting lip'],
+            ['👶','baby'],['🧒','child'],['👦','boy'],['👧','girl'],['🧑','person'],
+            ['👨','man'],['👩','woman'],['🧓','older person'],['👴','old man'],['👵','old woman'],
+            ['🙍','person frowning'],['🙎','person pouting'],['🙅','person gesturing no'],['🙆','person gesturing ok'],['💁','person tipping hand'],
+            ['🙋','person raising hand'],['🧏','deaf person'],['🙇','person bowing sorry'],['🤦','facepalm'],['🤷','shrug idk'],
+            ['👮','police officer'],['🕵️','detective'],['💂','guard'],['🥷','ninja'],['👷','construction worker'],
+            ['🫅','person with crown'],['🤴','prince'],['👸','princess'],['👳','person wearing turban'],['👲','person with skullcap'],
+            ['🧕','woman with headscarf'],['🤵','person in tuxedo'],['👰','person with veil bride'],['🤰','pregnant woman'],['👼','baby angel'],
+            ['🎅','santa claus'],['🤶','mrs claus'],['🦸','superhero'],['🦹','supervillain'],['🧙','mage wizard'],
+            ['🧚','fairy'],['🧛','vampire'],['🧜','merperson'],['🧝','elf'],['🧞','genie'],
+            ['🧟','zombie'],['💆','person getting massage'],['💇','person getting haircut'],['🚶','person walking'],['🧍','person standing'],
+            ['🧎','person kneeling'],['🏃','person running'],['💃','woman dancing'],['🕺','man dancing'],['👯','people with bunny ears'],
+            ['🧘','person in lotus position yoga'],['👭','women holding hands'],['👫','woman and man holding hands'],['👬','men holding hands'],['💏','kiss'],
+            ['💑','couple with heart'],['👪','family'],['🗣️','speaking head'],['👤','bust in silhouette user'],['👥','busts in silhouette group']
+          ]
+        },
+        {
+          id: 'nature',
+          label: 'Animals & Nature',
+          icon: '🐶',
+          items: [
+            ['🐶','dog face puppy'],['🐱','cat face kitty'],['🐭','mouse face'],['🐹','hamster'],['🐰','rabbit face bunny'],
+            ['🦊','fox'],['🐻','bear'],['🐼','panda'],['🐻‍❄️','polar bear'],['🐨','koala'],
+            ['🐯','tiger face'],['🦁','lion'],['🐮','cow face'],['🐷','pig face'],['🐸','frog'],
+            ['🐵','monkey face'],['🙈','see no evil monkey'],['🙉','hear no evil monkey'],['🙊','speak no evil monkey'],['🐒','monkey'],
+            ['🐔','chicken'],['🐧','penguin'],['🐦','bird'],['🐤','baby chick'],['🐣','hatching chick'],
+            ['🐥','front facing baby chick'],['🦆','duck'],['🦅','eagle'],['🦉','owl'],['🦇','bat'],
+            ['🐺','wolf'],['🐗','boar'],['🐴','horse face'],['🦄','unicorn'],['🐝','honeybee bee'],
+            ['🪱','worm'],['🐛','bug'],['🦋','butterfly'],['🐌','snail'],['🐞','lady beetle ladybug'],
+            ['🐜','ant'],['🪰','fly'],['🪲','beetle'],['🪳','cockroach'],['🦟','mosquito'],
+            ['🦗','cricket'],['🕷️','spider'],['🕸️','spider web'],['🦂','scorpion'],['🐢','turtle'],
+            ['🐍','snake'],['🦎','lizard'],['🦖','t-rex dinosaur'],['🦕','sauropod dinosaur'],['🐙','octopus'],
+            ['🦑','squid'],['🦐','shrimp'],['🦞','lobster'],['🦀','crab'],['🐡','blowfish'],
+            ['🐠','tropical fish'],['🐟','fish'],['🐬','dolphin'],['🐳','spouting whale'],['🐋','whale'],
+            ['🦈','shark'],['🐊','crocodile'],['🐅','tiger'],['🐆','leopard'],['🦓','zebra'],
+            ['🦍','gorilla'],['🦧','orangutan'],['🦣','mammoth'],['🐘','elephant'],['🦛','hippopotamus'],
+            ['🦏','rhinoceros'],['🐪','camel'],['🐫','two hump camel'],['🦒','giraffe'],['🦘','kangaroo'],
+            ['🦬','bison'],['🐃','water buffalo'],['🐂','ox'],['🐄','cow'],['🐎','horse'],
+            ['🐖','pig'],['🐏','ram'],['🐑','ewe sheep'],['🦙','llama'],['🐐','goat'],
+            ['🦌','deer'],['🐕','dog'],['🐩','poodle'],['🦮','guide dog'],['🐈','cat'],
+            ['🐈‍⬛','black cat'],['🐓','rooster'],['🦃','turkey'],['🦤','dodo'],['🦚','peacock'],
+            ['🦜','parrot'],['🦢','swan'],['🦩','flamingo'],['🕊️','dove peace'],['🐇','rabbit'],
+            ['🦝','raccoon'],['🦨','skunk'],['🦡','badger'],['🦫','beaver'],['🦦','otter'],
+            ['🦥','sloth'],['🐁','mouse'],['🐀','rat'],['🐿️','chipmunk'],['🦔','hedgehog'],
+            ['🐾','paw prints'],['🐉','dragon'],['🐲','dragon face'],['🌵','cactus'],['🎄','christmas tree'],
+            ['🌲','evergreen tree'],['🌳','deciduous tree'],['🌴','palm tree'],['🪵','wood'],['🌱','seedling'],
+            ['🌿','herb'],['☘️','shamrock'],['🍀','four leaf clover luck'],['🎍','pine decoration'],['🪴','potted plant'],
+            ['🎋','tanabata tree'],['🍃','leaf fluttering in wind'],['🍂','fallen leaf'],['🍁','maple leaf'],['🪺','nest with eggs'],
+            ['🍄','mushroom'],['🐚','spiral shell'],['🪸','coral'],['🪨','rock'],['🌾','sheaf of rice'],
+            ['💐','bouquet flowers'],['🌷','tulip'],['🌹','rose'],['🥀','wilted flower'],['🪷','lotus'],
+            ['🌺','hibiscus'],['🌸','cherry blossom'],['🌼','blossom'],['🌻','sunflower'],['🌞','sun with face'],
+            ['🌝','full moon face'],['🌛','first quarter moon face'],['🌜','last quarter moon face'],['🌚','new moon face'],['🌕','full moon'],
+            ['🌙','crescent moon'],['🌎','earth globe americas'],['🌍','earth globe europe africa'],['🌏','earth globe asia australia'],['🪐','ringed planet'],
+            ['⭐','star'],['🌟','glowing star'],['✨','sparkles'],['⚡','high voltage lightning'],['☄️','comet'],
+            ['🔥','fire hot lit'],['🌪️','tornado'],['🌈','rainbow'],['☀️','sun sunny'],['⛅','sun behind cloud'],
+            ['☁️','cloud'],['🌧️','cloud with rain'],['⛈️','cloud with lightning and rain'],['❄️','snowflake cold'],['☃️','snowman'],
+            ['⛄','snowman without snow'],['💨','wind'],['💧','droplet water'],['🌊','water wave ocean'],['☔','umbrella with rain drops']
+          ]
+        },
+        {
+          id: 'food',
+          label: 'Food & Drink',
+          icon: '🍔',
+          items: [
+            ['🍏','green apple'],['🍎','red apple'],['🍐','pear'],['🍊','tangerine orange'],['🍋','lemon'],
+            ['🍌','banana'],['🍉','watermelon'],['🍇','grapes'],['🍓','strawberry'],['🫐','blueberries'],
+            ['🍈','melon'],['🍒','cherries'],['🍑','peach'],['🥭','mango'],['🍍','pineapple'],
+            ['🥥','coconut'],['🥝','kiwi fruit'],['🍅','tomato'],['🍆','eggplant'],['🥑','avocado'],
+            ['🥦','broccoli'],['🥬','leafy green'],['🥒','cucumber'],['🌶️','hot pepper chili'],['🫑','bell pepper'],
+            ['🌽','ear of corn'],['🥕','carrot'],['🫒','olive'],['🧄','garlic'],['🧅','onion'],
+            ['🥔','potato'],['🍠','roasted sweet potato'],['🥐','croissant'],['🥯','bagel'],['🍞','bread'],
+            ['🥖','baguette bread'],['🥨','pretzel'],['🧀','cheese wedge'],['🥚','egg'],['🍳','cooking fried egg'],
+            ['🧈','butter'],['🥞','pancakes'],['🧇','waffle'],['🥓','bacon'],['🥩','cut of meat steak'],
+            ['🍗','poultry leg chicken'],['🍖','meat on bone'],['🌭','hot dog'],['🍔','hamburger burger'],['🍟','french fries'],
+            ['🍕','pizza'],['🫓','flatbread'],['🥪','sandwich'],['🥙','stuffed flatbread'],['🧆','falafel'],
+            ['🌮','taco'],['🌯','burrito'],['🫔','tamale'],['🥗','green salad'],['🥘','shallow pan of food'],
+            ['🫕','fondue'],['🍝','spaghetti pasta'],['🍜','steaming bowl ramen noodles'],['🍲','pot of food soup'],['🍛','curry rice'],
+            ['🍣','sushi'],['🍱','bento box'],['🥟','dumpling'],['🦪','oyster'],['🍤','fried shrimp'],
+            ['🍙','rice ball'],['🍚','cooked rice'],['🍘','rice cracker'],['🍥','fish cake'],['🥠','fortune cookie'],
+            ['🥮','moon cake'],['🍢','oden'],['🍡','dango'],['🍧','shaved ice'],['🍨','ice cream'],
+            ['🍦','soft ice cream'],['🥧','pie'],['🧁','cupcake'],['🍰','shortcake cake'],['🎂','birthday cake'],
+            ['🍮','custard'],['🍭','lollipop'],['🍬','candy'],['🍫','chocolate bar'],['🍿','popcorn'],
+            ['🍩','doughnut donut'],['🍪','cookie'],['🌰','chestnut'],['🥜','peanuts'],['🫘','beans'],
+            ['🍯','honey pot'],['🥛','glass of milk'],['🍼','baby bottle'],['🫖','teapot'],['☕','hot beverage coffee tea'],
+            ['🍵','teacup without handle'],['🧃','beverage box juice'],['🥤','cup with straw soda'],['🧋','bubble tea boba'],['🍶','sake'],
+            ['🍺','beer mug'],['🍻','clinking beer mugs cheers'],['🥂','clinking glasses cheers'],['🍷','wine glass'],['🥃','tumbler glass'],
+            ['🍸','cocktail glass'],['🍹','tropical drink'],['🧉','mate'],['🍾','bottle with popping cork champagne'],['🧊','ice'],
+            ['🥄','spoon'],['🍴','fork and knife'],['🍽️','fork and knife with plate'],['🥣','bowl with spoon'],['🥡','takeout box'],
+            ['🥢','chopsticks'],['🧂','salt']
+          ]
+        },
+        {
+          id: 'activities',
+          label: 'Activities & Travel',
+          icon: '⚽',
+          items: [
+            ['⚽','soccer ball football'],['🏀','basketball'],['🏈','american football'],['⚾','baseball'],['🥎','softball'],
+            ['🎾','tennis'],['🏐','volleyball'],['🏉','rugby football'],['🥏','flying disc frisbee'],['🎱','pool 8 ball billiards'],
+            ['🪀','yo-yo'],['🏓','ping pong table tennis'],['🏸','badminton'],['🏒','ice hockey'],['🏑','field hockey'],
+            ['🥍','lacrosse'],['🏏','cricket game'],['🪃','boomerang'],['🥅','goal net'],['⛳','flag in hole golf'],
+            ['🪁','kite'],['🏹','bow and arrow archery'],['🎣','fishing pole'],['🤿','diving mask'],['🥊','boxing glove'],
+            ['🥋','martial arts uniform'],['🎽','running shirt'],['🛹','skateboard'],['🛼','roller skate'],['🛷','sled'],
+            ['⛸️','ice skate'],['🥌','curling stone'],['🎿','skis'],['⛷️','skier'],['🏂','snowboarder'],
+            ['🪂','parachute'],['🏋️','person lifting weights gym'],['🤸','person cartwheeling'],['⛹️','person bouncing ball'],['🤺','person fencing'],
+            ['🤾','person playing handball'],['🏌️','person golfing'],['🏇','horse racing'],['🧘','yoga'],['🏄','person surfing'],
+            ['🏊','person swimming'],['🤽','person playing water polo'],['🚣','person rowing boat'],['🧗','person climbing'],['🚵','person mountain biking'],
+            ['🚴','person biking'],['🏆','trophy winner champion'],['🥇','1st place medal gold'],['🥈','2nd place medal silver'],['🥉','3rd place medal bronze'],
+            ['🏅','sports medal'],['🎖️','military medal'],['🏵️','rosette'],['🎗️','reminder ribbon'],['🎫','ticket'],
+            ['🎟️','admission tickets'],['🎪','circus tent'],['🎭','performing arts theater'],['🎨','artist palette paint'],['🎬','clapper board movie'],
+            ['🎤','microphone sing karaoke'],['🎧','headphone music'],['🎼','musical score'],['🎹','musical keyboard piano'],['🥁','drum'],
+            ['🪘','long drum'],['🎷','saxophone'],['🎺','trumpet'],['🪗','accordion'],['🎸','guitar'],
+            ['🪕','banjo'],['🎻','violin'],['🎲','game die dice'],['♟️','chess pawn'],['🎯','bullseye direct hit target'],
+            ['🎳','bowling'],['🎮','video game controller gaming'],['🎰','slot machine'],['🧩','puzzle piece'],['🚗','automobile car'],
+            ['🚕','taxi'],['🚙','sport utility vehicle suv'],['🚌','bus'],['🚎','trolleybus'],['🏎️','racing car'],
+            ['🚓','police car'],['🚑','ambulance'],['🚒','fire engine'],['🚐','minibus'],['🛻','pickup truck'],
+            ['🚚','delivery truck'],['🚛','articulated lorry'],['🚜','tractor'],['🏍️','motorcycle'],['🛵','motor scooter'],
+            ['🚲','bicycle bike'],['🛴','kick scooter'],['🚨','police car light siren'],['🚔','oncoming police car'],['🚍','oncoming bus'],
+            ['🚘','oncoming automobile'],['🚖','oncoming taxi'],['🚡','aerial tramway'],['🚠','mountain cableway'],['🚟','suspension railway'],
+            ['🚃','railway car'],['🚋','tram car'],['🚞','mountain railway'],['🚝','monorail'],['🚄','high speed train'],
+            ['🚅','bullet train'],['🚈','light rail'],['🚂','locomotive train'],['🚆','train'],['🚇','metro'],
+            ['🚊','tram'],['🚉','station'],['✈️','airplane flight'],['🛫','airplane departure'],['🛬','airplane arrival'],
+            ['🛩️','small airplane'],['💺','seat'],['🛰️','satellite'],['🚀','rocket launch'],['🛸','flying saucer ufo'],
+            ['🚁','helicopter'],['🛶','canoe'],['⛵','sailboat'],['🚤','speedboat'],['🛥️','motor boat'],
+            ['🛳️','passenger ship'],['⛴️','ferry'],['🚢','ship'],['⚓','anchor'],['⛽','fuel pump gas'],
+            ['🚧','construction'],['🚦','vertical traffic light'],['🚥','horizontal traffic light'],['🚏','bus stop'],['🗺️','world map'],
+            ['🗿','moai'],['🗽','statue of liberty'],['🗼','tokyo tower'],['🏰','castle'],['🏯','japanese castle'],
+            ['🏟️','stadium'],['🎡','ferris wheel'],['🎢','roller coaster'],['🎠','carousel horse'],['⛲','fountain'],
+            ['⛱️','umbrella on ground'],['🏖️','beach with umbrella'],['🏝️','desert island'],['🏜️','desert'],['🌋','volcano'],
+            ['⛰️','mountain'],['🏔️','snow capped mountain'],['🗻','mount fuji'],['🏕️','camping'],['⛺','tent'],
+            ['🏠','house home'],['🏡','house with garden'],['🏘️','houses'],['🏚️','derelict house'],['🏗️','building construction'],
+            ['🏭','factory'],['🏢','office building'],['🏬','department store'],['🏣','japanese post office'],['🏤','post office'],
+            ['🏥','hospital'],['🏦','bank'],['🏨','hotel'],['🏪','convenience store'],['🏫','school'],
+            ['🏩','love hotel'],['💒','wedding'],['🏛️','classical building'],['⛪','church'],['🕌','mosque'],
+            ['🕍','synagogue'],['🕋','kaaba'],['⛩️','shinto shrine']
+          ]
+        },
+        {
+          id: 'objects',
+          label: 'Objects & Symbols',
+          icon: '💡',
+          items: [
+            ['⌚','watch'],['📱','mobile phone smartphone'],['📲','mobile phone with arrow'],['💻','laptop computer'],['⌨️','keyboard'],
+            ['🖥️','desktop computer'],['🖨️','printer'],['🖱️','computer mouse'],['🖲️','trackball'],['🕹️','joystick'],
+            ['🗜️','clamp'],['💽','computer disk'],['💾','floppy disk save'],['💿','optical disk cd'],['📀','dvd'],
+            ['📼','videocassette'],['📷','camera photo'],['📸','camera with flash'],['📹','video camera'],['🎥','movie camera'],
+            ['📽️','film projector'],['🎞️','film frames'],['📞','telephone receiver call'],['☎️','telephone'],['📟','pager'],
+            ['📠','fax machine'],['📺','television tv'],['📻','radio'],['🎙️','studio microphone'],['🎚️','level slider'],
+            ['🎛️','control knobs'],['🧭','compass'],['⏱️','stopwatch'],['⏲️','timer clock'],['⏰','alarm clock'],
+            ['🕰️','mantelpiece clock'],['⌛','hourglass done'],['⏳','hourglass not done'],['📡','satellite antenna'],['🔋','battery'],
+            ['🪫','low battery'],['🔌','electric plug'],['💡','light bulb idea'],['🔦','flashlight'],['🕯️','candle'],
+            ['🪔','diya lamp'],['🧯','fire extinguisher'],['🛢️','oil drum'],['💸','money with wings'],['💵','dollar banknote'],
+            ['💴','yen banknote'],['💶','euro banknote'],['💷','pound banknote'],['🪙','coin'],['💰','money bag'],
+            ['💳','credit card'],['💎','gem stone diamond'],['⚖️','balance scale'],['🪜','ladder'],['🧰','toolbox'],
+            ['🪛','screwdriver'],['🔧','wrench'],['🔨','hammer'],['⚒️','hammer and pick'],['🛠️','hammer and wrench'],
+            ['⛏️','pick'],['🪚','carpentry saw'],['🔩','nut and bolt'],['⚙️','gear settings'],['🪤','mouse trap'],
+            ['🧱','brick'],['⛓️','chains'],['🧲','magnet'],['🔫','water pistol'],['💣','bomb'],
+            ['🧨','firecracker'],['🪓','axe'],['🔪','kitchen knife'],['🗡️','dagger'],['⚔️','crossed swords'],
+            ['🛡️','shield'],['🚬','cigarette'],['⚰️','coffin'],['🪦','headstone'],['⚱️','funeral urn'],
+            ['🏺','amphora'],['🔮','crystal ball'],['📿','prayer beads'],['🧿','nazar amulet'],['💈','barber pole'],
+            ['⚗️','alembic'],['🔭','telescope'],['🔬','microscope'],['🕳️','hole'],['🩹','adhesive bandage'],
+            ['🩺','stethoscope'],['💊','pill medicine'],['💉','syringe'],['🩸','drop of blood'],['🧬','dna'],
+            ['🦠','microbe'],['🧫','petri dish'],['🧪','test tube'],['🌡️','thermometer'],['🧹','broom'],
+            ['🪠','plunger'],['🧺','basket'],['🧻','roll of paper'],['🚽','toilet'],['🚰','potable water'],
+            ['🚿','shower'],['🛁','bathtub'],['🛀','person taking bath'],['🧼','soap'],['🪥','toothbrush'],
+            ['🪒','razor'],['🧽','sponge'],['🪣','bucket'],['🧴','lotion bottle'],['🛎️','bellhop bell'],
+            ['🔑','key'],['🗝️','old key'],['🚪','door'],['🪑','chair'],['🛋️','couch and lamp'],
+            ['🛏️','bed'],['🛌','person in bed'],['🧸','teddy bear'],['🪆','nesting dolls'],['🖼️','framed picture'],
+            ['🪞','mirror'],['🪟','window'],['🛍️','shopping bags'],['🛒','shopping cart'],['🎁','wrapped gift present'],
+            ['🎈','balloon'],['🎏','carp streamer'],['🎀','ribbon'],['🪄','magic wand'],['🪅','pinata'],
+            ['🎊','confetti ball'],['🎉','party popper tada celebrate'],['🎎','japanese dolls'],['🏮','red paper lantern'],['🎐','wind chime'],
+            ['🪩','mirror ball'],['🧧','red envelope'],['✉️','envelope mail'],['📩','envelope with arrow'],['📨','incoming envelope'],
+            ['📧','e-mail email'],['💌','love letter'],['📥','inbox tray'],['📤','outbox tray'],['📦','package box'],
+            ['🏷️','label tag'],['🪧','placard'],['📪','closed mailbox'],['📫','closed mailbox with raised flag'],['📬','open mailbox'],
+            ['📭','open mailbox with lowered flag'],['📮','postbox'],['📯','postal horn'],['📜','scroll'],['📃','page with curl'],
+            ['📄','page facing up document'],['📑','bookmark tabs'],['🧾','receipt'],['📊','bar chart'],['📈','chart increasing'],
+            ['📉','chart decreasing'],['🗒️','spiral notepad'],['🗓️','spiral calendar'],['📆','tear off calendar'],['📅','calendar'],
+            ['🗑️','wastebasket trash'],['📇','card index'],['🗃️','card file box'],['🗳️','ballot box'],['🗄️','file cabinet'],
+            ['📋','clipboard'],['📁','file folder'],['📂','open file folder'],['🗂️','card index dividers'],['🗞️','rolled up newspaper'],
+            ['📰','newspaper'],['📓','notebook'],['📔','notebook with decorative cover'],['📒','ledger'],['📕','closed book'],
+            ['📗','green book'],['📘','blue book'],['📙','orange book'],['📚','books'],['📖','open book'],
+            ['🔖','bookmark'],['🧷','safety pin'],['🔗','link'],['📎','paperclip'],['🖇️','linked paperclips'],
+            ['📐','triangular ruler'],['📏','straight ruler'],['🧮','abacus'],['📌','pushpin'],['📍','round pushpin'],
+            ['✂️','scissors'],['🖊️','pen'],['🖋️','fountain pen'],['✒️','black nib'],['🖌️','paintbrush'],
+            ['🖍️','crayon'],['📝','memo note pencil'],['✏️','pencil'],['🔍','magnifying glass left search'],['🔎','magnifying glass right'],
+            ['🔏','locked with pen'],['🔐','locked with key'],['🔒','locked'],['🔓','unlocked'],['🔔','bell notification'],
+            ['🔕','bell with slash'],['📣','megaphone'],['📢','loudspeaker'],['❓','question mark'],['❔','white question mark'],
+            ['❕','white exclamation mark'],['❗','exclamation mark'],['‼️','double exclamation mark'],['⁉️','exclamation question mark'],['⚠️','warning'],
+            ['🚫','prohibited no'],['✅','check mark button yes done'],['☑️','check box with check'],['✔️','check mark'],['❌','cross mark no'],
+            ['❎','cross mark button'],['➕','plus'],['➖','minus'],['➗','divide'],['✖️','multiply'],
+            ['♻️','recycling symbol'],['⚜️','fleur-de-lis'],['🔱','trident emblem'],['📛','name badge'],['🔰','japanese symbol for beginner'],
+            ['⭕','hollow red circle'],['🔴','red circle'],['🟠','orange circle'],['🟡','yellow circle'],['🟢','green circle'],
+            ['🔵','blue circle'],['🟣','purple circle'],['🟤','brown circle'],['⚫','black circle'],['⚪','white circle']
+          ]
+        },
+        {
+          id: 'flags',
+          label: 'Flags',
+          icon: '🇵🇭',
+          items: [
+            ['🇵🇭','philippines flag ph'],['🏁','chequered flag'],['🚩','triangular flag red flag'],['🎌','crossed flags'],['🏴','black flag'],
+            ['🏳️','white flag'],['🏳️‍🌈','rainbow flag'],['🏴‍☠️','pirate flag'],['🇺🇳','united nations'],['🇺🇸','united states usa'],
+            ['🇬🇧','united kingdom uk'],['🇨🇦','canada'],['🇦🇺','australia'],['🇯🇵','japan'],['🇰🇷','south korea'],
+            ['🇸🇬','singapore'],['🇲🇾','malaysia'],['🇹🇭','thailand'],['🇻🇳','vietnam'],['🇮🇩','indonesia'],
+            ['🇨🇳','china'],['🇹🇼','taiwan'],['🇭🇰','hong kong'],['🇮🇳','india'],['🇦🇪','united arab emirates'],
+            ['🇸🇦','saudi arabia'],['🇶🇦','qatar'],['🇫🇷','france'],['🇩🇪','germany'],['🇮🇹','italy'],
+            ['🇪🇸','spain'],['🇵🇹','portugal'],['🇳🇱','netherlands'],['🇨🇭','switzerland'],['🇸🇪','sweden'],
+            ['🇳🇴','norway'],['🇫🇮','finland'],['🇩🇰','denmark'],['🇧🇷','brazil'],['🇲🇽','mexico'],
+            ['🇦🇷','argentina'],['🇿🇦','south africa'],['🇳🇿','new zealand']
+          ]
+        }
+      ];
+
+      let activeCatId = 'smileys';
+      let isPickerOpen = false;
+      let isProgrammaticTabScroll = false;
+      let programmaticTabScrollTimer = null;
+
+      // Set of all valid known emojis from our catalog to validate recents and clicks
+      const ALLOWED_EMOJIS = new Set();
+      EMOJI_CATEGORIES.forEach(cat => {
+        if (cat.id !== 'recent') {
+          cat.items.forEach(item => ALLOWED_EMOJIS.add(item[0]));
+        }
+      });
+
+      function getRecentEmojis() {
+        try {
+          const raw = localStorage.getItem(RECENT_STORAGE_KEY);
+          if (!raw) return [];
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) return [];
+          return parsed.filter(em => typeof em === 'string' && ALLOWED_EMOJIS.has(em)).slice(0, MAX_RECENT);
+        } catch (e) {
+          return [];
+        }
+      }
+
+      function saveRecentEmoji(emoji) {
+        if (!ALLOWED_EMOJIS.has(emoji)) return;
+        try {
+          let recents = getRecentEmojis().filter(e => e !== emoji);
+          recents.unshift(emoji);
+          if (recents.length > MAX_RECENT) recents = recents.slice(0, MAX_RECENT);
+          localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(recents));
+        } catch (e) {}
+      }
+
+      function buildTabs() {
+        emojiPickerTabs.textContent = '';
+        const frag = document.createDocumentFragment();
+        EMOJI_CATEGORIES.forEach(cat => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'emoji-tab-btn' + (cat.id === activeCatId ? ' active' : '');
+          btn.setAttribute('data-cat', cat.id);
+          btn.title = cat.label;
+          btn.setAttribute('aria-label', cat.label);
+          btn.textContent = cat.icon;
+          frag.appendChild(btn);
+        });
+        emojiPickerTabs.appendChild(frag);
+      }
+
+      function createEmojiSectionNode(sectionId, titleText, emojiList) {
+        const section = document.createElement('div');
+        section.className = 'emoji-cat-section';
+        section.setAttribute('data-cat-section', sectionId);
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'emoji-cat-title';
+        titleEl.textContent = titleText;
+        section.appendChild(titleEl);
+
+        const grid = document.createElement('div');
+        grid.className = 'emoji-grid';
+        emojiList.forEach(em => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'emoji-item-btn';
+          btn.setAttribute('data-emoji', em);
+          btn.textContent = em;
+          grid.appendChild(btn);
+        });
+        section.appendChild(grid);
+        return section;
+      }
+
+      function renderEmojiBody(filterQuery = '') {
+        const q = filterQuery.trim().toLowerCase();
+        emojiPickerBody.textContent = '';
+
+        if (q !== '') {
+          const matches = [];
+          const seen = new Set();
+          EMOJI_CATEGORIES.forEach(cat => {
+            if (cat.id === 'recent') return;
+            cat.items.forEach(item => {
+              const emoji = item[0];
+              const keywords = item[1] || '';
+              if (!seen.has(emoji) && (keywords.toLowerCase().includes(q) || emoji.includes(q))) {
+                seen.add(emoji);
+                matches.push(emoji);
+              }
+            });
+          });
+
+          if (matches.length === 0) {
+            const emptyEl = document.createElement('div');
+            emptyEl.className = 'emoji-empty-state';
+            emptyEl.textContent = `No emojis found for "${filterQuery.trim()}"`;
+            emojiPickerBody.appendChild(emptyEl);
+            return;
+          }
+
+          emojiPickerBody.appendChild(
+            createEmojiSectionNode('search', `Search Results (${matches.length})`, matches)
+          );
+          emojiPickerBody.scrollTop = 0;
+          return;
+        }
+
+        const recents = getRecentEmojis();
+        const frag = document.createDocumentFragment();
+
+        EMOJI_CATEGORIES.forEach(cat => {
+          let list = [];
+          if (cat.id === 'recent') {
+            if (recents.length === 0) return;
+            list = recents;
+          } else {
+            list = cat.items.map(item => item[0]);
+          }
+          frag.appendChild(createEmojiSectionNode(cat.id, cat.label, list));
+        });
+
+        emojiPickerBody.appendChild(frag);
+      }
+
+      function setActiveTab(catId) {
+        activeCatId = catId;
+        emojiPickerTabs.querySelectorAll('.emoji-tab-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.getAttribute('data-cat') === catId);
+        });
+      }
+
+      function scrollToCategory(catId) {
+        if (emojiPickerSearch && emojiPickerSearch.value.trim() !== '') {
+          emojiPickerSearch.value = '';
+          if (emojiPickerSearchClear) emojiPickerSearchClear.style.display = 'none';
+          renderEmojiBody('');
+        }
+        setActiveTab(catId);
+        isProgrammaticTabScroll = true;
+        if (programmaticTabScrollTimer) clearTimeout(programmaticTabScrollTimer);
+        programmaticTabScrollTimer = setTimeout(function() {
+          isProgrammaticTabScroll = false;
+        }, 180);
+
+        if (catId === 'recent' && getRecentEmojis().length === 0) {
+          emojiPickerBody.scrollTop = 0;
+          return;
+        }
+        const section = emojiPickerBody.querySelector(`.emoji-cat-section[data-cat-section="${catId}"]`);
+        if (section) {
+          emojiPickerBody.scrollTop = Math.max(0, section.offsetTop - 4);
+        }
+      }
+
+      function insertEmojiAtCursor(emoji) {
+        if (!msgInput) return;
+        const start = typeof msgInput.selectionStart === 'number' ? msgInput.selectionStart : msgInput.value.length;
+        const end = typeof msgInput.selectionEnd === 'number' ? msgInput.selectionEnd : msgInput.value.length;
+        const text = msgInput.value;
+
+        msgInput.value = text.slice(0, start) + emoji + text.slice(end);
+        const nextPos = start + emoji.length;
+
+        msgInput.focus({ preventScroll: true });
+        try {
+          msgInput.setSelectionRange(nextPos, nextPos);
+        } catch (e) {}
+
+        // Trigger input event so mention highlights, auto-resize, and live typing preview update
+        msgInput.dispatchEvent(new Event('input', { bubbles: true }));
+        saveRecentEmoji(emoji);
+      }
+
+      function openEmojiPicker() {
+        if (isPickerOpen) return;
+        isPickerOpen = true;
+        const recents = getRecentEmojis();
+        if (!activeCatId || (activeCatId === 'recent' && recents.length === 0)) {
+          activeCatId = recents.length > 0 ? 'recent' : 'smileys';
+        }
+        buildTabs();
+        if (emojiPickerSearch) emojiPickerSearch.value = '';
+        if (emojiPickerSearchClear) emojiPickerSearchClear.style.display = 'none';
+        renderEmojiBody('');
+        emojiPickerPopover.classList.add('open');
+        emojiPickerPopover.setAttribute('aria-hidden', 'false');
+        emojiPickerBtn.classList.add('active');
+        emojiPickerBtn.setAttribute('aria-expanded', 'true');
+      }
+
+      function closeEmojiPicker() {
+        if (!isPickerOpen) return;
+        isPickerOpen = false;
+        emojiPickerPopover.classList.remove('open');
+        emojiPickerPopover.setAttribute('aria-hidden', 'true');
+        emojiPickerBtn.classList.remove('active');
+        emojiPickerBtn.setAttribute('aria-expanded', 'false');
+      }
+      window.closeEmojiPicker = closeEmojiPicker;
+
+      emojiPickerBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isPickerOpen) {
+          closeEmojiPicker();
+        } else {
+          openEmojiPicker();
+        }
+      });
+
+      emojiPickerTabs.addEventListener('click', function(e) {
+        const tabBtn = e.target.closest('.emoji-tab-btn');
+        if (!tabBtn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const catId = tabBtn.getAttribute('data-cat');
+        if (catId) scrollToCategory(catId);
+      });
+
+      emojiPickerBody.addEventListener('click', function(e) {
+        const itemBtn = e.target.closest('.emoji-item-btn');
+        if (!itemBtn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const emoji = itemBtn.getAttribute('data-emoji');
+        if (emoji) {
+          insertEmojiAtCursor(emoji);
+        }
+      });
+
+      // Update active category tab while scrolling through the emoji list
+      emojiPickerBody.addEventListener('scroll', function() {
+        if (isProgrammaticTabScroll) return;
+        if (emojiPickerSearch && emojiPickerSearch.value.trim() !== '') return;
+        const sections = emojiPickerBody.querySelectorAll('.emoji-cat-section[data-cat-section]');
+        if (!sections.length) return;
+
+        // If scrolled all the way to the bottom, activate the last category (e.g. Flags)
+        const atBottom = (emojiPickerBody.scrollTop + emojiPickerBody.clientHeight) >= (emojiPickerBody.scrollHeight - 8);
+        if (atBottom) {
+          const lastCatId = sections[sections.length - 1].getAttribute('data-cat-section');
+          if (lastCatId && lastCatId !== activeCatId) setActiveTab(lastCatId);
+          return;
+        }
+
+        const scrollTop = emojiPickerBody.scrollTop + 20;
+        let currentId = sections[0].getAttribute('data-cat-section');
+        sections.forEach(sec => {
+          if (sec.offsetTop <= scrollTop) {
+            currentId = sec.getAttribute('data-cat-section');
+          }
+        });
+        if (currentId && currentId !== activeCatId) {
+          setActiveTab(currentId);
+        }
+      }, { passive: true });
+
+      if (emojiPickerSearch) {
+        emojiPickerSearch.addEventListener('input', function() {
+          const val = this.value;
+          if (emojiPickerSearchClear) {
+            emojiPickerSearchClear.style.display = val.length > 0 ? 'flex' : 'none';
+          }
+          renderEmojiBody(val);
+        });
+        emojiPickerSearch.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            if (this.value) {
+              this.value = '';
+              if (emojiPickerSearchClear) emojiPickerSearchClear.style.display = 'none';
+              renderEmojiBody('');
+            } else {
+              closeEmojiPicker();
+              msgInput.focus({ preventScroll: true });
+            }
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const firstEmojiBtn = emojiPickerBody.querySelector('.emoji-item-btn');
+            if (firstEmojiBtn) firstEmojiBtn.click();
+          }
+        });
+      }
+
+      if (emojiPickerSearchClear) {
+        emojiPickerSearchClear.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (emojiPickerSearch) {
+            emojiPickerSearch.value = '';
+            emojiPickerSearch.focus();
+          }
+          this.style.display = 'none';
+          renderEmojiBody('');
+        });
+      }
+
+      // Close when clicking outside the picker or pressing Escape
+      document.addEventListener('mousedown', function(e) {
+        if (!isPickerOpen) return;
+        if (emojiPickerAnchor && !emojiPickerAnchor.contains(e.target)) {
+          closeEmojiPicker();
+        }
+      });
+
+      document.addEventListener('touchstart', function(e) {
+        if (!isPickerOpen) return;
+        if (emojiPickerAnchor && !emojiPickerAnchor.contains(e.target)) {
+          closeEmojiPicker();
+        }
+      }, { passive: true });
+
+      document.addEventListener('keydown', function(e) {
+        if (isPickerOpen && e.key === 'Escape') {
+          closeEmojiPicker();
+        }
+      });
+
+      // Close picker when form is submitted (message sent)
+      const chatForm = document.getElementById('chatForm');
+      if (chatForm) {
+        chatForm.addEventListener('submit', function() {
+          if (isPickerOpen) closeEmojiPicker();
+        });
+      }
+
+      // ── Custom Reaction Emojis Modal Controller ─────────────────────────────
+      const customReactionModal = document.getElementById('customReactionModal');
+      const customReactionSlotsWrap = document.getElementById('customReactionSlots');
+      const customReactionSearch = document.getElementById('customReactionSearch');
+      const customReactionSearchClear = document.getElementById('customReactionSearchClear');
+      const customReactionTabs = document.getElementById('customReactionTabs');
+      const customReactionBody = document.getElementById('customReactionBody');
+      const customReactionStatus = document.getElementById('customReactionStatus');
+      const saveCustomReactionBtn = document.getElementById('saveCustomReactionBtn');
+
+      const SYSTEM_DEFAULT_REACTIONS = (Array.isArray(window.defaultReactionEmojis) && window.defaultReactionEmojis.length === 3)
+        ? window.defaultReactionEmojis.slice()
+        : ['😆', '❤️', '👍'];
+
+      let draftReactionEmojis = (typeof window.getUserReactionEmojis === 'function')
+        ? window.getUserReactionEmojis()
+        : SYSTEM_DEFAULT_REACTIONS.slice();
+      let activeReactionSlot = 0;
+      let customReactionActiveCat = 'smileys';
+      let isCustomReactionProgScroll = false;
+      let customReactionProgScrollTimer = null;
+
+      function showCustomReactionStatus(msg, isError) {
+        if (!customReactionStatus) return;
+        if (!msg) {
+          customReactionStatus.style.display = 'none';
+          customReactionStatus.textContent = '';
+          return;
+        }
+        customReactionStatus.textContent = msg;
+        customReactionStatus.style.color = isError ? '#dc2626' : '#16a34a';
+        customReactionStatus.style.display = 'block';
+      }
+
+      function syncCustomReactionBodyHighlights() {
+        if (!customReactionBody) return;
+        customReactionBody.querySelectorAll('.emoji-item-btn').forEach(btn => {
+          const em = btn.getAttribute('data-emoji');
+          btn.classList.toggle('selected-in-slot', draftReactionEmojis.indexOf(em) !== -1);
+        });
+      }
+
+      function renderCustomReactionSlots() {
+        if (!customReactionSlotsWrap) return;
+        const slotBtns = customReactionSlotsWrap.querySelectorAll('.custom-reaction-slot');
+        slotBtns.forEach((btn, idx) => {
+          btn.textContent = draftReactionEmojis[idx] || SYSTEM_DEFAULT_REACTIONS[idx] || '👍';
+          btn.classList.toggle('active', idx === activeReactionSlot);
+        });
+        syncCustomReactionBodyHighlights();
+      }
+
+      function buildCustomReactionTabs() {
+        if (!customReactionTabs) return;
+        customReactionTabs.textContent = '';
+        const frag = document.createDocumentFragment();
+        EMOJI_CATEGORIES.forEach(cat => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'emoji-tab-btn' + (cat.id === customReactionActiveCat ? ' active' : '');
+          btn.setAttribute('data-cat', cat.id);
+          btn.title = cat.label;
+          btn.setAttribute('aria-label', cat.label);
+          btn.textContent = cat.icon;
+          frag.appendChild(btn);
+        });
+        customReactionTabs.appendChild(frag);
+      }
+
+      function setCustomReactionActiveTab(catId) {
+        customReactionActiveCat = catId;
+        if (!customReactionTabs) return;
+        customReactionTabs.querySelectorAll('.emoji-tab-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.getAttribute('data-cat') === catId);
+        });
+      }
+
+      function renderCustomReactionBody(filterQuery = '') {
+        if (!customReactionBody) return;
+        const q = filterQuery.trim().toLowerCase();
+        customReactionBody.textContent = '';
+
+        if (q !== '') {
+          const matches = [];
+          const seen = new Set();
+          EMOJI_CATEGORIES.forEach(cat => {
+            if (cat.id === 'recent') return;
+            cat.items.forEach(item => {
+              const emoji = item[0];
+              const keywords = item[1] || '';
+              if (!seen.has(emoji) && (keywords.toLowerCase().includes(q) || emoji.includes(q))) {
+                seen.add(emoji);
+                matches.push(emoji);
+              }
+            });
+          });
+
+          if (matches.length === 0) {
+            const emptyEl = document.createElement('div');
+            emptyEl.className = 'emoji-empty-state';
+            emptyEl.textContent = `No emojis found for "${filterQuery.trim()}"`;
+            customReactionBody.appendChild(emptyEl);
+            return;
+          }
+
+          customReactionBody.appendChild(
+            createEmojiSectionNode('search', `Search Results (${matches.length})`, matches)
+          );
+          customReactionBody.scrollTop = 0;
+          syncCustomReactionBodyHighlights();
+          return;
+        }
+
+        const recents = getRecentEmojis();
+        const frag = document.createDocumentFragment();
+
+        EMOJI_CATEGORIES.forEach(cat => {
+          let list = [];
+          if (cat.id === 'recent') {
+            if (recents.length === 0) return;
+            list = recents;
+          } else {
+            list = cat.items.map(item => item[0]);
+          }
+          frag.appendChild(createEmojiSectionNode(cat.id, cat.label, list));
+        });
+
+        customReactionBody.appendChild(frag);
+        syncCustomReactionBodyHighlights();
+      }
+
+      function scrollCustomReactionToCategory(catId) {
+        if (!customReactionBody) return;
+        if (customReactionSearch && customReactionSearch.value.trim() !== '') {
+          customReactionSearch.value = '';
+          if (customReactionSearchClear) customReactionSearchClear.style.display = 'none';
+          renderCustomReactionBody('');
+        }
+        setCustomReactionActiveTab(catId);
+        isCustomReactionProgScroll = true;
+        if (customReactionProgScrollTimer) clearTimeout(customReactionProgScrollTimer);
+        customReactionProgScrollTimer = setTimeout(function() {
+          isCustomReactionProgScroll = false;
+        }, 180);
+
+        if (catId === 'recent' && getRecentEmojis().length === 0) {
+          customReactionBody.scrollTop = 0;
+          return;
+        }
+        const section = customReactionBody.querySelector(`.emoji-cat-section[data-cat-section="${catId}"]`);
+        if (section) {
+          customReactionBody.scrollTop = Math.max(0, section.offsetTop - 4);
+        }
+      }
+
+      window.openCustomReactionModalFromSettings = function() {
+        if (typeof closeCommSettingsModal === 'function') {
+          closeCommSettingsModal();
+        }
+        if (!customReactionModal) return;
+
+        const currentSaved = (typeof window.getUserReactionEmojis === 'function')
+          ? window.getUserReactionEmojis()
+          : SYSTEM_DEFAULT_REACTIONS.slice();
+        draftReactionEmojis = (Array.isArray(currentSaved) && currentSaved.length === 3)
+          ? currentSaved.slice()
+          : SYSTEM_DEFAULT_REACTIONS.slice();
+        activeReactionSlot = 0;
+
+        const recents = getRecentEmojis();
+        customReactionActiveCat = recents.length > 0 ? 'recent' : 'smileys';
+        if (customReactionSearch) customReactionSearch.value = '';
+        if (customReactionSearchClear) customReactionSearchClear.style.display = 'none';
+        showCustomReactionStatus('', false);
+
+        buildCustomReactionTabs();
+        renderCustomReactionBody('');
+        renderCustomReactionSlots();
+
+        customReactionModal.classList.add('active');
+        customReactionModal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+      };
+
+      window.closeCustomReactionModal = function() {
+        if (!customReactionModal) return;
+        customReactionModal.classList.remove('active');
+        customReactionModal.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+      };
+
+      window.resetCustomReactionEmojis = function() {
+        draftReactionEmojis = SYSTEM_DEFAULT_REACTIONS.slice();
+        activeReactionSlot = 0;
+        showCustomReactionStatus('', false);
+        renderCustomReactionSlots();
+      };
+
+      window.saveCustomReactionEmojis = function() {
+        if (!Array.isArray(draftReactionEmojis) || draftReactionEmojis.length !== 3) return;
+        if (saveCustomReactionBtn) {
+          saveCustomReactionBtn.disabled = true;
+          saveCustomReactionBtn.textContent = 'Saving...';
+        }
+        showCustomReactionStatus('', false);
+
+        fetch('save_reaction_emojis.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emojis: draftReactionEmojis })
+        })
+          .then(function(res) { return res.json(); })
+          .then(function(data) {
+            if (saveCustomReactionBtn) {
+              saveCustomReactionBtn.disabled = false;
+              saveCustomReactionBtn.textContent = 'Save';
+            }
+            if (!data || !data.success) {
+              showCustomReactionStatus((data && data.error) ? data.error : 'Failed to save reaction emojis.', true);
+              return;
+            }
+            const savedList = (Array.isArray(data.emojis) && data.emojis.length === 3)
+              ? data.emojis
+              : draftReactionEmojis.slice();
+            if (typeof window.updateUserReactionEmojis === 'function') {
+              window.updateUserReactionEmojis(savedList);
+            }
+            window.closeCustomReactionModal();
+          })
+          .catch(function() {
+            if (saveCustomReactionBtn) {
+              saveCustomReactionBtn.disabled = false;
+              saveCustomReactionBtn.textContent = 'Save';
+            }
+            showCustomReactionStatus('Network error while saving reaction emojis.', true);
+          });
+      };
+
+      if (customReactionSlotsWrap) {
+        customReactionSlotsWrap.addEventListener('click', function(e) {
+          const slotBtn = e.target.closest('.custom-reaction-slot');
+          if (!slotBtn) return;
+          const idx = Number(slotBtn.getAttribute('data-slot'));
+          if (idx >= 0 && idx < 3) {
+            activeReactionSlot = idx;
+            renderCustomReactionSlots();
+          }
+        });
+      }
+
+      if (customReactionTabs) {
+        customReactionTabs.addEventListener('click', function(e) {
+          const tabBtn = e.target.closest('.emoji-tab-btn');
+          if (!tabBtn) return;
+          e.preventDefault();
+          const catId = tabBtn.getAttribute('data-cat');
+          if (catId) scrollCustomReactionToCategory(catId);
+        });
+      }
+
+      if (customReactionBody) {
+        customReactionBody.addEventListener('click', function(e) {
+          const itemBtn = e.target.closest('.emoji-item-btn');
+          if (!itemBtn) return;
+          e.preventDefault();
+          const emoji = itemBtn.getAttribute('data-emoji');
+          if (!emoji || !ALLOWED_EMOJIS.has(emoji)) return;
+
+          const existingIdx = draftReactionEmojis.indexOf(emoji);
+          if (existingIdx !== -1 && existingIdx !== activeReactionSlot) {
+            draftReactionEmojis[existingIdx] = draftReactionEmojis[activeReactionSlot];
+          }
+          draftReactionEmojis[activeReactionSlot] = emoji;
+          saveRecentEmoji(emoji);
+          activeReactionSlot = (activeReactionSlot + 1) % 3;
+          showCustomReactionStatus('', false);
+          renderCustomReactionSlots();
+        });
+
+        customReactionBody.addEventListener('scroll', function() {
+          if (isCustomReactionProgScroll) return;
+          if (customReactionSearch && customReactionSearch.value.trim() !== '') return;
+          const sections = customReactionBody.querySelectorAll('.emoji-cat-section[data-cat-section]');
+          if (!sections.length) return;
+
+          const atBottom = (customReactionBody.scrollTop + customReactionBody.clientHeight) >= (customReactionBody.scrollHeight - 8);
+          if (atBottom) {
+            const lastCatId = sections[sections.length - 1].getAttribute('data-cat-section');
+            if (lastCatId && lastCatId !== customReactionActiveCat) setCustomReactionActiveTab(lastCatId);
+            return;
+          }
+
+          const scrollTop = customReactionBody.scrollTop + 20;
+          let currentId = sections[0].getAttribute('data-cat-section');
+          sections.forEach(sec => {
+            if (sec.offsetTop <= scrollTop) {
+              currentId = sec.getAttribute('data-cat-section');
+            }
+          });
+          if (currentId && currentId !== customReactionActiveCat) {
+            setCustomReactionActiveTab(currentId);
+          }
+        }, { passive: true });
+      }
+
+      if (customReactionSearch) {
+        customReactionSearch.addEventListener('input', function() {
+          const val = this.value;
+          if (customReactionSearchClear) {
+            customReactionSearchClear.style.display = val.length > 0 ? 'flex' : 'none';
+          }
+          renderCustomReactionBody(val);
+        });
+      }
+
+      if (customReactionSearchClear) {
+        customReactionSearchClear.addEventListener('click', function(e) {
+          e.preventDefault();
+          if (customReactionSearch) {
+            customReactionSearch.value = '';
+            customReactionSearch.focus();
+          }
+          this.style.display = 'none';
+          renderCustomReactionBody('');
+        });
+      }
     })();

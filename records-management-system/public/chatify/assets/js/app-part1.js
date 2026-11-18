@@ -592,12 +592,16 @@
               targetContainer.setAttribute('data-edit-count', String(prevCount + 1));
             }
 
+            const editedBubble = targetContainer.querySelector('.message-bubble');
             const contentEl = targetContainer.querySelector('.message-bubble .message-content');
             if (contentEl) {
               contentEl.textContent = data.message;
               delete contentEl.dataset.linkified;
               linkifyContent(contentEl);
               reapplyReadMore(contentEl);
+            }
+            if (editedBubble && typeof isEmojiOnly === 'function') {
+              editedBubble.classList.toggle('emoji-only', isEmojiOnly(data.message));
             }
 
             const bubbleWrapper = targetContainer.querySelector('.bubble-wrapper');
@@ -3982,6 +3986,11 @@
       let preview = text.split('\n').slice(0, READMORE_LINE_LIMIT).join('\n');
       if (preview.length > READMORE_CHAR_LIMIT) {
         preview = preview.slice(0, READMORE_CHAR_LIMIT);
+        // Avoid splitting a UTF-16 surrogate pair (e.g. emojis) in half
+        const lastCode = preview.charCodeAt(preview.length - 1);
+        if (lastCode >= 0xD800 && lastCode <= 0xDBFF) {
+          preview = preview.slice(0, -1);
+        }
       }
       return preview.replace(/\s+$/, '');
     }
@@ -3997,7 +4006,13 @@
 
       const fullText = contentEl.textContent || '';
       contentEl.dataset.readmoreChecked = '1';
-      if (!readMoreNeeded(fullText)) return;
+      if (!readMoreNeeded(fullText)) {
+        delete contentEl.dataset.fullText;
+        return;
+      }
+
+      const parentBubble = contentEl.closest('.message-bubble');
+      if (parentBubble) parentBubble.classList.remove('emoji-only');
 
       contentEl.dataset.fullText = fullText;
       contentEl.textContent = readMorePreview(fullText) + ' ';

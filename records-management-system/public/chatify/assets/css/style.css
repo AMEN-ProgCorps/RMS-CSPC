@@ -1971,16 +1971,21 @@
       order: 1;
     }
 
-    /* Emoji-only messages — render as bare big emoji, no bubble background */
+    /* Emoji-only messages — render as bare big emoji, no bubble background,
+       horizontally centered with the 32px profile avatar */
     .message-bubble.emoji-only {
       background: transparent !important;
       box-shadow: none !important;
-      padding: 2px 0 !important;
+      padding: 0 !important;
       border-radius: 0 !important;
+      min-height: 32px;
+      display: inline-flex;
+      align-items: center;
     }
     .message-bubble.emoji-only .message-content {
-      font-size: 36px !important;
-      line-height: 1.2 !important;
+      font-size: 32px !important;
+      line-height: 1 !important;
+      margin-bottom: 0 !important;
     }
     .message-bubble.emoji-only .message-info {
       display: none !important;

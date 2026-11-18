@@ -3119,9 +3119,12 @@
     }
 
     // ── Emoji-only detection ──
-    // Returns true when the entire trimmed string is composed only of emoji characters.
+    // Returns true when the entire trimmed string is composed only of emoji characters
+    // AND does not exceed the "Read More..." limit (long emoji messages render in a
+    // regular chat bubble with "Read More..." instead of bare jumbo emojis).
     function isEmojiOnly(str) {
       if (!str || !str.trim()) return false;
+      if (typeof readMoreNeeded === 'function' && readMoreNeeded(str)) return false;
       const stripped = str.replace(/\s/g, '');
       if (!stripped) return false;
       const emojiRegex = /^(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}|\p{Emoji}\uFE0F|\uD83C[\uDDE0-\uDDFF][\uD83C][\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\u200D)+$/u;
@@ -3149,13 +3152,14 @@
         const contentEl = bubble.querySelector('.message-content');
         if (!contentEl) return;
         linkifyContent(contentEl);
-        const text = contentEl.textContent || '';
-        if (isEmojiOnly(text)) {
+        applyReadMoreToElement(contentEl);
+        const text = contentEl.dataset.fullText || contentEl.textContent || '';
+        const hasReadMore = !!contentEl.dataset.fullText || !!contentEl.querySelector('.read-more-link');
+        if (!hasReadMore && isEmojiOnly(text)) {
           bubble.classList.add('emoji-only');
         } else {
           bubble.classList.remove('emoji-only');
         }
-        applyReadMoreToElement(contentEl);
       });
 
       chatBox.querySelectorAll('.message-media').forEach(function(media) {

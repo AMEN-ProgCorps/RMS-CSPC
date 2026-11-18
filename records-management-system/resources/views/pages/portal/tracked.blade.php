@@ -341,7 +341,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 @endpush
 
 <div class="salesskip-viewport-root livewire-root" id="tracked-viewport-root">
-    <div class="salesskip-split-container" id="main-swipe-wrapper" style="--login-bg: url('{{ asset('images/background.png') }}');">
+    <div class="salesskip-split-container" id="main-swipe-wrapper" style="--login-bg: url('{{ asset('images/background.webp') }}');">
         <!-- LEFT PANEL: Campus Photo Hero with Welcome & Developers -->
         <div class="hero-blue-pane" id="pane-blue">
             <div class="hero-inner-content">

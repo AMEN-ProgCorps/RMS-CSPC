@@ -24,7 +24,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
     @vite(['resources/css/login.css'])
 @endpush
 
-<div class="salesskip-split-container" id="main-swipe-wrapper" style="--login-bg: url('{{ asset('images/background.png') }}');">
+<div class="salesskip-split-container" id="main-swipe-wrapper" style="--login-bg: url('{{ asset('images/background.webp') }}');">
     <!-- LEFT PANEL: Campus Photo Hero with Welcome & Developers -->
     <div class="hero-blue-pane" id="pane-blue">
         <div class="hero-inner-content">

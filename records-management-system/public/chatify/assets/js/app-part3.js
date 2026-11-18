@@ -2156,21 +2156,49 @@
     // shortcut for the same emoji (re-tap removes it, same "one reaction
     // per user per message" rule as the picker). Keep this list in sync
     // with Reactions::ALLOWED in core/Reactions.php.
-    const REACTION_EMOJIS = ['😆', '❤️', '👍'];
+    const DEFAULT_REACTION_EMOJIS = (Array.isArray(window.defaultReactionEmojis) && window.defaultReactionEmojis.length === 3)
+      ? window.defaultReactionEmojis.slice()
+      : ['😆', '❤️', '👍'];
+    let REACTION_EMOJIS = (Array.isArray(window.currentUserReactionEmojis) && window.currentUserReactionEmojis.length === 3)
+      ? window.currentUserReactionEmojis.slice()
+      : DEFAULT_REACTION_EMOJIS.slice();
     const LONG_PRESS_MS = 280;
     const LONG_PRESS_MOVE_TOLERANCE = 10;
 
     const reactionPicker = document.createElement('div');
     reactionPicker.className = 'reaction-picker';
     reactionPicker.id = 'reactionPicker';
-    reactionPicker.innerHTML = REACTION_EMOJIS.map(function(e) {
-      return '<button type="button" class="reaction-picker-btn" data-emoji="' + e + '">' + e + '</button>';
-    }).join('')
-    + '<button type="button" class="rp-copy" aria-label="Copy message">'
-    + '<svg class="rp-copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
-    + '<span class="rp-copy-label">Copy</span>'
-    + '</button>';
+
+    function renderReactionPickerButtons() {
+      reactionPicker.textContent = '';
+      REACTION_EMOJIS.forEach(function(e) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'reaction-picker-btn';
+        btn.setAttribute('data-emoji', e);
+        btn.textContent = e;
+        reactionPicker.appendChild(btn);
+      });
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'rp-copy';
+      copyBtn.setAttribute('aria-label', 'Copy message');
+      copyBtn.innerHTML = '<svg class="rp-copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="rp-copy-label">Copy</span>';
+      reactionPicker.appendChild(copyBtn);
+    }
+    renderReactionPickerButtons();
     document.body.appendChild(reactionPicker);
+
+    window.getUserReactionEmojis = function() {
+      return REACTION_EMOJIS.slice();
+    };
+    window.updateUserReactionEmojis = function(newEmojis) {
+      if (!Array.isArray(newEmojis) || newEmojis.length !== 3) return;
+      REACTION_EMOJIS = newEmojis.slice();
+      window.currentUserReactionEmojis = REACTION_EMOJIS.slice();
+      pickerDims = null;
+      renderReactionPickerButtons();
+    };
 
     let copyFeedbackTimeout = null;
 
@@ -2279,30 +2307,56 @@
 
       const emojiCounts = {};
       reactions.forEach(function(r) {
-        const e = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        const e = (r.emoji === '❤') ? '❤️' : r.emoji;
         emojiCounts[e] = (emojiCounts[e] || 0) + 1;
       });
 
-      let tabsHtml = '<button type="button" class="reactions-tab' + (activeReactionFilter === 'all' ? ' active' : '') + '" data-filter="all"><span>All ' + totalLabel + '</span></button>';
-
+      const tabEmojis = [];
       REACTION_EMOJIS.forEach(function(e) {
-        if (emojiCounts[e]) {
-          tabsHtml += '<button type="button" class="reactions-tab' + (activeReactionFilter === e ? ' active' : '') + '" data-filter="' + e + '"><span>' + e + '</span> <span>' + emojiCounts[e] + '</span></button>';
+        if (emojiCounts[e] && tabEmojis.indexOf(e) === -1) {
+          tabEmojis.push(e);
+        }
+      });
+      Object.keys(emojiCounts).forEach(function(e) {
+        if (tabEmojis.indexOf(e) === -1) {
+          tabEmojis.push(e);
         }
       });
 
-      tabsEl.innerHTML = tabsHtml;
+      tabsEl.textContent = '';
+      const allBtn = document.createElement('button');
+      allBtn.type = 'button';
+      allBtn.className = 'reactions-tab' + (activeReactionFilter === 'all' ? ' active' : '');
+      allBtn.setAttribute('data-filter', 'all');
+      const allSpan = document.createElement('span');
+      allSpan.textContent = 'All ' + totalLabel;
+      allBtn.appendChild(allSpan);
+      allBtn.addEventListener('click', function() {
+        renderReactionsModalContent('all');
+      });
+      tabsEl.appendChild(allBtn);
 
-      const tabBtns = tabsEl.querySelectorAll('.reactions-tab');
-      tabBtns.forEach(function(btn) {
-        btn.addEventListener('click', function() {
-          const filter = btn.getAttribute('data-filter');
-          renderReactionsModalContent(filter);
+      tabEmojis.forEach(function(e) {
+        if (!emojiCounts[e]) return;
+        const tabBtn = document.createElement('button');
+        tabBtn.type = 'button';
+        tabBtn.className = 'reactions-tab' + (activeReactionFilter === e ? ' active' : '');
+        tabBtn.setAttribute('data-filter', e);
+        const emSpan = document.createElement('span');
+        emSpan.textContent = e;
+        const cntSpan = document.createElement('span');
+        cntSpan.textContent = String(emojiCounts[e]);
+        tabBtn.appendChild(emSpan);
+        tabBtn.appendChild(document.createTextNode(' '));
+        tabBtn.appendChild(cntSpan);
+        tabBtn.addEventListener('click', function() {
+          renderReactionsModalContent(e);
         });
+        tabsEl.appendChild(tabBtn);
       });
 
       const filteredReactions = reactions.filter(function(r) {
-        const e = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        const e = (r.emoji === '❤') ? '❤️' : r.emoji;
         return activeReactionFilter === 'all' || e === activeReactionFilter;
       });
 
@@ -2312,7 +2366,7 @@
       }
 
       bodyEl.innerHTML = filteredReactions.map(function(r) {
-        const emoji = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        const emoji = (r.emoji === '❤') ? '❤️' : r.emoji;
         const initials = ((r.first_name ? r.first_name[0] : '') + (r.last_name ? r.last_name[0] : '')).toUpperCase() || '??';
         let avatarHtml = initials;
         if (r.avatar_url) {
@@ -2449,7 +2503,7 @@
       Object.keys(reactionMap).forEach(function(rawEmoji) {
         const ids = reactionMap[rawEmoji] || [];
         if (ids.length > 0) {
-          const emoji = (rawEmoji === '❤' || rawEmoji === '🖤' || rawEmoji === '🤍') ? '❤️' : rawEmoji;
+          const emoji = (rawEmoji === '❤') ? '❤️' : rawEmoji;
           if (distinctEmojis.indexOf(emoji) === -1) {
             distinctEmojis.push(emoji);
           }
@@ -8958,6 +9012,333 @@
       if (chatForm) {
         chatForm.addEventListener('submit', function() {
           if (isPickerOpen) closeEmojiPicker();
+        });
+      }
+
+      // ── Custom Reaction Emojis Modal Controller ─────────────────────────────
+      const customReactionModal = document.getElementById('customReactionModal');
+      const customReactionSlotsWrap = document.getElementById('customReactionSlots');
+      const customReactionSearch = document.getElementById('customReactionSearch');
+      const customReactionSearchClear = document.getElementById('customReactionSearchClear');
+      const customReactionTabs = document.getElementById('customReactionTabs');
+      const customReactionBody = document.getElementById('customReactionBody');
+      const customReactionStatus = document.getElementById('customReactionStatus');
+      const saveCustomReactionBtn = document.getElementById('saveCustomReactionBtn');
+
+      const SYSTEM_DEFAULT_REACTIONS = (Array.isArray(window.defaultReactionEmojis) && window.defaultReactionEmojis.length === 3)
+        ? window.defaultReactionEmojis.slice()
+        : ['😆', '❤️', '👍'];
+
+      let draftReactionEmojis = (typeof window.getUserReactionEmojis === 'function')
+        ? window.getUserReactionEmojis()
+        : SYSTEM_DEFAULT_REACTIONS.slice();
+      let activeReactionSlot = 0;
+      let customReactionActiveCat = 'smileys';
+      let isCustomReactionProgScroll = false;
+      let customReactionProgScrollTimer = null;
+
+      function showCustomReactionStatus(msg, isError) {
+        if (!customReactionStatus) return;
+        if (!msg) {
+          customReactionStatus.style.display = 'none';
+          customReactionStatus.textContent = '';
+          return;
+        }
+        customReactionStatus.textContent = msg;
+        customReactionStatus.style.color = isError ? '#dc2626' : '#16a34a';
+        customReactionStatus.style.display = 'block';
+      }
+
+      function syncCustomReactionBodyHighlights() {
+        if (!customReactionBody) return;
+        customReactionBody.querySelectorAll('.emoji-item-btn').forEach(btn => {
+          const em = btn.getAttribute('data-emoji');
+          btn.classList.toggle('selected-in-slot', draftReactionEmojis.indexOf(em) !== -1);
+        });
+      }
+
+      function renderCustomReactionSlots() {
+        if (!customReactionSlotsWrap) return;
+        const slotBtns = customReactionSlotsWrap.querySelectorAll('.custom-reaction-slot');
+        slotBtns.forEach((btn, idx) => {
+          btn.textContent = draftReactionEmojis[idx] || SYSTEM_DEFAULT_REACTIONS[idx] || '👍';
+          btn.classList.toggle('active', idx === activeReactionSlot);
+        });
+        syncCustomReactionBodyHighlights();
+      }
+
+      function buildCustomReactionTabs() {
+        if (!customReactionTabs) return;
+        customReactionTabs.textContent = '';
+        const frag = document.createDocumentFragment();
+        EMOJI_CATEGORIES.forEach(cat => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'emoji-tab-btn' + (cat.id === customReactionActiveCat ? ' active' : '');
+          btn.setAttribute('data-cat', cat.id);
+          btn.title = cat.label;
+          btn.setAttribute('aria-label', cat.label);
+          btn.textContent = cat.icon;
+          frag.appendChild(btn);
+        });
+        customReactionTabs.appendChild(frag);
+      }
+
+      function setCustomReactionActiveTab(catId) {
+        customReactionActiveCat = catId;
+        if (!customReactionTabs) return;
+        customReactionTabs.querySelectorAll('.emoji-tab-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.getAttribute('data-cat') === catId);
+        });
+      }
+
+      function renderCustomReactionBody(filterQuery = '') {
+        if (!customReactionBody) return;
+        const q = filterQuery.trim().toLowerCase();
+        customReactionBody.textContent = '';
+
+        if (q !== '') {
+          const matches = [];
+          const seen = new Set();
+          EMOJI_CATEGORIES.forEach(cat => {
+            if (cat.id === 'recent') return;
+            cat.items.forEach(item => {
+              const emoji = item[0];
+              const keywords = item[1] || '';
+              if (!seen.has(emoji) && (keywords.toLowerCase().includes(q) || emoji.includes(q))) {
+                seen.add(emoji);
+                matches.push(emoji);
+              }
+            });
+          });
+
+          if (matches.length === 0) {
+            const emptyEl = document.createElement('div');
+            emptyEl.className = 'emoji-empty-state';
+            emptyEl.textContent = `No emojis found for "${filterQuery.trim()}"`;
+            customReactionBody.appendChild(emptyEl);
+            return;
+          }
+
+          customReactionBody.appendChild(
+            createEmojiSectionNode('search', `Search Results (${matches.length})`, matches)
+          );
+          customReactionBody.scrollTop = 0;
+          syncCustomReactionBodyHighlights();
+          return;
+        }
+
+        const recents = getRecentEmojis();
+        const frag = document.createDocumentFragment();
+
+        EMOJI_CATEGORIES.forEach(cat => {
+          let list = [];
+          if (cat.id === 'recent') {
+            if (recents.length === 0) return;
+            list = recents;
+          } else {
+            list = cat.items.map(item => item[0]);
+          }
+          frag.appendChild(createEmojiSectionNode(cat.id, cat.label, list));
+        });
+
+        customReactionBody.appendChild(frag);
+        syncCustomReactionBodyHighlights();
+      }
+
+      function scrollCustomReactionToCategory(catId) {
+        if (!customReactionBody) return;
+        if (customReactionSearch && customReactionSearch.value.trim() !== '') {
+          customReactionSearch.value = '';
+          if (customReactionSearchClear) customReactionSearchClear.style.display = 'none';
+          renderCustomReactionBody('');
+        }
+        setCustomReactionActiveTab(catId);
+        isCustomReactionProgScroll = true;
+        if (customReactionProgScrollTimer) clearTimeout(customReactionProgScrollTimer);
+        customReactionProgScrollTimer = setTimeout(function() {
+          isCustomReactionProgScroll = false;
+        }, 180);
+
+        if (catId === 'recent' && getRecentEmojis().length === 0) {
+          customReactionBody.scrollTop = 0;
+          return;
+        }
+        const section = customReactionBody.querySelector(`.emoji-cat-section[data-cat-section="${catId}"]`);
+        if (section) {
+          customReactionBody.scrollTop = Math.max(0, section.offsetTop - 4);
+        }
+      }
+
+      window.openCustomReactionModalFromSettings = function() {
+        if (typeof closeCommSettingsModal === 'function') {
+          closeCommSettingsModal();
+        }
+        if (!customReactionModal) return;
+
+        const currentSaved = (typeof window.getUserReactionEmojis === 'function')
+          ? window.getUserReactionEmojis()
+          : SYSTEM_DEFAULT_REACTIONS.slice();
+        draftReactionEmojis = (Array.isArray(currentSaved) && currentSaved.length === 3)
+          ? currentSaved.slice()
+          : SYSTEM_DEFAULT_REACTIONS.slice();
+        activeReactionSlot = 0;
+
+        const recents = getRecentEmojis();
+        customReactionActiveCat = recents.length > 0 ? 'recent' : 'smileys';
+        if (customReactionSearch) customReactionSearch.value = '';
+        if (customReactionSearchClear) customReactionSearchClear.style.display = 'none';
+        showCustomReactionStatus('', false);
+
+        buildCustomReactionTabs();
+        renderCustomReactionBody('');
+        renderCustomReactionSlots();
+
+        customReactionModal.classList.add('active');
+        customReactionModal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+      };
+
+      window.closeCustomReactionModal = function() {
+        if (!customReactionModal) return;
+        customReactionModal.classList.remove('active');
+        customReactionModal.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+      };
+
+      window.resetCustomReactionEmojis = function() {
+        draftReactionEmojis = SYSTEM_DEFAULT_REACTIONS.slice();
+        activeReactionSlot = 0;
+        showCustomReactionStatus('', false);
+        renderCustomReactionSlots();
+      };
+
+      window.saveCustomReactionEmojis = function() {
+        if (!Array.isArray(draftReactionEmojis) || draftReactionEmojis.length !== 3) return;
+        if (saveCustomReactionBtn) {
+          saveCustomReactionBtn.disabled = true;
+          saveCustomReactionBtn.textContent = 'Saving...';
+        }
+        showCustomReactionStatus('', false);
+
+        fetch('save_reaction_emojis.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emojis: draftReactionEmojis })
+        })
+          .then(function(res) { return res.json(); })
+          .then(function(data) {
+            if (saveCustomReactionBtn) {
+              saveCustomReactionBtn.disabled = false;
+              saveCustomReactionBtn.textContent = 'Save';
+            }
+            if (!data || !data.success) {
+              showCustomReactionStatus((data && data.error) ? data.error : 'Failed to save reaction emojis.', true);
+              return;
+            }
+            const savedList = (Array.isArray(data.emojis) && data.emojis.length === 3)
+              ? data.emojis
+              : draftReactionEmojis.slice();
+            if (typeof window.updateUserReactionEmojis === 'function') {
+              window.updateUserReactionEmojis(savedList);
+            }
+            window.closeCustomReactionModal();
+          })
+          .catch(function() {
+            if (saveCustomReactionBtn) {
+              saveCustomReactionBtn.disabled = false;
+              saveCustomReactionBtn.textContent = 'Save';
+            }
+            showCustomReactionStatus('Network error while saving reaction emojis.', true);
+          });
+      };
+
+      if (customReactionSlotsWrap) {
+        customReactionSlotsWrap.addEventListener('click', function(e) {
+          const slotBtn = e.target.closest('.custom-reaction-slot');
+          if (!slotBtn) return;
+          const idx = Number(slotBtn.getAttribute('data-slot'));
+          if (idx >= 0 && idx < 3) {
+            activeReactionSlot = idx;
+            renderCustomReactionSlots();
+          }
+        });
+      }
+
+      if (customReactionTabs) {
+        customReactionTabs.addEventListener('click', function(e) {
+          const tabBtn = e.target.closest('.emoji-tab-btn');
+          if (!tabBtn) return;
+          e.preventDefault();
+          const catId = tabBtn.getAttribute('data-cat');
+          if (catId) scrollCustomReactionToCategory(catId);
+        });
+      }
+
+      if (customReactionBody) {
+        customReactionBody.addEventListener('click', function(e) {
+          const itemBtn = e.target.closest('.emoji-item-btn');
+          if (!itemBtn) return;
+          e.preventDefault();
+          const emoji = itemBtn.getAttribute('data-emoji');
+          if (!emoji || !ALLOWED_EMOJIS.has(emoji)) return;
+
+          const existingIdx = draftReactionEmojis.indexOf(emoji);
+          if (existingIdx !== -1 && existingIdx !== activeReactionSlot) {
+            draftReactionEmojis[existingIdx] = draftReactionEmojis[activeReactionSlot];
+          }
+          draftReactionEmojis[activeReactionSlot] = emoji;
+          saveRecentEmoji(emoji);
+          activeReactionSlot = (activeReactionSlot + 1) % 3;
+          showCustomReactionStatus('', false);
+          renderCustomReactionSlots();
+        });
+
+        customReactionBody.addEventListener('scroll', function() {
+          if (isCustomReactionProgScroll) return;
+          if (customReactionSearch && customReactionSearch.value.trim() !== '') return;
+          const sections = customReactionBody.querySelectorAll('.emoji-cat-section[data-cat-section]');
+          if (!sections.length) return;
+
+          const atBottom = (customReactionBody.scrollTop + customReactionBody.clientHeight) >= (customReactionBody.scrollHeight - 8);
+          if (atBottom) {
+            const lastCatId = sections[sections.length - 1].getAttribute('data-cat-section');
+            if (lastCatId && lastCatId !== customReactionActiveCat) setCustomReactionActiveTab(lastCatId);
+            return;
+          }
+
+          const scrollTop = customReactionBody.scrollTop + 20;
+          let currentId = sections[0].getAttribute('data-cat-section');
+          sections.forEach(sec => {
+            if (sec.offsetTop <= scrollTop) {
+              currentId = sec.getAttribute('data-cat-section');
+            }
+          });
+          if (currentId && currentId !== customReactionActiveCat) {
+            setCustomReactionActiveTab(currentId);
+          }
+        }, { passive: true });
+      }
+
+      if (customReactionSearch) {
+        customReactionSearch.addEventListener('input', function() {
+          const val = this.value;
+          if (customReactionSearchClear) {
+            customReactionSearchClear.style.display = val.length > 0 ? 'flex' : 'none';
+          }
+          renderCustomReactionBody(val);
+        });
+      }
+
+      if (customReactionSearchClear) {
+        customReactionSearchClear.addEventListener('click', function(e) {
+          e.preventDefault();
+          if (customReactionSearch) {
+            customReactionSearch.value = '';
+            customReactionSearch.focus();
+          }
+          this.style.display = 'none';
+          renderCustomReactionBody('');
         });
       }
     })();

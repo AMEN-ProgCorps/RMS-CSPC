@@ -4716,15 +4716,54 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
+      height: 280px;
+      min-height: 280px;
     }
 
-    .custom-reaction-picker-box .emoji-picker-body {
-      padding: 6px 8px 8px 8px;
+    .custom-reaction-picker-box em-emoji-picker,
+    .emoji-mart-host,
+    .emoji-mart-host em-emoji-picker {
+      width: 100% !important;
+      height: 100% !important;
+      min-height: 0 !important;
+      --shadow: none;
+      --border-radius: 0px;
+      --rgb-accent: 27, 116, 228;
     }
 
-    .custom-reaction-picker-box .emoji-item-btn.selected-in-slot {
-      background: rgba(27, 116, 228, 0.14);
-      box-shadow: inset 0 0 0 1.5px #1b74e4;
+    .em-sprite-icon {
+      display: inline-block;
+      font-size: 0;
+      color: transparent;
+      overflow: hidden;
+      user-select: none;
+      pointer-events: none;
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+
+    .reaction-emojis {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .reaction-picker-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .reactions-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .reaction-user-emoji {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
 
     #resetReactionEmojisBtn:hover {

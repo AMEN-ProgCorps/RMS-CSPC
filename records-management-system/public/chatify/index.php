@@ -415,15 +415,7 @@ try {
             </svg>
           </button>
           <div id="emojiPickerPopover" class="emoji-picker-popover" aria-hidden="true">
-            <div class="emoji-picker-header">
-              <div class="emoji-picker-search-wrap">
-                <svg class="emoji-picker-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                <input type="text" id="emojiPickerSearch" class="emoji-picker-search" placeholder="Search emojis..." autocomplete="off" spellcheck="false">
-                <button type="button" id="emojiPickerSearchClear" class="emoji-picker-search-clear" title="Clear search" aria-label="Clear search" style="display:none;">&times;</button>
-              </div>
-              <div class="emoji-picker-tabs" id="emojiPickerTabs" role="tablist"></div>
-            </div>
-            <div class="emoji-picker-body" id="emojiPickerBody"></div>
+            <div id="emojiPickerMartHost" class="emoji-mart-host"></div>
           </div>
         </div>
         <!-- Wraps the real textarea + its @mention highlight layer so the
@@ -773,17 +765,7 @@ try {
           <button type="button" class="custom-reaction-slot" data-slot="1" title="Reaction slot 2"></button>
           <button type="button" class="custom-reaction-slot" data-slot="2" title="Reaction slot 3"></button>
         </div>
-        <div class="custom-reaction-picker-box">
-          <div class="emoji-picker-header" style="padding:8px 8px 0 8px;">
-            <div class="emoji-picker-search-wrap" style="margin-bottom:6px;">
-              <svg class="emoji-picker-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input type="text" id="customReactionSearch" class="emoji-picker-search" placeholder="Search emojis..." autocomplete="off" spellcheck="false">
-              <button type="button" id="customReactionSearchClear" class="emoji-picker-search-clear" title="Clear search" aria-label="Clear search" style="display:none;">&times;</button>
-            </div>
-            <div class="emoji-picker-tabs" id="customReactionTabs" role="tablist"></div>
-          </div>
-          <div class="emoji-picker-body" id="customReactionBody" style="height:210px;max-height:210px;"></div>
-        </div>
+        <div class="custom-reaction-picker-box" id="customReactionPickerHost"></div>
         <div id="customReactionStatus" style="font-size:12px;font-weight:600;text-align:center;display:none;"></div>
       </div>
       <div class="modal-footer">
@@ -1151,6 +1133,8 @@ try {
     const adminNames = []; // kept for backward-compat; badge logic now uses verifiedAccountIds
     // verifiedAccountIds is already defined in the header block as a Set
   </script>
+  <script src="assets/vendor/emoji-mart/apple-data.js?v=<?php echo filemtime(__DIR__ . '/assets/vendor/emoji-mart/apple-data.js'); ?>"></script>
+  <script src="assets/vendor/emoji-mart/emoji-mart.js?v=<?php echo filemtime(__DIR__ . '/assets/vendor/emoji-mart/emoji-mart.js'); ?>"></script>
   <script src="assets/js/app-part3.js?v=<?php echo filemtime(__DIR__ . '/assets/js/app-part3.js'); ?>"></script>
   <!-- ═══════════════════════════════════════════════════════════════════════
        LEGAL AUTHORIZATION MODAL

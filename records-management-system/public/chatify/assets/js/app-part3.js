@@ -3123,12 +3123,18 @@
     // AND does not exceed the "Read More..." limit (up to 25 emojis stay jumbo without a
     // bubble; >25 render inside a regular chat bubble with "Read More...").
     function isEmojiOnly(str) {
-      if (!str || !str.trim()) return false;
+      if (!str) return false;
+      if (typeof isEmojiOnlyText === 'function') {
+        if (!isEmojiOnlyText(str)) return false;
+        if (typeof countEmojiUnits === 'function') {
+          return countEmojiUnits(str, 25) <= 25;
+        }
+      }
       if (typeof readMoreNeeded === 'function' && readMoreNeeded(str)) return false;
       const stripped = str.replace(/\s/g, '');
-      if (!stripped) return false;
-      const emojiRegex = /^(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}|\p{Emoji}\uFE0F|\uD83C[\uDDE0-\uDDFF][\uD83C][\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\u200D)+$/u;
-      return emojiRegex.test(stripped);
+      if (!stripped || /[a-zA-Z]/.test(stripped)) return false;
+      const stripRe = /(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u200D\uFE0F]|\uD83C[\uDDE0-\uDDFF]\uD83C[\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\p{Emoji}\uFE0F)/gu;
+      return stripped.replace(stripRe, '') === '';
     }
 
     // ── Auto-linkify URLs inside message text ──
@@ -3143,14 +3149,20 @@
       var linkifyContent = window.linkifyContent;
     }
 
-    // Walk all rendered bubbles and apply / remove the emoji-only class.
+    // Walk all rendered bubbles (within optional root, defaulting to chatBox)
+    // and apply / remove the emoji-only class + "Read More..." truncation.
     // Also force image/audio (.message-media) timestamps to stay permanently
     // visible — unlike text bubbles, their date/time should never be hidden
     // by the click-to-toggle behavior below.
-    function applyEmojiOnly() {
-      chatBox.querySelectorAll('.message-bubble').forEach(function(bubble) {
+    function applyEmojiOnly(rootEl) {
+      const scope = rootEl || chatBox;
+      if (!scope || !scope.querySelectorAll) return;
+      scope.querySelectorAll('.message-bubble').forEach(function(bubble) {
         const contentEl = bubble.querySelector('.message-content');
         if (!contentEl) return;
+        if (contentEl.dataset.emojiChecked === '1' && contentEl.dataset.readmoreChecked === '1') {
+          return;
+        }
         linkifyContent(contentEl);
         applyReadMoreToElement(contentEl);
         const text = contentEl.dataset.fullText || contentEl.textContent || '';
@@ -3160,9 +3172,10 @@
         } else {
           bubble.classList.remove('emoji-only');
         }
+        contentEl.dataset.emojiChecked = '1';
       });
 
-      chatBox.querySelectorAll('.message-media').forEach(function(media) {
+      scope.querySelectorAll('.message-media').forEach(function(media) {
         const wrapper = media.closest('.bubble-wrapper');
         const timestamp = wrapper && wrapper.querySelector('.message-click-timestamp');
         if (timestamp) timestamp.classList.add('show-timestamp');
@@ -3181,15 +3194,17 @@
         const msgId = el.getAttribute('data-msg-id');
         if (msgId) {
           const isMoved = el.classList && el.classList.contains('user-moved') ? 'moved' : 'active';
+          const editCount = el.getAttribute('data-edit-count') || '0';
           const mc = el.querySelector('.message-content');
-          const content = (mc ? (mc.dataset.fullText || mc.textContent) : (el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent)?.trim() || '';
+          const rawContent = (mc ? (mc.dataset.fullText || mc.textContent) : (el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent)?.trim() || '';
+          const contentSig = rawContent.length > 64 ? (rawContent.length + ':' + rawContent.slice(0, 48)) : rawContent;
           const replyTo = el.getAttribute('data-reply-to') || '';
           const rqEl = el.querySelector('.reply-quote');
-          const rqText = rqEl ? (rqEl.getAttribute('data-reply-file') || rqEl.getAttribute('data-filename') || rqEl.textContent?.trim() || '') : '';
+          const rqText = rqEl ? (rqEl.getAttribute('data-reply-file') || rqEl.getAttribute('data-filename') || rqEl.textContent?.trim()?.slice(0, 32) || '') : '';
           const mediaFile = el.querySelector('.chat-viewable-image, .chat-image-lazy-load, .chat-image-broken')?.getAttribute('data-file-name')
             || el.querySelector('.chat-viewable-image, .chat-image-lazy-load, .chat-image-broken')?.getAttribute('data-filename') || '';
           const bubbleType = el.querySelector('.message-bubble') ? 'bubble' : (el.querySelector('.message-media') ? 'media' : 'file');
-          return msgId + '|' + isMoved + '|' + replyTo + '|' + rqText + '|' + mediaFile + '|' + bubbleType + '|' + content;
+          return msgId + '|' + isMoved + '|' + editCount + '|' + replyTo + '|' + rqText + '|' + mediaFile + '|' + bubbleType + '|' + contentSig;
         }
       }
       if (el && el.classList && el.classList.contains('empty-chat')) {
@@ -3198,8 +3213,9 @@
       const sender  = (el.querySelector('.message-sender')?.textContent?.trim() || '').toLowerCase();
       const time    = (el.querySelector('.message-time') || el.querySelector('.message-click-timestamp'))?.textContent?.trim() || '';
       const mc      = el.querySelector('.message-content');
-      const content = (mc ? (mc.dataset.fullText || mc.textContent) : (el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent)?.trim() || '';
-      return sender + '|' + time + '|' + content;
+      const rawContent = (mc ? (mc.dataset.fullText || mc.textContent) : (el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent)?.trim() || '';
+      const contentSig = rawContent.length > 64 ? (rawContent.length + ':' + rawContent.slice(0, 48)) : rawContent;
+      return sender + '|' + time + '|' + contentSig;
     }
 
     // Track if this is the first load (page refresh/initial visit)
@@ -3385,8 +3401,9 @@
       }).length;
       chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #noChatSelectedState, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
-      // Deduplicate newMessages during full re-render
+      // Deduplicate newMessages during full re-render using an off-DOM DocumentFragment
       const renderedIds = new Set();
+      const frag = document.createDocumentFragment();
       newMessages.forEach(el => {
         if (el.classList.contains('message-container')) {
           const msgId = el.getAttribute('data-msg-id');
@@ -3395,8 +3412,11 @@
             renderedIds.add(msgId);
           }
         }
-        chatBox.appendChild(el);
+        frag.appendChild(el);
       });
+      // Pre-process emoji truncation & classes off-DOM before layout
+      applyEmojiOnly(frag);
+      chatBox.appendChild(frag);
       
       if (isFirstLoad) {
         isFirstLoad = false;
@@ -3413,7 +3433,7 @@
           }
         }
       }
-      applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
+      applyAdminBadges(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
       gcCursor = data.nextCursor || '';
       if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching) {
@@ -3852,6 +3872,7 @@
       chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #noChatSelectedState, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       const renderedIdsF = new Set();
+      const fragF = document.createDocumentFragment();
       newMessages.forEach(el => {
         if (el.classList.contains('message-container')) {
           const msgId = el.getAttribute('data-msg-id');
@@ -3860,10 +3881,13 @@
             renderedIdsF.add(msgId);
           }
         }
-        chatBox.appendChild(el);
+        fragF.appendChild(el);
       });
+      // Pre-process emoji truncation & classes off-DOM before layout
+      applyEmojiOnly(fragF);
+      chatBox.appendChild(fragF);
       
-      applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
+      applyAdminBadges(); attachImageLoadListeners();
       
       if (isFirstLoad) {
         isFirstLoad = false;

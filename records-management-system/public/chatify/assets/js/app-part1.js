@@ -2492,8 +2492,47 @@
     const dmPrefetchPromises = new Map(); // key -> Promise
     window.dmPrefetchPromises = dmPrefetchPromises;
 
+    // Pre-transforms raw HTML from load.php / load_dm.php off-DOM so cached snapshots
+    // already contain truncated Read More previews and .emoji-only classes. When the
+    // user clicks a conversation in the sidebar, chatBox only mounts the pre-truncated
+    // nodes (25 emojis instead of hundreds/thousands), making conversation opens instant.
+    function precompileSnapshotHtml(rawHtml) {
+      if (!rawHtml || typeof rawHtml !== 'string' || !rawHtml.trim()) return rawHtml || '';
+      if (rawHtml.indexOf('data-emoji-checked="1"') !== -1) return rawHtml;
+      try {
+        const temp = document.createElement('div');
+        temp.innerHTML = rawHtml;
+        if (typeof applyEmojiOnly === 'function') {
+          applyEmojiOnly(temp);
+        } else {
+          temp.querySelectorAll('.message-bubble').forEach(function(bubble) {
+            const contentEl = bubble.querySelector('.message-content');
+            if (!contentEl) return;
+            linkifyContent(contentEl);
+            applyReadMoreToElement(contentEl);
+            const text = contentEl.dataset.fullText || contentEl.textContent || '';
+            const hasReadMore = !!contentEl.dataset.fullText || !!contentEl.querySelector('.read-more-link');
+            if (!hasReadMore && isEmojiOnlyText(text)) {
+              bubble.classList.add('emoji-only');
+            } else {
+              bubble.classList.remove('emoji-only');
+            }
+            contentEl.dataset.emojiChecked = '1';
+          });
+        }
+        temp.querySelectorAll('.read-more-link').forEach(function(rm) {
+          delete rm.dataset.bound;
+        });
+        return temp.innerHTML;
+      } catch (e) {
+        return rawHtml;
+      }
+    }
     function cacheDmSnapshot(target, data) {
       if (!target || !data) return;
+      if (data.html) {
+        data.html = precompileSnapshotHtml(data.html);
+      }
       let accId = (typeof target === 'object' && target.account_id)
         ? Number(target.account_id)
         : (Number(target) > 0 ? Number(target) : (data && Number(data.target_id) > 0 ? Number(data.target_id) : 0));
@@ -2562,11 +2601,15 @@
           clone.classList.remove('msg-animate-sent', 'msg-animate-received', 'msg-animate-older', 'is-optimistic-sending', 'reply-target-blink');
         }
         const contentEl = clone.querySelector('.message-content');
-        if (contentEl && contentEl.dataset && contentEl.dataset.fullText) {
-          contentEl.textContent = contentEl.dataset.fullText;
-          delete contentEl.dataset.fullText;
-          delete contentEl.dataset.readmoreChecked;
-          delete contentEl.dataset.linkified;
+        if (contentEl && contentEl.dataset) {
+          // Keep truncated Read More DOM intact in cache so reopening this conversation
+          // never has to re-parse or re-truncate huge emoji/text messages!
+          // Just clear data-bound on the cloned .read-more-link so its click handler is
+          // cleanly re-attached on restore.
+          const rmLink = contentEl.querySelector('.read-more-link');
+          if (rmLink && rmLink.dataset) {
+            delete rmLink.dataset.bound;
+          }
         }
         clone.querySelectorAll('img[data-scroll-listener]').forEach(function(img) {
           img.removeAttribute('data-scroll-listener');
@@ -2794,9 +2837,9 @@
             speculateChannelCard(ocId, document.getElementById('officeChatItem'));
           }
 
-          // 3. Warm up top 4 visible conversations (Custom GCs and recent DMs)
+          // 3. Warm up visible conversations (Custom GCs and recent DMs)
           if (Array.isArray(allUsersData) && allUsersData.length > 0) {
-            const topSlice = allUsersData.slice(0, 4);
+            const topSlice = allUsersData.slice(0, 10);
             topSlice.forEach((u, i) => {
               setTimeout(() => {
                 if (u.is_custom_gc) {
@@ -2808,17 +2851,17 @@
                 } else if (u.account_id || u.username) {
                   speculateConversationCard(u, null);
                 }
-              }, i * 150);
+              }, i * 70);
             });
           }
         };
 
         if ('requestIdleCallback' in window) {
-          window.requestIdleCallback(runWarmup, { timeout: 1500 });
+          window.requestIdleCallback(runWarmup, { timeout: 500 });
         } else {
-          setTimeout(runWarmup, 100);
+          setTimeout(runWarmup, 40);
         }
-      }, 350);
+      }, 80);
     }
     window.prefetchTopConversations = prefetchTopConversations;
 
@@ -3970,32 +4013,51 @@
     const READMORE_LINE_LIMIT = 8;
     const READMORE_EMOJI_LIMIT = 25;
 
+    // Linear-time O(N) emoji token matcher — avoids the catastrophic exponential
+    // regex backtracking of /^(?:A|B)+$/u when a string contains 20+ emojis followed
+    // by non-emoji text (such as an already-appended "Read More..." label).
+    const EMOJI_TOKEN_STRIP_REGEX = /(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u200D\uFE0F]|\uD83C[\uDDE0-\uDDFF]\uD83C[\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\p{Emoji}\uFE0F)/gu;
+    const _graphemeSegmenter = (typeof Intl !== 'undefined' && Intl.Segmenter)
+      ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+      : null;
+
     function isEmojiOnlyText(str) {
-      if (!str || !str.trim()) return false;
+      if (!str) return false;
       const stripped = str.replace(/\s/g, '');
       if (!stripped) return false;
-      const emojiRegex = /^(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}|\p{Emoji}\uFE0F|\uD83C[\uDDE0-\uDDFF][\uD83C][\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\u200D)+$/u;
-      return emojiRegex.test(stripped);
+      // Quick ASCII reject: if any standard ASCII letter exists, it cannot be emoji-only
+      if (/[a-zA-Z]/.test(stripped)) return false;
+      return stripped.replace(EMOJI_TOKEN_STRIP_REGEX, '') === '';
     }
+    window.isEmojiOnlyText = isEmojiOnlyText;
 
     function splitGraphemes(str) {
-      if (typeof Intl !== 'undefined' && Intl.Segmenter) {
-        try {
-          const seg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-          return Array.from(seg.segment(str), s => s.segment);
-        } catch (e) {}
+      if (_graphemeSegmenter) {
+        return Array.from(_graphemeSegmenter.segment(str), s => s.segment);
       }
       return Array.from(str);
     }
 
-    function countEmojiUnits(str) {
+    function countEmojiUnits(str, stopAfter = Infinity) {
       const stripped = str.replace(/\s/g, '');
       if (!stripped) return 0;
-      return splitGraphemes(stripped).length;
+      if (_graphemeSegmenter) {
+        let count = 0;
+        for (const _ of _graphemeSegmenter.segment(stripped)) {
+          count++;
+          if (count > stopAfter) return count;
+        }
+        return count;
+      }
+      return Array.from(stripped).length;
     }
+    window.countEmojiUnits = countEmojiUnits;
 
     function readMoreNeeded(text) {
       if (!text) return false;
+      if (isEmojiOnlyText(text)) {
+        return countEmojiUnits(text, READMORE_EMOJI_LIMIT) > READMORE_EMOJI_LIMIT;
+      }
       if (text.length > READMORE_CHAR_LIMIT) return true;
       let lines = 1;
       for (let i = 0; i < text.length; i++) {
@@ -4004,16 +4066,23 @@
           if (lines > READMORE_LINE_LIMIT) return true;
         }
       }
-      if (isEmojiOnlyText(text) && countEmojiUnits(text) > READMORE_EMOJI_LIMIT) {
-        return true;
-      }
       return false;
     }
 
     function readMorePreview(text) {
       if (isEmojiOnlyText(text)) {
-        const segs = splitGraphemes(text.replace(/\s/g, ''));
-        return segs.slice(0, READMORE_EMOJI_LIMIT).join('');
+        const stripped = text.replace(/\s/g, '');
+        if (_graphemeSegmenter) {
+          let out = '';
+          let count = 0;
+          for (const seg of _graphemeSegmenter.segment(stripped)) {
+            out += seg.segment;
+            count++;
+            if (count >= READMORE_EMOJI_LIMIT) break;
+          }
+          return out;
+        }
+        return Array.from(stripped).slice(0, READMORE_EMOJI_LIMIT).join('');
       }
       let preview = text.split('\n').slice(0, READMORE_LINE_LIMIT).join('\n');
       if (preview.length > READMORE_CHAR_LIMIT) {
@@ -4033,10 +4102,55 @@
     // bulk-rendered/polled messages, and directly wherever a message is
     // rendered outside that path (live WS push, optimistic send bubble).
     function applyReadMoreToElement(contentEl) {
-      if (!contentEl || contentEl.dataset.readmoreChecked === '1') return;
+      if (!contentEl) return;
       if (contentEl.classList.contains('sending-dots')) return; // "..." placeholder, not real text
 
-      const fullText = contentEl.textContent || '';
+      // Delegated click & keydown handler for "Read More..." links inside chatBox.
+      // Using a single delegated listener on chatBox means cached/precompiled HTML
+      // snapshots with <span class="read-more-link"> work immediately with zero
+      // per-node binding loops.
+      if (chatBox && !chatBox.dataset.readmoreDelegated) {
+        chatBox.dataset.readmoreDelegated = '1';
+        chatBox.addEventListener('click', function(e) {
+          const linkEl = e.target.closest('.read-more-link');
+          if (!linkEl) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const mc = linkEl.closest('.message-content');
+          const full = mc ? (mc.dataset.fullText || mc.textContent || '') : '';
+          const savedST = chatBox ? chatBox.scrollTop : null;
+          openReadMoreModal(full);
+          if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
+            chatBox.scrollTop = savedST;
+          }
+        });
+        chatBox.addEventListener('keydown', function(e) {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          const linkEl = e.target.closest('.read-more-link');
+          if (!linkEl) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const mc = linkEl.closest('.message-content');
+          const full = mc ? (mc.dataset.fullText || mc.textContent || '') : '';
+          const savedST = chatBox ? chatBox.scrollTop : null;
+          openReadMoreModal(full);
+          if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
+            chatBox.scrollTop = savedST;
+          }
+        });
+      }
+
+      // If this element was cached/cloned from DOM with an existing .read-more-link,
+      // skip immediately — the delegated listener on chatBox handles clicks.
+      const existingLink = contentEl.querySelector('.read-more-link');
+      if (existingLink) {
+        contentEl.dataset.readmoreChecked = '1';
+        return;
+      }
+
+      if (contentEl.dataset.readmoreChecked === '1') return;
+
+      const fullText = contentEl.dataset.fullText || contentEl.textContent || '';
       contentEl.dataset.readmoreChecked = '1';
       if (!readMoreNeeded(fullText)) {
         delete contentEl.dataset.fullText;
@@ -4056,26 +4170,6 @@
       link.textContent = 'Read More...';
       link.setAttribute('role', 'button');
       link.setAttribute('tabindex', '0');
-      link.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const savedST = chatBox ? chatBox.scrollTop : null;
-        openReadMoreModal(contentEl.dataset.fullText || '');
-        if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
-          chatBox.scrollTop = savedST;
-        }
-      });
-      link.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          e.stopPropagation();
-          const savedST = chatBox ? chatBox.scrollTop : null;
-          openReadMoreModal(contentEl.dataset.fullText || '');
-          if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
-            chatBox.scrollTop = savedST;
-          }
-        }
-      });
       contentEl.appendChild(link);
 
       // Re-linkify just the (now truncated) visible text so any URL still
@@ -4089,6 +4183,8 @@
     // and one that shrinks below it loses a stale truncation.
     function reapplyReadMore(contentEl) {
       delete contentEl.dataset.readmoreChecked;
+      delete contentEl.dataset.fullText;
+      delete contentEl.dataset.emojiChecked;
       applyReadMoreToElement(contentEl);
     }
 
@@ -4157,12 +4253,23 @@
         (isGc && x.is_office_gc && ('office_' + x.office_id) === targetUsername) ||
         (activeDMAccountId && Number(x.account_id) === activeDMAccountId)
       );
-      if (u) u.unreadCount = 0;
+      let unreadCleared = false;
+      if (u && u.unreadCount > 0) {
+        u.unreadCount = 0;
+        unreadCleared = true;
+      }
       if (activeDM === targetUsername || (activeDMAccountId && u && Number(u.account_id) === activeDMAccountId)) {
         const activeU = allUsersData.find(x => x.username === activeDM || (activeDMAccountId && Number(x.account_id) === activeDMAccountId));
-        if (activeU) activeU.unreadCount = 0;
+        if (activeU && activeU.unreadCount > 0) {
+          activeU.unreadCount = 0;
+          unreadCleared = true;
+        }
       }
-      renderSidebarUsers();
+      if (unreadCleared) {
+        renderSidebarUsers();
+      } else {
+        updateSidebarActiveHighlight();
+      }
 
       // Handle GC read marking via conv_id
       if (isGc || (u && (u.is_custom_gc || u.is_office_gc))) {
@@ -4377,6 +4484,9 @@
 
     function cacheGlobalChatSnapshot(data) {
       if (!data) return;
+      if (data.html) {
+        data.html = precompileSnapshotHtml(data.html);
+      }
       const cid = data.conv_id || (typeof getActiveChannelConvId === 'function' ? getActiveChannelConvId() : 'global');
       const snapshot = {
         html: data.html || '',
@@ -4453,8 +4563,16 @@
     }
 
     function performSelectDM(u) {
-      if (typeof syncActiveChatCacheFromDom === 'function') syncActiveChatCacheFromDom();
+      if (!u) return;
+      // 1. Switch UI to the selected conversation IMMEDIATELY (0ms response on click/tap)
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
+
+      // 2. Save outgoing conversation DOM snapshot before clearing chatBox
+      if (typeof syncActiveChatCacheFromDom === 'function') syncActiveChatCacheFromDom();
       if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
       if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
       if (typeof abortAnyInFlightChatXhrs === 'function') abortAnyInFlightChatXhrs();
@@ -4475,6 +4593,7 @@
       window.activeDMAccountId = activeDMAccountId;
       activeDMUserObj = u;
       activeAdminConv = null;
+      const hadUnread = Number(u.unreadCount || 0) > 0;
       u.unreadCount = 0;
       updateSidebarActiveHighlight();
 
@@ -4530,16 +4649,12 @@
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
       chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       dmViewingOlder = false;
-      u.unreadCount = 0;
-      renderSidebarUsers();
-      updateSidebarActiveHighlight();
+      if (hadUnread) {
+        renderSidebarUsers();
+      }
       loadChat(false, false, true); // force: abort any in-flight request rather than drop this one
       
-      // Mobile/Tablet: hide sidebar when chat is selected
-      if (isMobileViewport()) {
-        sidebar.classList.remove('open');
-        if (backButton) backButton.style.display = 'inline-flex';
-      } else {
+      if (!isMobileViewport()) {
         // Desktop only: auto-focus the message input so the cursor is ready
         // without an extra click. preventScroll prevents the browser from shifting scrollable parents.
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
@@ -4588,11 +4703,11 @@
 
     function selectGlobalChat() {
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
       if (isGlobalChat && window.activeChannel === 'global' && !activeDM && !activeAdminConv) {
-        if (isMobileViewport()) {
-          sidebar.classList.remove('open');
-          if (backButton) backButton.style.display = 'inline-flex';
-        }
         return;
       }
 
@@ -4661,14 +4776,10 @@
       }
 
       removePaginationBtn();
-      renderSidebarUsers();
       updateSidebarActiveHighlight();
 
       loadGlobalChat(false, false, true);
-      if (isMobileViewport()) {
-        sidebar.classList.remove('open');
-        if (backButton) backButton.style.display = 'inline-flex';
-      } else {
+      if (!isMobileViewport()) {
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
@@ -4686,6 +4797,10 @@
 
     function selectOfficeChat(officeObj) {
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
       if (officeObj && (officeObj.office_id || officeObj.is_office_gc)) {
         if (!window.currentOfficeInfo) window.currentOfficeInfo = {};
         const oid = Number(officeObj.office_id || 0);
@@ -4714,10 +4829,6 @@
       }
 
       if (isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv) {
-        if (isMobileViewport()) {
-          sidebar.classList.remove('open');
-          if (backButton) backButton.style.display = 'inline-flex';
-        }
         return;
       }
 
@@ -4791,17 +4902,13 @@
       }
 
       removePaginationBtn();
-      renderSidebarUsers();
       updateSidebarActiveHighlight();
 
       loadGlobalChat(false, false, true);
       if (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) {
         markRead(window.currentOfficeInfo.conv_id);
       }
-      if (isMobileViewport()) {
-        sidebar.classList.remove('open');
-        if (backButton) backButton.style.display = 'inline-flex';
-      } else {
+      if (!isMobileViewport()) {
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
@@ -4810,12 +4917,12 @@
     function selectCustomGc(group) {
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       if (!group) return;
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
 
       if (isGlobalChat && window.activeChannel === 'gc' && window.activeCustomGc && window.activeCustomGc.gc_id === group.gc_id && !activeDM && !activeAdminConv) {
-        if (isMobileViewport()) {
-          sidebar.classList.remove('open');
-          if (backButton) backButton.style.display = 'inline-flex';
-        }
         return;
       }
 
@@ -4938,15 +5045,11 @@
       }
 
       removePaginationBtn();
-      renderSidebarUsers();
       updateSidebarActiveHighlight();
 
       loadGlobalChat(false, false, true);
       markRead(gcConv);
-      if (isMobileViewport()) {
-        sidebar.classList.remove('open');
-        if (backButton) backButton.style.display = 'inline-flex';
-      } else {
+      if (!isMobileViewport()) {
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }

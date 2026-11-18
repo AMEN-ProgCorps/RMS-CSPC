@@ -1120,6 +1120,8 @@ try {
   </script>
   <script src="assets/js/websocket-reauth.js?v=<?php echo filemtime(__DIR__ . '/assets/js/websocket-reauth.js'); ?>"></script>
 
+  <script src="assets/vendor/emoji-mart/apple-data.js?v=<?php echo filemtime(__DIR__ . '/assets/vendor/emoji-mart/apple-data.js'); ?>"></script>
+  <script src="assets/vendor/emoji-mart/emoji-mart.js?v=<?php echo filemtime(__DIR__ . '/assets/vendor/emoji-mart/emoji-mart.js'); ?>"></script>
   <script src="assets/js/app-part1.js?v=<?php echo filemtime(__DIR__ . '/assets/js/app-part1.js'); ?>"></script>
   <script>
     // Get the user's name and admin status from PHP
@@ -1133,8 +1135,6 @@ try {
     const adminNames = []; // kept for backward-compat; badge logic now uses verifiedAccountIds
     // verifiedAccountIds is already defined in the header block as a Set
   </script>
-  <script src="assets/vendor/emoji-mart/apple-data.js?v=<?php echo filemtime(__DIR__ . '/assets/vendor/emoji-mart/apple-data.js'); ?>"></script>
-  <script src="assets/vendor/emoji-mart/emoji-mart.js?v=<?php echo filemtime(__DIR__ . '/assets/vendor/emoji-mart/emoji-mart.js'); ?>"></script>
   <script src="assets/js/app-part3.js?v=<?php echo filemtime(__DIR__ . '/assets/js/app-part3.js'); ?>"></script>
   <!-- ═══════════════════════════════════════════════════════════════════════
        LEGAL AUTHORIZATION MODAL

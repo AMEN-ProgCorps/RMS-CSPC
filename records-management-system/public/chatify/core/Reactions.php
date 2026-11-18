@@ -126,7 +126,7 @@ class Reactions
         $posY = round((100 / ($rows - 1)) * $coords[1], 4);
         $sheetUrl = self::SHEET_URL;
 
-        return "<span class='em-sprite-icon' role='img' aria-label='{$esc}' title='{$esc}' style=\"display:inline-block;width:{$sizePx}px;height:{$sizePx}px;background-image:url('{$sheetUrl}');background-size:{$bgW}% {$bgH}%;background-position:{$posX}% {$posY}%;background-repeat:no-repeat;vertical-align:middle;flex-shrink:0;\"></span>";
+        return "<span class='em-sprite-icon' role='img' aria-label='{$esc}' title='{$esc}' style=\"display:inline-block;width:{$sizePx}px;height:{$sizePx}px;background-image:url('{$sheetUrl}');background-size:{$bgW}% {$bgH}%;background-position:{$posX}% {$posY}%;background-repeat:no-repeat;vertical-align:middle;flex-shrink:0;\">{$esc}</span>";
     }
 
     /**

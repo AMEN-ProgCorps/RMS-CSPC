@@ -4733,13 +4733,50 @@
 
     .em-sprite-icon {
       display: inline-block;
-      font-size: 0;
-      color: transparent;
+      width: 18px;
+      height: 18px;
+      font-size: 0 !important;
+      line-height: 0 !important;
+      color: transparent !important;
       overflow: hidden;
-      user-select: none;
-      pointer-events: none;
-      vertical-align: middle;
+      vertical-align: -3px;
       flex-shrink: 0;
+    }
+
+    .message-content,
+    #readMoreModalBody {
+      overflow-wrap: anywhere;
+    }
+
+    .message-bubble .message-content .em-sprite-icon {
+      width: 18px;
+      height: 18px;
+      margin: 0 0.5px;
+      vertical-align: -3px;
+    }
+
+    .message-bubble.emoji-only .message-content .em-sprite-icon {
+      width: 30px;
+      height: 30px;
+      margin: 1px;
+      vertical-align: middle;
+    }
+
+    #readMoreModalBody .em-sprite-icon {
+      width: 20px;
+      height: 20px;
+      margin: 1px;
+      vertical-align: -4px;
+    }
+
+    .reply-quote-text .em-sprite-icon,
+    #replyBannerSnippet .em-sprite-icon,
+    #headerTypingPreview .em-sprite-icon,
+    .user-last-msg .em-sprite-icon {
+      width: 15px;
+      height: 15px;
+      margin: 0 0.5px;
+      vertical-align: -2px;
     }
 
     .reaction-emojis {

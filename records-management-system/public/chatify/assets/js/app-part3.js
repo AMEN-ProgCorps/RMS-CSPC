@@ -1832,8 +1832,17 @@
     // in chat can show a thumbnail overlay, while the reply banner stays plain text.
     function getReplySnippet(container) {
       const contentEl = container.querySelector('.message-bubble .message-content');
-      const text = contentEl ? (contentEl.dataset.fullText || contentEl.textContent || '').trim() : '';
-      if (text) return text;
+      if (contentEl) {
+        let text = contentEl.dataset.fullText || '';
+        if (!text) {
+          const clone = contentEl.cloneNode(true);
+          const rm = clone.querySelector('.read-more-link');
+          if (rm) rm.remove();
+          text = clone.textContent || '';
+        }
+        text = text.trim();
+        if (text) return text;
+      }
       // Check for an image inside .message-media or .message-content
       const img = container.querySelector('.message-media img.chat-viewable-image, .message-content img.chat-viewable-image');
       if (img) {
@@ -1852,6 +1861,10 @@
       // history will render the thumbnail overlay instead.
       const displayText = (snippet && snippet.startsWith('image:')) ? 'Attachment' : snippet;
       replyBannerSnippet.textContent = truncateForReply(displayText, 60) || 'message';
+      if (typeof window.renderEmojiMartInElement === 'function') {
+        delete replyBannerSnippet.dataset.emRendered;
+        window.renderEmojiMartInElement(replyBannerSnippet);
+      }
       replyBanner.classList.add('active');
     }
 
@@ -2210,8 +2223,11 @@
       span.setAttribute('role', 'img');
       span.setAttribute('aria-label', emoji);
       span.setAttribute('title', emoji);
-      span.style.width = size + 'px';
-      span.style.height = size + 'px';
+      span.textContent = emoji;
+      if (Number(sizePx) > 0) {
+        span.style.width = size + 'px';
+        span.style.height = size + 'px';
+      }
       span.style.backgroundImage = "url('" + EMOJI_MART_SPRITESHEET_URL + "')";
       span.style.backgroundSize = (100 * cols) + '% ' + (100 * rows) + '%';
       span.style.backgroundPosition = posX + '% ' + posY + '%';
@@ -2809,7 +2825,7 @@
         const clone = contentEl.cloneNode(true);
         const rm = clone.querySelector('.read-more-link');
         if (rm) rm.remove();
-        return (clone.innerText || clone.textContent || '').trim();
+        return (clone.textContent || clone.innerText || '').trim();
       }
       const link = container.querySelector('a.chat-attachment-link, a.file-link, .message-media a');
       if (link && link.href) return link.href;
@@ -3307,6 +3323,9 @@
         const contentEl = bubble.querySelector('.message-content');
         if (!contentEl) return;
         if (contentEl.dataset.emojiChecked === '1' && contentEl.dataset.readmoreChecked === '1') {
+          if (typeof window.renderEmojiMartInElement === 'function' && contentEl.dataset.emRendered !== '1') {
+            window.renderEmojiMartInElement(contentEl);
+          }
           return;
         }
         linkifyContent(contentEl);
@@ -3318,7 +3337,16 @@
         } else {
           bubble.classList.remove('emoji-only');
         }
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(contentEl);
+        }
         contentEl.dataset.emojiChecked = '1';
+      });
+
+      scope.querySelectorAll('.reply-quote-text').forEach(function(rqText) {
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(rqText);
+        }
       });
 
       scope.querySelectorAll('.message-media').forEach(function(media) {
@@ -4922,6 +4950,10 @@
           linkifyContent(contentEl);
           applyReadMoreToElement(contentEl);
         }
+        const rqTextEl = sendingBubble.querySelector('.reply-quote-text');
+        if (rqTextEl && typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(rqTextEl);
+        }
         sendingBubble.addEventListener('animationend', () => sendingBubble.classList.remove('msg-animate-sent'), { once: true });
         chatBox.appendChild(sendingBubble);
         window.replyJumpActive = false;
@@ -5512,6 +5544,10 @@
           ? previewText.slice(0, MAX_PREVIEW) + '...'
           : previewText;
         previewEl.textContent = display;
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          delete previewEl.dataset.emRendered;
+          window.renderEmojiMartInElement(previewEl);
+        }
         previewEl.classList.add('active');
       } else {
         previewEl.textContent = '';
@@ -5544,6 +5580,10 @@
 
         if (previewText !== null && previewText !== '') {
           lastMsgEl.textContent = previewText;
+          if (typeof window.renderEmojiMartInElement === 'function') {
+            delete lastMsgEl.dataset.emRendered;
+            window.renderEmojiMartInElement(lastMsgEl);
+          }
           lastMsgEl.style.display = 'block';
           lastMsgEl.style.fontStyle = 'italic';
           lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';

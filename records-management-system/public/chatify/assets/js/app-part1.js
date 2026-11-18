@@ -5556,6 +5556,14 @@
       const text = messageInput.value;
       messageInput.style.color = 'transparent';
 
+      if (!text) {
+        messageInputHighlight.textContent = '';
+        delete messageInputHighlight.dataset.emRendered;
+        messageInputHighlight.scrollTop = 0;
+        messageInputHighlight.scrollLeft = 0;
+        return;
+      }
+
       const names = (activeMentions || [])
         .map(function(m) { return m.name; })
         .filter(function(n, i, arr) { return arr.indexOf(n) === i; })
@@ -5563,6 +5571,10 @@
 
       if (names.length === 0 || text.indexOf('@') === -1) {
         messageInputHighlight.textContent = text.endsWith('\n') ? text + ' ' : text;
+        delete messageInputHighlight.dataset.emRendered;
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(messageInputHighlight, 18);
+        }
         messageInputHighlight.scrollTop = messageInput.scrollTop;
         messageInputHighlight.scrollLeft = messageInput.scrollLeft;
         return;
@@ -5591,6 +5603,10 @@
       if (plainRun) html += escapeHtml(plainRun);
       if (text.endsWith('\n')) html += '&nbsp;';
       messageInputHighlight.innerHTML = html;
+      delete messageInputHighlight.dataset.emRendered;
+      if (typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(messageInputHighlight, 18);
+      }
       messageInputHighlight.scrollTop = messageInput.scrollTop;
       messageInputHighlight.scrollLeft = messageInput.scrollLeft;
     }

@@ -77,7 +77,7 @@ if ($chatType === 'private') {
         exit;
     }
     $convId = ConversationManager::convId($accountId, $targetId);
-    $result = ConversationManager::toggleReaction($convId, $msgUuid, $emoji, $accountId, Reactions::ALLOWED);
+    $result = ConversationManager::toggleReaction($convId, $msgUuid, $emoji, $accountId);
 } else {
     $channelConvId = trim($_POST['conv_id'] ?? '');
     if (empty($channelConvId)) {
@@ -117,7 +117,7 @@ if ($chatType === 'private') {
         }
     }
 
-    $result = GlobalChatManager::toggleReaction($msgUuid, $emoji, $accountId, Reactions::ALLOWED, $channelConvId);
+    $result = GlobalChatManager::toggleReaction($msgUuid, $emoji, $accountId, null, $channelConvId);
 }
 
 if (empty($result['ok'])) {

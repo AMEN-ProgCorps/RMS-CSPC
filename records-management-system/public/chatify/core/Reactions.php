@@ -15,6 +15,8 @@ class Reactions
     // Default system reaction emojis (3 slots). Users can customize their own
     // 3 reaction emojis from Chatify's bundled Emoji Mart catalog via Settings.
     public const DEFAULT_EMOJIS = ['😆', '❤️', '👍'];
+    // Backwards-compatible alias for any callers expecting ALLOWED
+    public const ALLOWED = self::DEFAULT_EMOJIS;
 
     private const SHEET_URL = 'assets/vendor/emoji-mart/apple-sheet-64.png';
     private static ?array $emojiMartCoords = null;

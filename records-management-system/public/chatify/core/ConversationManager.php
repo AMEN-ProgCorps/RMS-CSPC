@@ -793,9 +793,13 @@ class ConversationManager
         string $msgId,
         string $emoji,
         int    $accountId,
-        array  $allowed
+        ?array $allowed = null
     ): array {
-        if (!in_array($emoji, $allowed, true)) {
+        if ($allowed !== null) {
+            if (!in_array($emoji, $allowed, true)) {
+                return ['ok' => false, 'action' => 'invalid_emoji'];
+            }
+        } elseif (!Reactions::isValidEmoji($emoji)) {
             return ['ok' => false, 'action' => 'invalid_emoji'];
         }
 

@@ -2665,9 +2665,12 @@
       const msgUuid = container.getAttribute('data-msg-id');
       if (!msgUuid) return;
 
+      const normEmoji = (emoji === '❤') ? '❤️' : String(emoji || '');
+      if (!normEmoji) return;
+
       const params = new URLSearchParams();
       params.set('msg_uuid', msgUuid);
-      params.set('emoji', emoji);
+      params.set('emoji', normEmoji);
       if (isGlobalChat) {
         const targetConvId = (typeof getActiveChannelConvId === 'function')
           ? getActiveChannelConvId()
@@ -2676,7 +2679,7 @@
         const isCustom = Boolean(targetConvId && targetConvId.startsWith('gc_'));
         const effectiveChatType = isCustom ? 'custom_gc' : (isOffice ? 'office_gc' : 'global');
         params.set('chat_type', effectiveChatType);
-        params.set('conv_id', targetConvId);
+        params.set('conv_id', targetConvId || 'global');
       } else if (activeDM) {
         params.set('chat_type', 'private');
         params.set('target_id', activeDMAccountId || 0);
@@ -2711,16 +2714,20 @@
               ws.send(JSON.stringify({
                 type: 'reaction',
                 chat_type: effectiveChatType,
-                conv_id: isGlobalChat ? targetConvId : null,
+                conv_id: isGlobalChat ? (targetConvId || 'global') : null,
                 recipient_id: recipId,
                 msg_uuid: data.msg_uuid,
                 emoji: data.emoji,
                 reactions: data.reactions || {}
               }));
             }
+          } else if (data && data.error) {
+            console.error('Reaction toggle failed:', data.error);
           }
         })
-        .catch(function() { /* best-effort — a WS reconnect or next poll will reconcile */ });
+        .catch(function(err) {
+          console.error('Network error during reaction toggle:', err);
+        });
     }
 
     // ── Trigger 1: right-click (desktop) ─────────────────────────────────
@@ -8560,6 +8567,59 @@
           const rootSec = pickerEl.shadowRoot.getElementById('root');
           if (rootSec) rootSec.setAttribute('data-theme', theme);
         }
+        applyPickerCustomStyles(pickerEl);
+      }
+
+      function applyPickerCustomStyles(pickerEl) {
+        if (!pickerEl) return;
+        function inject() {
+          const sr = pickerEl.shadowRoot;
+          if (!sr) return false;
+          let customStyle = sr.getElementById('chatify-custom-em-styles');
+          if (!customStyle) {
+            customStyle = document.createElement('style');
+            customStyle.id = 'chatify-custom-em-styles';
+            sr.appendChild(customStyle);
+          }
+          customStyle.textContent = `
+            .scroll {
+              scrollbar-width: thin !important;
+              scrollbar-color: var(--em-color-border-over, rgba(120, 120, 120, 0.35)) transparent !important;
+              padding-left: 2px !important;
+              padding-right: 2px !important;
+            }
+            .scroll::-webkit-scrollbar {
+              width: 6px !important;
+              height: 6px !important;
+            }
+            .scroll::-webkit-scrollbar-track {
+              background: transparent !important;
+            }
+            .scroll::-webkit-scrollbar-thumb {
+              background-color: var(--em-color-border-over, rgba(120, 120, 120, 0.35)) !important;
+              border-radius: 4px !important;
+              border: none !important;
+            }
+            .scroll::-webkit-scrollbar-thumb:hover {
+              background-color: var(--color-b, rgba(120, 120, 120, 0.6)) !important;
+            }
+            .row[data-index] {
+              justify-content: center !important;
+            }
+            .category .sticky {
+              padding-left: 10px !important;
+              padding-right: 10px !important;
+              font-size: 13px !important;
+              font-weight: 600 !important;
+            }
+          `;
+          return true;
+        }
+        if (!inject()) {
+          setTimeout(inject, 20);
+          setTimeout(inject, 100);
+          setTimeout(inject, 300);
+        }
       }
 
       if (window.EmojiMart && typeof window.EmojiMart.init === 'function' && window.CHATIFY_EMOJI_MART_DATA) {
@@ -8590,6 +8650,9 @@
         } catch (e) {}
 
         msgInput.dispatchEvent(new Event('input', { bubbles: true }));
+        if (typeof renderMentionHighlight === 'function') {
+          renderMentionHighlight();
+        }
       }
 
       function ensureChatEmojiMartPicker() {
@@ -8618,6 +8681,7 @@
         });
         emojiPickerMartHost.textContent = '';
         emojiPickerMartHost.appendChild(chatEmojiMartPicker);
+        applyPickerCustomStyles(chatEmojiMartPicker);
       }
 
       function openEmojiPicker() {
@@ -8764,6 +8828,7 @@
         });
         customReactionPickerHost.textContent = '';
         customReactionPickerHost.appendChild(reactionEmojiMartPicker);
+        applyPickerCustomStyles(reactionEmojiMartPicker);
       }
 
       window.openCustomReactionModalFromSettings = function() {

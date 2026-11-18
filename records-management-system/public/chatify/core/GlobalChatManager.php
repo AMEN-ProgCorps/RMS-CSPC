@@ -564,10 +564,14 @@ class GlobalChatManager
         string $msgId,
         string $emoji,
         int    $accountId,
-        array  $allowed,
+        ?array $allowed = null,
         string $convId = self::CONV_ID
     ): array {
-        if (!in_array($emoji, $allowed, true)) {
+        if ($allowed !== null) {
+            if (!in_array($emoji, $allowed, true)) {
+                return ['ok' => false, 'action' => 'invalid_emoji'];
+            }
+        } elseif (!Reactions::isValidEmoji($emoji)) {
             return ['ok' => false, 'action' => 'invalid_emoji'];
         }
 
@@ -737,7 +741,7 @@ class GlobalChatManager
         string $msgId,
         string $emoji,
         int    $accountId,
-        array  $allowed
+        ?array $allowed = null
     ): array {
         // Find any existing reaction this user has on this message
         $existing = $pdo->prepare(

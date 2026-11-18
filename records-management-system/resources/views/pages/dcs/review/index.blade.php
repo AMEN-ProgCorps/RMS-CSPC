@@ -398,39 +398,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <span>Register a document to start reviewing scanned masterlist copies.</span>
                     @endif
                 </div>
-                <div class="drr-pagination" @if($list['total'] === 0) style="display:none" @endif>
-                    <div>Showing {{ $list['total'] === 0 ? 0 : (($list['current_page'] - 1) * $list['per_page']) + 1 }}–{{ min($list['total'], $list['current_page'] * $list['per_page']) }} of {{ $list['total'] }}</div>
-                    <div class="drr-pagination-tools">
-                        <label class="drr-page-size" for="drrPerPage">
-                            Show
-                            <select id="drrPerPage" wire:model.live="perPage">
-                                @foreach([10, 15, 25, 50, 100] as $size)
-                                    <option value="{{ $size }}">{{ $size }}</option>
-                                @endforeach
-                            </select>
-                        </label>
-                        <div class="drr-pagination-links">
-                            <button type="button" class="drr-pg" wire:click="goToPage({{ $list['current_page'] - 1 }})" @disabled($list['current_page'] <= 1)>Prev</button>
-                            @php
-                                $reviewPages = [];
-                                $reviewLast = (int) $list['last_page'];
-                                $reviewCurrent = (int) $list['current_page'];
-                                for ($reviewPage = 1; $reviewPage <= $reviewLast; $reviewPage++) {
-                                    if ($reviewPage === 1 || $reviewPage === $reviewLast || abs($reviewPage - $reviewCurrent) <= 1) {
-                                        $reviewPages[] = $reviewPage;
-                                    }
-                                }
-                            @endphp
-                            @foreach($reviewPages as $index => $reviewPage)
-                                @if($index > 0 && $reviewPage - $reviewPages[$index - 1] > 1)
-                                    <span class="drr-pg drr-pg-gap">…</span>
-                                @endif
-                                <button type="button" class="drr-pg {{ $reviewPage === $reviewCurrent ? 'is-active' : '' }}" wire:click="goToPage({{ $reviewPage }})">{{ $reviewPage }}</button>
-                            @endforeach
-                            <button type="button" class="drr-pg" wire:click="goToPage({{ $list['current_page'] + 1 }})" @disabled($list['current_page'] >= $list['last_page'])>Next</button>
-                        </div>
-                    </div>
-                </div>
+                @php
+                    $drrPg = (int) ($list['current_page'] ?? 1);
+                    $drrLast = (int) ($list['last_page'] ?? 1);
+                    $drrTotal = (int) ($list['total'] ?? 0);
+                    $drrSize = (int) ($list['per_page'] ?? 15);
+                    $drrFrom = $drrTotal === 0 ? 0 : (($drrPg - 1) * $drrSize) + 1;
+                    $drrTo = min($drrTotal, $drrPg * $drrSize);
+                @endphp
+                @include('pages.dcs.partials.list-pagination', [
+                    'from' => $drrFrom,
+                    'to' => $drrTo,
+                    'total' => $drrTotal,
+                    'page' => $drrPg,
+                    'lastPage' => $drrLast,
+                ])
             </div>
         </section>
     @else

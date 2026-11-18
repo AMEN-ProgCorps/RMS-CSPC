@@ -827,31 +827,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             @endif
         </div>
 
-        @if(($drive['folderFileTotal'] ?? 0) > 0)
-            <div class="mf-pagination">
-                <div class="mf-pagination-summary">
-                    Showing <strong>{{ (($drive['filePage'] - 1) * $drive['filePerPage']) + 1 }}</strong>–<strong>{{ min($drive['folderFileTotal'], $drive['filePage'] * $drive['filePerPage']) }}</strong>
-                    of <strong>{{ number_format($drive['folderFileTotal']) }}</strong>
-                </div>
-                <div class="mf-pagination-controls">
-                    <label class="mf-page-size" for="mfFilePerPage">
-                        Show
-                        <select id="mfFilePerPage" class="mf-select" wire:model.live="filePerPage">
-                            @foreach([10, 15, 25, 50, 100] as $size)
-                                <option value="{{ $size }}">{{ $size }}</option>
-                            @endforeach
-                        </select>
-                    </label>
-                    <button type="button" class="mf-pg" wire:click="goToFilePage({{ $drive['filePage'] - 1 }})" @disabled($drive['filePage'] <= 1) aria-label="Previous page">
-                        <i class="fa-solid fa-chevron-left"></i>
-                    </button>
-                    <span class="mf-pagination-summary">Page {{ $drive['filePage'] }} of {{ $drive['fileLastPage'] }}</span>
-                    <button type="button" class="mf-pg" wire:click="goToFilePage({{ $drive['filePage'] + 1 }})" @disabled($drive['filePage'] >= $drive['fileLastPage']) aria-label="Next page">
-                        <i class="fa-solid fa-chevron-right"></i>
-                    </button>
-                </div>
-            </div>
-        @endif
+        @php
+            $mfTotal = (int) ($drive['folderFileTotal'] ?? 0);
+            $mfPg = (int) ($drive['filePage'] ?? 1);
+            $mfLast = (int) ($drive['fileLastPage'] ?? 1);
+            $mfSize = max(1, (int) ($drive['filePerPage'] ?? 15));
+            $mfFrom = $mfTotal === 0 ? 0 : (($mfPg - 1) * $mfSize) + 1;
+            $mfTo = min($mfTotal, $mfPg * $mfSize);
+        @endphp
+        @include('pages.dcs.partials.list-pagination', [
+            'from' => $mfFrom,
+            'to' => $mfTo,
+            'total' => $mfTotal,
+            'page' => $mfPg,
+            'lastPage' => $mfLast,
+            'goToMethod' => 'goToFilePage',
+        ])
 
     </main>
 @endif

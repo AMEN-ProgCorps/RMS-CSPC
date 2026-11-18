@@ -588,8 +588,10 @@ body {
 
 .st-pagination {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 12px 16px;
     padding: 14px 20px;
     border-top: 1px solid var(--st-border);
     background: var(--dcs-bg);
@@ -606,9 +608,9 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-left: auto;
+    margin-left: 0;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: flex-start;
 }
 
 .st-page-size {

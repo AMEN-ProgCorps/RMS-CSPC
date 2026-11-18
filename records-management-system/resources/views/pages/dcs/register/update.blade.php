@@ -141,7 +141,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return;
         }
 
-        $response = RegisterUpdateHelper::destroy($this->deleteId, $reason);
+        $id = (int) $this->deleteId;
+        // Clear modal state before the helper runs so a double-click cannot re-fire delete.
+        $this->deleteId = null;
+        $this->deleteTitle = '';
+        $this->deleteRev = 0;
+        $this->deleteReason = '';
+        $this->deleteError = '';
+
+        $response = RegisterUpdateHelper::destroy($id, $reason);
         if ($response instanceof RedirectResponse) {
             $this->redirect($response->getTargetUrl(), navigate: true);
         }
@@ -308,25 +316,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $pgSize = (int) ($list['per_page'] ?? 15);
             $pgFrom = $pgTotal === 0 ? 0 : (($pg - 1) * $pgSize) + 1;
             $pgTo = min($pgTotal, $pg * $pgSize);
-            $pgStart = max(1, $pg - 2);
-            $pgEnd = min($pgLast, $pg + 2);
         @endphp
-        <div class="upd-pagination">
-            <div class="upd-pagination-info">
-                Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}
-            </div>
-            <div class="upd-pagination-links">
-                @if($pg > 1)
-                    <button type="button" class="upd-pg" wire:click="goToPage({{ $pg - 1 }})">Prev</button>
-                @endif
-                @for($p = $pgStart; $p <= $pgEnd; $p++)
-                    <button type="button" class="upd-pg {{ $p === $pg ? 'upd-pg-active' : '' }}" wire:click="goToPage({{ $p }})" @if($p === $pg) disabled @endif>{{ $p }}</button>
-                @endfor
-                @if($pg < $pgLast)
-                    <button type="button" class="upd-pg" wire:click="goToPage({{ $pg + 1 }})">Next</button>
-                @endif
-            </div>
-        </div>
+        @include('pages.dcs.partials.list-pagination', [
+            'from' => $pgFrom,
+            'to' => $pgTo,
+            'total' => $pgTotal,
+            'page' => $pg,
+            'lastPage' => $pgLast,
+        ])
     </div>
 
     @if($deleteId)
@@ -357,8 +354,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
             <div class="upd-modal-actions">
                 <button type="button" class="upd-modal-btn upd-modal-cancel" wire:click="closeDelete">Cancel</button>
-                <button type="button" class="upd-modal-btn upd-modal-confirm" wire:click="destroy" wire:loading.attr="disabled">
-                    <i class="fa-solid fa-trash-can"></i> Move to Recycle Bin
+                <button
+                    type="button"
+                    class="upd-modal-btn upd-modal-confirm"
+                    wire:click="destroy"
+                    wire:loading.attr="disabled"
+                    wire:target="destroy"
+                >
+                    <span wire:loading.remove wire:target="destroy"><i class="fa-solid fa-trash-can"></i> Move to Recycle Bin</span>
+                    <span wire:loading wire:target="destroy"><i class="fa-solid fa-spinner fa-spin"></i> Deleting…</span>
                 </button>
             </div>
         </div>

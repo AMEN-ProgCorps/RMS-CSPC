@@ -3746,9 +3746,12 @@ class RegisterPersistHelper
     }
 
     /**
-     * Helper used for promote latest for doc.
+     * Promote the live tip of a doc family to latest.
+     *
+     * @param  bool  $relocateFamilyFiles  When false (soft-delete), only re-home the new tip
+     *                                     instead of moving every family scan synchronously.
      */
-    public static function promoteLatestForDoc(string $docNo, int $docTypeId, ?int $subTypeId): void
+    public static function promoteLatestForDoc(string $docNo, int $docTypeId, ?int $subTypeId, bool $relocateFamilyFiles = true): void
     {
         if (! RegisterQueryHelper::supportsRevisionStatus()) {
             return;
@@ -3789,12 +3792,14 @@ class RegisterPersistHelper
         }
 
         // Active tip = highest revise_no among live rows in this revision family.
+        // Include superseded so deleting a recur tip re-promotes the prior superseded copy
+        // (not an older obsolete revision with a lower revise_no).
         $activeTipQuery = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->whereIn('ml.request_id', $requestIds)
             ->whereIn('ml.doc_no', $familySeed)
             ->where(function ($q) {
-                $q->whereIn('ml.revision_status', ['latest', 'obsolete'])
+                $q->whereIn('ml.revision_status', ['latest', 'obsolete', 'superseded'])
                     ->orWhereNull('ml.revision_status')
                     ->orWhere('ml.revision_status', '');
             });
@@ -3897,7 +3902,12 @@ class RegisterPersistHelper
             ->where('id', $tipId)
             ->update(['revision_status' => 'latest', 'updated_at' => now()]);
 
-        DocumentStorageService::moveObsoleteDocinfoFilesForFamily($familyNos, $requestIds, $tipId);
+        if ($relocateFamilyFiles) {
+            DocumentStorageService::moveObsoleteDocinfoFilesForFamily($familyNos, $requestIds, $tipId);
+        } else {
+            // Soft-delete / fast path: tip placement only (caller may relocate the deleted row).
+            DocumentStorageService::ensureCorrectLifecyclePlacement($tipId);
+        }
         RegisterQueryHelper::bumpDocumentListCache();
     }
 

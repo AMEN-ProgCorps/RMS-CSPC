@@ -125,14 +125,8 @@
         ])
     @endif
     @if(request()->routeIs('dcs', 'dcs.dashboard'))
+        {{-- floating-calendar.css is imported by dashboard.css --}}
         @vite(['resources/css/dcs/dashboard.css'])
-        @if(
-            auth()->check()
-            && !\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()
-            && !\App\Helpers\RegisterQueryHelper::isDcsPathPending()
-        )
-            @vite(['resources/css/dcs/floating-calendar.css'])
-        @endif
         @if(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser())
             @vite(['resources/css/dcs/office-intake.css'])
         @endif

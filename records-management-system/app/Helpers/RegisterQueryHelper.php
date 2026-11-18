@@ -8235,18 +8235,21 @@ class RegisterQueryHelper
                 ->get(['o.office_name'])
         );
 
-        $revisions = DB::table('dcs_doc_revision')
-            ->where('dcn_id', $dcn->id)
-            ->orderBy('id')
-            ->get()
-            ->map(fn ($rev) => [
-                'title' => $rev->title ?: '—',
-                'document_no' => $rev->document_no ?: '—',
-                'revision_no' => $rev->revision_no !== null ? (string) $rev->revision_no : '—',
-                'effectivity_date' => self::formatDisplayDate($rev->effectivity_date, '—'),
-                'brief_purpose' => $rev->brief_purpose ?: '—',
-            ])
-            ->all();
+        $justification = Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')
+            ? trim((string) ($dcn->brief_purpose ?? ''))
+            : '';
+        if ($justification === '' && Schema::hasTable('dcs_doc_revision')) {
+            // Fall back to the first non-empty revision purpose (not shown as a section).
+            $revPurpose = DB::table('dcs_doc_revision')
+                ->where('dcn_id', $dcn->id)
+                ->orderBy('id')
+                ->pluck('brief_purpose')
+                ->map(fn ($p) => trim((string) $p))
+                ->first(fn ($p) => $p !== '');
+            if (is_string($revPurpose) && $revPurpose !== '') {
+                $justification = $revPurpose;
+            }
+        }
 
         return [
             'title' => 'Document Change Notice',
@@ -8258,10 +8261,10 @@ class RegisterQueryHelper
                 self::previewField('DCN Date', self::formatDisplayDate($dcn->dcn_date)),
                 self::previewField('Receipt Date', self::formatDisplayDate($dcn->dcn_receipt_date)),
                 self::previewField('Receipt Time', self::formatDisplayTime($dcn->dcn_receipt_time)),
+                self::previewField('Justification of Change', $justification !== '' ? $justification : null),
             ],
             'sections' => array_values(array_filter([
                 self::previewOfficesSection('Offices', $offices),
-                $revisions !== [] ? ['heading' => 'Revisions', 'revisions' => $revisions] : null,
             ])),
         ];
     }
@@ -8333,7 +8336,7 @@ class RegisterQueryHelper
             ? (int) ($ml->file_size ?? 0)
             : 0;
         // Older registrations (and some revises) store the scan path but never
-        // filled file_size. Resolve from disk so Documented Information is truthful.
+        // filled file_size / checksum. Resolve from disk so Documented Information is truthful.
         if ($size <= 0 && $path !== '') {
             $size = DocumentStorageService::dcsPathFileSize($path);
             if (
@@ -8353,9 +8356,41 @@ class RegisterQueryHelper
                 }
             }
         }
+        if ($checksum === '' && $path !== '' && Schema::hasColumn('dcs_masterlist_registration', 'file_checksum')) {
+            $scanBytes = DocumentStorageService::getFileContent($path, true);
+            if (is_string($scanBytes) && $scanBytes !== '') {
+                $checksum = hash('sha256', $scanBytes);
+                $algo = 'sha256';
+                if (! empty($ml->id)) {
+                    try {
+                        $patch = [
+                            'file_checksum' => $checksum,
+                            'file_checksum_algo' => 'sha256',
+                        ];
+                        if (Schema::hasColumn('dcs_masterlist_registration', 'file_mime')) {
+                            $existingMime = trim((string) ($ml->file_mime ?? ''));
+                            if ($existingMime === '') {
+                                $patch['file_mime'] = 'application/pdf';
+                            }
+                        }
+                        DB::table('dcs_masterlist_registration')
+                            ->where('id', (int) $ml->id)
+                            ->where(function ($q) {
+                                $q->whereNull('file_checksum')->orWhere('file_checksum', '');
+                            })
+                            ->update($patch);
+                    } catch (\Throwable) {
+                        // Display still works even if backfill fails.
+                    }
+                }
+            }
+        }
         $mime = Schema::hasColumn('dcs_masterlist_registration', 'file_mime')
             ? trim((string) ($ml->file_mime ?? ''))
             : '';
+        if ($mime === '' && $path !== '') {
+            $mime = 'application/pdf';
+        }
 
         $registrant = null;
         $creatorId = (int) ($ml->created_by ?? 0);
@@ -8386,10 +8421,12 @@ class RegisterQueryHelper
             }
         }
 
-        $checksumStatus = $checksum !== '' ? 'Saved' : 'Missing';
+        $checksumStatus = $path === ''
+            ? 'No scanned file'
+            : ($checksum !== '' ? 'Saved' : 'Missing');
         $checksumDisplay = $checksum !== ''
             ? strtoupper($algo !== '' ? $algo : 'sha256') . ' ' . $checksum
-            : null;
+            : '—';
 
         $fields = [
             self::previewField('Document Title', $ml->doc_title),
@@ -8404,8 +8441,8 @@ class RegisterQueryHelper
             self::previewField('Storage Path', $path !== '' ? $path : null),
             self::previewField('Registrant', $registrant !== '' ? $registrant : null),
         ];
-        // Checksum is integrity metadata only (detect replaced/corrupt files). Show when present.
-        if ($checksumDisplay !== null) {
+        // Integrity metadata for the scanned masterlist (detect replaced/corrupt files).
+        if ($path !== '') {
             $fields[] = self::previewField('Checksum', $checksumDisplay);
             $fields[] = self::previewField('Checksum Status', $checksumStatus);
         }

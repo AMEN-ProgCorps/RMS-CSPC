@@ -2503,21 +2503,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $pgSize = (int) ($list['per_page'] ?? 20);
             $pgFrom = $pgTotal === 0 ? 0 : (($pg - 1) * $pgSize) + 1;
             $pgTo = min($pgTotal, $pg * $pgSize);
-            $pgStart = max(1, $pg - 2);
-            $pgEnd = min($pgLast, $pg + 2);
         @endphp
-        <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 16px;flex-wrap:wrap;">
-            <span class="db-page-info">Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}</span>
-            @if($pg > 1)
-                <button type="button" class="db-btn" wire:click="goToPage({{ $pg - 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Previous</button>
-            @endif
-            @for($p = $pgStart; $p <= $pgEnd; $p++)
-                <button type="button" class="db-btn {{ $p === $pg ? 'active' : '' }}" wire:click="goToPage({{ $p }})" wire:loading.attr="disabled" wire:target="goToPage" @if($p === $pg) disabled @endif>{{ $p }}</button>
-            @endfor
-            @if($pg < $pgLast)
-                <button type="button" class="db-btn" wire:click="goToPage({{ $pg + 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Next</button>
-            @endif
-        </div>
+        @include('pages.dcs.partials.list-pagination', [
+            'from' => $pgFrom,
+            'to' => $pgTo,
+            'total' => $pgTotal,
+            'page' => $pg,
+            'lastPage' => $pgLast,
+            'loadingTarget' => 'goToPage',
+        ])
 
     </section>
 </main>

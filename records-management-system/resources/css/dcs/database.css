@@ -269,8 +269,27 @@ tr.db-row-collapsed {
     display: none !important;
 }
 
+.db-pagination {
+    display: flex;
+    gap: 12px 16px;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    border-top: 1px solid var(--db-border, #e2e8f0);
+    background: var(--db-surface, #fff);
+}
+
+.db-pagination-links {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+}
+
 .db-page-info {
-    margin-right: auto;
+    margin-right: 0;
     color: var(--db-text-sec, #475569);
     font-size: 13px;
 }

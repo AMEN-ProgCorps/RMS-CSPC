@@ -1030,7 +1030,22 @@ class RegisterUpdateHelper
         }
 
         $docRequest = RegisterQueryHelper::findDocumentRequest($id);
-        abort_unless($docRequest, 404);
+        if (! $docRequest) {
+            // Already soft-deleted / stale list click — avoid Livewire 404 popout.
+            if (RegisterQueryHelper::findTrashedDocumentRequest($id)) {
+                return self::flashRedirect(
+                    'dcs.register.update',
+                    'success',
+                    'That document is already in the Recycle Bin.'
+                );
+            }
+
+            return self::flashRedirect(
+                'dcs.register.update',
+                'error',
+                'That document could not be found. It may have already been deleted — refresh the list and try again.'
+            );
+        }
         RegisterQueryHelper::assertCanAccessRequest($id);
 
         $isDraft = RegisterQueryHelper::supportsDrafts() && ! empty($docRequest->is_draft);
@@ -1095,7 +1110,8 @@ class RegisterUpdateHelper
             }
 
             if ($promoteDocNo) {
-                RegisterPersistHelper::promoteLatestForDoc($promoteDocNo, $promoteTypeId, $promoteSubTypeId);
+                // Fast path: tip re-home only — full family file moves made soft-delete feel stuck.
+                RegisterPersistHelper::promoteLatestForDoc($promoteDocNo, $promoteTypeId, $promoteSubTypeId, false);
                 RegisterQueryHelper::healRevisedFromFromDcnForActiveFamily(
                     $promoteDocNo,
                     $promoteTypeId,

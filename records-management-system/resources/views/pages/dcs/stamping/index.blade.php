@@ -519,57 +519,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </table>
             </div>
 
-            @if($documents->total() > 0)
-            <div class="st-pagination">
-                <div class="st-page-info">
-                    Showing <strong>{{ $documents->firstItem() }}&ndash;{{ $documents->lastItem() }}</strong> of <strong>{{ $documents->total() }}</strong>
-                </div>
-                <div class="st-page-tools">
-                <div class="st-page-size">
-                    <label for="stPerPage">Show</label>
-                    <select id="stPerPage" wire:model.live="perPage">
-                        @foreach([10, 15, 25, 50, 100] as $size)
-                            <option value="{{ $size }}">{{ $size }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div class="st-page-links">
-                    @if($documents->onFirstPage())
-                        <span class="st-pg disabled"><i class="fa-solid fa-chevron-left"></i></span>
-                    @else
-                        <button type="button" class="st-pg" wire:click="goToPage({{ $documents->currentPage() - 1 }})"><i class="fa-solid fa-chevron-left"></i></button>
-                    @endif
-
-                    @php
-                        $stampPages = [];
-                        $stampLast = $documents->lastPage();
-                        $stampCurrent = $documents->currentPage();
-                        for ($stampPage = 1; $stampPage <= $stampLast; $stampPage++) {
-                            if ($stampPage === 1 || $stampPage === $stampLast || abs($stampPage - $stampCurrent) <= 1) {
-                                $stampPages[] = $stampPage;
-                            }
-                        }
-                    @endphp
-                    @foreach($stampPages as $index => $page)
-                        @if($index > 0 && $page - $stampPages[$index - 1] > 1)
-                            <span class="st-pg disabled">…</span>
-                        @endif
-                        @if($page === $stampCurrent)
-                            <span class="st-pg st-pg-active">{{ $page }}</span>
-                        @else
-                            <button type="button" class="st-pg" wire:click="goToPage({{ $page }})">{{ $page }}</button>
-                        @endif
-                    @endforeach
-
-                    @if($documents->hasMorePages())
-                        <button type="button" class="st-pg" wire:click="goToPage({{ $documents->currentPage() + 1 }})"><i class="fa-solid fa-chevron-right"></i></button>
-                    @else
-                        <span class="st-pg disabled"><i class="fa-solid fa-chevron-right"></i></span>
-                    @endif
-                </div>
-                </div>
-            </div>
-            @endif
+            @include('pages.dcs.partials.list-pagination', [
+                'from' => (int) $documents->firstItem(),
+                'to' => (int) $documents->lastItem(),
+                'total' => (int) $documents->total(),
+                'page' => (int) $documents->currentPage(),
+                'lastPage' => (int) $documents->lastPage(),
+            ])
         </div>
     </div>
 

@@ -2492,47 +2492,8 @@
     const dmPrefetchPromises = new Map(); // key -> Promise
     window.dmPrefetchPromises = dmPrefetchPromises;
 
-    // Pre-transforms raw HTML from load.php / load_dm.php off-DOM so cached snapshots
-    // already contain truncated Read More previews and .emoji-only classes. When the
-    // user clicks a conversation in the sidebar, chatBox only mounts the pre-truncated
-    // nodes (25 emojis instead of hundreds/thousands), making conversation opens instant.
-    function precompileSnapshotHtml(rawHtml) {
-      if (!rawHtml || typeof rawHtml !== 'string' || !rawHtml.trim()) return rawHtml || '';
-      if (rawHtml.indexOf('data-emoji-checked="1"') !== -1) return rawHtml;
-      try {
-        const temp = document.createElement('div');
-        temp.innerHTML = rawHtml;
-        if (typeof applyEmojiOnly === 'function') {
-          applyEmojiOnly(temp);
-        } else {
-          temp.querySelectorAll('.message-bubble').forEach(function(bubble) {
-            const contentEl = bubble.querySelector('.message-content');
-            if (!contentEl) return;
-            linkifyContent(contentEl);
-            applyReadMoreToElement(contentEl);
-            const text = contentEl.dataset.fullText || contentEl.textContent || '';
-            const hasReadMore = !!contentEl.dataset.fullText || !!contentEl.querySelector('.read-more-link');
-            if (!hasReadMore && isEmojiOnlyText(text)) {
-              bubble.classList.add('emoji-only');
-            } else {
-              bubble.classList.remove('emoji-only');
-            }
-            contentEl.dataset.emojiChecked = '1';
-          });
-        }
-        temp.querySelectorAll('.read-more-link').forEach(function(rm) {
-          delete rm.dataset.bound;
-        });
-        return temp.innerHTML;
-      } catch (e) {
-        return rawHtml;
-      }
-    }
     function cacheDmSnapshot(target, data) {
       if (!target || !data) return;
-      if (data.html) {
-        data.html = precompileSnapshotHtml(data.html);
-      }
       let accId = (typeof target === 'object' && target.account_id)
         ? Number(target.account_id)
         : (Number(target) > 0 ? Number(target) : (data && Number(data.target_id) > 0 ? Number(data.target_id) : 0));
@@ -4484,9 +4445,6 @@
 
     function cacheGlobalChatSnapshot(data) {
       if (!data) return;
-      if (data.html) {
-        data.html = precompileSnapshotHtml(data.html);
-      }
       const cid = data.conv_id || (typeof getActiveChannelConvId === 'function' ? getActiveChannelConvId() : 'global');
       const snapshot = {
         html: data.html || '',

@@ -8638,18 +8638,28 @@
       let isProgrammaticTabScroll = false;
       let programmaticTabScrollTimer = null;
 
+      // Set of all valid known emojis from our catalog to validate recents and clicks
+      const ALLOWED_EMOJIS = new Set();
+      EMOJI_CATEGORIES.forEach(cat => {
+        if (cat.id !== 'recent') {
+          cat.items.forEach(item => ALLOWED_EMOJIS.add(item[0]));
+        }
+      });
+
       function getRecentEmojis() {
         try {
           const raw = localStorage.getItem(RECENT_STORAGE_KEY);
           if (!raw) return [];
           const parsed = JSON.parse(raw);
-          return Array.isArray(parsed) ? parsed.slice(0, MAX_RECENT) : [];
+          if (!Array.isArray(parsed)) return [];
+          return parsed.filter(em => typeof em === 'string' && ALLOWED_EMOJIS.has(em)).slice(0, MAX_RECENT);
         } catch (e) {
           return [];
         }
       }
 
       function saveRecentEmoji(emoji) {
+        if (!ALLOWED_EMOJIS.has(emoji)) return;
         try {
           let recents = getRecentEmojis().filter(e => e !== emoji);
           recents.unshift(emoji);
@@ -8659,14 +8669,48 @@
       }
 
       function buildTabs() {
-        emojiPickerTabs.innerHTML = EMOJI_CATEGORIES.map(cat => {
-          const isActive = cat.id === activeCatId ? ' active' : '';
-          return `<button type="button" class="emoji-tab-btn${isActive}" data-cat="${cat.id}" title="${cat.label}" aria-label="${cat.label}">${cat.icon}</button>`;
-        }).join('');
+        emojiPickerTabs.textContent = '';
+        const frag = document.createDocumentFragment();
+        EMOJI_CATEGORIES.forEach(cat => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'emoji-tab-btn' + (cat.id === activeCatId ? ' active' : '');
+          btn.setAttribute('data-cat', cat.id);
+          btn.title = cat.label;
+          btn.setAttribute('aria-label', cat.label);
+          btn.textContent = cat.icon;
+          frag.appendChild(btn);
+        });
+        emojiPickerTabs.appendChild(frag);
+      }
+
+      function createEmojiSectionNode(sectionId, titleText, emojiList) {
+        const section = document.createElement('div');
+        section.className = 'emoji-cat-section';
+        section.setAttribute('data-cat-section', sectionId);
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'emoji-cat-title';
+        titleEl.textContent = titleText;
+        section.appendChild(titleEl);
+
+        const grid = document.createElement('div');
+        grid.className = 'emoji-grid';
+        emojiList.forEach(em => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'emoji-item-btn';
+          btn.setAttribute('data-emoji', em);
+          btn.textContent = em;
+          grid.appendChild(btn);
+        });
+        section.appendChild(grid);
+        return section;
       }
 
       function renderEmojiBody(filterQuery = '') {
         const q = filterQuery.trim().toLowerCase();
+        emojiPickerBody.textContent = '';
 
         if (q !== '') {
           const matches = [];
@@ -8684,23 +8728,22 @@
           });
 
           if (matches.length === 0) {
-            emojiPickerBody.innerHTML = `<div class="emoji-empty-state">No emojis found for "${ q.replace(/[<>&"']/g, '') }"</div>`;
+            const emptyEl = document.createElement('div');
+            emptyEl.className = 'emoji-empty-state';
+            emptyEl.textContent = `No emojis found for "${filterQuery.trim()}"`;
+            emojiPickerBody.appendChild(emptyEl);
             return;
           }
 
-          emojiPickerBody.innerHTML =
-            `<div class="emoji-cat-section" data-cat-section="search">` +
-              `<div class="emoji-cat-title">Search Results (${matches.length})</div>` +
-              `<div class="emoji-grid">` +
-                matches.map(em => `<button type="button" class="emoji-item-btn" data-emoji="${em}">${em}</button>`).join('') +
-              `</div>` +
-            `</div>`;
+          emojiPickerBody.appendChild(
+            createEmojiSectionNode('search', `Search Results (${matches.length})`, matches)
+          );
           emojiPickerBody.scrollTop = 0;
           return;
         }
 
         const recents = getRecentEmojis();
-        const sectionsHtml = [];
+        const frag = document.createDocumentFragment();
 
         EMOJI_CATEGORIES.forEach(cat => {
           let list = [];
@@ -8710,18 +8753,10 @@
           } else {
             list = cat.items.map(item => item[0]);
           }
-
-          sectionsHtml.push(
-            `<div class="emoji-cat-section" data-cat-section="${cat.id}">` +
-              `<div class="emoji-cat-title">${cat.label}</div>` +
-              `<div class="emoji-grid">` +
-                list.map(em => `<button type="button" class="emoji-item-btn" data-emoji="${em}">${em}</button>`).join('') +
-              `</div>` +
-            `</div>`
-          );
+          frag.appendChild(createEmojiSectionNode(cat.id, cat.label, list));
         });
 
-        emojiPickerBody.innerHTML = sectionsHtml.join('');
+        emojiPickerBody.appendChild(frag);
       }
 
       function setActiveTab(catId) {

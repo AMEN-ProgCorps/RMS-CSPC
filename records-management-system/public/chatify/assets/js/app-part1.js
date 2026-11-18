@@ -116,11 +116,16 @@
       );
 
       quotes.forEach(function(rq) {
-        const textEl = rq.querySelector('.reply-quote-text');
+        let textEl = rq.querySelector('.reply-quote-text');
         if (textEl) {
           textEl.textContent = truncated;
         } else if (!rq.querySelector('img')) {
           rq.innerHTML = `<div class="reply-quote-text">${escapeHtml(truncated)}</div>`;
+          textEl = rq.querySelector('.reply-quote-text');
+        }
+        if (textEl && typeof window.renderEmojiMartInElement === 'function') {
+          delete textEl.dataset.emRendered;
+          window.renderEmojiMartInElement(textEl);
         }
       });
     }
@@ -383,6 +388,10 @@
         linkifyContent(contentEl);
         applyReadMoreToElement(contentEl);
       }
+      const rqTextEl = container.querySelector('.reply-quote-text');
+      if (rqTextEl && typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(rqTextEl);
+      }
 
       // Cap the DOM at MAX_WINDOW visible messages so real-time
       // WebSocket pushes never grow the chat window without bound (only when NOT backreading).
@@ -522,6 +531,10 @@
       if (contentEl) {
         linkifyContent(contentEl);
         applyReadMoreToElement(contentEl);
+      }
+      const rqTextEl = container.querySelector('.reply-quote-text');
+      if (rqTextEl && typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(rqTextEl);
       }
 
       // Same MAX_WINDOW cap as DM/Global Chat — only trim while looking at the
@@ -3279,6 +3292,10 @@
               : true;
             if (canSeeTyping && activeDraft && activeDraft.preview) {
               lastMsgEl.textContent = activeDraft.preview;
+              if (typeof window.renderEmojiMartInElement === 'function') {
+                delete lastMsgEl.dataset.emRendered;
+                window.renderEmojiMartInElement(lastMsgEl);
+              }
               lastMsgEl.style.display = 'block';
               lastMsgEl.style.fontStyle = 'italic';
               lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';
@@ -3894,7 +3911,11 @@
       resetReadMoreCopyBtn();
       readMoreModalBody.textContent = fullText || '';
       delete readMoreModalBody.dataset.linkified; // allow re-linkifying on every open
+      delete readMoreModalBody.dataset.emRendered;
       linkifyContent(readMoreModalBody);
+      if (typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(readMoreModalBody);
+      }
       readMoreModal.classList.add('active');
       readMoreModal.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
@@ -3981,6 +4002,134 @@
     const _graphemeSegmenter = (typeof Intl !== 'undefined' && Intl.Segmenter)
       ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
       : null;
+
+    // ── Shared Emoji Mart Sprite Renderer for Chat UI ──────────────────────
+    const _EM_SPRITESHEET_URL = 'assets/vendor/emoji-mart/apple-sheet-64.png';
+    let _emCoordMap = null;
+    let _emSheetCols = 61;
+    let _emSheetRows = 61;
+    const _emSpriteProto = document.createElement('span');
+    _emSpriteProto.className = 'em-sprite-icon';
+    _emSpriteProto.setAttribute('role', 'img');
+
+    function getEmojiMartCoordMap() {
+      if (_emCoordMap) return _emCoordMap;
+      _emCoordMap = new Map();
+      const data = window.CHATIFY_EMOJI_MART_DATA;
+      if (data && typeof data === 'object') {
+        if (data.sheet && data.sheet.cols && data.sheet.rows) {
+          _emSheetCols = Number(data.sheet.cols) || 61;
+          _emSheetRows = Number(data.sheet.rows) || 61;
+        }
+        const emojis = data.emojis || {};
+        Object.keys(emojis).forEach(function(id) {
+          const item = emojis[id];
+          if (!item || !Array.isArray(item.skins)) return;
+          item.skins.forEach(function(skin) {
+            if (!skin || typeof skin.native !== 'string') return;
+            const coords = { x: Number(skin.x) || 0, y: Number(skin.y) || 0 };
+            _emCoordMap.set(skin.native, coords);
+            const stripped = skin.native.replace(/\uFE0F/g, '');
+            if (stripped && (stripped.length > 1 || stripped.codePointAt(0) > 0xFF) && !_emCoordMap.has(stripped)) {
+              _emCoordMap.set(stripped, coords);
+            }
+          });
+        });
+      }
+      return _emCoordMap;
+    }
+    window.getEmojiMartCoordMap = getEmojiMartCoordMap;
+
+    window.createEmojiMartNode = function(rawEmoji, sizePx) {
+      const emoji = (rawEmoji === '❤') ? '❤️' : String(rawEmoji || '');
+      const map = getEmojiMartCoordMap();
+      const coords = map.get(emoji) || map.get(emoji.replace(/\uFE0F/g, ''));
+
+      if (!coords) {
+        const fallback = document.createElement('span');
+        fallback.className = 'em-sprite-fallback';
+        fallback.textContent = emoji;
+        return fallback;
+      }
+
+      const cols = _emSheetCols;
+      const rows = _emSheetRows;
+      const posX = ((100 / (cols - 1)) * coords.x).toFixed(4);
+      const posY = ((100 / (rows - 1)) * coords.y).toFixed(4);
+      const size = Number(sizePx) || 0;
+      const sizeRule = size > 0 ? ('width:' + size + 'px;height:' + size + 'px;') : '';
+
+      const span = _emSpriteProto.cloneNode(false);
+      span.setAttribute('aria-label', emoji);
+      span.setAttribute('title', emoji);
+      span.textContent = emoji;
+      span.style.cssText = sizeRule
+        + "background-image:url('" + _EM_SPRITESHEET_URL + "');"
+        + 'background-size:' + (100 * cols) + '% ' + (100 * rows) + '%;'
+        + 'background-position:' + posX + '% ' + posY + '%;'
+        + 'background-repeat:no-repeat;';
+      return span;
+    };
+
+    window.renderEmojiMartInElement = function(rootEl, sizePx) {
+      if (!rootEl || rootEl.dataset.emRendered === '1') return;
+      const map = getEmojiMartCoordMap();
+      if (!map || map.size === 0) return;
+
+      const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, null);
+      const textNodes = [];
+      let node;
+      while ((node = walker.nextNode())) {
+        const parent = node.parentElement;
+        if (parent && (parent.classList.contains('em-sprite-icon') || parent.classList.contains('read-more-link'))) {
+          continue;
+        }
+        const val = node.nodeValue;
+        if (!val || !/[^\u0000-\u007F]/.test(val)) continue;
+        textNodes.push(node);
+      }
+
+      textNodes.forEach(function(textNode) {
+        const text = textNode.nodeValue;
+        const segments = _graphemeSegmenter
+          ? Array.from(_graphemeSegmenter.segment(text), function(s) { return s.segment; })
+          : Array.from(text);
+
+        let hasEmoji = false;
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i];
+          if (map.has(seg) || (seg.length > 1 && map.has(seg.replace(/\uFE0F/g, '')))) {
+            hasEmoji = true;
+            break;
+          }
+        }
+        if (!hasEmoji) return;
+
+        const frag = document.createDocumentFragment();
+        let textBuf = '';
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i];
+          const hit = map.has(seg) || ((seg.length > 1 || seg.codePointAt(0) > 0xFF) && map.has(seg.replace(/\uFE0F/g, '')));
+          if (hit) {
+            if (textBuf) {
+              frag.appendChild(document.createTextNode(textBuf));
+              textBuf = '';
+            }
+            frag.appendChild(window.createEmojiMartNode(seg, sizePx));
+          } else {
+            textBuf += seg;
+          }
+        }
+        if (textBuf) {
+          frag.appendChild(document.createTextNode(textBuf));
+        }
+        if (textNode.parentNode) {
+          textNode.parentNode.replaceChild(frag, textNode);
+        }
+      });
+
+      rootEl.dataset.emRendered = '1';
+    };
 
     function isEmojiOnlyText(str) {
       if (!str) return false;
@@ -4106,15 +4255,27 @@
       const existingLink = contentEl.querySelector('.read-more-link');
       if (existingLink) {
         contentEl.dataset.readmoreChecked = '1';
+        if (typeof window.renderEmojiMartInElement === 'function' && !contentEl.querySelector('.em-sprite-icon')) {
+          delete contentEl.dataset.emRendered;
+          window.renderEmojiMartInElement(contentEl);
+        }
         return;
       }
 
-      if (contentEl.dataset.readmoreChecked === '1') return;
+      if (contentEl.dataset.readmoreChecked === '1') {
+        if (typeof window.renderEmojiMartInElement === 'function' && contentEl.dataset.emRendered !== '1') {
+          window.renderEmojiMartInElement(contentEl);
+        }
+        return;
+      }
 
       const fullText = contentEl.dataset.fullText || contentEl.textContent || '';
       contentEl.dataset.readmoreChecked = '1';
       if (!readMoreNeeded(fullText)) {
         delete contentEl.dataset.fullText;
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(contentEl);
+        }
         return;
       }
 
@@ -4136,7 +4297,11 @@
       // Re-linkify just the (now truncated) visible text so any URL still
       // shown in the preview stays clickable.
       delete contentEl.dataset.linkified;
+      delete contentEl.dataset.emRendered;
       linkifyContent(contentEl);
+      if (typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(contentEl);
+      }
     }
 
     // Re-checks a message-content element after its text changed (e.g. an
@@ -4146,6 +4311,7 @@
       delete contentEl.dataset.readmoreChecked;
       delete contentEl.dataset.fullText;
       delete contentEl.dataset.emojiChecked;
+      delete contentEl.dataset.emRendered;
       applyReadMoreToElement(contentEl);
     }
 
@@ -5390,6 +5556,14 @@
       const text = messageInput.value;
       messageInput.style.color = 'transparent';
 
+      if (!text) {
+        messageInputHighlight.textContent = '';
+        delete messageInputHighlight.dataset.emRendered;
+        messageInputHighlight.scrollTop = 0;
+        messageInputHighlight.scrollLeft = 0;
+        return;
+      }
+
       const names = (activeMentions || [])
         .map(function(m) { return m.name; })
         .filter(function(n, i, arr) { return arr.indexOf(n) === i; })
@@ -5397,6 +5571,10 @@
 
       if (names.length === 0 || text.indexOf('@') === -1) {
         messageInputHighlight.textContent = text.endsWith('\n') ? text + ' ' : text;
+        delete messageInputHighlight.dataset.emRendered;
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(messageInputHighlight, 18);
+        }
         messageInputHighlight.scrollTop = messageInput.scrollTop;
         messageInputHighlight.scrollLeft = messageInput.scrollLeft;
         return;
@@ -5425,6 +5603,10 @@
       if (plainRun) html += escapeHtml(plainRun);
       if (text.endsWith('\n')) html += '&nbsp;';
       messageInputHighlight.innerHTML = html;
+      delete messageInputHighlight.dataset.emRendered;
+      if (typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(messageInputHighlight, 18);
+      }
       messageInputHighlight.scrollTop = messageInput.scrollTop;
       messageInputHighlight.scrollLeft = messageInput.scrollLeft;
     }

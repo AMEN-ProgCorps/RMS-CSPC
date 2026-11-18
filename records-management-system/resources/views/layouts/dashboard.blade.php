@@ -195,6 +195,7 @@
         </div>
         <div class="notification-container">
             <livewire:components.notification.notifications />
+            <livewire:components.notification.urgent-notices />
         </div>
         <div class="actions-container">
             <button class="action_button" onclick="toggleDropdown()">

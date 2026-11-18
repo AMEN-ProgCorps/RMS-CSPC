@@ -21,6 +21,15 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
     /** @var bool Personal preference for notification sound alerts (SFX) */
     public bool $notificationSoundAlert = true;
 
+    /** @var bool Personal preference for urgent/notice sound alerts */
+    public bool $urgentSoundAlert = true;
+
+    /** @var string Sound tone choice for regular notifications */
+    public string $notificationSoundTone = 'ping-default';
+
+    /** @var string Sound tone choice for urgent action notices */
+    public string $urgentSoundTone = 'urgent-alarm';
+
     /** @var bool Personal preference for popout overlay notifications */
     public bool $enablePopoutNotifications = true;
 
@@ -85,6 +94,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $user = $user->fresh();
             $this->autoOpenChat = $user->autoOpenChat();
             $this->notificationSoundAlert = $user->notificationSoundAlert();
+            $this->urgentSoundAlert = $user->urgentSoundAlert();
+            $this->notificationSoundTone = $user->notificationSoundTone();
+            $this->urgentSoundTone = $user->urgentSoundTone();
             $this->enablePopoutNotifications = $user->popoutNotifications();
             $this->enableTopTabs = $user->enableTopTabs();
             $this->theme = $user->theme();
@@ -142,6 +154,77 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $this->feedbackMessage = 'Preference updated: Notification sound alerts ' . ($this->notificationSoundAlert ? 'enabled' : 'disabled') . '.';
             $this->dispatch('rms-sound-setting-changed', enabled: $this->notificationSoundAlert);
             $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Notification sound alerts preference updated.');
+        }
+    }
+
+    /**
+     * Toggles the urgent notice sound alert setting.
+     * @return void
+     */
+    public function toggleUrgentSoundAlert(): void
+    {
+        $user = Auth::user();
+        if ($user) {
+            $setting = PersonalSetting::firstOrCreate(
+                ['user' => $user->id],
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'urgent_sound_alert' => true, 'enable_popout_notifications' => true, 'enable_top_tabs' => true, 'theme' => 'light', 'modal_close_key' => 'Escape']
+            );
+            $setting->urgent_sound_alert = !((bool)($setting->urgent_sound_alert ?? true));
+            $setting->save();
+            $this->urgentSoundAlert = (bool) $setting->urgent_sound_alert;
+            $this->feedbackMessage = 'Preference updated: Urgent notice sound alerts ' . ($this->urgentSoundAlert ? 'enabled' : 'disabled') . '.';
+            $this->dispatch('rms-urgent-sound-setting-changed', enabled: $this->urgentSoundAlert);
+            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Urgent notice sound alerts preference updated.');
+        }
+    }
+
+    /**
+     * Updates the regular notification sound tone effect.
+     * @param string $tone
+     * @return void
+     */
+    public function setNotificationSoundTone(string $tone): void
+    {
+        $user = Auth::user();
+        if ($user) {
+            $valid = ['ping-default', 'chime-soft', 'bell-ding', 'bubble-pop'];
+            if (!in_array($tone, $valid, true)) {
+                $tone = 'ping-default';
+            }
+            $setting = PersonalSetting::firstOrCreate(
+                ['user' => $user->id],
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'urgent_sound_alert' => true, 'enable_popout_notifications' => true, 'enable_top_tabs' => true, 'theme' => 'light', 'modal_close_key' => 'Escape']
+            );
+            $setting->notification_sound_tone = $tone;
+            $setting->save();
+            $this->notificationSoundTone = $tone;
+            $this->feedbackMessage = 'Preference updated: Standard notification sound tone updated.';
+            $this->dispatch('rms-notif-tone-changed', tone: $tone);
+        }
+    }
+
+    /**
+     * Updates the Notice/Urgent sound effect tone.
+     * @param string $tone
+     * @return void
+     */
+    public function setUrgentSoundTone(string $tone): void
+    {
+        $user = Auth::user();
+        if ($user) {
+            $valid = ['urgent-alarm', 'warning-beep', 'radar-pulse', 'siren-alert'];
+            if (!in_array($tone, $valid, true)) {
+                $tone = 'urgent-alarm';
+            }
+            $setting = PersonalSetting::firstOrCreate(
+                ['user' => $user->id],
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'urgent_sound_alert' => true, 'enable_popout_notifications' => true, 'enable_top_tabs' => true, 'theme' => 'light', 'modal_close_key' => 'Escape']
+            );
+            $setting->urgent_sound_tone = $tone;
+            $setting->save();
+            $this->urgentSoundTone = $tone;
+            $this->feedbackMessage = 'Preference updated: Notice/Urgent sound effect tone updated.';
+            $this->dispatch('rms-urgent-tone-changed', tone: $tone);
         }
     }
 
@@ -1083,7 +1166,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 <div class="settings-row-header">
                     <span class="settings-info-title">
                         <i class="fa-solid fa-volume-high" style="color: #2563eb; margin-right: 8px; font-size: 14px;"></i>
-                        Notification Sound Alerts
+                        Standard Notification Sound Alerts
                     </span>
                     <button type="button" wire:click="toggleNotificationSoundAlert" role="switch" aria-checked="{{ $notificationSoundAlert ? 'true' : 'false' }}"
                         style="position: relative; display: inline-flex; width: 48px; height: 26px; border: none; cursor: pointer; background-color: {{ $notificationSoundAlert ? '#2563eb' : '#cbd5e1' }}; transition: background-color 0.25s ease; border-radius: 26px; padding: 0; outline: none; flex-shrink: 0;">
@@ -1091,8 +1174,65 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                     </button>
                 </div>
                 <span class="settings-info-desc">
-                    Play audio sound effects (SFX) whenever new unread messages or important system notifications arrive.
+                    Play audio sound effects (SFX) whenever new unread messages or important general notifications arrive.
                 </span>
+
+                @if($notificationSoundAlert)
+                <div style="margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <label style="font-size: 12px; font-weight: 700; color: #475569; min-width: 140px;">Ping Sound Tone:</label>
+                    <select wire:model.live="notificationSoundTone" wire:change="setNotificationSoundTone($event.target.value)"
+                            style="height: 36px; padding: 0 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 600; color: #0f172a; background: #ffffff;">
+                        <option value="ping-default">Default Ping Message</option>
+                        <option value="chime-soft">Soft Chime</option>
+                        <option value="bell-ding">Classic Bell Ding</option>
+                        <option value="bubble-pop">Modern Bubble Pop</option>
+                    </select>
+                    <button type="button"
+                            onclick="window.playRMSTonePreview('notif', '{{ $notificationSoundTone }}')"
+                            style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; background: #eff6ff; color: #2563eb; border: 1.5px solid #bfdbfe; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s;"
+                            title="Listen to this notification sound">
+                        <i class="fa-solid fa-play" style="font-size: 11px;"></i>
+                        <span>Preview Sound</span>
+                    </button>
+                </div>
+                @endif
+            </div>
+
+            <!-- Notice / Urgent Sound Alerts -->
+            <div class="settings-block-row" style="border-top: 1px solid var(--border-color, #e2e8f0); padding-top: 18px; margin-top: 14px;">
+                <div class="settings-row-header">
+                    <span class="settings-info-title">
+                        <i class="fa-solid fa-triangle-exclamation" style="color: #ef4444; margin-right: 8px; font-size: 14px;"></i>
+                        Notice / Urgent Action Sound Alerts
+                    </span>
+                    <button type="button" wire:click="toggleUrgentSoundAlert" role="switch" aria-checked="{{ $urgentSoundAlert ? 'true' : 'false' }}"
+                        style="position: relative; display: inline-flex; width: 48px; height: 26px; border: none; cursor: pointer; background-color: {{ $urgentSoundAlert ? '#ef4444' : '#cbd5e1' }}; transition: background-color 0.25s ease; border-radius: 26px; padding: 0; outline: none; flex-shrink: 0;">
+                        <span style="position: absolute; top: 3px; left: {{ $urgentSoundAlert ? '25px' : '3px' }}; width: 20px; height: 20px; background-color: #ffffff; border-radius: 50%; transition: left 0.25s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></span>
+                    </button>
+                </div>
+                <span class="settings-info-desc">
+                    Play a distinctive urgent ping sound effect whenever a transaction reaches the warning threshold or exceeds the admin-set elapsed time limit (needs urgent action).
+                </span>
+
+                @if($urgentSoundAlert)
+                <div style="margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <label style="font-size: 12px; font-weight: 700; color: #991b1b; min-width: 140px;">Urgent Sound Tone:</label>
+                    <select wire:model.live="urgentSoundTone" wire:change="setUrgentSoundTone($event.target.value)"
+                            style="height: 36px; padding: 0 12px; border: 1.5px solid #fecaca; border-radius: 8px; font-size: 13px; font-weight: 600; color: #0f172a; background: #ffffff;">
+                        <option value="urgent-alarm">Urgent Alarm Pulse (Default)</option>
+                        <option value="warning-beep">Double Warning Beep</option>
+                        <option value="radar-pulse">High Priority Radar</option>
+                        <option value="siren-alert">Critical Siren Tone</option>
+                    </select>
+                    <button type="button"
+                            onclick="window.playRMSTonePreview('urgent', '{{ $urgentSoundTone }}')"
+                            style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; background: #fef2f2; color: #dc2626; border: 1.5px solid #fecaca; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s;"
+                            title="Listen to this urgent sound effect">
+                        <i class="fa-solid fa-play" style="font-size: 11px;"></i>
+                        <span>Preview Sound</span>
+                    </button>
+                </div>
+                @endif
             </div>
 
             <!-- Popout Notification Alerts -->
@@ -1787,6 +1927,129 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             </div>
         </div>
     </div>
+
+    <script>
+        (function() {
+            window.playRMSTonePreview = function(category, tone) {
+                if (tone === 'ping-default') {
+                    try {
+                        const audio = new Audio("{{ asset('sfx/ping-message.mp3') }}");
+                        audio.volume = 0.8;
+                        const p = audio.play();
+                        if (p && typeof p.catch === 'function') {
+                            p.catch(function() {
+                                synthesizeAudioTone(tone);
+                            });
+                        }
+                        return;
+                    } catch (e) {
+                        // Fall back to synthesized tone
+                    }
+                }
+                synthesizeAudioTone(tone);
+            };
+
+            function synthesizeAudioTone(tone) {
+                try {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (!AudioCtx) return;
+                    const ctx = new AudioCtx();
+                    if (ctx.state === 'suspended') {
+                        ctx.resume();
+                    }
+                    const now = ctx.currentTime;
+
+                    if (tone === 'urgent-alarm' || tone === 'siren-alert') {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sawtooth';
+                        osc.frequency.setValueAtTime(880, now);
+                        osc.frequency.exponentialRampToValueAtTime(440, now + 0.15);
+                        osc.frequency.exponentialRampToValueAtTime(880, now + 0.3);
+                        gain.gain.setValueAtTime(0.28, now);
+                        gain.gain.linearRampToValueAtTime(0.01, now + 0.45);
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.start(now);
+                        osc.stop(now + 0.45);
+                    } else if (tone === 'warning-beep') {
+                        [0, 0.16].forEach(function(delay) {
+                            const osc = ctx.createOscillator();
+                            const gain = ctx.createGain();
+                            osc.type = 'triangle';
+                            osc.frequency.setValueAtTime(659.25, now + delay);
+                            gain.gain.setValueAtTime(0.28, now + delay);
+                            gain.gain.exponentialRampToValueAtTime(0.01, now + delay + 0.12);
+                            osc.connect(gain);
+                            gain.connect(ctx.destination);
+                            osc.start(now + delay);
+                            osc.stop(now + delay + 0.12);
+                        });
+                    } else if (tone === 'radar-pulse') {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(1046.5, now);
+                        gain.gain.setValueAtTime(0.35, now);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.start(now);
+                        osc.stop(now + 0.35);
+                    } else if (tone === 'chime-soft') {
+                        [523.25, 659.25, 783.99].forEach(function(freq, i) {
+                            const osc = ctx.createOscillator();
+                            const gain = ctx.createGain();
+                            osc.type = 'sine';
+                            osc.frequency.setValueAtTime(freq, now + (i * 0.08));
+                            gain.gain.setValueAtTime(0.22, now + (i * 0.08));
+                            gain.gain.exponentialRampToValueAtTime(0.001, now + (i * 0.08) + 0.35);
+                            osc.connect(gain);
+                            gain.connect(ctx.destination);
+                            osc.start(now + (i * 0.08));
+                            osc.stop(now + (i * 0.08) + 0.35);
+                        });
+                    } else if (tone === 'bell-ding') {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(987.77, now);
+                        gain.gain.setValueAtTime(0.3, now);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.start(now);
+                        osc.stop(now + 0.5);
+                    } else if (tone === 'bubble-pop') {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(400, now);
+                        osc.frequency.exponentialRampToValueAtTime(1200, now + 0.08);
+                        gain.gain.setValueAtTime(0.3, now);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.start(now);
+                        osc.stop(now + 0.1);
+                    } else {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(800, now);
+                        gain.gain.setValueAtTime(0.28, now);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.start(now);
+                        osc.stop(now + 0.2);
+                    }
+                } catch(e) {
+                    console.warn('Audio tone play error:', e);
+                }
+            }
+        })();
+    </script>
 </div>
 
 

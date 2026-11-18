@@ -393,6 +393,28 @@ try {
           </svg>
         </button>
         <input type="file" id="fileAttachmentInput" multiple accept="image/*,.gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.wav,.ogg,.flac,.aac,.m4a,.mp4,.webm,.mov" style="display:none;">
+        <!-- Independent Emoji Picker Button & Popover -->
+        <div class="emoji-picker-anchor" id="emojiPickerAnchor">
+          <button type="button" id="emojiPickerBtn" class="emoji-picker-btn" title="Choose an emoji" aria-label="Choose an emoji" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M8 14s1.5 2 4 2 4-2 4-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="9" y1="9" x2="9.01" y2="9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="15" y1="9" x2="15.01" y2="9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <div id="emojiPickerPopover" class="emoji-picker-popover" aria-hidden="true">
+            <div class="emoji-picker-header">
+              <div class="emoji-picker-search-wrap">
+                <svg class="emoji-picker-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="emojiPickerSearch" class="emoji-picker-search" placeholder="Search emojis..." autocomplete="off" spellcheck="false">
+                <button type="button" id="emojiPickerSearchClear" class="emoji-picker-search-clear" title="Clear search" aria-label="Clear search" style="display:none;">&times;</button>
+              </div>
+              <div class="emoji-picker-tabs" id="emojiPickerTabs" role="tablist"></div>
+            </div>
+            <div class="emoji-picker-body" id="emojiPickerBody"></div>
+          </div>
+        </div>
         <!-- Wraps the real textarea + its @mention highlight layer so the
              layer can sit pixel-perfectly behind it. The textarea's own
              text is made transparent (see .message-input-wrap #messageInput

@@ -3968,6 +3968,31 @@
     // affordance; tapping it opens the modal above with the full text.
     const READMORE_CHAR_LIMIT = 400;
     const READMORE_LINE_LIMIT = 8;
+    const READMORE_EMOJI_LIMIT = 25;
+
+    function isEmojiOnlyText(str) {
+      if (!str || !str.trim()) return false;
+      const stripped = str.replace(/\s/g, '');
+      if (!stripped) return false;
+      const emojiRegex = /^(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}|\p{Emoji}\uFE0F|\uD83C[\uDDE0-\uDDFF][\uD83C][\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\u200D)+$/u;
+      return emojiRegex.test(stripped);
+    }
+
+    function splitGraphemes(str) {
+      if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+        try {
+          const seg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+          return Array.from(seg.segment(str), s => s.segment);
+        } catch (e) {}
+      }
+      return Array.from(str);
+    }
+
+    function countEmojiUnits(str) {
+      const stripped = str.replace(/\s/g, '');
+      if (!stripped) return 0;
+      return splitGraphemes(stripped).length;
+    }
 
     function readMoreNeeded(text) {
       if (!text) return false;
@@ -3979,10 +4004,17 @@
           if (lines > READMORE_LINE_LIMIT) return true;
         }
       }
+      if (isEmojiOnlyText(text) && countEmojiUnits(text) > READMORE_EMOJI_LIMIT) {
+        return true;
+      }
       return false;
     }
 
     function readMorePreview(text) {
+      if (isEmojiOnlyText(text)) {
+        const segs = splitGraphemes(text.replace(/\s/g, ''));
+        return segs.slice(0, READMORE_EMOJI_LIMIT).join('');
+      }
       let preview = text.split('\n').slice(0, READMORE_LINE_LIMIT).join('\n');
       if (preview.length > READMORE_CHAR_LIMIT) {
         preview = preview.slice(0, READMORE_CHAR_LIMIT);
@@ -4015,7 +4047,9 @@
       if (parentBubble) parentBubble.classList.remove('emoji-only');
 
       contentEl.dataset.fullText = fullText;
-      contentEl.textContent = readMorePreview(fullText) + ' ';
+      const previewStr = readMorePreview(fullText);
+      const separator = isEmojiOnlyText(fullText) ? '\n' : ' ';
+      contentEl.textContent = previewStr + separator;
 
       const link = document.createElement('span');
       link.className = 'read-more-link';

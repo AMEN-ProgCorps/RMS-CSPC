@@ -1188,7 +1188,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                         <option value="bubble-pop">Modern Bubble Pop</option>
                     </select>
                     <button type="button"
-                            onclick="window.playRMSTonePreview('notif', '{{ $notificationSoundTone }}')"
+                            onclick="window.playRMSTonePreview('notif', this.previousElementSibling.value || '{{ $notificationSoundTone }}')"
                             style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; background: #eff6ff; color: #2563eb; border: 1.5px solid #bfdbfe; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s;"
                             title="Listen to this notification sound">
                         <i class="fa-solid fa-play" style="font-size: 11px;"></i>
@@ -1225,7 +1225,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                         <option value="siren-alert">Critical Siren Tone</option>
                     </select>
                     <button type="button"
-                            onclick="window.playRMSTonePreview('urgent', '{{ $urgentSoundTone }}')"
+                            onclick="window.playRMSTonePreview('urgent', this.previousElementSibling.value || '{{ $urgentSoundTone }}')"
                             style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; background: #fef2f2; color: #dc2626; border: 1.5px solid #fecaca; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s;"
                             title="Listen to this urgent sound effect">
                         <i class="fa-solid fa-play" style="font-size: 11px;"></i>
@@ -1930,8 +1930,21 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
 
     <script>
         (function() {
+            function getAudioContext() {
+                if (!window.__rmsAudioCtx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx) {
+                        window.__rmsAudioCtx = new AudioCtx();
+                    }
+                }
+                if (window.__rmsAudioCtx && window.__rmsAudioCtx.state === 'suspended') {
+                    window.__rmsAudioCtx.resume();
+                }
+                return window.__rmsAudioCtx;
+            }
+
             window.playRMSTonePreview = function(category, tone) {
-                if (tone === 'ping-default') {
+                if (category === 'notif' && tone === 'ping-default') {
                     try {
                         const audio = new Audio("{{ asset('sfx/ping-message.mp3') }}");
                         audio.volume = 0.8;
@@ -1946,17 +1959,29 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                         // Fall back to synthesized tone
                     }
                 }
+
+                if (category === 'urgent' && (tone === 'urgent-alarm' || tone === 'warning-beep')) {
+                    try {
+                        const filename = tone === 'warning-beep' ? 'warning-beep.wav' : 'urgent-alarm.wav';
+                        const audio = new Audio("{{ asset('sfx') }}/" + filename);
+                        audio.volume = 0.85;
+                        const p = audio.play();
+                        if (p && typeof p.catch === 'function') {
+                            p.catch(function() {
+                                synthesizeAudioTone(tone);
+                            });
+                        }
+                        return;
+                    } catch (e) {}
+                }
+
                 synthesizeAudioTone(tone);
             };
 
             function synthesizeAudioTone(tone) {
                 try {
-                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-                    if (!AudioCtx) return;
-                    const ctx = new AudioCtx();
-                    if (ctx.state === 'suspended') {
-                        ctx.resume();
-                    }
+                    const ctx = getAudioContext();
+                    if (!ctx) return;
                     const now = ctx.currentTime;
 
                     if (tone === 'urgent-alarm' || tone === 'siren-alert') {

@@ -52,7 +52,7 @@ new class extends Component {
             $this->warningThresholdMinutes = $warnMin !== null ? max(1, (int) $warnMin) : 5;
 
             $urgentMin = DB::table($sysTable)->where('key', 'dts_urgent_action_minutes')->value('value');
-            $this->urgentThresholdMinutes = $urgentMin !== null ? max(1, (int) $urgentMin) : 10;
+            $this->urgentThresholdMinutes = $urgentMin !== null ? max($this->warningThresholdMinutes + 1, (int) $urgentMin) : 10;
         } catch (\Throwable $e) {
             $this->monitoringEnabled = true;
             $this->warningThresholdMinutes = 5;
@@ -82,6 +82,10 @@ new class extends Component {
         $userId = Auth::id();
         if (!$userId) {
             $this->urgentItems = [];
+            $this->redCount = 0;
+            $this->yellowCount = 0;
+            $this->greenCount = 0;
+            $this->totalCount = 0;
             return;
         }
 
@@ -147,14 +151,18 @@ new class extends Component {
             )->limit(50)->get();
 
             foreach ($incomingRecords as $rec) {
-                // Check if already received
+                // Check if already received at current visit
                 $isReceived = false;
                 if ($officeCode) {
-                    $isReceived = DB::table($logsTbl)
+                    $latestOfficeLog = DB::table($logsTbl)
                         ->where('transaction_id', $rec->transaction_id)
                         ->where('office_code', $officeCode)
-                        ->whereNotNull('date_in')
-                        ->exists();
+                        ->orderBy('id', 'desc')
+                        ->first();
+
+                    if ($latestOfficeLog && $latestOfficeLog->date_in !== null && $latestOfficeLog->date_out === null) {
+                        $isReceived = true;
+                    }
                 }
                 if ($isReceived) {
                     continue;
@@ -508,14 +516,23 @@ new class extends Component {
                 synthesizeAudio(tone);
             };
 
+            function getAudioContext() {
+                if (!window.__rmsAudioCtx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx) {
+                        window.__rmsAudioCtx = new AudioCtx();
+                    }
+                }
+                if (window.__rmsAudioCtx && window.__rmsAudioCtx.state === 'suspended') {
+                    window.__rmsAudioCtx.resume();
+                }
+                return window.__rmsAudioCtx;
+            }
+
             function synthesizeAudio(tone) {
                 try {
-                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-                    if (!AudioCtx) return;
-                    const ctx = new AudioCtx();
-                    if (ctx.state === 'suspended') {
-                        ctx.resume();
-                    }
+                    const ctx = getAudioContext();
+                    if (!ctx) return;
                     const now = ctx.currentTime;
 
                     if (tone === 'urgent-alarm' || tone === 'siren-alert') {

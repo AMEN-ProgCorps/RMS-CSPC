@@ -1113,10 +1113,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
+                $actionMin = max(2, (int) $this->dtsUrgentActionMinutes);
+                $warnMin = min($actionMin - 1, max(1, (int) $this->dtsUrgentWarningMinutes));
+
                 \DB::table($sysTable)->updateOrInsert(
                     ['key' => 'dts_urgent_warning_minutes'],
                     [
-                        'value' => (string) max(1, (int) $this->dtsUrgentWarningMinutes),
+                        'value' => (string) $warnMin,
                         'updated_at' => now(),
                     ]
                 );
@@ -1124,7 +1127,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 \DB::table($sysTable)->updateOrInsert(
                     ['key' => 'dts_urgent_action_minutes'],
                     [
-                        'value' => (string) max(1, (int) $this->dtsUrgentActionMinutes),
+                        'value' => (string) $actionMin,
                         'updated_at' => now(),
                     ]
                 );

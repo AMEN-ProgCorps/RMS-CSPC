@@ -1891,8 +1891,8 @@
       max-width: 92%;
       width: auto !important;
       min-width: 0 !important;
-      margin-bottom: -12px !important;
-      padding: 7px 12px 18px 12px !important;
+      margin-bottom: 4px !important;
+      padding: 7px 12px !important;
     }
 
     /* Avatar Styles */

@@ -943,7 +943,7 @@ class ManualService
             ['key' => 'dcs.review', 'name' => 'Review & Stamping Desk', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.review', 'description' => 'Central review terminal with PDF watermarking and QR stamping'],
             ['key' => 'dcs.history', 'name' => 'DCS Audit History', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.history', 'description' => 'Complete audit history of masterlist document modifications'],
             ['key' => 'dcs.reports', 'name' => 'DCS Reports', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.reports', 'description' => 'Distribution logs and masterlist reports generation'],
-            ['key' => 'dcs.recycle-bin', 'name' => 'DCS Recycle Bin', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.recycle-bin', 'description' => 'Soft-deleted masterlist registrations and recovery'],
+            ['key' => 'admin.recycle-bin', 'name' => 'Admin Recycle Bin', 'type' => 'page', 'subsystem' => 'Admin', 'route' => 'admin.recycle-bin', 'description' => 'Unified soft-deleted items including DCS documents and settings'],
             ['key' => 'modal.dcs.drf.preview', 'name' => 'DRF Preview Modal', 'type' => 'modal', 'subsystem' => 'DCS', 'route' => null, 'description' => 'Modal showing printable DRF request sheet and signatures'],
             ['key' => 'modal.dcs.stamping.config', 'name' => 'PDF Stamping Config Modal', 'type' => 'modal', 'subsystem' => 'DCS', 'route' => null, 'description' => 'Modal for configuring dynamic header stamps and watermarks'],
 

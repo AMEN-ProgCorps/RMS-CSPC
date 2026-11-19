@@ -12,7 +12,6 @@
 use App\Helpers\DcsDatabaseColumns;
 use App\Helpers\DocumentNumberSeriesHelper;
 use App\Helpers\RegisterQueryHelper;
-use App\Models\PersonalSetting;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -20,6 +19,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Renderless;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
@@ -125,20 +125,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->page = max(1, $page);
     }
 
-    /** @param  array<string, mixed>  $visible */
+    /**
+     * Persist Inventory column visibility system-wide (same store as Admin Settings → DCS).
+     * Renderless so hiding a column does not remorph the table and collapse category toggles.
+     *
+     * @param  array<string, mixed>  $visible
+     */
+    #[Renderless]
     public function saveVisibleGroups(array $visible): void
     {
         RegisterQueryHelper::assertFullDcsUser('database');
-        $user = Auth::user();
-        if (! $user) {
-            return;
-        }
-
-        $normalized = DcsDatabaseColumns::normalizeVisibleGroups($visible);
-        PersonalSetting::updateOrCreate(
-            ['user' => $user->id],
-            ['dcs_db_visible_groups' => $normalized]
-        );
+        DcsDatabaseColumns::persistSystemVisibleGroups($visible);
     }
 
     /**
@@ -252,7 +249,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         return array_merge($catalog, [
             'list' => $this->listing(),
-            'visibleGroups' => Auth::user()?->dcsDbVisibleGroups() ?? DcsDatabaseColumns::defaultVisibleGroups(),
+            'visibleGroups' => DcsDatabaseColumns::systemVisibleGroups(),
             'groupColspans' => DcsDatabaseColumns::BUILTIN_COUNTS,
             'groupLabels' => DcsDatabaseColumns::GROUP_LABELS,
             'receivedByOfficeName' => $receivedByOfficeName,
@@ -1659,15 +1656,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 return;
             }
             if (groupMenu && groupMenu.style.display !== 'none' && groupMenu.contains(e.target)) {
-                const btn = e.target.closest?.('button[data-menu-dist], button[data-menu-hide-group]');
+                const btn = e.target.closest?.('button[data-menu-hide-group]');
                 if (!btn) return;
                 e.preventDefault();
                 e.stopPropagation();
-                if (btn.hasAttribute('data-menu-dist') && typeof api.generateDistributionFromGroup === 'function') {
-                    api.generateDistributionFromGroup();
-                    return;
-                }
-                if (btn.hasAttribute('data-menu-hide-group') && typeof api.hideGroupFromMenu === 'function') {
+                if (typeof api.hideGroupFromMenu === 'function') {
                     api.hideGroupFromMenu();
                 }
             }
@@ -2067,24 +2060,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         this.paintRowMenuDom();
         window.open(url, '_blank', 'noopener');
     },
-    generateDistributionFromGroup() {
-        // Blank / catalog sheet from the DISTRIBUTION column header.
-        const url = this.buildDistributionUrl({});
-        this._suppressOutsideClick = false;
-        this.closeGroupMenu();
-        window.open(url, '_blank', 'noopener');
-    },
     hideGroupFromMenu() {
         const g = this.groupMenu.group;
+        this._suppressOutsideClick = false;
+        this.closeGroupMenu();
         if (!g || !this.visible[g]) {
-            this._suppressOutsideClick = false;
-            this.closeGroupMenu();
             return;
         }
         this.visible[g] = false;
         this.persistVisible();
-        this._suppressOutsideClick = false;
-        this.closeGroupMenu();
     },
     collapseAll() {
         const next = Object.values(this.open).some(Boolean);
@@ -2543,14 +2527,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
 {{-- Fixed menus outside .db-page overflow; actions bound via document click (survives Livewire morph) --}}
 <div id="dcs-db-group-menu"
-     class="db-col-context-menu"
+     class="db-col-context-menu db-group-hide-menu"
      wire:ignore
      style="display:none">
-    <button type="button" data-menu-dist>
-        <i class="fa-solid fa-print"></i> Generate distribution sheet
-    </button>
-    <button type="button" data-menu-hide-group>
-        Hide <span data-menu-group-name></span> group
+    <button type="button" data-menu-hide-group class="db-group-hide-btn">
+        <span class="db-group-hide-icon" aria-hidden="true"><i class="fa-solid fa-eye-slash"></i></span>
+        <span class="db-group-hide-copy">
+            <span class="db-group-hide-title">Hide <span data-menu-group-name></span></span>
+            <span class="db-group-hide-sub">Saved for everyone</span>
+        </span>
     </button>
 </div>
 

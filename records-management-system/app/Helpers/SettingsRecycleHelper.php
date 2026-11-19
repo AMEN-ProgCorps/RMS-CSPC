@@ -129,6 +129,10 @@ class SettingsRecycleHelper
      */
     public static function softDelete(string $kind, int $id): bool
     {
+        if (! RegisterQueryHelper::isDcsSoftDeleteEnabled()) {
+            return false;
+        }
+
         $meta = self::entities()[$kind] ?? null;
         if (! $meta || ! self::supports($meta['table'])) {
             return false;

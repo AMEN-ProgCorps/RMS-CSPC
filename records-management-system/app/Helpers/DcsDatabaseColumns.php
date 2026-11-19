@@ -6,17 +6,25 @@
 
 namespace App\Helpers;
 
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
 /**
  * DCS Inventory / Database table column groups (colspan + which cells a row shows).
  *
- * UI: resources/views/pages/dcs/database/* + database.css
+ * Visibility is system-wide (Admin Settings → Document Control), not per-user.
+ *
+ * UI: resources/views/pages/dcs/database/* + Admin Settings DCS tab
  *
  * DEBUG MAP:
  *   Wrong colspan / missing cells     → GROUP_KEYS, BUILTIN_COUNTS, group column defs below
  *   New column not appearing          → add to the group list used by database/_row.blade.php
+ *   Wrong visibility after Admin save → systemVisibleGroups / persistSystemVisibleGroups
  */
 class DcsDatabaseColumns
 {
+    public const SYSTEM_SETTING_KEY = 'dcs_db_visible_groups';
+
     /** @var list<string> */
     public const GROUP_KEYS = [
         'approval',
@@ -103,5 +111,67 @@ class DcsDatabaseColumns
     public static function isValidPlacement(string $groupKey): bool
     {
         return in_array($groupKey, self::placementKeys(), true);
+    }
+
+    /**
+     * System-wide visible groups from Admin Settings (fallback: all visible).
+     *
+     * @return array<string, bool>
+     */
+    public static function systemVisibleGroups(): array
+    {
+        try {
+            $table = Schema::hasTable('sys_system_settings')
+                ? 'sys_system_settings'
+                : (Schema::hasTable('system_settings') ? 'system_settings' : null);
+            if ($table === null) {
+                return self::defaultVisibleGroups();
+            }
+
+            $raw = DB::table($table)->where('key', self::SYSTEM_SETTING_KEY)->value('value');
+            if (! is_string($raw) || trim($raw) === '') {
+                return self::defaultVisibleGroups();
+            }
+
+            $decoded = json_decode($raw, true);
+
+            return self::normalizeVisibleGroups(is_array($decoded) ? $decoded : null);
+        } catch (\Throwable) {
+            return self::defaultVisibleGroups();
+        }
+    }
+
+    /**
+     * Persist system-wide Inventory column group visibility.
+     *
+     * @param  array<string, bool>  $groups
+     * @return array<string, bool>
+     */
+    public static function persistSystemVisibleGroups(array $groups): array
+    {
+        $normalized = self::normalizeVisibleGroups($groups);
+        $table = Schema::hasTable('sys_system_settings')
+            ? 'sys_system_settings'
+            : (Schema::hasTable('system_settings') ? 'system_settings' : null);
+
+        if ($table === null) {
+            return $normalized;
+        }
+
+        $payload = [
+            'value' => json_encode($normalized),
+            'updated_at' => now(),
+        ];
+        $exists = DB::table($table)->where('key', self::SYSTEM_SETTING_KEY)->exists();
+        if (! $exists) {
+            $payload['created_at'] = now();
+        }
+
+        DB::table($table)->updateOrInsert(
+            ['key' => self::SYSTEM_SETTING_KEY],
+            $payload
+        );
+
+        return $normalized;
     }
 }

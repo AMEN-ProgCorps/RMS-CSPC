@@ -11,8 +11,6 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Illuminate\Support\Facades\Auth;
 use App\Models\PersonalSetting;
-use App\Helpers\DcsDatabaseColumns;
-use App\Helpers\RegisterQueryHelper;
 
 new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settings')] class extends Component {
     /** @var bool Personal preference for auto-opening Messify widget upon login */
@@ -44,11 +42,6 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
 
     /** @var string|null Personal preference for messify widget toggle shortcut */
     public ?string $messifyToggleKey = null;
-
-    /** @var array<string, bool> */
-    public array $dcsDbVisibleGroups = [];
-
-    public bool $canManageDcsDbColumns = false;
 
     /** @var string|null Feedback notification message */
     public ?string $feedbackMessage = null;
@@ -96,11 +89,6 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $this->followScrollEnabled = $user->followScrollEnabled();
             $this->followScrollSide = $user->followScrollSide();
             $this->followScrollVertical = $user->followScrollVertical();
-            // Inventory column prefs: full DCS / RFIO / super-admin only — never limited office DCS users.
-            $this->canManageDcsDbColumns = RegisterQueryHelper::isFullDcsUser();
-            $this->dcsDbVisibleGroups = $this->canManageDcsDbColumns
-                ? $user->dcsDbVisibleGroups()
-                : [];
         }
     }
 
@@ -275,81 +263,6 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $this->js("localStorage.setItem('rms-follow-scroll-vertical', '{$val}'); window.RMS_FOLLOW_SCROLL_VERTICAL = {$val}; window.dispatchEvent(new CustomEvent('rms-follow-scroll-changed', { detail: { vertical: {$val} } }));");
             $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Up/Down Follow Scroll preference updated.');
         }
-    }
-
-    /**
-     * Toggles the dcs db group setting or state.
-     *
-     * @param string $groupKey
-     *
-     * @return void
-     */
-    public function toggleDcsDbGroup(string $groupKey): void
-    {
-        if (! RegisterQueryHelper::isFullDcsUser()) {
-            return;
-        }
-        if (! in_array($groupKey, DcsDatabaseColumns::GROUP_KEYS, true)) {
-            return;
-        }
-
-        $user = Auth::user();
-        if (! $user) {
-            return;
-        }
-
-        $groups = DcsDatabaseColumns::normalizeVisibleGroups($this->dcsDbVisibleGroups);
-        $groups[$groupKey] = ! ($groups[$groupKey] ?? true);
-        $this->persistDcsDbVisibleGroups($groups, 'DCS Database column visibility updated.');
-    }
-
-    /**
-     * Displays the all dcs db groups dialog or panel.
-     * @return void
-     */
-    public function showAllDcsDbGroups(): void
-    {
-        if (! RegisterQueryHelper::isFullDcsUser()) {
-            return;
-        }
-        $this->persistDcsDbVisibleGroups(
-            DcsDatabaseColumns::defaultVisibleGroups(),
-            'All DCS Database column groups are visible again.'
-        );
-    }
-
-    /**
-     * Closes or dismisses the all dcs db groups.
-     * @return void
-     */
-    public function hideAllDcsDbGroups(): void
-    {
-        if (! RegisterQueryHelper::isFullDcsUser()) {
-            return;
-        }
-        $hidden = DcsDatabaseColumns::defaultVisibleGroups();
-        foreach ($hidden as $key => $_) {
-            $hidden[$key] = false;
-        }
-        $this->persistDcsDbVisibleGroups($hidden, 'All DCS Database column groups are hidden.');
-    }
-
-    /** @param  array<string, bool>  $groups */
-    private function persistDcsDbVisibleGroups(array $groups, string $message): void
-    {
-        $user = Auth::user();
-        if (! $user) {
-            return;
-        }
-
-        $normalized = DcsDatabaseColumns::normalizeVisibleGroups($groups);
-        PersonalSetting::updateOrCreate(
-            ['user' => $user->id],
-            ['dcs_db_visible_groups' => $normalized]
-        );
-        $this->dcsDbVisibleGroups = $normalized;
-        $this->feedbackMessage = $message;
-        $this->dispatch('rms-settings-changed', type: 'profile_preference', message: $message);
     }
 
     /**
@@ -1262,44 +1175,6 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 </div>
             </div>
         </div>
-
-        @if($canManageDcsDbColumns)
-        <div class="profile-card">
-            <h2 class="card-title">
-                <i class="fa-solid fa-table"></i> DCS Database columns
-                <span class="dcs-db-access-badge">Full DCS only</span>
-            </h2>
-            <div class="settings-block-row">
-                <span class="settings-info-title">Hide or show inventory column groups</span>
-                <span class="settings-info-desc">
-                    Applies to the Inventory table for your account only (RFIO / full DCS). Right-click a group header on Inventory to hide it, or use the toggles below. Limited office users never see this section.
-                </span>
-                <div class="dcs-db-cols-actions">
-                    <button type="button" class="theme-option-btn" wire:click="showAllDcsDbGroups">Show all</button>
-                    <button type="button" class="theme-option-btn" wire:click="hideAllDcsDbGroups">Hide all groups</button>
-                </div>
-            </div>
-            <div class="dcs-db-cols-list">
-                @foreach(\App\Helpers\DcsDatabaseColumns::GROUP_KEYS as $gKey)
-                    <div class="settings-block-row">
-                        <div class="settings-row-header">
-                            <span class="settings-info-title">{{ \App\Helpers\DcsDatabaseColumns::GROUP_LABELS[$gKey] }}</span>
-                            <button type="button" wire:click="toggleDcsDbGroup('{{ $gKey }}')" role="switch"
-                                aria-checked="{{ !empty($dcsDbVisibleGroups[$gKey]) ? 'true' : 'false' }}"
-                                aria-label="Toggle {{ \App\Helpers\DcsDatabaseColumns::GROUP_LABELS[$gKey] }}"
-                                style="position:relative;display:inline-flex;width:48px;height:26px;border:none;cursor:pointer;background-color:{{ !empty($dcsDbVisibleGroups[$gKey]) ? '#2563eb' : '#cbd5e1' }};transition:background-color 0.25s ease;border-radius:26px;padding:0;outline:none;flex-shrink:0;">
-                                <span style="position:absolute;top:3px;left:{{ !empty($dcsDbVisibleGroups[$gKey]) ? '25px' : '3px' }};width:20px;height:20px;background-color:#ffffff;border-radius:50%;transition:left 0.25s ease;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></span>
-                            </button>
-                        </div>
-                    </div>
-                @endforeach
-            </div>
-            <div class="settings-clarification-badge" style="margin-top:4px;">
-                <i class="fa-solid fa-circle-info" style="color:#2563eb;margin-top:2px;"></i>
-                <span>On Inventory, right-click a group header (Approval, DCN, …) to hide it. Restore visibility here anytime.</span>
-            </div>
-        </div>
-        @endif
 
         <!-- Key Binds Card -->
         <div class="profile-card">

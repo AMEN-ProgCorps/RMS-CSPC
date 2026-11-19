@@ -861,6 +861,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     public function confirmDelete(string $kind, int $id, string $title, string $message): void
     {
+        if (! \App\Helpers\RegisterQueryHelper::isDcsSoftDeleteEnabled()) {
+            $this->fail('Delete is disabled. Ask an administrator to enable it in Admin Console → System Settings → Document Control (DCS).');
+
+            return;
+        }
+
         $this->resetFormFor('delete', $id);
         $this->deleteTitle = $title;
         $this->deleteMessage = $message;
@@ -895,6 +901,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function destroy(): void
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
+        if (! \App\Helpers\RegisterQueryHelper::isDcsSoftDeleteEnabled()) {
+            $this->closeModal();
+            $this->fail('Delete is disabled by the administrator.');
+
+            return;
+        }
+
         $kind = str_replace(':delete', '', $this->modalKind);
         $id = (int) $this->editingId;
 
@@ -1410,7 +1423,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $existing = DB::table('dcs_program_courses')->where('id', $editingId);
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($existing, 'dcs_program_courses');
         if (! $existing->exists()) {
-            $this->fail('That course is no longer available. It may have been moved to the Recycle Bin.');
+            $this->fail('That course is no longer available. It may have been moved to the Admin Console Recycle Bin.');
             $this->bumpCourseList();
             $this->closeModal();
 
@@ -1454,7 +1467,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             DB::table('dcs_program_courses')->where('id', $editingId)->update($payload);
         } catch (\Throwable $e) {
             report($e);
-            $this->fail('Could not update course. Check for a duplicate name/code (including items in the Recycle Bin).');
+            $this->fail('Could not update course. Check for a duplicate name/code (including items in the Admin Console Recycle Bin).');
 
             return;
         }
@@ -1945,7 +1958,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_doc_types')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('docType', $id);
-            $this->done('Document type moved to Recycle Bin.');
+            $this->done('Document type moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_doc_types')->where('id', $id)->delete();
@@ -1967,7 +1980,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_originators')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('originator', $id);
-            $this->done('Originator moved to Recycle Bin.');
+            $this->done('Originator moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_originators')->where('id', $id)->delete();
@@ -1989,7 +2002,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_faculties')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('faculty', $id);
-            $this->done('Faculty moved to Recycle Bin.');
+            $this->done('Faculty moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_faculties')->where('id', $id)->delete();
@@ -2013,7 +2026,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_colleges')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('college', $id);
-            $this->done('College moved to Recycle Bin.');
+            $this->done('College moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_colleges')->where('id', $id)->delete();
@@ -2039,7 +2052,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_programs')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('program', $id);
-            $this->done('Program moved to Recycle Bin.');
+            $this->done('Program moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_programs')->where('id', $id)->delete();
@@ -2065,7 +2078,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_semesters')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('semester', $id);
-            $this->done('Semester moved to Recycle Bin.');
+            $this->done('Semester moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_semesters')->where('id', $id)->delete();
@@ -2087,7 +2100,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_school_years')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('schoolYear', $id);
-            $this->done('School year moved to Recycle Bin.');
+            $this->done('School year moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_school_years')->where('id', $id)->delete();
@@ -2110,7 +2123,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_program_courses')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('programCourse', $id);
             $this->bumpCourseList();
-            $this->done('Course moved to Recycle Bin.');
+            $this->done('Course moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_program_courses')->where('id', $id)->delete();
@@ -2322,6 +2335,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($schoolYearsQ, 'dcs_school_years');
 
         return [
+            'canSoftDelete' => \App\Helpers\RegisterQueryHelper::isDcsSoftDeleteEnabled(),
             'docTypeParents' => $docTypeParents,
             'docTypeSubs' => $docTypeSubs,
             'originators' => $originatorsQ
@@ -2551,7 +2565,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <div class="row-actions">
                             <button type="button" class="icon-btn" title="Add sub-type" wire:click="openSubType({{ $type->id }})"><i class="fa-solid fa-plus"></i></button>
                             <button type="button" class="icon-btn" title="Edit" wire:click="openDocType({{ $type->id }})"><i class="fa-solid fa-pen"></i></button>
-                            <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('docType', {{ $type->id }}, 'Delete Document Type', 'This document type will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                            @if(!empty($canSoftDelete))
+                            <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('docType', {{ $type->id }}, 'Delete Document Type', 'This document type will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                            @endif
                         </div>
                     </div>
                     @if(($docTypeSubs[(string) $type->id] ?? collect())->count())
@@ -2561,7 +2577,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <div class="doctype-name"><i class="fa-solid fa-turn-up fa-rotate-90"></i><span>{{ $sub->doc_type_name }}</span></div>
                                     <div class="row-actions">
                                         <button type="button" class="icon-btn" title="Edit" wire:click="openDocType({{ $sub->id }})"><i class="fa-solid fa-pen"></i></button>
-                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('docType', {{ $sub->id }}, 'Delete Document Type', 'This document type will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        @if(!empty($canSoftDelete))
+                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('docType', {{ $sub->id }}, 'Delete Document Type', 'This document type will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        @endif
                                     </div>
                                 </div>
                             @endforeach
@@ -2955,7 +2973,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openOriginator({{ $orig->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('originator', {{ $orig->id }}, 'Delete Originator', 'This originator will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @if(!empty($canSoftDelete))
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('originator', {{ $orig->id }}, 'Delete Originator', 'This originator will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -3040,7 +3060,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openFaculty({{ $fac->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('faculty', {{ $fac->id }}, 'Delete Faculty', 'This faculty will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @if(!empty($canSoftDelete))
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('faculty', {{ $fac->id }}, 'Delete Faculty', 'This faculty will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -3076,7 +3098,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openCollege({{ $college->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('college', {{ $college->id }}, 'Delete College', 'This college will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @if(!empty($canSoftDelete))
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('college', {{ $college->id }}, 'Delete College', 'This college will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -3114,7 +3138,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td>
                                     <div class="row-actions">
                                         <button type="button" class="icon-btn" title="Edit" wire:click="openProgram({{ $prog->id }})"><i class="fa-solid fa-pen"></i></button>
-                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('program', {{ $prog->id }}, 'Delete Program', 'This program will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        @if(!empty($canSoftDelete))
+                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('program', {{ $prog->id }}, 'Delete Program', 'This program will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        @endif
                                     </div>
                                 </td>
                             </tr>
@@ -3144,7 +3170,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openSemester({{ $sem->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('semester', {{ $sem->id }}, 'Delete Semester', 'This semester will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @if(!empty($canSoftDelete))
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('semester', {{ $sem->id }}, 'Delete Semester', 'This semester will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -3171,7 +3199,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openSchoolYear({{ $sy->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('schoolYear', {{ $sy->id }}, 'Delete School Year', 'This school year will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @if(!empty($canSoftDelete))
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('schoolYear', {{ $sy->id }}, 'Delete School Year', 'This school year will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -3277,7 +3307,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td>
                                     <div class="row-actions">
                                         <button type="button" class="icon-btn" title="Edit" wire:click="openProgramCourse({{ $course->id }})"><i class="fa-solid fa-pen"></i></button>
-                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('programCourse', {{ $course->id }}, 'Delete Course', 'This course will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        @if(!empty($canSoftDelete))
+                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('programCourse', {{ $course->id }}, 'Delete Course', 'This course will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        @endif
                                     </div>
                                 </td>
                             </tr>

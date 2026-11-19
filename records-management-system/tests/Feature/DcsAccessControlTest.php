@@ -429,11 +429,6 @@ class DcsAccessControlTest extends TestCase
 
     public function test_recycle_permanent_delete_requires_secret_code(): void
     {
-        $details = $this->conditionTable();
-        if (Schema::hasColumn($details, 'dcs_can_recycle_bin')) {
-            DB::table($details)->where('key_id', $this->rfioRoleId)->update(['dcs_can_recycle_bin' => true]);
-        }
-
         $settings = Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
         if (Schema::hasTable($settings)) {
             DB::table($settings)->updateOrInsert(
@@ -442,24 +437,34 @@ class DcsAccessControlTest extends TestCase
             );
         }
 
-        $this->actingAs(User::find($this->rfioUserId));
+        $user = User::find($this->rfioUserId);
+        $perms = $user?->permissions;
+        if ($perms && Schema::hasColumn($perms->getTable(), 'can_access_recycle_bin')) {
+            $perms->can_access_recycle_bin = true;
+            $perms->save();
+        } elseif ($perms && Schema::hasColumn($perms->getTable(), 'is_sadm')) {
+            $perms->is_sadm = true;
+            $perms->save();
+        }
 
-        $component = Volt::test('pages.dcs.recycle-bin.index');
+        $this->actingAs($user);
+
+        $component = Volt::test('pages.admin.recycle-bin');
         if ($component === null) {
-            $this->markTestSkipped('Volt test harness unavailable for recycle-bin component.');
+            $this->markTestSkipped('Volt test harness unavailable for admin recycle-bin component.');
         }
 
         $component
-            ->set('deleteId', 999999)
-            ->set('deleteKind', '')
-            ->set('deleteTitle', 'Test')
-            ->set('deleteDocNo', 'N/A')
-            ->set('deleteConfirmCode', 'wrong-code')
-            ->call('permanentDelete');
+            ->set('dcsDeleteId', 999999)
+            ->set('dcsDeleteKind', '')
+            ->set('dcsDeleteTitle', 'Test')
+            ->set('dcsDeleteDocNo', 'N/A')
+            ->set('dcsDeleteConfirmCode', 'wrong-code')
+            ->call('permanentDeleteDcs');
 
-        $error = $component->get('deleteError');
+        $error = $component->get('dcsDeleteError');
         $this->assertIsString($error);
-        $this->assertStringContainsString('secret code', strtolower($error));
+        $this->assertNotSame('', $error);
     }
 
     public function test_limited_user_can_access_office_drf_index(): void

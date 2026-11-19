@@ -12,7 +12,6 @@
     $canManageFiles = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('manage_files');
     $canRandomCheck = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('random_check');
     $canSettings = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('settings');
-    $canRecycleBin = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('recycle_bin');
     $navGuides = \App\Services\ManualService::getNavGuides();
 @endphp
 
@@ -354,16 +353,6 @@
                 </li>
             @endif
 
-            @if($canRecycleBin)
-                <li class="nav-item {{ request()->routeIs('dcs.recycle-bin') ? 'active' : '' }}"
-                    data-nav-guide="{{ $navGuides['Recycle Bin'] ?? 'Restore or permanently remove deleted DCS records' }}">
-                    <a href="{{ route('dcs.recycle-bin', absolute: false) }}">
-                        <i class="fa-solid fa-trash-can"></i>
-                        <span>Recycle Bin</span>
-                        <span class="tooltip">{{ $navGuides['Recycle Bin'] ?? 'HEAD Admin — Recycle Bin' }}</span>
-                    </a>
-                </li>
-            @endif
         @endif
     </ul>
 

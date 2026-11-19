@@ -1299,9 +1299,8 @@ Route::middleware(['auth'])
                     Volt::route('/review', 'pages.dcs.review.index')->name('review');
                 });
 
-                Route::middleware(['dcs.module:recycle_bin'])->group(function () {
-                    Volt::route('/recycle-bin', 'pages.dcs.recycle-bin.index')->name('recycle-bin');
-                });
+                // DCS Recycle Bin unified into Admin Console Recycle Bin.
+                Route::redirect('/recycle-bin', '/admin/recycle-bin')->name('recycle-bin');
 
                 Route::middleware(['dcs.module:reports'])->group(function () {
                     Volt::route('/reports/masterlist', 'pages.dcs.reports.show')->name('reports.masterlist');

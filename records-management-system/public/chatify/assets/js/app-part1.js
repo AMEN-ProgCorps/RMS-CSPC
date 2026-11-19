@@ -6621,6 +6621,26 @@
         const m = window.activeCustomGcMembers.find(x => Number(x.account_id) === targetId);
         if (m) m.is_messify_verified = !!isVerified;
       }
+      if (window._gcSelectedMembers && typeof window._gcSelectedMembers.get === 'function') {
+        const selected = window._gcSelectedMembers.get(targetId);
+        if (selected) selected.is_messify_verified = !!isVerified;
+      }
+      const gcSearchRow = document.querySelector(`#gcMemberSearchResults [data-account-id="${targetId}"]`);
+      if (gcSearchRow) {
+        const gcNameSpan = gcSearchRow.querySelector('span');
+        if (gcNameSpan) {
+          const existingGcBadge = gcNameSpan.querySelector('.verified-badge');
+          if (isVerified && !existingGcBadge) {
+            const vBadge = document.createElement('span');
+            vBadge.className = 'verified-badge';
+            vBadge.style.cssText = 'flex-shrink:0;';
+            vBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+            gcNameSpan.appendChild(vBadge);
+          } else if (!isVerified && existingGcBadge) {
+            existingGcBadge.remove();
+          }
+        }
+      }
       const row = document.querySelector(`#officeMembersList [data-account-id="${targetId}"]`);
       if (!row) return;
 

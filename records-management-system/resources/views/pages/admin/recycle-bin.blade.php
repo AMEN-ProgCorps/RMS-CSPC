@@ -2,16 +2,22 @@
 /**
  * Admin Console - Recycle Bin Volt Component
  *
- * Provides a unified view of all soft-deleted (deactivated) items across
- * Offices, Clusters, and Transaction Flows with restore capabilities.
+ * Unified soft-deleted / deactivated items: Offices, Clusters, Roles, Flows,
+ * Users, RDP series/types, plus DCS documents and DCS settings catalogs.
  */
 
+use App\Helpers\RegisterPersistHelper;
+use App\Helpers\RegisterQueryHelper;
+use App\Helpers\RegisterUpdateHelper;
+use App\Helpers\SettingsRecycleHelper;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class extends Component {
-    /** @var string Active tab: 'offices', 'clusters', 'roles', 'flows', 'users', 'series', or 'types' */
+    /** @var string Active tab */
     public string $activeTab = 'offices';
 
     /** @var string Real-time search query */
@@ -29,6 +35,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
     /** @var string Flow purpose filter (used on flows tab) */
     public string $flowPurposeFilter = 'all';
 
+    public int $dcsPage = 1;
+
+    public ?int $dcsDeleteId = null;
+    public string $dcsDeleteKind = '';
+    public string $dcsDeleteTitle = '';
+    public string $dcsDeleteDocNo = '';
+    public string $dcsDeleteConfirmCode = '';
+    public string $dcsDeleteError = '';
+
     /**
      * Initializes component state, authorization gates, and default configurations.
      * @return void
@@ -40,6 +55,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             $this->redirect(route('portal'));
             return;
         }
+
+        if (session('success')) {
+            $this->successMessage = (string) session('success');
+        }
+        if (session('error')) {
+            $this->errorMessage = (string) session('error');
+        }
     }
 
     /**
@@ -48,6 +70,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
     public function updatingSearch(): void
     {
         $this->selectedIds = [];
+        $this->dcsPage = 1;
     }
 
     /**
@@ -287,7 +310,153 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
         $this->selectedIds = [];
         $this->search = '';
         $this->flowPurposeFilter = 'all';
+        $this->dcsPage = 1;
+        $this->closeDcsDelete();
         $this->clearMessages();
+    }
+
+    public function goToDcsPage(int $page): void
+    {
+        $this->dcsPage = max(1, $page);
+    }
+
+    public function restoreDcsDocument(int $id): void
+    {
+        $this->clearMessages();
+        try {
+            RegisterUpdateHelper::restore($id);
+            $this->successMessage = session('success') ?: 'Document restored from Recycle Bin successfully.';
+            $this->errorMessage = session('error') ?: '';
+            session()->forget(['success', 'error']);
+            if ($this->errorMessage !== '') {
+                $this->successMessage = '';
+            }
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Failed to restore document: ' . $e->getMessage();
+        }
+    }
+
+    public function restoreDcsSetting(string $kind, int $id): void
+    {
+        $this->clearMessages();
+        $result = SettingsRecycleHelper::restore($kind, $id);
+        if (! ($result['ok'] ?? false)) {
+            $this->errorMessage = $result['message'] ?? 'Restore failed.';
+
+            return;
+        }
+        RegisterPersistHelper::logAdminChange('Restored settings item from Recycle Bin (kind=' . $kind . ', id=' . $id . ')');
+        $this->successMessage = 'Settings item restored from Recycle Bin successfully.';
+    }
+
+    public function confirmDcsDelete(int $id, string $title, string $docNo = '', string $kind = ''): void
+    {
+        $this->dcsDeleteId = $id;
+        $this->dcsDeleteKind = $kind;
+        $this->dcsDeleteTitle = $title;
+        $this->dcsDeleteDocNo = $docNo;
+        $this->dcsDeleteConfirmCode = '';
+        $this->dcsDeleteError = '';
+    }
+
+    public function closeDcsDelete(): void
+    {
+        $this->dcsDeleteId = null;
+        $this->dcsDeleteKind = '';
+        $this->dcsDeleteTitle = '';
+        $this->dcsDeleteDocNo = '';
+        $this->dcsDeleteConfirmCode = '';
+        $this->dcsDeleteError = '';
+    }
+
+    public function permanentDeleteDcs(?string $confirmCode = null): void
+    {
+        abort_unless(
+            RegisterQueryHelper::canPermanentlyDeleteDcsDocuments(),
+            403,
+            'You do not have permission to permanently delete DCS items.'
+        );
+
+        if (! $this->dcsDeleteId) {
+            return;
+        }
+
+        $this->dcsDeleteError = '';
+        if (is_string($confirmCode)) {
+            $this->dcsDeleteConfirmCode = $confirmCode;
+        }
+
+        $expectedCode = $this->configuredDcsDeleteCode();
+        if ($expectedCode === '') {
+            $this->dcsDeleteError = 'Permanent delete is not configured. Set the code in Admin → System Settings (or DCS_RECYCLE_DELETE_CODE).';
+
+            return;
+        }
+
+        $provided = trim((string) $this->dcsDeleteConfirmCode);
+        if ($provided === '' || ! hash_equals($expectedCode, $provided)) {
+            $this->dcsDeleteError = $provided === ''
+                ? 'Enter the secret code to permanently delete.'
+                : 'Incorrect secret code. Permanent delete was blocked.';
+
+            return;
+        }
+
+        $id = $this->dcsDeleteId;
+        $kind = $this->dcsDeleteKind;
+        $title = $this->dcsDeleteTitle;
+        $docNo = $this->dcsDeleteDocNo;
+        $this->closeDcsDelete();
+        $this->clearMessages();
+
+        try {
+            if ($kind !== '') {
+                SettingsRecycleHelper::permanentDestroy($kind, $id);
+                RegisterPersistHelper::logAdminChange(
+                    'Permanently deleted settings item #' . $id
+                    . ($title !== '' ? ': ' . $title : '')
+                    . ' (secret code verified)'
+                );
+                $this->successMessage = 'Settings item permanently deleted from Recycle Bin.';
+
+                return;
+            }
+
+            RegisterPersistHelper::logAdminChange(
+                'Permanently deleted document #' . $id
+                . ($docNo !== '' && $docNo !== 'N/A' ? ' — ' . $docNo : '')
+                . ($title !== '' ? ': ' . $title : '')
+                . ' (secret code verified)'
+            );
+            RegisterUpdateHelper::permanentDestroy($id, false);
+            $this->successMessage = 'Document permanently deleted.';
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Failed to permanently delete: ' . $e->getMessage();
+        }
+    }
+
+    private function configuredDcsDeleteCode(): string
+    {
+        try {
+            $table = Schema::hasTable('sys_system_settings')
+                ? 'sys_system_settings'
+                : 'system_settings';
+
+            if (Schema::hasTable($table)) {
+                $fromDb = DB::table($table)->where('key', 'dcs_recycle_delete_code')->value('value');
+                if (is_string($fromDb) && trim($fromDb) !== '') {
+                    return trim($fromDb);
+                }
+            }
+        } catch (\Throwable) {
+        }
+
+        $fromConfig = config('dcs.recycle_delete_code');
+        if (is_string($fromConfig) && trim($fromConfig) !== '') {
+            return trim($fromConfig);
+        }
+
+        return trim((string) env('DCS_RECYCLE_DELETE_CODE', ''));
     }
 
     /**
@@ -635,6 +804,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
         }
         $deactivatedSeriesTypes = $typesQuery->orderBy('type_name', 'asc')->get();
 
+        $dcsDocs = RegisterQueryHelper::recycleBinList(
+            $this->activeTab === 'dcs-documents' ? $this->search : '',
+            $this->activeTab === 'dcs-documents' ? $this->dcsPage : 1,
+            15,
+            false
+        );
+        $dcsSettings = SettingsRecycleHelper::recycleBinList(
+            $this->activeTab === 'dcs-settings' ? $this->search : '',
+            $this->activeTab === 'dcs-settings' ? $this->dcsPage : 1
+        );
+
         return [
             'deactivatedOffices' => $deactivatedOffices,
             'deactivatedClusters' => $deactivatedClusters,
@@ -643,6 +823,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             'deactivatedUsers' => $deactivatedUsers,
             'deactivatedSeries' => $deactivatedSeries,
             'deactivatedSeriesTypes' => $deactivatedSeriesTypes,
+            'dcsDocuments' => $dcsDocs,
+            'dcsSettings' => $dcsSettings,
+            'canPermanentlyDeleteDcs' => RegisterQueryHelper::canPermanentlyDeleteDcsDocuments(),
+            'dcsDeleteCodeConfigured' => $this->configuredDcsDeleteCode() !== '',
         ];
     }
 };
@@ -1097,6 +1281,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
         </button>
         <button type="button" class="tab-btn {{ $activeTab === 'types' ? 'active' : '' }}" wire:click="switchTab('types')">
             <i class="fa-solid fa-tags" style="margin-right: 6px;"></i> Record Series Types
+        </button>
+        <button type="button" class="tab-btn {{ $activeTab === 'dcs-documents' ? 'active' : '' }}" wire:click="switchTab('dcs-documents')">
+            <i class="fa-solid fa-file-lines" style="margin-right: 6px;"></i> DCS Documents
+            <span style="opacity:0.65;font-weight:500;">({{ $dcsDocuments['total'] ?? 0 }})</span>
+        </button>
+        <button type="button" class="tab-btn {{ $activeTab === 'dcs-settings' ? 'active' : '' }}" wire:click="switchTab('dcs-settings')">
+            <i class="fa-solid fa-sliders" style="margin-right: 6px;"></i> DCS Settings
+            <span style="opacity:0.65;font-weight:500;">({{ $dcsSettings['total'] ?? 0 }})</span>
         </button>
     </div>
 
@@ -1793,6 +1985,228 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                             <p class="recycle-empty-desc">No removed record series types found.</p>
                         </div>
                     @endforelse
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- ==================== DCS DOCUMENTS TAB ==================== --}}
+    @if($activeTab === 'dcs-documents')
+        <div class="admin-offices-container" wire:key="tab-recycle-dcs-documents">
+            <div class="directory-panel" style="width: 100%; max-width: 100%; max-height: none;">
+                <div class="directory-header-row">
+                    <span class="recycle-header-title">
+                        <i class="fa-solid fa-file-lines title-icon"></i>
+                        Soft-deleted DCS Documents
+                        <span class="count-badge">({{ $dcsDocuments['total'] ?? 0 }})</span>
+                    </span>
+                </div>
+
+                <div class="search-box-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" class="search-box" placeholder="Search deleted documents by title, document no, or keywords..." wire:model.live.debounce.400ms="search">
+                </div>
+
+                @if($successMessage)
+                    <div class="recycle-toast-success">
+                        <i class="fa-solid fa-circle-check" style="color: #059669;"></i>
+                        {{ $successMessage }}
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
+                    </div>
+                @endif
+                @if($errorMessage)
+                    <div class="recycle-toast-error">
+                        <i class="fa-solid fa-circle-xmark" style="color: #dc2626;"></i>
+                        {{ $errorMessage }}
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
+                    </div>
+                @endif
+
+                <div class="offices-list">
+                    @forelse($dcsDocuments['rows'] as $doc)
+                        <div wire:key="recycle-dcs-doc-{{ $doc['request_id'] }}" class="recycle-item-card" style="align-items: flex-start;">
+                            <div class="recycle-item-avatar">DOC</div>
+                            <div class="recycle-item-info">
+                                <span class="recycle-item-title">{{ $doc['title'] }}</span>
+                                <span class="recycle-item-sub">
+                                    {{ $doc['doc_no'] }} &bull; {{ $doc['doc_type'] }} &bull; Rev {{ $doc['rev_no'] }}
+                                </span>
+                                <span class="recycle-item-sub" style="font-size: 11px;">
+                                    Deleted {{ $doc['deleted_at'] }}
+                                    @if(!empty($doc['deleted_by'])) by {{ $doc['deleted_by'] }} @endif
+                                    &bull; Expires {{ $doc['expires_at'] }}
+                                    @if(isset($doc['days_left'])) ({{ max(0, $doc['days_left']) }}d left) @endif
+                                </span>
+                                @if(!empty($doc['deleted_reason']))
+                                    <span class="recycle-item-sub" style="font-size: 11px; white-space: normal;">Reason: {{ $doc['deleted_reason'] }}</span>
+                                @endif
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:6px; flex-shrink:0;">
+                                <button type="button"
+                                        wire:click="restoreDcsDocument({{ $doc['request_id'] }})"
+                                        wire:confirm="Restore this document to the active DCS list?"
+                                        class="recycle-btn-restore">
+                                    <i class="fa-solid fa-rotate-left"></i> Restore
+                                </button>
+                                @if($canPermanentlyDeleteDcs)
+                                    <button type="button"
+                                            wire:click="confirmDcsDelete({{ $doc['request_id'] }}, @js($doc['title']), @js($doc['doc_no']), '')"
+                                            class="recycle-btn-restore"
+                                            style="background:#dc2626;">
+                                        <i class="fa-solid fa-trash"></i> Delete
+                                    </button>
+                                @endif
+                            </div>
+                        </div>
+                    @empty
+                        <div class="recycle-empty-state">
+                            <i class="fa-solid fa-recycle recycle-empty-icon"></i>
+                            <h3 class="recycle-empty-title">No soft-deleted DCS documents</h3>
+                            <p class="recycle-empty-desc">Deleted registrations appear here for {{ $dcsDocuments['retention_years'] ?? 1 }} year.</p>
+                        </div>
+                    @endforelse
+                </div>
+
+                @if(($dcsDocuments['last_page'] ?? 1) > 1)
+                    <div style="display:flex; justify-content:center; gap:8px; margin-top:16px;">
+                        <button type="button" class="recycle-btn-restore" style="background:#64748b;"
+                            wire:click="goToDcsPage({{ max(1, ($dcsDocuments['current_page'] ?? 1) - 1) }})"
+                            @disabled(($dcsDocuments['current_page'] ?? 1) <= 1)>Prev</button>
+                        <span style="font-size:12px; color:#64748b; align-self:center;">
+                            Page {{ $dcsDocuments['current_page'] ?? 1 }} / {{ $dcsDocuments['last_page'] ?? 1 }}
+                        </span>
+                        <button type="button" class="recycle-btn-restore" style="background:#64748b;"
+                            wire:click="goToDcsPage({{ min(($dcsDocuments['last_page'] ?? 1), ($dcsDocuments['current_page'] ?? 1) + 1) }})"
+                            @disabled(($dcsDocuments['current_page'] ?? 1) >= ($dcsDocuments['last_page'] ?? 1))>Next</button>
+                    </div>
+                @endif
+            </div>
+        </div>
+    @endif
+
+    {{-- ==================== DCS SETTINGS TAB ==================== --}}
+    @if($activeTab === 'dcs-settings')
+        <div class="admin-offices-container" wire:key="tab-recycle-dcs-settings">
+            <div class="directory-panel" style="width: 100%; max-width: 100%; max-height: none;">
+                <div class="directory-header-row">
+                    <span class="recycle-header-title">
+                        <i class="fa-solid fa-sliders title-icon"></i>
+                        Soft-deleted DCS Settings
+                        <span class="count-badge">({{ $dcsSettings['total'] ?? 0 }})</span>
+                    </span>
+                </div>
+
+                <div class="search-box-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" class="search-box" placeholder="Search deleted settings by name or type..." wire:model.live.debounce.400ms="search">
+                </div>
+
+                @if($successMessage)
+                    <div class="recycle-toast-success">
+                        <i class="fa-solid fa-circle-check" style="color: #059669;"></i>
+                        {{ $successMessage }}
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
+                    </div>
+                @endif
+                @if($errorMessage)
+                    <div class="recycle-toast-error">
+                        <i class="fa-solid fa-circle-xmark" style="color: #dc2626;"></i>
+                        {{ $errorMessage }}
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
+                    </div>
+                @endif
+
+                <div class="offices-list">
+                    @forelse($dcsSettings['rows'] as $item)
+                        <div wire:key="recycle-dcs-setting-{{ $item['kind'] }}-{{ $item['id'] }}" class="recycle-item-card" style="align-items: flex-start;">
+                            <div class="recycle-item-avatar">SET</div>
+                            <div class="recycle-item-info">
+                                <span class="recycle-item-title">{{ $item['title'] }}</span>
+                                <span class="recycle-item-sub">{{ $item['doc_type'] }}</span>
+                                <span class="recycle-item-sub" style="font-size: 11px;">
+                                    Deleted {{ $item['deleted_at'] }}
+                                    @if(!empty($item['deleted_by'])) by {{ $item['deleted_by'] }} @endif
+                                    &bull; Expires {{ $item['expires_at'] }}
+                                </span>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:6px; flex-shrink:0;">
+                                <button type="button"
+                                        wire:click="restoreDcsSetting(@js($item['kind']), {{ $item['id'] }})"
+                                        wire:confirm="Restore this settings item to DCS Settings?"
+                                        class="recycle-btn-restore">
+                                    <i class="fa-solid fa-rotate-left"></i> Restore
+                                </button>
+                                @if($canPermanentlyDeleteDcs)
+                                    <button type="button"
+                                            wire:click="confirmDcsDelete({{ $item['id'] }}, @js($item['title']), '—', @js($item['kind']))"
+                                            class="recycle-btn-restore"
+                                            style="background:#dc2626;">
+                                        <i class="fa-solid fa-trash"></i> Delete
+                                    </button>
+                                @endif
+                            </div>
+                        </div>
+                    @empty
+                        <div class="recycle-empty-state">
+                            <i class="fa-solid fa-recycle recycle-empty-icon"></i>
+                            <h3 class="recycle-empty-title">No soft-deleted DCS settings</h3>
+                            <p class="recycle-empty-desc">Deleted catalog items appear here for {{ $dcsSettings['retention_years'] ?? 1 }} year.</p>
+                        </div>
+                    @endforelse
+                </div>
+
+                @if(($dcsSettings['last_page'] ?? 1) > 1)
+                    <div style="display:flex; justify-content:center; gap:8px; margin-top:16px;">
+                        <button type="button" class="recycle-btn-restore" style="background:#64748b;"
+                            wire:click="goToDcsPage({{ max(1, ($dcsSettings['current_page'] ?? 1) - 1) }})"
+                            @disabled(($dcsSettings['current_page'] ?? 1) <= 1)>Prev</button>
+                        <span style="font-size:12px; color:#64748b; align-self:center;">
+                            Page {{ $dcsSettings['current_page'] ?? 1 }} / {{ $dcsSettings['last_page'] ?? 1 }}
+                        </span>
+                        <button type="button" class="recycle-btn-restore" style="background:#64748b;"
+                            wire:click="goToDcsPage({{ min(($dcsSettings['last_page'] ?? 1), ($dcsSettings['current_page'] ?? 1) + 1) }})"
+                            @disabled(($dcsSettings['current_page'] ?? 1) >= ($dcsSettings['last_page'] ?? 1))>Next</button>
+                    </div>
+                @endif
+            </div>
+        </div>
+    @endif
+
+    @if($dcsDeleteId)
+        <div class="rb-modal-overlay" style="position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:80;display:flex;align-items:center;justify-content:center;padding:16px;" x-data>
+            <div style="background:#fff;border-radius:12px;max-width:440px;width:100%;padding:22px;box-shadow:0 20px 40px rgba(0,0,0,.18);">
+                <h3 style="margin:0 0 8px;font-size:16px;color:#0f172a;">Permanently Delete?</h3>
+                <p style="margin:0 0 14px;font-size:13px;color:#64748b;line-height:1.45;">
+                    This will permanently remove <strong>{{ $dcsDeleteTitle }}</strong>
+                    @if($dcsDeleteKind === '' && $dcsDeleteDocNo && $dcsDeleteDocNo !== 'N/A' && $dcsDeleteDocNo !== '—')
+                        ({{ $dcsDeleteDocNo }})
+                    @endif
+                    {{ $dcsDeleteKind !== '' ? 'from Settings.' : 'and its scanned files.' }} This cannot be undone.
+                </p>
+                <label style="display:block;font-size:12px;font-weight:600;color:#334155;margin-bottom:6px;">Secret code</label>
+                <input type="password" x-ref="deleteCode" wire:model.live="dcsDeleteConfirmCode"
+                    autocomplete="off" placeholder="Enter permanent-delete secret code"
+                    style="width:100%;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;margin-bottom:8px;"
+                    @keydown.enter.prevent="$wire.permanentDeleteDcs($refs.deleteCode.value)">
+                <p style="margin:0 0 10px;font-size:11.5px;color:#64748b;">
+                    @if($dcsDeleteCodeConfigured)
+                        Enter the code from Admin → System Settings (or .env fallback).
+                    @else
+                        Permanent delete is disabled until the code is set in Admin → System Settings.
+                    @endif
+                </p>
+                @if($dcsDeleteError !== '')
+                    <div style="margin-bottom:10px;padding:8px 10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px;">{{ $dcsDeleteError }}</div>
+                @endif
+                <div style="display:flex;justify-content:flex-end;gap:8px;">
+                    <button type="button" wire:click="closeDcsDelete" style="padding:7px 14px;border-radius:6px;border:1px solid #e2e8f0;background:#fff;font-size:12px;font-weight:600;cursor:pointer;">Cancel</button>
+                    <button type="button"
+                        @click="$wire.permanentDeleteDcs($refs.deleteCode.value)"
+                        wire:loading.attr="disabled"
+                        @disabled(! $dcsDeleteCodeConfigured)
+                        style="padding:7px 14px;border-radius:6px;border:none;background:#dc2626;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">
+                        Delete forever
+                    </button>
                 </div>
             </div>
         </div>

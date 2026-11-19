@@ -9,9 +9,10 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Artisan::command('dcs:purge-recycle-bin', function () {
-    $count = \App\Helpers\RegisterUpdateHelper::purgeExpiredRecycleBin();
-    $this->info("Purged {$count} expired Recycle Bin document(s).");
-})->purpose('Permanently delete DCS Recycle Bin items older than 1 year');
+    $docs = \App\Helpers\RegisterUpdateHelper::purgeExpiredRecycleBin();
+    $settings = \App\Helpers\SettingsRecycleHelper::purgeExpired();
+    $this->info("Purged {$docs} expired Recycle Bin document(s) and {$settings} settings item(s).");
+})->purpose('Permanently delete expired DCS Recycle Bin documents and settings (Admin Recycle Bin)');
 
 Schedule::command('dcs:purge-recycle-bin')->daily();
 

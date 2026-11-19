@@ -41,7 +41,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return [
             'docTypes' => RegisterQueryHelper::parentDocTypes(),
             'list' => RegisterQueryHelper::updateList($this->search, $this->docTypeId, $this->page),
-            'canReviewRecycleBin' => RegisterQueryHelper::isDocumentControlHead(),
         ];
     }
 
@@ -97,6 +96,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     public function confirmDelete(int $id, string $title, int $rev): void
     {
+        if (! RegisterQueryHelper::isDocumentDeleteEnabled()) {
+            $this->dispatch(
+                'dcs-toast',
+                message: 'Document delete is disabled by the administrator.',
+                type: 'error'
+            );
+
+            return;
+        }
+
         $this->deleteId = $id;
         $this->deleteTitle = $title;
         $this->deleteRev = $rev;
@@ -333,13 +342,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="upd-modal-icon upd-modal-icon-recycle"><i class="fa-solid fa-trash-can"></i></div>
             <h3>Delete Document?</h3>
             <p>
-                This will move <strong>{{ $deleteTitle }}</strong> (Rev {{ $deleteRev }}) to the Recycle Bin
-                for HEAD Admin of DCS review. It is not permanently deleted.
-                @if($canReviewRecycleBin)
+                This will move <strong>{{ $deleteTitle }}</strong> (Rev {{ $deleteRev }}) to the
+                Admin Console Recycle Bin. It is not permanently deleted.
+                @if(\App\Helpers\RegisterQueryHelper::canAccessAdminRecycleBin())
                     You can review it in the
-                    <a href="{{ route('dcs.recycle-bin', absolute: false) }}" class="upd-modal-link">Recycle Bin</a>.
+                    <a href="{{ route('admin.recycle-bin', absolute: false) }}" class="upd-modal-link">Admin Recycle Bin</a>.
                 @else
-                    Only the HEAD Admin of DCS can review it in the Recycle Bin or permanently delete it.
+                    Admins with Recycle Bin access can restore it or permanently delete it from the Admin Console.
                 @endif
             </p>
             <div class="upd-modal-field">

@@ -2271,6 +2271,489 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
         .dts-timeline-node-wrapper:hover .dts-timeline-node-dot {
             transform: scale(1.2) !important;
         }
+
+        /* ═══════════════════════════════════════════════════════════════
+           DTS ISSUANCE OVERHAULED MODAL (Unique Registry Dossier)
+           ═══════════════════════════════════════════════════════════════ */
+        .dts-im-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            box-sizing: border-box;
+            animation: dtsImFadeIn 0.2s ease-out;
+        }
+        @keyframes dtsImFadeIn {
+            from { opacity: 0; transform: scale(0.98); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .dts-im-card {
+            background: #ffffff;
+            width: 100%;
+            max-width: 1060px;
+            max-height: 94vh;
+            border-radius: 18px;
+            box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            border: 1px solid #e2e8f0;
+        }
+        .dts-im-header {
+            background: linear-gradient(135deg, #091b3e 0%, #173878 50%, #1e40af 100%);
+            color: #ffffff;
+            padding: 20px 26px 18px;
+            flex-shrink: 0;
+            position: relative;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        .dts-im-header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .dts-im-header-identity {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .dts-im-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            color: #e0f2fe;
+        }
+        .dts-im-status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11.5px;
+            font-weight: 700;
+            border: 1px solid transparent;
+        }
+        .dts-im-close-btn {
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            font-size: 20px;
+            color: #ffffff;
+            cursor: pointer;
+            border-radius: 50%;
+            width: 34px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+            line-height: 1;
+        }
+        .dts-im-close-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: rotate(90deg);
+        }
+        .dts-im-header-main {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .dts-im-control-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .dts-im-control-label {
+            font-size: 10.5px;
+            font-weight: 700;
+            letter-spacing: 0.9px;
+            text-transform: uppercase;
+            color: #93c5fd;
+        }
+        .dts-im-control-val {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 20px;
+            font-weight: 800;
+            color: #ffffff;
+            font-family: 'JetBrains Mono', monospace, monospace;
+            letter-spacing: 0.5px;
+        }
+        .dts-im-copy-btn {
+            background: rgba(255, 255, 255, 0.18);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            color: #ffffff;
+            border-radius: 6px;
+            padding: 3px 9px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.15s ease;
+        }
+        .dts-im-copy-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        .dts-im-meta-cluster {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+        .dts-im-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(15, 23, 42, 0.35);
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .dts-im-meta-item i {
+            color: #93c5fd;
+            font-size: 13px;
+        }
+        .dts-im-meta-k {
+            display: block;
+            font-size: 9.5px;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: #cbd5e1;
+        }
+        .dts-im-meta-v {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #ffffff;
+            white-space: nowrap;
+        }
+        .dts-im-body {
+            padding: 22px 26px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            background: #f8fafc;
+        }
+        .dts-im-card-panel {
+            background: #ffffff;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+            padding: 18px 20px;
+        }
+        .dts-im-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            gap: 10px;
+        }
+        .dts-im-panel-title {
+            font-size: 13.5px;
+            font-weight: 700;
+            color: #0f172a;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+        .dts-im-subject-box {
+            border-left: 4px solid #2563eb;
+            background: #f8fafc;
+            border-radius: 0 8px 8px 0;
+            padding: 12px 16px;
+            font-size: 13.5px;
+            line-height: 1.6;
+            color: #1e293b;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+        .dts-im-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 12px;
+        }
+        .dts-im-tile {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 10px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .dts-im-tile-k {
+            font-size: 10.5px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .dts-im-tile-v {
+            font-size: 13px;
+            font-weight: 600;
+            color: #0f172a;
+            word-break: break-word;
+        }
+        .dts-im-tabs {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #f1f5f9;
+            padding: 4px;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+        }
+        .dts-im-tab-btn {
+            border: none;
+            background: transparent;
+            padding: 6px 14px;
+            border-radius: 7px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #64748b;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s ease;
+        }
+        .dts-im-tab-btn.active {
+            background: #ffffff;
+            color: #1e40af;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+        .dts-im-table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        }
+        .dts-im-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 12.5px;
+            text-align: left;
+        }
+        .dts-im-table th {
+            background: #f1f5f9;
+            color: #475569;
+            font-weight: 700;
+            padding: 10px 14px;
+            border-bottom: 1.5px solid #cbd5e1;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            white-space: nowrap;
+        }
+        .dts-im-table td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: middle;
+            color: #334155;
+            background: #ffffff;
+        }
+        .dts-im-table tbody tr:hover td {
+            background: #f8fafc;
+        }
+        .dts-im-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .dts-im-step-num {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #e0f2fe;
+            color: #0284c7;
+            font-weight: 700;
+            font-size: 11.5px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .dts-im-office-badge {
+            font-weight: 700;
+            color: #1e40af;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11.5px;
+            margin-right: 6px;
+            display: inline-block;
+        }
+        .dts-im-user-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11.5px;
+            color: #475569;
+            margin-top: 3px;
+        }
+        .dts-im-duration-pill {
+            background: #f1f5f9;
+            color: #475569;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+        .dts-im-footer {
+            padding: 14px 26px;
+            background: #ffffff;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            flex-shrink: 0;
+        }
+        .dts-im-footer-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .dts-im-btn {
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #334155;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s ease;
+            font-family: inherit;
+            line-height: 1;
+        }
+        .dts-im-btn:hover {
+            background: #f8fafc;
+            border-color: #94a3b8;
+        }
+        .dts-im-btn-primary {
+            background: #2563eb;
+            color: #ffffff;
+            border-color: #1d4ed8;
+        }
+        .dts-im-btn-primary:hover {
+            background: #1d4ed8;
+        }
+        .dts-im-btn-success {
+            background: #16a34a;
+            color: #ffffff;
+            border-color: #15803d;
+        }
+        .dts-im-btn-success:hover {
+            background: #15803d;
+        }
+        .dts-im-btn-danger {
+            background: #fee2e2;
+            color: #b91c1c;
+            border-color: #fca5a5;
+        }
+        .dts-im-btn-danger:hover {
+            background: #fecaca;
+        }
+
+        /* Dark Mode Overrides */
+        [data-theme="dark"] .dts-im-card {
+            background: #0f172a;
+            border-color: #1e293b;
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .dts-im-body {
+            background: #090d16;
+        }
+        [data-theme="dark"] .dts-im-card-panel {
+            background: #131c2e;
+            border-color: #1e293b;
+        }
+        [data-theme="dark"] .dts-im-panel-title {
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .dts-im-subject-box {
+            background: #1e293b;
+            color: #f1f5f9;
+        }
+        [data-theme="dark"] .dts-im-tile {
+            background: #1a2438;
+            border-color: #334155;
+        }
+        [data-theme="dark"] .dts-im-tile-v {
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .dts-im-tabs {
+            background: #1e293b;
+            border-color: #334155;
+        }
+        [data-theme="dark"] .dts-im-tab-btn.active {
+            background: #0f172a;
+            color: #60a5fa;
+        }
+        [data-theme="dark"] .dts-im-table th {
+            background: #1e293b;
+            color: #cbd5e1;
+            border-color: #334155;
+        }
+        [data-theme="dark"] .dts-im-table td {
+            background: #131c2e;
+            color: #e2e8f0;
+            border-color: #1e293b;
+        }
+        [data-theme="dark"] .dts-im-table tbody tr:hover td {
+            background: #1a2438;
+        }
+        [data-theme="dark"] .dts-im-footer {
+            background: #0f172a;
+            border-color: #1e293b;
+        }
+        [data-theme="dark"] .dts-im-btn {
+            background: #1e293b;
+            border-color: #334155;
+            color: #e2e8f0;
+        }
+        [data-theme="dark"] .dts-im-btn:hover {
+            background: #334155;
+        }
+    </style>
     </style>
 @endpush
 
@@ -3095,59 +3578,88 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                 <div style="display: flex; align-items: center; justify-content: {{ count($this->visiblePath) <= 1 ? 'center' : 'space-between' }}; width: 100%; min-width: max-content; padding: 0; position: relative;">
                                     @forelse ($this->visiblePath as $index => $step)
                                         @php
+                                            $seqRank = $step->sequence_ranking ?? ($index + 1);
                                             $isReceived = !is_null($step->date_in) || $selectedTransaction->status === 'completed';
                                             $isForwarded = !is_null($step->date_out) || $selectedTransaction->status === 'completed';
                                             $isCompleted = ($isReceived && $isForwarded) || strtolower($selectedTransaction->status ?? '') === 'completed';
 
-                                            $isCurrentOffice = !empty($step->is_active_step) && !is_null($step->date_in) && is_null($step->date_out) && $selectedTransaction->status !== 'completed';
-                                            $isInTransitToThisOffice = !empty($step->is_active_step) && is_null($step->date_in) && $selectedTransaction->status !== 'completed';
-                                            $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
-                                            $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $selectedTransaction->sequence || $selectedTransaction->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+                                            $hasRevision = !empty($selectedTransaction->revision_requested_by_sequence);
+                                            $revReqSeq = $selectedTransaction->revision_requested_by_sequence ?? null;
+                                            $revType = $selectedTransaction->revision_resubmit_type ?? null;
+                                            $isRevisionStep = false;
+                                            if ($hasRevision) {
+                                                if ($seqRank == 1 || $seqRank == $revReqSeq) {
+                                                    $isRevisionStep = true;
+                                                } elseif ($revType === 'start' && $seqRank > 1 && $seqRank < $revReqSeq) {
+                                                    $isRevisionStep = true;
+                                                }
+                                            }
 
-                                            if ($isCompleted) {
+                                            $isCurrentStation = ($seqRank == $selectedTransaction->sequence) && strtolower($selectedTransaction->status ?? '') !== 'completed';
+                                            $isCurrentOffice = $isCurrentStation && !is_null($step->date_in) && is_null($step->date_out);
+                                            $isInTransitToThisOffice = $isCurrentStation && is_null($step->date_in);
+                                            $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
+                                            $isOnHubArea = $isHubStep && ($isCurrentStation || $selectedTransaction->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
+                                            if ($isRevisionStep) {
+                                                $dotBg = '#ef4444';
+                                                $dotBorder = '#ffffff';
+                                                $dotColor = '#ffffff';
+                                                $lineColor = '#fca5a5';
+                                                $labelColor = '#dc2626';
+                                                $boxShadow = '0 0 0 4px rgba(239, 68, 68, 0.35), 0 2px 6px rgba(0,0,0,0.15)';
+                                                $iconHtml = '<i class="fa-solid fa-rotate-left" style="font-size: 12px; color: #fff;"></i>';
+                                            } elseif ($isCompleted) {
                                                 $dotBg = '#10b981';
-                                                $dotBorder = '#10b981';
+                                                $dotBorder = '#ffffff';
+                                                $dotColor = '#ffffff';
                                                 $lineColor = '#10b981';
+                                                $labelColor = '#059669';
+                                                $boxShadow = '0 2px 6px rgba(16, 185, 129, 0.25)';
                                                 $iconHtml = '<i class="fa-solid fa-check" style="font-size: 13px; color: #fff;"></i>';
+                                            } elseif ($isCurrentStation) {
+                                                $dotBg = '#f59e0b';
+                                                $dotBorder = '#ffffff';
+                                                $dotColor = '#ffffff';
+                                                $lineColor = '#cbd5e1';
+                                                $labelColor = '#d97706';
+                                                $boxShadow = '0 0 0 4px rgba(245, 158, 11, 0.4), 0 2px 6px rgba(0,0,0,0.15)';
+                                                $iconHtml = '<span style="font-size: 13px; font-weight: 700; color: #ffffff;">' . $seqRank . '</span>';
                                             } elseif ($isOnHubArea) {
                                                 $dotBg = '#3b82f6';
-                                                $dotBorder = '#60a5fa';
+                                                $dotBorder = '#ffffff';
+                                                $dotColor = '#ffffff';
                                                 $lineColor = '#3b82f6';
+                                                $labelColor = '#2563eb';
+                                                $boxShadow = '0 0 0 4px rgba(59, 130, 246, 0.35), 0 2px 6px rgba(0,0,0,0.15)';
                                                 $iconHtml = '<i class="fa-solid fa-arrows-split-up-and-left" style="font-size: 13px; color: #fff;"></i>';
-                                            } elseif ($isCurrentOffice) {
-                                                $dotBg = '#3b82f6';
-                                                $dotBorder = '#2563eb';
-                                                $lineColor = '#e2e8f0';
-                                                $iconHtml = '<div style="width: 10px; height: 10px; border-radius: 50%; background: #fff;"></div>';
-                                            } elseif ($isInTransitToThisOffice) {
-                                                $dotBg = '#f59e0b';
-                                                $dotBorder = '#d97706';
-                                                $lineColor = '#e2e8f0';
-                                                $iconHtml = '<i class="fa-solid fa-truck-fast" style="font-size: 11px; color: #fff;"></i>';
                                             } else {
                                                 $dotBg = '#cbd5e1';
-                                                $dotBorder = '#94a3b8';
+                                                $dotBorder = '#ffffff';
+                                                $dotColor = '#475569';
                                                 $lineColor = '#e2e8f0';
-                                                $iconHtml = '';
+                                                $labelColor = '#64748b';
+                                                $boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+                                                $iconHtml = '<span style="font-size: 12px; font-weight: 700; color: #475569;">' . $seqRank . '</span>';
                                             }
                                         @endphp
 
                                         <div class="dts-timeline-node-wrapper">
                                             <!-- Dot -->
-                                            <div class="dts-timeline-node-dot" style="width: 32px; height: 32px; border-radius: 50%; background: {{ $dotBg }}; border: 3px solid {{ $dotBorder }}; display: flex; align-items: center; justify-content: center; z-index: 2; box-shadow: 0 2px 6px rgba(0,0,0,0.15); cursor: pointer; position: relative;">
+                                            <div class="dts-timeline-node-dot" style="width: 32px; height: 32px; border-radius: 50%; background: {{ $dotBg }}; border: 2px solid {{ $dotBorder }}; display: flex; align-items: center; justify-content: center; z-index: 2; box-shadow: {{ $boxShadow }}; cursor: pointer; position: relative;">
                                                 {!! $iconHtml !!}
-                                                @if ($isCurrentOffice || $isOnHubArea)
-                                                    <div style="position: absolute; inset: -5px; border-radius: 50%; border: 2px solid #3b82f6; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite; opacity: 0.75; pointer-events: none;"></div>
+                                                @if ($isCurrentStation || $isOnHubArea)
+                                                    <div style="position: absolute; inset: -5px; border-radius: 50%; border: 2px solid {{ $isCurrentStation ? '#f59e0b' : '#3b82f6' }}; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite; opacity: 0.75; pointer-events: none;"></div>
                                                 @endif
                                             </div>
 
                                             <!-- Label -->
                                             <div style="margin-top: 8px; text-align: center; max-width: 90px;">
-                                                <div style="font-size: 11.5px; font-weight: 700; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                <div style="font-size: 11.5px; font-weight: 700; color: {{ $labelColor }}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                                                     {{ $step->office_code }}
                                                 </div>
-                                                <div style="font-size: 10px; color: #64748b; font-weight: 500;">
-                                                    Step {{ $step->sequence_ranking ?? ($index + 1) }}
+                                                <div style="font-size: 10px; color: {{ $isCurrentStation ? '#b45309' : '#64748b' }}; font-weight: {{ $isCurrentStation ? '700' : '500' }};">
+                                                    Step {{ $seqRank }}
                                                 </div>
                                             </div>
 

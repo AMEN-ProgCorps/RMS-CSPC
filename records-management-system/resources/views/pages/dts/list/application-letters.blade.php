@@ -3347,59 +3347,88 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                 <div style="display: flex; align-items: center; justify-content: {{ count($this->visiblePath) <= 1 ? 'center' : 'space-between' }}; width: 100%; min-width: max-content; padding: 0; position: relative;">
                                     @forelse ($this->visiblePath as $index => $step)
                                         @php
+                                            $seqRank = $step->sequence_ranking ?? ($index + 1);
                                             $isReceived = !is_null($step->date_in) || $selectedTransaction->status === 'completed';
                                             $isForwarded = !is_null($step->date_out) || $selectedTransaction->status === 'completed';
                                             $isCompleted = ($isReceived && $isForwarded) || strtolower($selectedTransaction->status ?? '') === 'completed';
 
-                                            $isCurrentOffice = !empty($step->is_active_step) && !is_null($step->date_in) && is_null($step->date_out) && $selectedTransaction->status !== 'completed';
-                                            $isInTransitToThisOffice = !empty($step->is_active_step) && is_null($step->date_in) && $selectedTransaction->status !== 'completed';
-                                            $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
-                                            $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $selectedTransaction->sequence || $selectedTransaction->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+                                            $hasRevision = !empty($selectedTransaction->revision_requested_by_sequence);
+                                            $revReqSeq = $selectedTransaction->revision_requested_by_sequence ?? null;
+                                            $revType = $selectedTransaction->revision_resubmit_type ?? null;
+                                            $isRevisionStep = false;
+                                            if ($hasRevision) {
+                                                if ($seqRank == 1 || $seqRank == $revReqSeq) {
+                                                    $isRevisionStep = true;
+                                                } elseif ($revType === 'start' && $seqRank > 1 && $seqRank < $revReqSeq) {
+                                                    $isRevisionStep = true;
+                                                }
+                                            }
 
-                                            if ($isCompleted) {
+                                            $isCurrentStation = ($seqRank == $selectedTransaction->sequence) && strtolower($selectedTransaction->status ?? '') !== 'completed';
+                                            $isCurrentOffice = $isCurrentStation && !is_null($step->date_in) && is_null($step->date_out);
+                                            $isInTransitToThisOffice = $isCurrentStation && is_null($step->date_in);
+                                            $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
+                                            $isOnHubArea = $isHubStep && ($isCurrentStation || $selectedTransaction->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
+                                            if ($isRevisionStep) {
+                                                $dotBg = '#ef4444';
+                                                $dotBorder = '#ffffff';
+                                                $dotColor = '#ffffff';
+                                                $lineColor = '#fca5a5';
+                                                $labelColor = '#dc2626';
+                                                $boxShadow = '0 0 0 4px rgba(239, 68, 68, 0.35), 0 2px 6px rgba(0,0,0,0.15)';
+                                                $iconHtml = '<i class="fa-solid fa-rotate-left" style="font-size: 12px; color: #fff;"></i>';
+                                            } elseif ($isCompleted) {
                                                 $dotBg = '#10b981';
-                                                $dotBorder = '#10b981';
+                                                $dotBorder = '#ffffff';
+                                                $dotColor = '#ffffff';
                                                 $lineColor = '#10b981';
+                                                $labelColor = '#059669';
+                                                $boxShadow = '0 2px 6px rgba(16, 185, 129, 0.25)';
                                                 $iconHtml = '<i class="fa-solid fa-check" style="font-size: 13px; color: #fff;"></i>';
+                                            } elseif ($isCurrentStation) {
+                                                $dotBg = '#f59e0b';
+                                                $dotBorder = '#ffffff';
+                                                $dotColor = '#ffffff';
+                                                $lineColor = '#cbd5e1';
+                                                $labelColor = '#d97706';
+                                                $boxShadow = '0 0 0 4px rgba(245, 158, 11, 0.4), 0 2px 6px rgba(0,0,0,0.15)';
+                                                $iconHtml = '<span style="font-size: 13px; font-weight: 700; color: #ffffff;">' . $seqRank . '</span>';
                                             } elseif ($isOnHubArea) {
                                                 $dotBg = '#3b82f6';
-                                                $dotBorder = '#60a5fa';
+                                                $dotBorder = '#ffffff';
+                                                $dotColor = '#ffffff';
                                                 $lineColor = '#3b82f6';
+                                                $labelColor = '#2563eb';
+                                                $boxShadow = '0 0 0 4px rgba(59, 130, 246, 0.35), 0 2px 6px rgba(0,0,0,0.15)';
                                                 $iconHtml = '<i class="fa-solid fa-arrows-split-up-and-left" style="font-size: 13px; color: #fff;"></i>';
-                                            } elseif ($isCurrentOffice) {
-                                                $dotBg = '#3b82f6';
-                                                $dotBorder = '#2563eb';
-                                                $lineColor = '#e2e8f0';
-                                                $iconHtml = '<div style="width: 10px; height: 10px; border-radius: 50%; background: #fff;"></div>';
-                                            } elseif ($isInTransitToThisOffice) {
-                                                $dotBg = '#f59e0b';
-                                                $dotBorder = '#d97706';
-                                                $lineColor = '#e2e8f0';
-                                                $iconHtml = '<i class="fa-solid fa-truck-fast" style="font-size: 11px; color: #fff;"></i>';
                                             } else {
                                                 $dotBg = '#cbd5e1';
-                                                $dotBorder = '#94a3b8';
+                                                $dotBorder = '#ffffff';
+                                                $dotColor = '#475569';
                                                 $lineColor = '#e2e8f0';
-                                                $iconHtml = '';
+                                                $labelColor = '#64748b';
+                                                $boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+                                                $iconHtml = '<span style="font-size: 12px; font-weight: 700; color: #475569;">' . $seqRank . '</span>';
                                             }
                                         @endphp
 
                                         <div class="dts-timeline-node-wrapper">
                                             <!-- Dot -->
-                                            <div class="dts-timeline-node-dot" style="width: 32px; height: 32px; border-radius: 50%; background: {{ $dotBg }}; border: 3px solid {{ $dotBorder }}; display: flex; align-items: center; justify-content: center; z-index: 2; box-shadow: 0 2px 6px rgba(0,0,0,0.15); cursor: pointer; position: relative;">
+                                            <div class="dts-timeline-node-dot" style="width: 32px; height: 32px; border-radius: 50%; background: {{ $dotBg }}; border: 2px solid {{ $dotBorder }}; display: flex; align-items: center; justify-content: center; z-index: 2; box-shadow: {{ $boxShadow }}; cursor: pointer; position: relative;">
                                                 {!! $iconHtml !!}
-                                                @if ($isCurrentOffice || $isOnHubArea)
-                                                    <div style="position: absolute; inset: -5px; border-radius: 50%; border: 2px solid #3b82f6; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite; opacity: 0.75; pointer-events: none;"></div>
+                                                @if ($isCurrentStation || $isOnHubArea)
+                                                    <div style="position: absolute; inset: -5px; border-radius: 50%; border: 2px solid {{ $isCurrentStation ? '#f59e0b' : '#3b82f6' }}; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite; opacity: 0.75; pointer-events: none;"></div>
                                                 @endif
                                             </div>
 
                                             <!-- Label -->
                                             <div style="margin-top: 8px; text-align: center; max-width: 90px;">
-                                                <div style="font-size: 11.5px; font-weight: 700; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                <div style="font-size: 11.5px; font-weight: 700; color: {{ $labelColor }}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                                                     {{ $step->office_code }}
                                                 </div>
-                                                <div style="font-size: 10px; color: #64748b; font-weight: 500;">
-                                                    Step {{ $step->sequence_ranking ?? ($index + 1) }}
+                                                <div style="font-size: 10px; color: {{ $isCurrentStation ? '#b45309' : '#64748b' }}; font-weight: {{ $isCurrentStation ? '700' : '500' }};">
+                                                    Step {{ $seqRank }}
                                                 </div>
                                             </div>
 

@@ -204,6 +204,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
 
 @push('styles')
     @vite(['resources/css/admin/activity_logs.css', 'resources/css/admin/subsystems.css', 'resources/css/admin/accounts_offices.css'])
+    <!-- Incase the Node File Doesnt Work as Expected -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
         .addon-container {

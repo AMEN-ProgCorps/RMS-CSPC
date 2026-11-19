@@ -8736,6 +8736,12 @@
               justify-content: center !important;
               box-sizing: border-box !important;
             }
+            .category > div > .flex {
+              width: 100% !important;
+              display: flex !important;
+              justify-content: center !important;
+              box-sizing: border-box !important;
+            }
             .row button {
               border-radius: 8px !important;
               transition: transform 0.1s ease, background-color 0.1s ease !important;

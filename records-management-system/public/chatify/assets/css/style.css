@@ -931,11 +931,17 @@
       min-height: 0;
     }
     #readMoreModal .modal-body {
+      max-height: 60vh;
+      overflow-y: auto;
+      text-align: left;
+    }
+    #readMoreModalBody .read-more-inner {
+      width: fit-content;
+      max-width: 100%;
+      margin: 0 auto;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
       word-break: break-word;
-      max-height: 60vh;
-      overflow-y: auto;
       text-align: left;
     }
 

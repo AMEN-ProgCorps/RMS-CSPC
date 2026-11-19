@@ -3912,6 +3912,9 @@
       readMoreModalBody.textContent = '';
       const inner = document.createElement('div');
       inner.className = 'read-more-inner';
+      if (isEmojiOnlyText(fullText || '')) {
+        inner.classList.add('emoji-only');
+      }
       inner.textContent = fullText || '';
       readMoreModalBody.appendChild(inner);
       delete readMoreModalBody.dataset.linkified; // allow re-linkifying on every open

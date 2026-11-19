@@ -944,6 +944,9 @@
       word-break: break-word;
       text-align: left;
     }
+    #readMoreModalBody .read-more-inner.emoji-only {
+      text-align: center;
+    }
 
     /* Inline "Read more..." affordance appended to a truncated long message.
        Uses currentColor (underline + bold only) so it stays legible on both

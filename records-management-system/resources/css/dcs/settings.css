@@ -131,6 +131,54 @@ body {
     border-bottom-color: var(--set-gold);
 }
 
+/* ─── Syllabi inner sections ─── */
+.settings-subtabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 18px;
+    padding: 6px;
+    border: 1px solid var(--set-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--set-accent, #1d4ed8) 4%, var(--set-bg, #fff));
+}
+
+.settings-subtab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--set-tab-inactive, #2d2d2d);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 36px;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.settings-subtab i {
+    font-size: 0.74rem;
+    color: inherit;
+}
+
+.settings-subtab:hover {
+    color: var(--set-accent);
+    background: color-mix(in srgb, var(--set-accent, #1d4ed8) 8%, transparent);
+}
+
+.settings-subtab.active {
+    color: var(--set-accent);
+    border-color: color-mix(in srgb, var(--set-accent, #1d4ed8) 28%, var(--set-border));
+    background: color-mix(in srgb, var(--set-accent, #1d4ed8) 12%, var(--set-bg, #fff));
+}
+
+.syllabi-section {
+    min-width: 0;
+}
+
 /* ─── Tab Panels ─── */
 .tab-panel {
     /* Shell (.settings-main) already uses fadeInUp — avoid double page-enter. */

@@ -149,18 +149,25 @@ new class extends Component {
 
         // Fetch notifications list, combining with read/unread statuses in notification_div table
         $sessionId = session()->getId();
+        $hasReadAtSession = \Illuminate\Support\Facades\Cache::remember(
+            "col_{$notifDivTbl}_read_at_session",
+            3600,
+            fn () => \Illuminate\Support\Facades\Schema::hasColumn($notifDivTbl, 'read_at_session')
+        );
         $this->notifications = \App\Helpers\RegisterQueryHelper::bellNotificationsBaseQuery(
             (int) $userId,
             (string) $office->office_code,
             $allowedSubsystems
         )
-            ->where(function ($query) use ($notifDivTbl, $sessionId) {
+            ->where(function ($query) use ($notifDivTbl, $sessionId, $hasReadAtSession) {
                 $query->whereNull("{$notifDivTbl}.status")
-                      ->orWhere("{$notifDivTbl}.status", '!=', 'read')
-                      ->orWhere(function ($subQuery) use ($notifDivTbl, $sessionId) {
-                          $subQuery->where("{$notifDivTbl}.status", '=', 'read')
-                                   ->where("{$notifDivTbl}.read_at_session", '=', $sessionId);
-                      });
+                      ->orWhere("{$notifDivTbl}.status", '!=', 'read');
+                if ($hasReadAtSession) {
+                    $query->orWhere(function ($subQuery) use ($notifDivTbl, $sessionId) {
+                        $subQuery->where("{$notifDivTbl}.status", '=', 'read')
+                                 ->where("{$notifDivTbl}.read_at_session", '=', $sessionId);
+                    });
+                }
             })
             ->orderBy("{$notifTbl}.created_at", 'desc')
             ->select(
@@ -527,16 +534,19 @@ new class extends Component {
         }
 
         $userId = Auth::id();
+        $payload = [
+            'status' => 'read',
+            'processed_on' => now(),
+        ];
+        if (\Illuminate\Support\Facades\Schema::hasColumn($notifDivTbl, 'read_at_session')) {
+            $payload['read_at_session'] = session()->getId();
+        }
         DB::table($notifDivTbl)->updateOrInsert(
             [
                 'id' => $notificationId,
                 'account_rec' => $userId
             ],
-            [
-                'status' => 'read',
-                'read_at_session' => session()->getId(),
-                'processed_on' => now()
-            ]
+            $payload
         );
         $this->loadNotifications();
         $this->dispatch('rms-notification-updated');
@@ -553,20 +563,24 @@ new class extends Component {
         $userId = Auth::id();
         $unreadItems = $this->notifications->where('status', 'unread');
         $sessionId = session()->getId();
+        $hasReadAtSession = \Illuminate\Support\Facades\Schema::hasColumn($notifDivTbl, 'read_at_session');
         
         foreach ($unreadItems as $item) {
             $exists = DB::table($notifTbl)->where('id', $item->id)->exists();
             if ($exists) {
+                $payload = [
+                    'status' => 'read',
+                    'processed_on' => now(),
+                ];
+                if ($hasReadAtSession) {
+                    $payload['read_at_session'] = $sessionId;
+                }
                 DB::table($notifDivTbl)->updateOrInsert(
                     [
                         'id' => $item->id,
                         'account_rec' => $userId
                     ],
-                    [
-                        'status' => 'read',
-                        'read_at_session' => $sessionId,
-                        'processed_on' => now()
-                    ]
+                    $payload
                 );
             }
         }
@@ -601,17 +615,22 @@ new class extends Component {
         }
 
         $userId = Auth::id();
+        $payload = [
+            'status' => 'read',
+            'processed_on' => now(),
+        ];
+        if (\Illuminate\Support\Facades\Schema::hasColumn($notifDivTbl, 'is_dismissed')) {
+            $payload['is_dismissed'] = true;
+        }
+        if (\Illuminate\Support\Facades\Schema::hasColumn($notifDivTbl, 'read_at_session')) {
+            $payload['read_at_session'] = session()->getId();
+        }
         DB::table($notifDivTbl)->updateOrInsert(
             [
                 'id' => $notificationId,
                 'account_rec' => $userId
             ],
-            [
-                'is_dismissed' => true,
-                'status' => 'read',
-                'read_at_session' => session()->getId(),
-                'processed_on' => now()
-            ]
+            $payload
         );
         $this->loadNotifications();
         $this->dispatch('rms-notification-updated');
@@ -626,20 +645,27 @@ new class extends Component {
         $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
 
         $userId = Auth::id();
+        $hasDismissed = \Illuminate\Support\Facades\Schema::hasColumn($notifDivTbl, 'is_dismissed');
+        $hasReadAtSession = \Illuminate\Support\Facades\Schema::hasColumn($notifDivTbl, 'read_at_session');
         foreach ($this->notifications as $item) {
             $exists = DB::table($notifTbl)->where('id', $item->id)->exists();
             if ($exists) {
+                $payload = [
+                    'status' => 'read',
+                    'processed_on' => now(),
+                ];
+                if ($hasDismissed) {
+                    $payload['is_dismissed'] = true;
+                }
+                if ($hasReadAtSession) {
+                    $payload['read_at_session'] = session()->getId();
+                }
                 DB::table($notifDivTbl)->updateOrInsert(
                     [
                         'id' => $item->id,
                         'account_rec' => $userId
                     ],
-                    [
-                        'is_dismissed' => true,
-                        'status' => 'read',
-                        'read_at_session' => session()->getId(),
-                        'processed_on' => now()
-                    ]
+                    $payload
                 );
             }
         }

@@ -115,6 +115,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     @vite([
         'resources/css/dcs/chrome.css',
+        'resources/css/dcs/floating-calendar.css',
         'resources/css/notifications.css',
         'resources/js/dashboard.js',
     ])
@@ -126,18 +127,9 @@
     @endif
     @if(request()->routeIs('dcs', 'dcs.dashboard'))
         @vite(['resources/css/dcs/dashboard.css'])
-        @if(
-            auth()->check()
-            && !\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()
-            && !\App\Helpers\RegisterQueryHelper::isDcsPathPending()
-        )
-            @vite(['resources/css/dcs/floating-calendar.css'])
-        @endif
         @if(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser())
             @vite(['resources/css/dcs/office-intake.css'])
         @endif
-    @elseif(request()->routeIs('dcs.office.random-checks*'))
-        @vite(['resources/css/dcs/random-check.css'])
     @elseif(request()->routeIs('dcs.office.*'))
         @vite(['resources/css/dcs/register.css', 'resources/css/dcs/office-intake.css'])
     @elseif(request()->routeIs('dcs.requests.*'))
@@ -254,6 +246,29 @@
         <div class="guide-container">
             <livewire:components.page-manual />
         </div>
+        @if(
+            auth()->check()
+            && !\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()
+            && !\App\Helpers\RegisterQueryHelper::isDcsPathPending()
+        )
+            {{-- Fallback when top tabs are off / empty (hidden via CSS if .top-nav-cal-btn exists). --}}
+            <div class="dcs-calendar-trigger-host" x-data>
+                <button
+                    type="button"
+                    class="dcs-header-cal-btn"
+                    @click.stop="$store.dcsCal?.toggle?.()"
+                    :aria-expanded="($store.dcsCal?.open || false).toString()"
+                    :title="($store.dcsCal?.open ? 'Hide calendar' : 'Show calendar')"
+                    aria-label="Calendar"
+                >
+                    <i
+                        class="fa-solid"
+                        :class="$store.dcsCal?.open ? 'fa-xmark' : 'fa-calendar-plus'"
+                        aria-hidden="true"
+                    ></i>
+                </button>
+            </div>
+        @endif
         <div class="notification-container">
             <livewire:components.notification.notifications />
         </div>
@@ -281,9 +296,7 @@
     @endif
     <x-rms-error />
     <x-dcs.toast />
-    @if(request()->routeIs('dcs', 'dcs.dashboard'))
-        <x-dcs.floating-calendar />
-    @endif
+    <x-dcs.floating-calendar />
     <x-messify.floating-widget />
     <x-dts.scanner-widget />
     <livewire:components.scanner-modal />

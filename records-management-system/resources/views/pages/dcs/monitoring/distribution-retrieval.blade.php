@@ -350,7 +350,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
             <div class="rpt-filter-group">
                 <label for="drtSearch">Search</label>
-                <input id="drtSearch" type="search" wire:model.live.debounce.300ms="q" placeholder="Document no., title, or office">
+                <input id="drtSearch" type="search" wire:model.live.debounce.300ms="q" placeholder="Document no., title, keywords, or office">
             </div>
         </div>
         <p class="rpt-template-status">A document leaves this list when every office has received the copy and returned it. Until then, open Offices: each office is marked Retrieved or Not yet retrieved, including offices that already received the new copy.</p>

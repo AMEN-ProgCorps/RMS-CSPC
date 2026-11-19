@@ -255,18 +255,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </tbody>
                     </table>
                 </div>
-                @if($rows->hasPages())
-                    <div class="ofi-pagination" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 4px 4px;flex-wrap:wrap;">
-                        <span style="font-size:12.5px;color:#64748b;">
-                            Showing {{ $rows->firstItem() }}–{{ $rows->lastItem() }} of {{ $rows->total() }}
-                        </span>
-                        <div style="display:flex;gap:8px;align-items:center;">
-                            <button type="button" class="ofi-btn" wire:click="previousPage" @disabled($rows->onFirstPage())>Previous</button>
-                            <span style="font-size:12.5px;color:#475569;">Page {{ $rows->currentPage() }} / {{ $rows->lastPage() }}</span>
-                            <button type="button" class="ofi-btn" wire:click="nextPage" @disabled(! $rows->hasMorePages())>Next</button>
-                        </div>
-                    </div>
-                @endif
+                @include('pages.dcs.partials.list-pagination', [
+                    'from' => (int) $rows->firstItem(),
+                    'to' => (int) $rows->lastItem(),
+                    'total' => (int) $rows->total(),
+                    'page' => (int) $rows->currentPage(),
+                    'lastPage' => (int) $rows->lastPage(),
+                    'goToMethod' => 'gotoPage',
+                ])
             @endif
         </div>
     </div>

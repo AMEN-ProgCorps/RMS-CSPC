@@ -4,9 +4,12 @@
 
 .guide-container {
     position: absolute;
-    top: 10px;
+    top: 0;
+    bottom: 0;
     right: 195px; /* Immediately to the left of notification bell (155px) */
     height: 30px;
+    margin-top: auto;
+    margin-bottom: auto;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -60,9 +63,12 @@ body.manual-widget-open .guide-container {
 
 .notification-container {
     position: absolute;
-    top: 10px; /* Centered matching the actions-container top alignment */
+    top: 0;
+    bottom: 0;
     right: 155px; /* Placed immediately to the left of the ACTIONS button (width: 123px) */
     height: 30px; /* Matches the ACTIONS button height */
+    margin-top: auto;
+    margin-bottom: auto;
     display: flex;
     align-items: center;
     justify-content: center;

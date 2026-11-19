@@ -1082,8 +1082,10 @@ Route::middleware(['auth'])
             // Office intake (Admin DCS users + Client/Office Intake roles)
             Volt::route('/office/incoming', 'pages.dcs.office.incoming')->name('office.incoming');
             Volt::route('/office/documents', 'pages.dcs.office.documents')->name('office.documents');
-            Volt::route('/office/random-checks', 'pages.dcs.office.random-checks')->name('office.random-checks');
-            Volt::route('/office/random-checks/{id}', 'pages.dcs.office.random-check-show')->name('office.random-checks.show');
+            // Office Intake has no Random Check page — old links go to Office home.
+            Route::redirect('/office/random-checks', '/dcs', 301);
+            Route::get('/office/random-checks/{id}', fn () => redirect()->route('dcs', absolute: false))
+                ->whereNumber('id');
 
             // Legacy Request URLs → under Document Registration
             Route::redirect('/requests', '/dcs/register/requests', 301);
@@ -1352,7 +1354,7 @@ Route::middleware(['auth'])
                             'logoSrc' => $logoSrc,
                         ]);
                     })->name('random-check.report');
-                    // Plain GET download — Livewire cannot return binary PDF (UTF-8 / middleware crash).
+                    // Plain GET download — Livewire cannot return binary files (UTF-8 / middleware crash).
                     Route::get('/random-check/{id}/export-pdf', function (\Illuminate\Http\Request $request, int $id) {
                         \App\Helpers\RandomCheckHelper::assertCanAccess();
                         $filter = in_array($request->input('filter'), ['all', 'actions', 'not_complied'], true)
@@ -1363,6 +1365,16 @@ Route::middleware(['auth'])
 
                         return $download;
                     })->name('random-check.export-pdf');
+                    Route::get('/random-check/{id}/export-excel', function (\Illuminate\Http\Request $request, int $id) {
+                        \App\Helpers\RandomCheckHelper::assertCanAccess();
+                        $filter = in_array($request->input('filter'), ['all', 'actions', 'not_complied'], true)
+                            ? $request->input('filter')
+                            : 'all';
+                        $download = \App\Helpers\RandomCheckHelper::excelDownload($id, $filter);
+                        abort_unless($download !== null, 404);
+
+                        return $download;
+                    })->name('random-check.export-excel');
                 });
             });
         });

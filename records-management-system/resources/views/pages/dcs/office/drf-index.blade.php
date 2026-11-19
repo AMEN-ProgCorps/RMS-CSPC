@@ -163,18 +163,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </table>
                 </div>
 
-                @if(method_exists($rows, 'hasPages') && $rows->hasPages())
-                    <div class="ofi-pagination">
-                        <span class="ofi-pagination-meta">
-                            Showing {{ $rows->firstItem() }}–{{ $rows->lastItem() }} of {{ $rows->total() }}
-                        </span>
-                        <div class="ofi-pagination-controls">
-                            <button type="button" class="ofi-btn" wire:click="previousPage" @disabled($rows->onFirstPage())>Previous</button>
-                            <span class="ofi-pagination-page">Page {{ $rows->currentPage() }} / {{ $rows->lastPage() }}</span>
-                            <button type="button" class="ofi-btn" wire:click="nextPage" @disabled(! $rows->hasMorePages())>Next</button>
-                        </div>
-                    </div>
-                @endif
+                @include('pages.dcs.partials.list-pagination', [
+                    'from' => (int) $rows->firstItem(),
+                    'to' => (int) $rows->lastItem(),
+                    'total' => (int) $rows->total(),
+                    'page' => (int) $rows->currentPage(),
+                    'lastPage' => (int) $rows->lastPage(),
+                    'goToMethod' => 'gotoPage',
+                ])
             @endif
         </div>
     </div>

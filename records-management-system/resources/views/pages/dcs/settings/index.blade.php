@@ -635,6 +635,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->courseRows = [['code' => '', 'name' => '']];
         $this->courseName = '';
         $this->courseCode = '';
+        $this->programId = '';
         if ($id) {
             $rowQ = DB::table('dcs_program_courses')->where('id', $id);
             \App\Helpers\SettingsRecycleHelper::applyNotDeleted($rowQ, 'dcs_program_courses');
@@ -646,6 +647,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $this->courseType = $row->course_type ?? '';
             $this->courseName = $row->course_name;
             $this->courseCode = $row->course_code ?? '';
+        } elseif ($this->courseListProgramId !== '') {
+            // Prefill from the Course Names list filter when present.
+            $this->programId = (string) $this->courseListProgramId;
         }
     }
 
@@ -1271,7 +1275,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         DB::table('dcs_colleges')->insert($payload);
-        $this->done('College added. You can add programs under it in the Programs tab.');
+        $this->done('College added. You can add programs under it in Syllabi → Programs.');
     }
 
     /**
@@ -2454,17 +2458,37 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 <div
     x-data="{
         tab: new URLSearchParams(window.location.search).get('tab') || sessionStorage.getItem('settingsActiveTab') || 'doctypes',
+        syllabiSection: new URLSearchParams(window.location.search).get('section') || sessionStorage.getItem('settingsSyllabiSection') || 'colleges',
         modalOpen: false,
         init() {
-            const allowed = ['doctypes','signatories','originators','faculties','colleges','programs','semesters','schoolyears','coursenames'];
+            const legacySyllabi = {
+                faculties: 'faculties',
+                colleges: 'colleges',
+                programs: 'programs',
+                semesters: 'semesters',
+                schoolyears: 'schoolyears',
+                coursenames: 'coursenames',
+            };
+            const allowed = ['doctypes', 'signatories', 'originators', 'syllabi'];
+            const allowedSections = Object.values(legacySyllabi);
+            if (legacySyllabi[this.tab]) {
+                this.syllabiSection = legacySyllabi[this.tab];
+                this.tab = 'syllabi';
+            }
             if (!allowed.includes(this.tab)) this.tab = 'doctypes';
+            if (!allowedSections.includes(this.syllabiSection)) this.syllabiSection = 'colleges';
             sessionStorage.setItem('settingsActiveTab', this.tab);
+            sessionStorage.setItem('settingsSyllabiSection', this.syllabiSection);
             if (this.tab === 'signatories') $wire.loadSignatoryTemplateFields();
         },
         setTab(name) {
             this.tab = name;
             sessionStorage.setItem('settingsActiveTab', name);
             if (name === 'signatories') $wire.loadSignatoryTemplateFields();
+        },
+        setSyllabiSection(name) {
+            this.syllabiSection = name;
+            sessionStorage.setItem('settingsSyllabiSection', name);
         },
         openUi() {
             this.modalOpen = true;
@@ -2506,12 +2530,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'doctypes' => ['fa-tags', 'Document Types'],
             'signatories' => ['fa-signature', 'Signatories'],
             'originators' => ['fa-user-pen', 'Originators'],
-            'faculties' => ['fa-chalkboard-user', 'Faculty'],
-            'colleges' => ['fa-graduation-cap', 'Colleges'],
-            'programs' => ['fa-book-open', 'Programs'],
-            'semesters' => ['fa-calendar-week', 'Semesters'],
-            'schoolyears' => ['fa-calendar-days', 'School Years'],
-            'coursenames' => ['fa-list-check', 'Course Names'],
+            'syllabi' => ['fa-book-open', 'Syllabi'],
         ] as $key => $meta)
             <button type="button" class="tab-btn" :class="tab === '{{ $key }}' && 'active'" @click="setTab('{{ $key }}')">
                 <i class="fa-solid {{ $meta[0] }}"></i> {{ $meta[1] }}
@@ -2948,7 +2967,36 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </section>
 
-    <section class="tab-panel" wire:key="settings-tab-faculties" x-show="tab === 'faculties'" x-cloak>
+    <section class="tab-panel" wire:key="settings-tab-syllabi" x-show="tab === 'syllabi'" x-cloak>
+        <div class="panel-toolbar">
+            <div>
+                <h2 class="sig-panel-title">Syllabi catalog</h2>
+                <p class="panel-subtitle">Everything used by Syllabi / TOS-Rubrics registration — colleges, programs, terms, courses, and faculty — in one place.</p>
+            </div>
+        </div>
+        <div class="settings-subtabs" role="tablist" aria-label="Syllabi settings sections">
+            @foreach ([
+                'colleges' => ['fa-graduation-cap', 'Colleges'],
+                'programs' => ['fa-book-open', 'Programs'],
+                'semesters' => ['fa-calendar-week', 'Semesters'],
+                'schoolyears' => ['fa-calendar-days', 'School Years'],
+                'coursenames' => ['fa-list-check', 'Course Names'],
+                'faculties' => ['fa-chalkboard-user', 'Faculty'],
+            ] as $key => $meta)
+                <button
+                    type="button"
+                    class="settings-subtab"
+                    role="tab"
+                    :aria-selected="syllabiSection === '{{ $key }}'"
+                    :class="syllabiSection === '{{ $key }}' && 'active'"
+                    @click="setSyllabiSection('{{ $key }}')"
+                >
+                    <i class="fa-solid {{ $meta[0] }}"></i> {{ $meta[1] }}
+                </button>
+            @endforeach
+        </div>
+
+        <div class="syllabi-section" wire:key="settings-syllabi-faculties" x-show="syllabiSection === 'faculties'" x-cloak>
         <div x-data="{ collegeFilter: 'all' }">
         <div class="panel-toolbar">
             <span class="panel-subtitle">One faculty record can belong to several colleges (part-timers)</span>
@@ -3003,9 +3051,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </table>
         </div>
         </div>
-    </section>
+        </div>
 
-    <section class="tab-panel" wire:key="settings-tab-colleges" x-show="tab === 'colleges'" x-cloak>
+        <div class="syllabi-section" wire:key="settings-syllabi-colleges" x-show="syllabiSection === 'colleges'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Academic colleges for programs and syllabi. Link an office only when that office is actually a college (CCS, CEA, etc.).</span>
             <button type="button" class="btn-primary" wire:click="openCollege()"><i class="fa-solid fa-plus"></i> Add College</button>
@@ -3038,9 +3086,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </tbody>
             </table>
         </div>
-    </section>
+        </div>
 
-    <section class="tab-panel" wire:key="settings-tab-programs" x-show="tab === 'programs'" x-cloak>
+        <div class="syllabi-section" wire:key="settings-syllabi-programs" x-show="syllabiSection === 'programs'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Add programs under each academic college.</span>
             <button type="button" class="btn-primary" wire:click="openProgram()"><i class="fa-solid fa-plus"></i> Add Program</button>
@@ -3079,9 +3127,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </tbody>
             </table>
         </div>
-    </section>
+        </div>
 
-    <section class="tab-panel" wire:key="settings-tab-semesters" x-show="tab === 'semesters'" x-cloak>
+        <div class="syllabi-section" wire:key="settings-syllabi-semesters" x-show="syllabiSection === 'semesters'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Academic semesters</span>
             <button type="button" class="btn-primary" wire:click="openSemester()"><i class="fa-solid fa-plus"></i> Add Semester</button>
@@ -3106,9 +3154,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </tbody>
             </table>
         </div>
-    </section>
+        </div>
 
-    <section class="tab-panel" wire:key="settings-tab-schoolyears" x-show="tab === 'schoolyears'" x-cloak>
+        <div class="syllabi-section" wire:key="settings-syllabi-schoolyears" x-show="syllabiSection === 'schoolyears'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Academic school years</span>
             <button type="button" class="btn-primary" wire:click="openSchoolYear()"><i class="fa-solid fa-plus"></i> Add School Year</button>
@@ -3133,9 +3181,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </tbody>
             </table>
         </div>
-    </section>
+        </div>
 
-    <section class="tab-panel" wire:key="settings-tab-coursenames" x-show="tab === 'coursenames'" x-cloak>
+        <div class="syllabi-section" wire:key="settings-syllabi-coursenames" x-show="syllabiSection === 'coursenames'" x-cloak>
         <div>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Curriculum course list per program, semester, year level, and course type — used to auto-fill Syllabi/TOS-Rubrics registration. Faculty is assigned during registration.</span>
@@ -3238,6 +3286,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @endif
                 </tbody>
             </table>
+        </div>
         </div>
         </div>
     </section>
@@ -3424,12 +3473,37 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         }
                     @endphp
                     <div class="st-field">
-                        <label class="st-label">Program</label>
-                        <select class="st-input @error('programId') error @enderror" wire:model="programId">
-                            <option value="">Select program</option>
-                            @foreach($programOptions as $prog)
-                                <option value="{{ $prog->id }}">{{ $prog->college_name ?? '—' }} — {{ $prog->program_name }}</option>
+                        <label class="st-label">College / Program</label>
+                        <select class="st-input @error('programId') error @enderror" wire:model.live="programId">
+                            <option value="">Select college / program</option>
+                            @foreach($colleges as $college)
+                                @php
+                                    $collegePrograms = $programOptions
+                                        ->filter(fn ($p) => (string) ($p->college_id ?? '') === (string) $college->id)
+                                        ->values();
+                                @endphp
+                                @if($collegePrograms->isNotEmpty())
+                                    <optgroup label="{{ $college->college_name }}">
+                                        @foreach($collegePrograms as $prog)
+                                            <option value="{{ $prog->id }}">{{ $prog->program_name }}{{ $prog->program_code ? ' (' . $prog->program_code . ')' : '' }}</option>
+                                        @endforeach
+                                    </optgroup>
+                                @endif
                             @endforeach
+                            {{-- Orphan program (soft-filtered) not under a listed college --}}
+                            @php
+                                $collegeIds = $colleges->map(fn ($c) => (string) $c->id)->all();
+                                $orphanPrograms = $programOptions->filter(
+                                    fn ($p) => ! in_array((string) ($p->college_id ?? ''), $collegeIds, true)
+                                );
+                            @endphp
+                            @if($orphanPrograms->isNotEmpty())
+                                <optgroup label="Other">
+                                    @foreach($orphanPrograms as $prog)
+                                        <option value="{{ $prog->id }}">{{ $prog->college_name ?? '—' }} — {{ $prog->program_name }}</option>
+                                    @endforeach
+                                </optgroup>
+                            @endif
                         </select>
                         @error('programId') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
@@ -3481,7 +3555,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @else
                         <div class="st-field">
                             <label class="st-label">Courses</label>
-                            <p class="st-faculty-hint" style="margin-top:0;">Set program, semester, and year level once, then add as many courses as you need.</p>
+                            <p class="st-faculty-hint" style="margin-top:0;">Set college/program, semester, and year level once, then add as many courses as you need.</p>
                             <div class="st-course-rows">
                                 <div class="st-course-row st-course-row-head">
                                     <span>Code</span>

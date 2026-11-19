@@ -334,9 +334,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
             if ($this->search !== '') {
                 $like = '%' . $this->search . '%';
+                $search = $this->search;
                 $tokens = RegisterQueryHelper::searchTokens($this->search);
-                $query->where(function ($q) use ($like, $tokens) {
-                    $q->where(function ($phrase) use ($like) {
+                $query->where(function ($q) use ($like, $tokens, $search) {
+                    $q->where(function ($phrase) use ($like, $search) {
                         $phrase->whereExists(function ($q2) use ($like) {
                             $q2->select(DB::raw(1))
                                 ->from('dcs_document_request_form as drf')
@@ -346,16 +347,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         ->orWhere('drf.drf_no', 'ilike', $like);
                                 });
                         })
-                        ->orWhereExists(function ($q2) use ($like) {
+                        ->orWhereExists(function ($q2) use ($like, $search) {
                             $q2->select(DB::raw(1))
                                 ->from('dcs_masterlist_registration as ml')
                                 ->whereColumn('ml.request_id', 'dr.id')
-                                ->where(function ($q3) use ($like) {
+                                ->where(function ($q3) use ($like, $search) {
                                     $q3->where('ml.doc_no', 'ilike', $like)
                                         ->orWhere('ml.doc_title', 'ilike', $like)
                                         ->orWhere(function ($name) use ($like) {
                                             RegisterQueryHelper::applyMasterlistOriginatorFilter($name, 'ml', $like, false, false);
                                         });
+                                    RegisterQueryHelper::applyMasterlistKeywordSearch($q3, $search);
                                 });
                         })
                         ->orWhereRaw('dr.id::text ilike ?', [$like]);
@@ -365,17 +367,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         $q->orWhere(function ($all) use ($tokens) {
                             foreach ($tokens as $token) {
                                 $tokenLike = '%' . $token . '%';
-                                $all->where(function ($one) use ($tokenLike) {
-                                    $one->whereExists(function ($q2) use ($tokenLike) {
+                                $all->where(function ($one) use ($tokenLike, $token) {
+                                    $one->whereExists(function ($q2) use ($tokenLike, $token) {
                                         $q2->select(DB::raw(1))
                                             ->from('dcs_masterlist_registration as ml')
                                             ->whereColumn('ml.request_id', 'dr.id')
-                                            ->where(function ($q3) use ($tokenLike) {
+                                            ->where(function ($q3) use ($tokenLike, $token) {
                                                 $q3->where('ml.doc_no', 'ilike', $tokenLike)
                                                     ->orWhere('ml.doc_title', 'ilike', $tokenLike)
                                                     ->orWhere(function ($name) use ($tokenLike) {
                                                         RegisterQueryHelper::applyMasterlistOriginatorFilter($name, 'ml', $tokenLike, false, false);
                                                     });
+                                                RegisterQueryHelper::applyMasterlistKeywordSearch($q3, $token);
                                             });
                                     })->orWhereExists(function ($q2) use ($tokenLike) {
                                         $q2->select(DB::raw(1))
@@ -2262,9 +2265,31 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             @endforeach
         </div>
         <div class="db-controls-right">
-            <div class="db-search-wrap">
+            <div
+                class="db-search-wrap"
+                wire:ignore
+                x-data="{
+                    q: @js($search),
+                    timer: null,
+                    push() {
+                        clearTimeout(this.timer);
+                        this.timer = setTimeout(() => { $wire.set('search', this.q); }, 300);
+                    }
+                }"
+                x-init="$wire.$watch('search', (value) => {
+                    if (document.activeElement === $refs.dbSearch) return;
+                    q = value ?? '';
+                })"
+            >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                <input type="text" wire:model.live.debounce.400ms="search" placeholder="Search documents..." autocomplete="off" wire:loading.attr="disabled" wire:target="search">
+                <input
+                    type="text"
+                    x-ref="dbSearch"
+                    x-model="q"
+                    @input="push()"
+                    placeholder="Search by document no., title, keywords..."
+                    autocomplete="off"
+                >
             </div>
             <button class="db-collapse-btn" type="button" :class="{ 'is-collapsed': allCollapsed }" @click="collapseAll()" title="Collapse all columns" :title="allCollapsed ? 'Expand all columns' : 'Collapse all columns'">
                 <i class="fa-solid fa-compress" x-show="!allCollapsed"></i>
@@ -2503,21 +2528,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $pgSize = (int) ($list['per_page'] ?? 20);
             $pgFrom = $pgTotal === 0 ? 0 : (($pg - 1) * $pgSize) + 1;
             $pgTo = min($pgTotal, $pg * $pgSize);
-            $pgStart = max(1, $pg - 2);
-            $pgEnd = min($pgLast, $pg + 2);
         @endphp
-        <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 16px;flex-wrap:wrap;">
-            <span class="db-page-info">Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}</span>
-            @if($pg > 1)
-                <button type="button" class="db-btn" wire:click="goToPage({{ $pg - 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Previous</button>
-            @endif
-            @for($p = $pgStart; $p <= $pgEnd; $p++)
-                <button type="button" class="db-btn {{ $p === $pg ? 'active' : '' }}" wire:click="goToPage({{ $p }})" wire:loading.attr="disabled" wire:target="goToPage" @if($p === $pg) disabled @endif>{{ $p }}</button>
-            @endfor
-            @if($pg < $pgLast)
-                <button type="button" class="db-btn" wire:click="goToPage({{ $pg + 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Next</button>
-            @endif
-        </div>
+        @include('pages.dcs.partials.list-pagination', [
+            'from' => $pgFrom,
+            'to' => $pgTo,
+            'total' => $pgTotal,
+            'page' => $pg,
+            'lastPage' => $pgLast,
+            'loadingTarget' => 'goToPage',
+        ])
 
     </section>
 </main>

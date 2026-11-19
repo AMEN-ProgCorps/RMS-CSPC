@@ -514,7 +514,8 @@ document.addEventListener('livewire:navigated', () => {
 });
 
 function applyStoredRmsTheme() {
-    if (document.querySelector('meta[name="rms-portal"]')) {
+    // Guest portal pages stay light; authenticated portal follows rms-theme.
+    if (document.querySelector('meta[name="rms-portal"]') && !document.querySelector('meta[name="rms-portal-auth"]')) {
         return;
     }
     try {
@@ -979,7 +980,7 @@ window.setupIconModeInteractions = setupIconModeInteractions;
     // Storage event fallback (guarantees cross-tab and cross-window sync)
     window.addEventListener('storage', (e) => {
         if (e.key === 'rms-theme' && e.newValue) {
-            if (!document.querySelector('meta[name="rms-portal"]')) {
+            if (!document.querySelector('meta[name="rms-portal"]') || document.querySelector('meta[name="rms-portal-auth"]')) {
                 document.documentElement.setAttribute('data-theme', e.newValue);
             }
         }
@@ -1056,7 +1057,7 @@ window.setupIconModeInteractions = setupIconModeInteractions;
         lastHandledEventId = data.id;
 
         if (data.type === 'theme_change') {
-            if (!document.querySelector('meta[name="rms-portal"]')) {
+            if (!document.querySelector('meta[name="rms-portal"]') || document.querySelector('meta[name="rms-portal-auth"]')) {
                 const currentTheme = localStorage.getItem('rms-theme') || 'light';
                 document.documentElement.setAttribute('data-theme', currentTheme);
             }

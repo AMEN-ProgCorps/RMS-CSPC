@@ -2324,8 +2324,20 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     text-align: center;
 }
 
+.reg-grid-syllabi-context .reg-field--year-level {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.reg-grid-syllabi-context .reg-field--year-level > label {
+    width: 100%;
+    text-align: left;
+}
+
 .reg-syllabi-years {
     box-sizing: border-box;
+    width: 100%;
     height: 40px;
     min-height: 40px;
     max-height: 40px;
@@ -2340,13 +2352,17 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     flex-wrap: nowrap;
     gap: 6px;
     align-items: center;
+    justify-content: center;
+    text-align: center;
     overflow-x: auto;
     overflow-y: hidden;
 }
 
 .reg-syllabi-years.is-empty {
     color: var(--reg-text-muted, #64748b);
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .reg-syllabi-year-chip {

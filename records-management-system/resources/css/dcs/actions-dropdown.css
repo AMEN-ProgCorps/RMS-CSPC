@@ -14,8 +14,12 @@
 
 .actions-container {
     position: absolute;
-    top: 10px;
+    top: 0;
+    bottom: 0;
     right: 15px;
+    height: 30px;
+    margin-top: auto;
+    margin-bottom: auto;
     display: flex;
     justify-content: center;
     z-index: 1001;
@@ -164,6 +168,7 @@
     transform: scale(1.12) translateX(2px);
 }
 
+/* Dark mode — keep in sync with resources/css/dashboard.css ACTIONS dropdown */
 [data-theme="dark"] .drop_down-container {
     background-color: #131c2e !important;
     border: 1px solid #1e293b !important;
@@ -175,8 +180,13 @@
     border: 0.5px solid #1e293b !important;
 }
 
-[data-theme="dark"] .drop_down-container span {
-    color: #475569 !important;
+[data-theme="dark"] .drop_down-container span,
+[data-theme="dark"] .drop_down-container button span {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .drop_down-container button {
+    color: #94a3b8 !important;
 }
 
 [data-theme="dark"] .drop_down-container button img {

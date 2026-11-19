@@ -121,17 +121,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         if (trim($this->search) !== '') {
-            $like = '%' . trim($this->search) . '%';
-            $tokens = RegisterQueryHelper::searchTokens($this->search);
-            $query->where(function ($q) use ($like, $tokens) {
-                $q->where(function ($phrase) use ($like) {
-                    $phrase->whereExists(function ($q2) use ($like) {
+            $search = trim($this->search);
+            $like = '%' . $search . '%';
+            $tokens = RegisterQueryHelper::searchTokens($search);
+            $query->where(function ($q) use ($like, $tokens, $search) {
+                $q->where(function ($phrase) use ($like, $search) {
+                    $phrase->whereExists(function ($q2) use ($like, $search) {
                         $q2->select(DB::raw(1))
                             ->from('dcs_masterlist_registration as ml')
                             ->whereColumn('ml.request_id', 'dr.id')
-                            ->where(function ($q3) use ($like) {
+                            ->where(function ($q3) use ($like, $search) {
                                 $q3->where('ml.doc_no', 'ilike', $like)
                                     ->orWhere('ml.doc_title', 'ilike', $like);
+                                RegisterQueryHelper::applyMasterlistKeywordSearch($q3, $search);
                             });
                     })->orWhereExists(function ($q2) use ($like) {
                         $q2->select(DB::raw(1))
@@ -144,14 +146,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     $q->orWhere(function ($all) use ($tokens) {
                         foreach ($tokens as $token) {
                             $tokenLike = '%' . $token . '%';
-                            $all->where(function ($one) use ($tokenLike) {
-                                $one->whereExists(function ($q2) use ($tokenLike) {
+                            $all->where(function ($one) use ($tokenLike, $token) {
+                                $one->whereExists(function ($q2) use ($tokenLike, $token) {
                                     $q2->select(DB::raw(1))
                                         ->from('dcs_masterlist_registration as ml')
                                         ->whereColumn('ml.request_id', 'dr.id')
-                                        ->where(function ($q3) use ($tokenLike) {
+                                        ->where(function ($q3) use ($tokenLike, $token) {
                                             $q3->where('ml.doc_no', 'ilike', $tokenLike)
                                                 ->orWhere('ml.doc_title', 'ilike', $tokenLike);
+                                            RegisterQueryHelper::applyMasterlistKeywordSearch($q3, $token);
                                         });
                                 })->orWhereExists(function ($q2) use ($tokenLike) {
                                     $q2->select(DB::raw(1))
@@ -361,7 +364,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="st-search-wrap">
                 <i class="fa-solid fa-magnifying-glass"></i>
                 <input type="text" id="stSearch" class="st-search" wire:model.live.debounce.400ms="search"
-                       placeholder="Search by title, document number, or type..." autocomplete="off">
+                       placeholder="Search by title, document number, keywords, or type..." autocomplete="off">
             </div>
             <select id="stTypeFilter" class="st-filter" wire:model.live="typeId">
                 <option value="all">All Document Types</option>
@@ -519,57 +522,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </table>
             </div>
 
-            @if($documents->total() > 0)
-            <div class="st-pagination">
-                <div class="st-page-info">
-                    Showing <strong>{{ $documents->firstItem() }}&ndash;{{ $documents->lastItem() }}</strong> of <strong>{{ $documents->total() }}</strong>
-                </div>
-                <div class="st-page-tools">
-                <div class="st-page-size">
-                    <label for="stPerPage">Show</label>
-                    <select id="stPerPage" wire:model.live="perPage">
-                        @foreach([10, 15, 25, 50, 100] as $size)
-                            <option value="{{ $size }}">{{ $size }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div class="st-page-links">
-                    @if($documents->onFirstPage())
-                        <span class="st-pg disabled"><i class="fa-solid fa-chevron-left"></i></span>
-                    @else
-                        <button type="button" class="st-pg" wire:click="goToPage({{ $documents->currentPage() - 1 }})"><i class="fa-solid fa-chevron-left"></i></button>
-                    @endif
-
-                    @php
-                        $stampPages = [];
-                        $stampLast = $documents->lastPage();
-                        $stampCurrent = $documents->currentPage();
-                        for ($stampPage = 1; $stampPage <= $stampLast; $stampPage++) {
-                            if ($stampPage === 1 || $stampPage === $stampLast || abs($stampPage - $stampCurrent) <= 1) {
-                                $stampPages[] = $stampPage;
-                            }
-                        }
-                    @endphp
-                    @foreach($stampPages as $index => $page)
-                        @if($index > 0 && $page - $stampPages[$index - 1] > 1)
-                            <span class="st-pg disabled">…</span>
-                        @endif
-                        @if($page === $stampCurrent)
-                            <span class="st-pg st-pg-active">{{ $page }}</span>
-                        @else
-                            <button type="button" class="st-pg" wire:click="goToPage({{ $page }})">{{ $page }}</button>
-                        @endif
-                    @endforeach
-
-                    @if($documents->hasMorePages())
-                        <button type="button" class="st-pg" wire:click="goToPage({{ $documents->currentPage() + 1 }})"><i class="fa-solid fa-chevron-right"></i></button>
-                    @else
-                        <span class="st-pg disabled"><i class="fa-solid fa-chevron-right"></i></span>
-                    @endif
-                </div>
-                </div>
-            </div>
-            @endif
+            @include('pages.dcs.partials.list-pagination', [
+                'from' => (int) $documents->firstItem(),
+                'to' => (int) $documents->lastItem(),
+                'total' => (int) $documents->total(),
+                'page' => (int) $documents->currentPage(),
+                'lastPage' => (int) $documents->lastPage(),
+            ])
         </div>
     </div>
 
@@ -599,22 +558,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </button>
                     </div>
                     <div class="st-preview-frame" id="previewFrame">
-                        <iframe id="pdfPreview" src="" title="PDF Preview"></iframe>
-
-                        <div class="st-stamp-overlay pos-bottom-right" id="stampOverlay" style="display:none;">
-                            <div class="st-stamp-box st-stamp-box-image" id="stampBox">
-                                <img src="{{ asset('images/stamps/reference.png') }}" alt="REFERENCE" class="st-stamp-art" id="overlayStampArt">
-                                <div class="st-stamp-inner" id="overlayStampFallback" style="display:none;">
-                                    <div class="st-stamp-title" id="overlayTitle">REFERENCE</div>
-                                    <div class="st-stamp-divider" id="overlayDivider" style="display:none;"></div>
-                                    <div class="st-stamp-date" id="overlayDate" style="display:none;"></div>
-                                    <div class="st-stamp-sub" id="overlaySub" style="display:none;"></div>
+                        <div class="st-preview-scroll" id="previewScroll">
+                            <div class="st-page-stage" id="pageStage">
+                                <canvas id="pdfCanvas" aria-label="PDF page preview"></canvas>
+                                <div class="st-stamp-overlay pos-bottom-right" id="stampOverlay" style="display:none;">
+                                    <div class="st-stamp-box st-stamp-box-image" id="stampBox" title="Drag to move">
+                                        <img src="{{ asset('images/stamps/reference.png') }}?v={{ @filemtime(public_path('images/stamps/reference.png')) ?: time() }}" alt="REFERENCE" class="st-stamp-art" id="overlayStampArt">
+                                        <div class="st-stamp-inner" id="overlayStampFallback" style="display:none;">
+                                            <div class="st-stamp-title" id="overlayTitle">REFERENCE</div>
+                                            <div class="st-stamp-divider" id="overlayDivider" style="display:none;"></div>
+                                            <div class="st-stamp-date" id="overlayDate" style="display:none;"></div>
+                                            <div class="st-stamp-sub" id="overlaySub" style="display:none;"></div>
+                                        </div>
+                                    </div>
+                                    <span class="st-stamp-pages" id="overlayPages">All pages</span>
+                                    <span class="st-auto-badge is-detecting" id="detectingBadge" style="display:none;">
+                                        <i class="fa-solid fa-spinner fa-spin"></i> Finding empty area…
+                                    </span>
+                                    <span class="st-auto-badge" id="autoBadge" style="display:none;">
+                                        <i class="fa-solid fa-wand-magic-sparkles"></i> Preview position — drag to adjust
+                                    </span>
                                 </div>
                             </div>
-                            <span class="st-stamp-pages" id="overlayPages">All pages</span>
-                            <span class="st-auto-badge" id="autoBadge" style="display:none;">
-                                <i class="fa-solid fa-wand-magic-sparkles"></i> Empty area detected
-                            </span>
                         </div>
 
                         <div class="st-preview-fallback" id="previewFallback" style="display:none;">
@@ -624,8 +589,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </div>
                     </div>
                     <p class="st-preview-note">
-                        <i class="fa-solid fa-eye"></i>
-                        Preview shows stamp on the detected empty area of the scanned page
+                        <i class="fa-solid fa-hand"></i>
+                        Preview the stamp first, drag it to the right empty spot, then click Apply Stamp.
                     </p>
                 </div>
 
@@ -638,8 +603,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
                     <div class="st-section">
                         <label class="st-label">Stamp Type</label>
+                        <p style="margin:0 0 8px;font-size:0.75rem;color:var(--st-text-subtle);">
+                            The stamp appears on the PDF preview first. Drag it before you apply.
+                        </p>
                         <div class="st-type-pills" id="typePills">
-                            <button class="st-type-pill selected" data-type="reference" type="button">
+                            <button class="st-type-pill" data-type="reference" type="button">
                                 <span class="st-pill-color" style="background:#b03030"></span> Reference
                             </button>
                         </div>
@@ -650,7 +618,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <label class="st-checkbox-wrap" style="margin-bottom:10px;">
                             <input type="checkbox" id="autoPlace" checked>
                             <span class="st-checkbox-custom"></span>
-                            <span>Auto-place in empty area <small style="color:var(--st-text-subtle);font-weight:400;">(prefers bottom margin)</small></span>
+                            <span>Auto-place in empty area <small style="color:var(--st-text-subtle);font-weight:400;">(preview first — drag before Apply)</small></span>
                         </label>
 
                         <div id="manualPosWrap" style="display:none;">
@@ -665,6 +633,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <span class="st-pos-label" id="positionLabel">Bottom Right</span>
                             </div>
                         </div>
+                        <p class="st-pos-drag-hint" id="customPosHint" style="display:none;margin:8px 0 0;font-size:0.75rem;color:var(--st-text-subtle);">
+                            <i class="fa-solid fa-arrows-up-down-left-right"></i>
+                            Drag the stamp on the preview to fine-tune, then Apply Stamp
+                        </p>
                     </div>
 
                     <div class="st-section">
@@ -733,6 +705,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </div>
 
     <div wire:ignore>
-        <script src="{{ asset('js/stamping.js') }}"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <script>
+            if (window.pdfjsLib) {
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            }
+        </script>
+        <script src="{{ asset('js/stamping.js') }}?v={{ @filemtime(public_path('js/stamping.js')) ?: time() }}"></script>
     </div>
 </div>

@@ -588,8 +588,10 @@ body {
 
 .st-pagination {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 12px 16px;
     padding: 14px 20px;
     border-top: 1px solid var(--st-border);
     background: var(--dcs-bg);
@@ -606,9 +608,9 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-left: auto;
+    margin-left: 0;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: flex-start;
 }
 
 .st-page-size {
@@ -830,11 +832,30 @@ body {
     border: 1px solid var(--st-border);
 }
 
-.st-preview-frame iframe {
+.st-preview-scroll {
     width: 100%;
     height: 100%;
-    border: none;
+    overflow: auto;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 16px;
+    box-sizing: border-box;
+}
+
+.st-page-stage {
+    position: relative;
+    display: inline-block;
+    margin: 0 auto;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
+    background: #fff;
+    line-height: 0;
+}
+
+.st-page-stage canvas {
     display: block;
+    max-width: 100%;
+    height: auto;
 }
 
 .st-preview-fallback {
@@ -1117,7 +1138,18 @@ body {
 .st-stamp-overlay {
     position: absolute;
     z-index: 10;
-    pointer-events: none;
+    pointer-events: auto;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+    /* Width is set in % of the PDF page stage so preview matches FPDI page coords. */
+    width: 16%;
+    line-height: normal;
+}
+
+.st-stamp-overlay.is-dragging {
+    cursor: grabbing;
+    opacity: 0.95;
 }
 
 .st-stamp-overlay.pos-top-left     { top: 4%; left: 4%; right: auto; bottom: auto; transform: none; }
@@ -1125,7 +1157,8 @@ body {
 .st-stamp-overlay.pos-center       { top: 50%; left: 50%; right: auto; bottom: auto; transform: translate(-50%, -50%); }
 .st-stamp-overlay.pos-bottom-left  { bottom: 4%; left: 4%; top: auto; right: auto; transform: none; }
 .st-stamp-overlay.pos-bottom-right { bottom: 4%; right: 4%; top: auto; left: auto; transform: none; }
-.st-stamp-overlay.pos-auto {
+.st-stamp-overlay.pos-auto,
+.st-stamp-overlay.pos-custom {
     top: auto;
     right: auto;
     bottom: auto;
@@ -1154,8 +1187,10 @@ body {
 }
 
 .st-stamp-box-image {
-    width: 72px;
-    max-width: 14%;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    overflow: visible;
 }
 
 .st-stamp-art {
@@ -1163,19 +1198,43 @@ body {
     width: 100%;
     height: auto;
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.18));
+    background: transparent;
 }
 
 .st-stamp-inner {
-    border: 1.8px solid #b03030;
-    padding: 6px 10px;
+    position: relative;
+    border: 2.5px solid #b03030;
+    padding: 10px 14px 14px;
     text-align: center;
-    background: rgba(255,255,255,0.92);
+    background: rgba(255, 255, 255, 0.92);
+    overflow: visible;
+}
+
+/* CSS fallback signature when PNG art is unavailable */
+.st-stamp-inner::after {
+    content: '';
+    position: absolute;
+    right: -10px;
+    bottom: -6px;
+    width: 42px;
+    height: 18px;
+    background:
+        radial-gradient(ellipse at 30% 55%, #1e4fd8 0 1.2px, transparent 1.4px) 4px 6px / 8px 8px no-repeat,
+        radial-gradient(ellipse at 60% 40%, #1e4fd8 0 1.1px, transparent 1.3px) 12px 2px / 10px 10px no-repeat;
+    border-bottom: 1.5px solid #1e4fd8;
+    border-radius: 40% 60% 35% 65% / 55% 40% 60% 45%;
+    box-shadow:
+        -10px 2px 0 -6px #1e4fd8,
+        -2px -3px 0 -7px #1e4fd8,
+        6px 1px 0 -7px #1e4fd8;
+    opacity: 0.95;
+    pointer-events: none;
 }
 
 .st-stamp-title {
-    font-size: 8px;
+    font-size: 15px;
     font-weight: 800;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     line-height: 1.1;
     color: #b03030;
     font-family: Arial Narrow, Arial, Helvetica, sans-serif;

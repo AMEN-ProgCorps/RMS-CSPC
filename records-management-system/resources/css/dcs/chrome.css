@@ -123,3 +123,118 @@ body:has(#dcs-sidebar-collapsed:checked) .ofi-loading-overlay.ofi-loading-page {
     pointer-events: none;
 }
 
+/*
+ * Shared DCS list pagination — one markup (partials/list-pagination) + one look.
+ * Left-aligned so Messify / Report / Manual FABs never cover Next.
+ */
+:root {
+    --dcs-fab-clearance-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+    --dcs-pg-border: var(--dcs-border, #e2e8f0);
+    --dcs-pg-bg: #f8fafc;
+    --dcs-pg-surface: #ffffff;
+    --dcs-pg-text: var(--dcs-text, #0f172a);
+    --dcs-pg-muted: var(--dcs-text-muted, #64748b);
+    --dcs-pg-accent: var(--dcs-accent, #003699);
+    --dcs-pg-accent-subtle: var(--dcs-accent-subtle, #eff6ff);
+}
+
+.upd-container,
+.rb-container,
+.mf-page,
+.drr-page,
+.ofi-page,
+.st-container,
+.db-page,
+.rc-page {
+    padding-bottom: var(--dcs-fab-clearance-bottom);
+}
+
+.dcs-pagination {
+    display: flex !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: 12px 16px !important;
+    padding: 14px 16px !important;
+    border-top: 1px solid var(--dcs-pg-border) !important;
+    background: var(--dcs-pg-bg) !important;
+    margin: 0 !important;
+}
+
+.dcs-pagination-info {
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+    color: var(--dcs-pg-muted) !important;
+    line-height: 1.2 !important;
+}
+
+.dcs-pagination-links {
+    display: flex !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    margin: 0 !important;
+}
+
+.dcs-pg {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-width: 34px !important;
+    height: 34px !important;
+    padding: 0 12px !important;
+    border: 1px solid var(--dcs-pg-border) !important;
+    border-radius: 6px !important;
+    background: var(--dcs-pg-surface) !important;
+    color: var(--dcs-pg-text) !important;
+    font-size: 0.82rem !important;
+    font-weight: 600 !important;
+    line-height: 1 !important;
+    text-decoration: none !important;
+    cursor: pointer !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    box-shadow: none !important;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease !important;
+}
+
+.dcs-pg:hover:not(:disabled):not(.is-active) {
+    border-color: var(--dcs-pg-accent) !important;
+    color: var(--dcs-pg-accent) !important;
+    background: var(--dcs-pg-accent-subtle) !important;
+}
+
+.dcs-pg.is-active {
+    background: var(--dcs-pg-accent) !important;
+    border-color: var(--dcs-pg-accent) !important;
+    color: #fff !important;
+    font-weight: 700 !important;
+}
+
+.dcs-pg:disabled {
+    opacity: 0.4 !important;
+    pointer-events: none !important;
+    cursor: default !important;
+}
+
+[data-theme="dark"] .dcs-pagination {
+    background: #0f172a !important;
+    border-top-color: #1e293b !important;
+}
+
+[data-theme="dark"] .dcs-pagination-info {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .dcs-pg {
+    background: #131c2e !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .dcs-pg.is-active {
+    background: #2563eb !important;
+    border-color: #2563eb !important;
+    color: #fff !important;
+}
+

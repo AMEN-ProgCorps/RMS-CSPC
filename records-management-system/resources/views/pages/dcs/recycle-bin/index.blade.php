@@ -464,7 +464,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <div class="rb-search-wrapper">
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" class="rb-search-input" wire:model.live.debounce.400ms="search"
-                placeholder="{{ $isSettingsTab ? 'Search deleted settings by name or type...' : 'Search deleted documents by title or document no...' }}"
+                placeholder="{{ $isSettingsTab ? 'Search deleted settings by name or type...' : 'Search deleted documents by title, document no, or keywords...' }}"
                 autocomplete="off">
         </div>
     </div>
@@ -570,19 +570,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </p>
         </div>
 
-        <div class="rb-pagination">
-            <div class="rb-pagination-info">
-                Page {{ $list['current_page'] }} of {{ $list['last_page'] }} ({{ $list['total'] }} total)
-            </div>
-            <div class="rb-pagination-links">
-                @if($list['current_page'] > 1)
-                    <button type="button" class="rb-pg" wire:click="goToPage({{ $list['current_page'] - 1 }})">Prev</button>
-                @endif
-                @if($list['current_page'] < $list['last_page'])
-                    <button type="button" class="rb-pg" wire:click="goToPage({{ $list['current_page'] + 1 }})">Next</button>
-                @endif
-            </div>
-        </div>
+        @php
+            $rbPg = (int) ($list['current_page'] ?? 1);
+            $rbLast = (int) ($list['last_page'] ?? 1);
+            $rbTotal = (int) ($list['total'] ?? 0);
+            $rbSize = (int) ($list['per_page'] ?? 15);
+            $rbFrom = $rbTotal === 0 ? 0 : (($rbPg - 1) * $rbSize) + 1;
+            $rbTo = min($rbTotal, $rbPg * $rbSize);
+        @endphp
+        @include('pages.dcs.partials.list-pagination', [
+            'from' => $rbFrom,
+            'to' => $rbTo,
+            'total' => $rbTotal,
+            'page' => $rbPg,
+            'lastPage' => $rbLast,
+        ])
     </div>
 
     @if($restoreId)

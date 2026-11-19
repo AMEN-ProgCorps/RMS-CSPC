@@ -4588,10 +4588,25 @@
       const wasNearBottom   = !userScrolledUp && ((preScrollHeight - preScrollTop - chatBox.clientHeight) <= 40);
       const existingWasAbove = existing ? (existing.offsetTop < preScrollTop) : false;
 
+      const partnerUser = (Array.isArray(allUsersData) ? allUsersData.find(u =>
+        (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) ||
+        (activeDM && u.username === activeDM)
+      ) : null);
+      const partnerName = (partnerUser && (partnerUser.full_name || partnerUser.name)) || activeDM || '';
+      const partnerInitials = typeof getInitialsFromFullName === 'function'
+        ? getInitialsFromFullName(partnerName)
+        : (partnerName.slice(0, 2).toUpperCase() || '?');
+      const partnerAvatarUrl = partnerUser ? (partnerUser.avatar_url || null) : null;
+
       const indicator = existing || document.createElement('div');
       indicator.className = 'seen-indicator';
-      indicator.innerHTML = '<span class="seen-indicator-text">seen</span>';
+      indicator.innerHTML = `<span class="seen-indicator-avatar" title="Seen by ${escapeHtml(partnerName)}">${avatarInnerHtml(partnerAvatarUrl, partnerInitials)}</span>`;
       target.insertAdjacentElement('afterend', indicator);
+      if (!isFirstLoad) {
+        indicator.classList.remove('is-dropping');
+        void indicator.offsetWidth;
+        indicator.classList.add('is-dropping');
+      }
 
       // Only adjust scroll if NOT on initial load (handleFirstLoadScroll handles initial load)
       if (!isFirstLoad) {

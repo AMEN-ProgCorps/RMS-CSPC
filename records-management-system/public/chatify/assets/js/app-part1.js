@@ -3909,12 +3909,19 @@
       const prevST = chatBox ? chatBox.scrollTop : null;
       _currentReadMoreFullText = fullText || '';
       resetReadMoreCopyBtn();
-      readMoreModalBody.textContent = fullText || '';
+      readMoreModalBody.textContent = '';
+      const inner = document.createElement('div');
+      inner.className = 'read-more-inner';
+      if (isEmojiOnlyText(fullText || '')) {
+        inner.classList.add('emoji-only');
+      }
+      inner.textContent = fullText || '';
+      readMoreModalBody.appendChild(inner);
       delete readMoreModalBody.dataset.linkified; // allow re-linkifying on every open
       delete readMoreModalBody.dataset.emRendered;
-      linkifyContent(readMoreModalBody);
+      linkifyContent(inner);
       if (typeof window.renderEmojiMartInElement === 'function') {
-        window.renderEmojiMartInElement(readMoreModalBody);
+        window.renderEmojiMartInElement(inner);
       }
       readMoreModal.classList.add('active');
       readMoreModal.setAttribute('aria-hidden', 'false');
@@ -4581,10 +4588,25 @@
       const wasNearBottom   = !userScrolledUp && ((preScrollHeight - preScrollTop - chatBox.clientHeight) <= 40);
       const existingWasAbove = existing ? (existing.offsetTop < preScrollTop) : false;
 
+      const partnerUser = (Array.isArray(allUsersData) ? allUsersData.find(u =>
+        (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) ||
+        (activeDM && u.username === activeDM)
+      ) : null);
+      const partnerName = (partnerUser && (partnerUser.full_name || partnerUser.name)) || activeDM || '';
+      const partnerInitials = typeof getInitialsFromFullName === 'function'
+        ? getInitialsFromFullName(partnerName)
+        : (partnerName.slice(0, 2).toUpperCase() || '?');
+      const partnerAvatarUrl = partnerUser ? (partnerUser.avatar_url || null) : null;
+
       const indicator = existing || document.createElement('div');
       indicator.className = 'seen-indicator';
-      indicator.innerHTML = '<span class="seen-indicator-text">seen</span>';
+      indicator.innerHTML = `<span class="seen-indicator-avatar" title="Seen by ${escapeHtml(partnerName)}">${avatarInnerHtml(partnerAvatarUrl, partnerInitials)}</span>`;
       target.insertAdjacentElement('afterend', indicator);
+      if (!isFirstLoad) {
+        indicator.classList.remove('is-dropping');
+        void indicator.offsetWidth;
+        indicator.classList.add('is-dropping');
+      }
 
       // Only adjust scroll if NOT on initial load (handleFirstLoadScroll handles initial load)
       if (!isFirstLoad) {
@@ -5548,6 +5570,52 @@
     let mentionSearchTimer = null;
     let mentionSearchSeq = 0; // guards a slow response from overwriting a newer one
 
+    const _emojiAdvanceWidthCache = new Map();
+    let _emojiMeasureSpan = null;
+    function getTextareaEmojiAdvanceWidth(emojiStr, textareaEl) {
+      if (!emojiStr || !textareaEl) return 0;
+      const cs = window.getComputedStyle(textareaEl);
+      const fontKey = cs.fontWeight + '|' + cs.fontSize + '|' + cs.fontFamily + '|' + cs.letterSpacing;
+      const cacheKey = fontKey + '|' + emojiStr;
+      if (_emojiAdvanceWidthCache.has(cacheKey)) {
+        return _emojiAdvanceWidthCache.get(cacheKey);
+      }
+      if (!_emojiMeasureSpan) {
+        _emojiMeasureSpan = document.createElement('span');
+        _emojiMeasureSpan.setAttribute('aria-hidden', 'true');
+        _emojiMeasureSpan.style.cssText = 'position:fixed;left:-9999px;top:-9999px;visibility:hidden;white-space:pre;pointer-events:none;margin:0;padding:0;border:0;';
+        document.body.appendChild(_emojiMeasureSpan);
+      }
+      _emojiMeasureSpan.style.fontFamily = cs.fontFamily;
+      _emojiMeasureSpan.style.fontSize = cs.fontSize;
+      _emojiMeasureSpan.style.fontWeight = cs.fontWeight;
+      _emojiMeasureSpan.style.letterSpacing = cs.letterSpacing;
+      _emojiMeasureSpan.textContent = emojiStr;
+      const w = _emojiMeasureSpan.getBoundingClientRect().width;
+      if (w > 0) {
+        _emojiAdvanceWidthCache.set(cacheKey, w);
+      }
+      return w;
+    }
+
+    function syncHighlightEmojiWidths(highlightEl, textareaEl) {
+      if (!highlightEl || !textareaEl) return;
+      const icons = highlightEl.querySelectorAll('.em-sprite-icon');
+      for (let i = 0; i < icons.length; i++) {
+        const icon = icons[i];
+        const emojiStr = icon.getAttribute('aria-label') || icon.textContent;
+        const w = getTextareaEmojiAdvanceWidth(emojiStr, textareaEl);
+        if (w > 0) {
+          const size = Math.min(18, Math.floor(w * 100) / 100);
+          const sideMargin = (w - size) / 2;
+          icon.style.width = size + 'px';
+          icon.style.height = size + 'px';
+          icon.style.marginLeft = sideMargin.toFixed(3) + 'px';
+          icon.style.marginRight = sideMargin.toFixed(3) + 'px';
+        }
+      }
+    }
+
     // Rebuilds the highlight layer from the textarea's current text, wrapping
     // every still-present "@Name" (longest name first, so e.g. "Juan" can't
     // shadow-match inside "Juan Dela Cruz") in the same .mention-tag blue
@@ -5575,6 +5643,7 @@
         if (typeof window.renderEmojiMartInElement === 'function') {
           window.renderEmojiMartInElement(messageInputHighlight, 18);
         }
+        syncHighlightEmojiWidths(messageInputHighlight, messageInput);
         messageInputHighlight.scrollTop = messageInput.scrollTop;
         messageInputHighlight.scrollLeft = messageInput.scrollLeft;
         return;
@@ -5607,6 +5676,7 @@
       if (typeof window.renderEmojiMartInElement === 'function') {
         window.renderEmojiMartInElement(messageInputHighlight, 18);
       }
+      syncHighlightEmojiWidths(messageInputHighlight, messageInput);
       messageInputHighlight.scrollTop = messageInput.scrollTop;
       messageInputHighlight.scrollLeft = messageInput.scrollLeft;
     }
@@ -6565,6 +6635,26 @@
       if (Array.isArray(window.activeCustomGcMembers)) {
         const m = window.activeCustomGcMembers.find(x => Number(x.account_id) === targetId);
         if (m) m.is_messify_verified = !!isVerified;
+      }
+      if (window._gcSelectedMembers && typeof window._gcSelectedMembers.get === 'function') {
+        const selected = window._gcSelectedMembers.get(targetId);
+        if (selected) selected.is_messify_verified = !!isVerified;
+      }
+      const gcSearchRow = document.querySelector(`#gcMemberSearchResults [data-account-id="${targetId}"]`);
+      if (gcSearchRow) {
+        const gcNameSpan = gcSearchRow.querySelector('span');
+        if (gcNameSpan) {
+          const existingGcBadge = gcNameSpan.querySelector('.verified-badge');
+          if (isVerified && !existingGcBadge) {
+            const vBadge = document.createElement('span');
+            vBadge.className = 'verified-badge';
+            vBadge.style.cssText = 'flex-shrink:0;';
+            vBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+            gcNameSpan.appendChild(vBadge);
+          } else if (!isVerified && existingGcBadge) {
+            existingGcBadge.remove();
+          }
+        }
       }
       const row = document.querySelector(`#officeMembersList [data-account-id="${targetId}"]`);
       if (!row) return;

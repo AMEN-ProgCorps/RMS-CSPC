@@ -931,12 +931,21 @@
       min-height: 0;
     }
     #readMoreModal .modal-body {
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      word-break: break-word;
       max-height: 60vh;
       overflow-y: auto;
       text-align: left;
+    }
+    #readMoreModalBody .read-more-inner {
+      width: fit-content;
+      max-width: 100%;
+      margin: 0 auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      text-align: left;
+    }
+    #readMoreModalBody .read-more-inner.emoji-only {
+      text-align: center;
     }
 
     /* Inline "Read more..." affordance appended to a truncated long message.
@@ -1925,24 +1934,53 @@
       display: flex;
       justify-content: flex-end;
       width: 100%;
-      padding-right: 8px;
+      padding-right: 16px;
       margin-top: 2px;
       margin-bottom: 4px;
       box-sizing: border-box;
       pointer-events: none;
-      min-height: 14px;
+      min-height: 16px;
       contain: layout;
     }
 
-    .seen-indicator-text {
-      width: 32px;
-      text-align: center;
-      font-size: 10px;
-      font-weight: 500;
-      color: var(--text-secondary);
-      text-transform: none;
-      opacity: 0.85;
+    @keyframes seenAvatarDrop {
+      0% {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.8);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .seen-indicator-avatar {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      overflow: hidden;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--bg-avatar-received);
+      color: var(--text-primary);
+      font-size: 7px;
+      font-weight: 700;
       line-height: 1;
+      flex-shrink: 0;
+      box-shadow: 0 1px 2px var(--shadow-color);
+    }
+
+    .seen-indicator-avatar .avatar-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+      display: block;
+    }
+
+    .seen-indicator.is-dropping .seen-indicator-avatar {
+      animation: seenAvatarDrop 0.22s cubic-bezier(0.22, 1, 0.36, 1) forwards;
     }
 
     /* Message Bubble */

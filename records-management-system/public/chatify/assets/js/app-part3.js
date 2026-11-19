@@ -8079,9 +8079,26 @@
       const results = document.getElementById('addGcSearchResults');
       if (results) results.innerHTML = '';
 
-      window._addGcNewlyAddedCount = 0;
-      const addBadge = document.getElementById('addGcSelectedCountBadge');
-      if (addBadge) addBadge.style.display = 'none';
+      window._addGcSelectedMembers = new Map();
+      function updateAddGcSelectedCountBadge() {
+        const count = window._addGcSelectedMembers ? window._addGcSelectedMembers.size : 0;
+        const addBadge = document.getElementById('addGcSelectedCountBadge');
+        if (addBadge) {
+          if (count > 0) {
+            addBadge.textContent = count > 99 ? '99+' : String(count);
+            addBadge.style.display = 'inline-block';
+          } else {
+            addBadge.style.display = 'none';
+          }
+        }
+        const submitBtn = document.getElementById('addGcMembersSubmitBtn');
+        if (submitBtn) {
+          submitBtn.disabled = count === 0;
+        }
+      }
+      updateAddGcSelectedCountBadge();
+      const addSubmitBtn = document.getElementById('addGcMembersSubmitBtn');
+      if (addSubmitBtn) addSubmitBtn.textContent = 'Add';
 
       modal.classList.add('active');
       modal.setAttribute('aria-hidden', 'false');
@@ -8113,6 +8130,71 @@
       if (typeof loadCustomGcs === 'function') {
         loadCustomGcs();
       }
+    };
+
+    window.submitAddGcMembers = function() {
+      if (!window.activeCustomGc) return;
+      if (!(window._addGcSelectedMembers instanceof Map) || window._addGcSelectedMembers.size === 0) {
+        return;
+      }
+
+      const submitBtn = document.getElementById('addGcMembersSubmitBtn');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Adding...';
+      }
+
+      const groupId = window.activeCustomGc.gc_id;
+      const selectedEntries = Array.from(window._addGcSelectedMembers.entries());
+      const memberIds = selectedEntries.map(([id]) => id);
+
+      const bodyData = new FormData();
+      bodyData.append('group_id', groupId);
+      bodyData.append('member_ids', JSON.stringify(memberIds));
+
+      fetch('add_custom_gc_members.php', {
+        method: 'POST',
+        body: bodyData,
+      })
+        .then(r => r.json())
+        .then(res => {
+          if (res && res.success) {
+            if (!Array.isArray(window.activeCustomGcMembers)) {
+              window.activeCustomGcMembers = [];
+            }
+            selectedEntries.forEach(([targetId, u]) => {
+              if (!window.activeCustomGcMembers.some(m => Number(m.account_id) === Number(targetId))) {
+                window.activeCustomGcMembers.push({
+                  account_id: u.account_id,
+                  full_name: u.full_name,
+                  avatar_url: u.avatar_url,
+                  is_messify_verified: u.is_messify_verified
+                });
+              }
+            });
+            window._addGcSelectedMembers.clear();
+            if (typeof reloadOfficeMembersList === 'function') {
+              reloadOfficeMembersList(true);
+            }
+            if (typeof loadGlobalChat === 'function') {
+              loadGlobalChat(false, false, true);
+            }
+            closeAddGcMembersModal();
+          } else {
+            alert(res?.error || 'Failed to add members.');
+            if (submitBtn) {
+              submitBtn.disabled = window._addGcSelectedMembers.size === 0;
+              submitBtn.textContent = 'Add';
+            }
+          }
+        })
+        .catch(() => {
+          alert('Network error adding members.');
+          if (submitBtn) {
+            submitBtn.disabled = window._addGcSelectedMembers.size === 0;
+            submitBtn.textContent = 'Add';
+          }
+        });
     };
 
     const addGcSearchInput = document.getElementById('addGcSearchInput');
@@ -8180,100 +8262,54 @@
 
                 const isCreator = (window.activeCustomGc && Number(window.activeCustomGc.creator_id) === Number(u.account_id));
 
+                const targetId = Number(u.account_id);
+                const isSelected = window._addGcSelectedMembers instanceof Map && window._addGcSelectedMembers.has(targetId);
+
                 // Toggle switch
                 const label = document.createElement('label');
                 label.style.cssText = 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;';
                 const chk = document.createElement('input');
                 chk.type = 'checkbox';
-                chk.checked = false;
+                chk.checked = isSelected;
                 if (isCreator) chk.disabled = true;
                 chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
                 const slider = document.createElement('span');
                 slider.className = 'slider-bg';
-                slider.style.cssText = 'position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:var(--border-color);';
+                slider.style.cssText = `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${chk.checked ? '#1b74e4' : 'var(--border-color)'};`;
                 const knob = document.createElement('span');
                 knob.className = 'slider-knob';
-                knob.style.cssText = 'position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);';
+                knob.style.cssText = `position:absolute;top:3px;left:${chk.checked ? '21px' : '3px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
                 slider.appendChild(knob);
                 label.appendChild(chk);
                 label.appendChild(slider);
                 row.appendChild(label);
 
                 chk.addEventListener('change', function() {
-                  if (!window.activeCustomGc) return;
-                  // Only allow adding (checking ON) in this modal — cannot uncheck
-                  if (!this.checked) {
-                    // Prevent unchecking: snap back to checked
-                    this.checked = true;
-                    slider.style.background = '#1b74e4';
-                    knob.style.left = '21px';
-                    return;
+                  if (!(window._addGcSelectedMembers instanceof Map)) {
+                    window._addGcSelectedMembers = new Map();
                   }
-                  const targetId = Number(u.account_id);
-                  const groupId = window.activeCustomGc.gc_id;
-
-                  this.disabled = true;
-                  label.style.cursor = 'not-allowed';
-                  slider.style.background = '#1b74e4';
-                  knob.style.left = '21px';
-
-                  const bodyData = new FormData();
-                  bodyData.append('group_id', groupId);
-                  bodyData.append('member_ids', JSON.stringify([targetId]));
-
-                  fetch('add_custom_gc_members.php', {
-                    method: 'POST',
-                    body: bodyData,
-                  })
-                    .then(r => r.json())
-                    .then(res => {
-                      if (res && res.success) {
-                        // Keep permanently checked and disabled — added successfully
-                        chk.disabled = true;
-                        label.title = 'Already added';
-                        slider.style.background = '#1b74e4'; // blue = confirmed added
-
-                        window._addGcNewlyAddedCount = (window._addGcNewlyAddedCount || 0) + 1;
-                        const addBadge = document.getElementById('addGcSelectedCountBadge');
-                        if (addBadge) {
-                          addBadge.textContent = window._addGcNewlyAddedCount > 99 ? '99+' : String(window._addGcNewlyAddedCount);
-                          addBadge.style.display = 'inline-block';
-                        }
-                        if (!Array.isArray(window.activeCustomGcMembers)) {
-                          window.activeCustomGcMembers = [];
-                        }
-                        if (!window.activeCustomGcMembers.some(m => Number(m.account_id) === targetId)) {
-                          window.activeCustomGcMembers.push({
-                            account_id: u.account_id,
-                            full_name: u.full_name,
-                            avatar_url: u.avatar_url,
-                            is_messify_verified: u.is_messify_verified
-                          });
-                        }
-                        if (typeof reloadOfficeMembersList === 'function') {
-                          reloadOfficeMembersList(true);
-                        }
-                        if (typeof loadGlobalChat === 'function') {
-                          loadGlobalChat(false, false, true);
-                        }
-                      } else {
-                        // Failed — reset to unchecked so they can retry
-                        chk.disabled = false;
-                        chk.checked = false;
-                        label.style.cursor = 'pointer';
-                        slider.style.background = 'var(--border-color)';
-                        knob.style.left = '3px';
-                        alert(res?.error || 'Failed to add member.');
-                      }
-                    })
-                    .catch(() => {
-                      chk.disabled = false;
-                      chk.checked = false;
-                      label.style.cursor = 'pointer';
-                      slider.style.background = 'var(--border-color)';
-                      knob.style.left = '3px';
-                      alert('Network error adding member.');
-                    });
+                  const checked = this.checked;
+                  slider.style.background = checked ? '#1b74e4' : 'var(--border-color)';
+                  knob.style.left = checked ? '21px' : '3px';
+                  if (checked) {
+                    window._addGcSelectedMembers.set(targetId, u);
+                  } else {
+                    window._addGcSelectedMembers.delete(targetId);
+                  }
+                  const count = window._addGcSelectedMembers.size;
+                  const addBadge = document.getElementById('addGcSelectedCountBadge');
+                  if (addBadge) {
+                    if (count > 0) {
+                      addBadge.textContent = count > 99 ? '99+' : String(count);
+                      addBadge.style.display = 'inline-block';
+                    } else {
+                      addBadge.style.display = 'none';
+                    }
+                  }
+                  const submitBtn = document.getElementById('addGcMembersSubmitBtn');
+                  if (submitBtn) {
+                    submitBtn.disabled = count === 0;
+                  }
                 });
 
                 resultsEl.appendChild(row);
@@ -8341,8 +8377,8 @@
       // Remove verified badges from user items in the sidebar (never remove from #globalChatItem or group chats)
       document.querySelectorAll('.user-item:not(#globalChatItem):not(.office-gc-item):not(.custom-gc-item) .user-name-row .verified-badge').forEach(b => b.remove());
 
-      // Remove verified badges in office members list or custom GC members list
-      document.querySelectorAll('#officeMembersList .verified-badge, #addGcMembersList .verified-badge').forEach(b => b.remove());
+      // Remove verified badges in office members list, custom GC members list, or Create Custom GC search results
+      document.querySelectorAll('#officeMembersList .verified-badge, #addGcMembersList .verified-badge, #gcMemberSearchResults .verified-badge').forEach(b => b.remove());
 
       // Update toggles in search results if the modal is currently open
       const searchResults = document.getElementById('verifySearchResults');
@@ -8732,6 +8768,12 @@
               width: 100% !important;
               left: 0 !important;
               right: 0 !important;
+              display: flex !important;
+              justify-content: center !important;
+              box-sizing: border-box !important;
+            }
+            .category > div > .flex {
+              width: 100% !important;
               display: flex !important;
               justify-content: center !important;
               box-sizing: border-box !important;

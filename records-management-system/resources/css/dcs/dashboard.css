@@ -6,8 +6,7 @@
 
 /* DCS file: DCS dashboard cards and the latest / superseded / obsolete chips. */
 @import './tokens.css';
-/* Keep calendar CSS bundled with dashboard so /dcs never depends on a separate Vite entry. */
-@import './floating-calendar.css';
+/* floating-calendar.css is loaded globally from layouts/dcs.blade.php */
 
 [x-cloak] { display: none !important; }
 

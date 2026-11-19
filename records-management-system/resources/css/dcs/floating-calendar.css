@@ -14,6 +14,52 @@
     pointer-events: auto;
 }
 
+/* Launcher on non-dashboard DCS pages (dashboard uses .dash-welcome-calendar). */
+.dcs-float-cal-launcher {
+    position: fixed;
+    top: 72px;
+    right: 24px;
+    z-index: 44990;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 1px solid var(--dcs-border, #e2e8f0);
+    background: #fff;
+    color: var(--dcs-accent, #003699);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.dcs-float-cal-launcher:hover {
+    border-color: var(--dcs-accent, #003699);
+    background: var(--dcs-accent-subtle, #eff6ff);
+}
+
+.dcs-float-cal-launcher i {
+    font-size: 0.95rem;
+}
+
+body:has(.dash-welcome-calendar) .dcs-float-cal-launcher {
+    display: none !important;
+}
+
+[data-theme="dark"] .dcs-float-cal-launcher {
+    background: #131c2e;
+    border-color: #334155;
+    color: #93c5fd;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="dark"] .dcs-float-cal-launcher:hover {
+    background: #1e293b;
+    border-color: #60a5fa;
+}
+
 .dcs-calendar-trigger-host {
     position: absolute;
     top: 12px;

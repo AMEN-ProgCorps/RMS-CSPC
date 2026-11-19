@@ -115,6 +115,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     @vite([
         'resources/css/dcs/chrome.css',
+        'resources/css/dcs/floating-calendar.css',
         'resources/css/notifications.css',
         'resources/js/dashboard.js',
     ])
@@ -125,7 +126,6 @@
         ])
     @endif
     @if(request()->routeIs('dcs', 'dcs.dashboard'))
-        {{-- floating-calendar.css is imported by dashboard.css --}}
         @vite(['resources/css/dcs/dashboard.css'])
         @if(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser())
             @vite(['resources/css/dcs/office-intake.css'])
@@ -273,9 +273,7 @@
     @endif
     <x-rms-error />
     <x-dcs.toast />
-    @if(request()->routeIs('dcs', 'dcs.dashboard'))
-        <x-dcs.floating-calendar />
-    @endif
+    <x-dcs.floating-calendar />
     <x-messify.floating-widget />
     <x-dts.scanner-widget />
     <livewire:components.scanner-modal />

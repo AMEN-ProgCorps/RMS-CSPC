@@ -1,10 +1,11 @@
 {{--
-  DCS COMPONENT: Floating / draggable calendar (dashboard only; opened from welcome date trigger).
+  DCS COMPONENT: Floating / draggable calendar across all DCS pages.
   FILE: resources/views/components/dcs/floating-calendar.blade.php
+  Dashboard opens it from the welcome date; other pages use the floating launcher.
 --}}
 @php
     $showFloatingCalendar = auth()->check()
-        && request()->routeIs('dcs', 'dcs.dashboard')
+        && request()->routeIs('dcs*')
         && !\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()
         && !\App\Helpers\RegisterQueryHelper::isDcsPathPending();
     $year = (int) now('Asia/Manila')->year;
@@ -29,6 +30,20 @@
         @dcs-calendar-open.window="calendarOpen = true"
         @dcs-calendar-close.window="closeCalendar()"
     >
+        {{-- Shown on non-dashboard DCS pages (dashboard already has .dash-welcome-calendar). --}}
+        <button
+            type="button"
+            class="dcs-float-cal-launcher"
+            x-show="!calendarOpen"
+            x-cloak
+            @click.stop="toggleCalendar()"
+            :aria-expanded="calendarOpen.toString()"
+            title="Open calendar"
+        >
+            <i class="fa-solid fa-calendar-plus" aria-hidden="true"></i>
+            <span>Calendar</span>
+        </button>
+
         <div
             class="dcs-float-cal-panel"
             x-show="calendarOpen"

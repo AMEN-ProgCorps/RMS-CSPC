@@ -1832,8 +1832,17 @@
     // in chat can show a thumbnail overlay, while the reply banner stays plain text.
     function getReplySnippet(container) {
       const contentEl = container.querySelector('.message-bubble .message-content');
-      const text = contentEl ? (contentEl.dataset.fullText || contentEl.textContent || '').trim() : '';
-      if (text) return text;
+      if (contentEl) {
+        let text = contentEl.dataset.fullText || '';
+        if (!text) {
+          const clone = contentEl.cloneNode(true);
+          const rm = clone.querySelector('.read-more-link');
+          if (rm) rm.remove();
+          text = clone.textContent || '';
+        }
+        text = text.trim();
+        if (text) return text;
+      }
       // Check for an image inside .message-media or .message-content
       const img = container.querySelector('.message-media img.chat-viewable-image, .message-content img.chat-viewable-image');
       if (img) {
@@ -1852,6 +1861,10 @@
       // history will render the thumbnail overlay instead.
       const displayText = (snippet && snippet.startsWith('image:')) ? 'Attachment' : snippet;
       replyBannerSnippet.textContent = truncateForReply(displayText, 60) || 'message';
+      if (typeof window.renderEmojiMartInElement === 'function') {
+        delete replyBannerSnippet.dataset.emRendered;
+        window.renderEmojiMartInElement(replyBannerSnippet);
+      }
       replyBanner.classList.add('active');
     }
 
@@ -2156,21 +2169,115 @@
     // shortcut for the same emoji (re-tap removes it, same "one reaction
     // per user per message" rule as the picker). Keep this list in sync
     // with Reactions::ALLOWED in core/Reactions.php.
-    const REACTION_EMOJIS = ['😆', '❤️', '👍'];
+    const EMOJI_MART_SPRITESHEET_URL = 'assets/vendor/emoji-mart/apple-sheet-64.png';
+    let _emojiMartCoordMap = null;
+    let _emojiMartSheetCols = 61;
+    let _emojiMartSheetRows = 61;
+
+    function getEmojiMartCoordMap() {
+      if (_emojiMartCoordMap) return _emojiMartCoordMap;
+      _emojiMartCoordMap = new Map();
+      const data = window.CHATIFY_EMOJI_MART_DATA;
+      if (data && typeof data === 'object') {
+        if (data.sheet && data.sheet.cols && data.sheet.rows) {
+          _emojiMartSheetCols = Number(data.sheet.cols) || 61;
+          _emojiMartSheetRows = Number(data.sheet.rows) || 61;
+        }
+        const emojis = data.emojis || {};
+        Object.keys(emojis).forEach(function(id) {
+          const item = emojis[id];
+          if (!item || !Array.isArray(item.skins)) return;
+          item.skins.forEach(function(skin) {
+            if (!skin || typeof skin.native !== 'string') return;
+            const coords = { x: Number(skin.x) || 0, y: Number(skin.y) || 0 };
+            _emojiMartCoordMap.set(skin.native, coords);
+            const stripped = skin.native.replace(/\uFE0F/g, '');
+            if (stripped && !_emojiMartCoordMap.has(stripped)) {
+              _emojiMartCoordMap.set(stripped, coords);
+            }
+          });
+        });
+      }
+      return _emojiMartCoordMap;
+    }
+
+    window.createEmojiMartNode = function(rawEmoji, sizePx) {
+      const size = Number(sizePx) || 20;
+      const emoji = (rawEmoji === '❤') ? '❤️' : String(rawEmoji || '');
+      const map = getEmojiMartCoordMap();
+      const coords = map.get(emoji) || map.get(emoji.replace(/\uFE0F/g, ''));
+
+      const span = document.createElement('span');
+      if (!coords) {
+        span.className = 'em-sprite-fallback';
+        span.textContent = emoji;
+        return span;
+      }
+
+      const cols = _emojiMartSheetCols;
+      const rows = _emojiMartSheetRows;
+      const posX = ((100 / (cols - 1)) * coords.x).toFixed(4);
+      const posY = ((100 / (rows - 1)) * coords.y).toFixed(4);
+
+      span.className = 'em-sprite-icon';
+      span.setAttribute('role', 'img');
+      span.setAttribute('aria-label', emoji);
+      span.setAttribute('title', emoji);
+      span.textContent = emoji;
+      if (Number(sizePx) > 0) {
+        span.style.width = size + 'px';
+        span.style.height = size + 'px';
+      }
+      span.style.backgroundImage = "url('" + EMOJI_MART_SPRITESHEET_URL + "')";
+      span.style.backgroundSize = (100 * cols) + '% ' + (100 * rows) + '%';
+      span.style.backgroundPosition = posX + '% ' + posY + '%';
+      span.style.backgroundRepeat = 'no-repeat';
+      return span;
+    };
+
+    const DEFAULT_REACTION_EMOJIS = (Array.isArray(window.defaultReactionEmojis) && window.defaultReactionEmojis.length === 3)
+      ? window.defaultReactionEmojis.slice()
+      : ['😆', '❤️', '👍'];
+    let REACTION_EMOJIS = (Array.isArray(window.currentUserReactionEmojis) && window.currentUserReactionEmojis.length === 3)
+      ? window.currentUserReactionEmojis.slice()
+      : DEFAULT_REACTION_EMOJIS.slice();
     const LONG_PRESS_MS = 280;
     const LONG_PRESS_MOVE_TOLERANCE = 10;
 
     const reactionPicker = document.createElement('div');
     reactionPicker.className = 'reaction-picker';
     reactionPicker.id = 'reactionPicker';
-    reactionPicker.innerHTML = REACTION_EMOJIS.map(function(e) {
-      return '<button type="button" class="reaction-picker-btn" data-emoji="' + e + '">' + e + '</button>';
-    }).join('')
-    + '<button type="button" class="rp-copy" aria-label="Copy message">'
-    + '<svg class="rp-copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
-    + '<span class="rp-copy-label">Copy</span>'
-    + '</button>';
+
+    function renderReactionPickerButtons() {
+      reactionPicker.textContent = '';
+      REACTION_EMOJIS.forEach(function(e) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'reaction-picker-btn';
+        btn.setAttribute('data-emoji', e);
+        btn.appendChild(window.createEmojiMartNode(e, 26));
+        reactionPicker.appendChild(btn);
+      });
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'rp-copy';
+      copyBtn.setAttribute('aria-label', 'Copy message');
+      copyBtn.innerHTML = '<svg class="rp-copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="rp-copy-label">Copy</span>';
+      reactionPicker.appendChild(copyBtn);
+    }
+    renderReactionPickerButtons();
     document.body.appendChild(reactionPicker);
+
+    window.getUserReactionEmojis = function() {
+      return REACTION_EMOJIS.slice();
+    };
+    window.updateUserReactionEmojis = function(newEmojis) {
+      if (!Array.isArray(newEmojis) || newEmojis.length !== 3) return;
+      REACTION_EMOJIS = newEmojis.slice();
+      window.currentUserReactionEmojis = REACTION_EMOJIS.slice();
+      pickerDims = null;
+      renderReactionPickerButtons();
+    };
 
     let copyFeedbackTimeout = null;
 
@@ -2279,30 +2386,53 @@
 
       const emojiCounts = {};
       reactions.forEach(function(r) {
-        const e = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        const e = (r.emoji === '❤') ? '❤️' : r.emoji;
         emojiCounts[e] = (emojiCounts[e] || 0) + 1;
       });
 
-      let tabsHtml = '<button type="button" class="reactions-tab' + (activeReactionFilter === 'all' ? ' active' : '') + '" data-filter="all"><span>All ' + totalLabel + '</span></button>';
-
+      const tabEmojis = [];
       REACTION_EMOJIS.forEach(function(e) {
-        if (emojiCounts[e]) {
-          tabsHtml += '<button type="button" class="reactions-tab' + (activeReactionFilter === e ? ' active' : '') + '" data-filter="' + e + '"><span>' + e + '</span> <span>' + emojiCounts[e] + '</span></button>';
+        if (emojiCounts[e] && tabEmojis.indexOf(e) === -1) {
+          tabEmojis.push(e);
+        }
+      });
+      Object.keys(emojiCounts).forEach(function(e) {
+        if (tabEmojis.indexOf(e) === -1) {
+          tabEmojis.push(e);
         }
       });
 
-      tabsEl.innerHTML = tabsHtml;
+      tabsEl.textContent = '';
+      const allBtn = document.createElement('button');
+      allBtn.type = 'button';
+      allBtn.className = 'reactions-tab' + (activeReactionFilter === 'all' ? ' active' : '');
+      allBtn.setAttribute('data-filter', 'all');
+      const allSpan = document.createElement('span');
+      allSpan.textContent = 'All ' + totalLabel;
+      allBtn.appendChild(allSpan);
+      allBtn.addEventListener('click', function() {
+        renderReactionsModalContent('all');
+      });
+      tabsEl.appendChild(allBtn);
 
-      const tabBtns = tabsEl.querySelectorAll('.reactions-tab');
-      tabBtns.forEach(function(btn) {
-        btn.addEventListener('click', function() {
-          const filter = btn.getAttribute('data-filter');
-          renderReactionsModalContent(filter);
+      tabEmojis.forEach(function(e) {
+        if (!emojiCounts[e]) return;
+        const tabBtn = document.createElement('button');
+        tabBtn.type = 'button';
+        tabBtn.className = 'reactions-tab' + (activeReactionFilter === e ? ' active' : '');
+        tabBtn.setAttribute('data-filter', e);
+        const cntSpan = document.createElement('span');
+        cntSpan.textContent = String(emojiCounts[e]);
+        tabBtn.appendChild(window.createEmojiMartNode(e, 18));
+        tabBtn.appendChild(cntSpan);
+        tabBtn.addEventListener('click', function() {
+          renderReactionsModalContent(e);
         });
+        tabsEl.appendChild(tabBtn);
       });
 
       const filteredReactions = reactions.filter(function(r) {
-        const e = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+        const e = (r.emoji === '❤') ? '❤️' : r.emoji;
         return activeReactionFilter === 'all' || e === activeReactionFilter;
       });
 
@@ -2311,27 +2441,46 @@
         return;
       }
 
-      bodyEl.innerHTML = filteredReactions.map(function(r) {
-        const emoji = (r.emoji === '❤' || r.emoji === '🖤' || r.emoji === '🤍') ? '❤️' : r.emoji;
+      bodyEl.textContent = '';
+      filteredReactions.forEach(function(r) {
+        const emoji = (r.emoji === '❤') ? '❤️' : r.emoji;
         const initials = ((r.first_name ? r.first_name[0] : '') + (r.last_name ? r.last_name[0] : '')).toUpperCase() || '??';
-        let avatarHtml = initials;
+
+        const itemEl = document.createElement('div');
+        itemEl.className = 'reaction-user-item';
+        itemEl.setAttribute('data-account-id', String(r.account_id || 0));
+
+        const avatarEl = document.createElement('div');
+        avatarEl.className = 'reaction-user-avatar';
         if (r.avatar_url) {
-          avatarHtml = '<img src="' + r.avatar_url.replace(/"/g, '&quot;') + '" class="avatar-img" alt="" loading="lazy" referrerpolicy="no-referrer">';
+          const img = document.createElement('img');
+          img.src = r.avatar_url;
+          img.className = 'avatar-img';
+          img.alt = '';
+          img.loading = 'lazy';
+          img.referrerPolicy = 'no-referrer';
+          avatarEl.appendChild(img);
+        } else {
+          avatarEl.textContent = initials;
         }
 
-        return '<div class="reaction-user-item" data-account-id="' + r.account_id + '">'
-          + '  <div class="reaction-user-avatar">' + avatarHtml + '</div>'
-          + '  <div class="reaction-user-info">'
-          + '    <div class="reaction-user-name">' + escapeHtml(r.full_name) + '</div>'
-          + '  </div>'
-          + '  <div class="reaction-user-emoji">' + emoji + '</div>'
-          + '</div>';
-      }).join('');
+        const infoEl = document.createElement('div');
+        infoEl.className = 'reaction-user-info';
+        const nameEl = document.createElement('div');
+        nameEl.className = 'reaction-user-name';
+        nameEl.textContent = r.full_name || '';
+        infoEl.appendChild(nameEl);
 
-      const userItems = bodyEl.querySelectorAll('.reaction-user-item');
-      userItems.forEach(function(item) {
-        item.addEventListener('click', function() {
-          const accId = Number(item.getAttribute('data-account-id'));
+        const emojiWrapEl = document.createElement('div');
+        emojiWrapEl.className = 'reaction-user-emoji';
+        emojiWrapEl.appendChild(window.createEmojiMartNode(emoji, 22));
+
+        itemEl.appendChild(avatarEl);
+        itemEl.appendChild(infoEl);
+        itemEl.appendChild(emojiWrapEl);
+
+        itemEl.addEventListener('click', function() {
+          const accId = Number(itemEl.getAttribute('data-account-id'));
           if (accId && accId !== wsConfig.accountId) {
             closeReactionsModal();
             if (typeof selectUser === 'function') {
@@ -2339,6 +2488,8 @@
             }
           }
         });
+
+        bodyEl.appendChild(itemEl);
       });
     }
 
@@ -2449,7 +2600,7 @@
       Object.keys(reactionMap).forEach(function(rawEmoji) {
         const ids = reactionMap[rawEmoji] || [];
         if (ids.length > 0) {
-          const emoji = (rawEmoji === '❤' || rawEmoji === '🖤' || rawEmoji === '🤍') ? '❤️' : rawEmoji;
+          const emoji = (rawEmoji === '❤') ? '❤️' : rawEmoji;
           if (distinctEmojis.indexOf(emoji) === -1) {
             distinctEmojis.push(emoji);
           }
@@ -2480,17 +2631,28 @@
         (bubbleWrapper || container).appendChild(wrap);
       }
 
-      const emojisStr = distinctEmojis.join('');
-      let countHtml = '';
+      wrap.textContent = '';
+      const pillBtn = document.createElement('button');
+      pillBtn.type = 'button';
+      pillBtn.className = 'msg-reactions-pill' + (mine ? ' mine' : '');
+      pillBtn.setAttribute('data-msg-reactions', '1');
+
+      const emojisSpan = document.createElement('span');
+      emojisSpan.className = 'reaction-emojis';
+      distinctEmojis.forEach(function(em) {
+        emojisSpan.appendChild(window.createEmojiMartNode(em, 15));
+      });
+      pillBtn.appendChild(emojisSpan);
+
       if (totalCount >= 2) {
-        const countLabel = totalCount > 99 ? '99+' : totalCount;
-        countHtml = '<span class="reaction-total-count">' + countLabel + '</span>';
+        const countLabel = totalCount > 99 ? '99+' : String(totalCount);
+        const countSpan = document.createElement('span');
+        countSpan.className = 'reaction-total-count';
+        countSpan.textContent = countLabel;
+        pillBtn.appendChild(countSpan);
       }
 
-      wrap.innerHTML = '<button type="button" class="msg-reactions-pill' + (mine ? ' mine' : '') + '" data-msg-reactions="1">'
-        + '<span class="reaction-emojis">' + emojisStr + '</span>'
-        + countHtml
-        + '</button>';
+      wrap.appendChild(pillBtn);
     }
 
     // Expose renderReactionsForMessage globally so ws.onmessage in app-part1.js
@@ -2503,9 +2665,12 @@
       const msgUuid = container.getAttribute('data-msg-id');
       if (!msgUuid) return;
 
+      const normEmoji = (emoji === '❤') ? '❤️' : String(emoji || '');
+      if (!normEmoji) return;
+
       const params = new URLSearchParams();
       params.set('msg_uuid', msgUuid);
-      params.set('emoji', emoji);
+      params.set('emoji', normEmoji);
       if (isGlobalChat) {
         const targetConvId = (typeof getActiveChannelConvId === 'function')
           ? getActiveChannelConvId()
@@ -2514,7 +2679,7 @@
         const isCustom = Boolean(targetConvId && targetConvId.startsWith('gc_'));
         const effectiveChatType = isCustom ? 'custom_gc' : (isOffice ? 'office_gc' : 'global');
         params.set('chat_type', effectiveChatType);
-        params.set('conv_id', targetConvId);
+        params.set('conv_id', targetConvId || 'global');
       } else if (activeDM) {
         params.set('chat_type', 'private');
         params.set('target_id', activeDMAccountId || 0);
@@ -2549,16 +2714,20 @@
               ws.send(JSON.stringify({
                 type: 'reaction',
                 chat_type: effectiveChatType,
-                conv_id: isGlobalChat ? targetConvId : null,
+                conv_id: isGlobalChat ? (targetConvId || 'global') : null,
                 recipient_id: recipId,
                 msg_uuid: data.msg_uuid,
                 emoji: data.emoji,
                 reactions: data.reactions || {}
               }));
             }
+          } else if (data && data.error) {
+            console.error('Reaction toggle failed:', data.error);
           }
         })
-        .catch(function() { /* best-effort — a WS reconnect or next poll will reconcile */ });
+        .catch(function(err) {
+          console.error('Network error during reaction toggle:', err);
+        });
     }
 
     // ── Trigger 1: right-click (desktop) ─────────────────────────────────
@@ -2663,7 +2832,7 @@
         const clone = contentEl.cloneNode(true);
         const rm = clone.querySelector('.read-more-link');
         if (rm) rm.remove();
-        return (clone.innerText || clone.textContent || '').trim();
+        return (clone.textContent || clone.innerText || '').trim();
       }
       const link = container.querySelector('a.chat-attachment-link, a.file-link, .message-media a');
       if (link && link.href) return link.href;
@@ -3119,13 +3288,22 @@
     }
 
     // ── Emoji-only detection ──
-    // Returns true when the entire trimmed string is composed only of emoji characters.
+    // Returns true when the entire trimmed string is composed only of emoji characters
+    // AND does not exceed the "Read More..." limit (up to 25 emojis stay jumbo without a
+    // bubble; >25 render inside a regular chat bubble with "Read More...").
     function isEmojiOnly(str) {
-      if (!str || !str.trim()) return false;
+      if (!str) return false;
+      if (typeof isEmojiOnlyText === 'function') {
+        if (!isEmojiOnlyText(str)) return false;
+        if (typeof countEmojiUnits === 'function') {
+          return countEmojiUnits(str, 25) <= 25;
+        }
+      }
+      if (typeof readMoreNeeded === 'function' && readMoreNeeded(str)) return false;
       const stripped = str.replace(/\s/g, '');
-      if (!stripped) return false;
-      const emojiRegex = /^(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}|\p{Emoji}\uFE0F|\uD83C[\uDDE0-\uDDFF][\uD83C][\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\u200D)+$/u;
-      return emojiRegex.test(stripped);
+      if (!stripped || /[a-zA-Z]/.test(stripped)) return false;
+      const stripRe = /(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u200D\uFE0F]|\uD83C[\uDDE0-\uDDFF]\uD83C[\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\p{Emoji}\uFE0F)/gu;
+      return stripped.replace(stripRe, '') === '';
     }
 
     // ── Auto-linkify URLs inside message text ──
@@ -3140,25 +3318,45 @@
       var linkifyContent = window.linkifyContent;
     }
 
-    // Walk all rendered bubbles and apply / remove the emoji-only class.
+    // Walk all rendered bubbles (within optional root, defaulting to chatBox)
+    // and apply / remove the emoji-only class + "Read More..." truncation.
     // Also force image/audio (.message-media) timestamps to stay permanently
     // visible — unlike text bubbles, their date/time should never be hidden
     // by the click-to-toggle behavior below.
-    function applyEmojiOnly() {
-      chatBox.querySelectorAll('.message-bubble').forEach(function(bubble) {
+    function applyEmojiOnly(rootEl) {
+      const scope = rootEl || chatBox;
+      if (!scope || !scope.querySelectorAll) return;
+      scope.querySelectorAll('.message-bubble').forEach(function(bubble) {
         const contentEl = bubble.querySelector('.message-content');
         if (!contentEl) return;
+        if (contentEl.dataset.emojiChecked === '1' && contentEl.dataset.readmoreChecked === '1') {
+          if (typeof window.renderEmojiMartInElement === 'function' && contentEl.dataset.emRendered !== '1') {
+            window.renderEmojiMartInElement(contentEl);
+          }
+          return;
+        }
         linkifyContent(contentEl);
-        const text = contentEl.textContent || '';
-        if (isEmojiOnly(text)) {
+        applyReadMoreToElement(contentEl);
+        const text = contentEl.dataset.fullText || contentEl.textContent || '';
+        const hasReadMore = !!contentEl.dataset.fullText || !!contentEl.querySelector('.read-more-link');
+        if (!hasReadMore && isEmojiOnly(text)) {
           bubble.classList.add('emoji-only');
         } else {
           bubble.classList.remove('emoji-only');
         }
-        applyReadMoreToElement(contentEl);
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(contentEl);
+        }
+        contentEl.dataset.emojiChecked = '1';
       });
 
-      chatBox.querySelectorAll('.message-media').forEach(function(media) {
+      scope.querySelectorAll('.reply-quote-text').forEach(function(rqText) {
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(rqText);
+        }
+      });
+
+      scope.querySelectorAll('.message-media').forEach(function(media) {
         const wrapper = media.closest('.bubble-wrapper');
         const timestamp = wrapper && wrapper.querySelector('.message-click-timestamp');
         if (timestamp) timestamp.classList.add('show-timestamp');
@@ -3177,15 +3375,17 @@
         const msgId = el.getAttribute('data-msg-id');
         if (msgId) {
           const isMoved = el.classList && el.classList.contains('user-moved') ? 'moved' : 'active';
+          const editCount = el.getAttribute('data-edit-count') || '0';
           const mc = el.querySelector('.message-content');
-          const content = (mc ? (mc.dataset.fullText || mc.textContent) : (el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent)?.trim() || '';
+          const rawContent = (mc ? (mc.dataset.fullText || mc.textContent) : (el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent)?.trim() || '';
+          const contentSig = rawContent.length > 64 ? (rawContent.length + ':' + rawContent.slice(0, 48)) : rawContent;
           const replyTo = el.getAttribute('data-reply-to') || '';
           const rqEl = el.querySelector('.reply-quote');
-          const rqText = rqEl ? (rqEl.getAttribute('data-reply-file') || rqEl.getAttribute('data-filename') || rqEl.textContent?.trim() || '') : '';
+          const rqText = rqEl ? (rqEl.getAttribute('data-reply-file') || rqEl.getAttribute('data-filename') || rqEl.textContent?.trim()?.slice(0, 32) || '') : '';
           const mediaFile = el.querySelector('.chat-viewable-image, .chat-image-lazy-load, .chat-image-broken')?.getAttribute('data-file-name')
             || el.querySelector('.chat-viewable-image, .chat-image-lazy-load, .chat-image-broken')?.getAttribute('data-filename') || '';
           const bubbleType = el.querySelector('.message-bubble') ? 'bubble' : (el.querySelector('.message-media') ? 'media' : 'file');
-          return msgId + '|' + isMoved + '|' + replyTo + '|' + rqText + '|' + mediaFile + '|' + bubbleType + '|' + content;
+          return msgId + '|' + isMoved + '|' + editCount + '|' + replyTo + '|' + rqText + '|' + mediaFile + '|' + bubbleType + '|' + contentSig;
         }
       }
       if (el && el.classList && el.classList.contains('empty-chat')) {
@@ -3194,8 +3394,9 @@
       const sender  = (el.querySelector('.message-sender')?.textContent?.trim() || '').toLowerCase();
       const time    = (el.querySelector('.message-time') || el.querySelector('.message-click-timestamp'))?.textContent?.trim() || '';
       const mc      = el.querySelector('.message-content');
-      const content = (mc ? (mc.dataset.fullText || mc.textContent) : (el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent)?.trim() || '';
-      return sender + '|' + time + '|' + content;
+      const rawContent = (mc ? (mc.dataset.fullText || mc.textContent) : (el.querySelector('.message-file a span') || el.querySelector('.message-file'))?.textContent)?.trim() || '';
+      const contentSig = rawContent.length > 64 ? (rawContent.length + ':' + rawContent.slice(0, 48)) : rawContent;
+      return sender + '|' + time + '|' + contentSig;
     }
 
     // Track if this is the first load (page refresh/initial visit)
@@ -3381,8 +3582,9 @@
       }).length;
       chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #noChatSelectedState, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
-      // Deduplicate newMessages during full re-render
+      // Deduplicate newMessages during full re-render using an off-DOM DocumentFragment
       const renderedIds = new Set();
+      const frag = document.createDocumentFragment();
       newMessages.forEach(el => {
         if (el.classList.contains('message-container')) {
           const msgId = el.getAttribute('data-msg-id');
@@ -3391,8 +3593,11 @@
             renderedIds.add(msgId);
           }
         }
-        chatBox.appendChild(el);
+        frag.appendChild(el);
       });
+      // Pre-process emoji truncation & classes off-DOM before layout
+      applyEmojiOnly(frag);
+      chatBox.appendChild(frag);
       
       if (isFirstLoad) {
         isFirstLoad = false;
@@ -3409,7 +3614,7 @@
           }
         }
       }
-      applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
+      applyAdminBadges(); attachImageLoadListeners();
       // Chat was rebuilt from scratch (e.g. cleared), so pagination state no longer applies
       gcCursor = data.nextCursor || '';
       if (wasAtBottom && !userScrolledUp && !isTouchDown && !isUserScrollingOrTouching) {
@@ -3848,6 +4053,7 @@
       chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #noChatSelectedState, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       const renderedIdsF = new Set();
+      const fragF = document.createDocumentFragment();
       newMessages.forEach(el => {
         if (el.classList.contains('message-container')) {
           const msgId = el.getAttribute('data-msg-id');
@@ -3856,10 +4062,13 @@
             renderedIdsF.add(msgId);
           }
         }
-        chatBox.appendChild(el);
+        fragF.appendChild(el);
       });
+      // Pre-process emoji truncation & classes off-DOM before layout
+      applyEmojiOnly(fragF);
+      chatBox.appendChild(fragF);
       
-      applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
+      applyAdminBadges(); attachImageLoadListeners();
       
       if (isFirstLoad) {
         isFirstLoad = false;
@@ -4748,6 +4957,10 @@
           linkifyContent(contentEl);
           applyReadMoreToElement(contentEl);
         }
+        const rqTextEl = sendingBubble.querySelector('.reply-quote-text');
+        if (rqTextEl && typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(rqTextEl);
+        }
         sendingBubble.addEventListener('animationend', () => sendingBubble.classList.remove('msg-animate-sent'), { once: true });
         chatBox.appendChild(sendingBubble);
         window.replyJumpActive = false;
@@ -5338,6 +5551,10 @@
           ? previewText.slice(0, MAX_PREVIEW) + '...'
           : previewText;
         previewEl.textContent = display;
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          delete previewEl.dataset.emRendered;
+          window.renderEmojiMartInElement(previewEl);
+        }
         previewEl.classList.add('active');
       } else {
         previewEl.textContent = '';
@@ -5370,6 +5587,10 @@
 
         if (previewText !== null && previewText !== '') {
           lastMsgEl.textContent = previewText;
+          if (typeof window.renderEmojiMartInElement === 'function') {
+            delete lastMsgEl.dataset.emRendered;
+            window.renderEmojiMartInElement(lastMsgEl);
+          }
           lastMsgEl.style.display = 'block';
           lastMsgEl.style.fontStyle = 'italic';
           lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';
@@ -7649,10 +7870,10 @@
 
         _gcSearchTimer = setTimeout(() => {
           resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Searching...</div>';
-          fetch('search_users_gc.php?q=' + encodeURIComponent(q))
+          fetch('search_users_gc.php?q=' + encodeURIComponent(q) + '&limit=5')
             .then(r => r.json())
             .then(data => {
-              const users = (data.users || []).slice(0, 1);
+              const users = (data.users || []).slice(0, 5);
               if (users.length === 0) {
                 resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">No users found.</div>';
                 return;
@@ -7662,16 +7883,24 @@
                 const isSelected = window._gcSelectedMembers.has(u.account_id);
                 const row = document.createElement('div');
                 row.dataset.accountId = u.account_id;
-                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);flex-shrink:0;';
 
                 const nameSpan = document.createElement('span');
                 nameSpan.style.cssText = 'flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
 
                 const nameTextSpan = document.createElement('span');
-                nameTextSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                nameTextSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 nameTextSpan.textContent = u.full_name;
                 nameTextSpan.title = u.full_name;
                 nameSpan.appendChild(nameTextSpan);
+
+                if (u.office_code || u.office_name) {
+                  const offSpan = document.createElement('span');
+                  offSpan.style.cssText = 'font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 6px;border-radius:4px;flex-shrink:0;';
+                  offSpan.textContent = u.office_code || u.office_name;
+                  offSpan.title = (u.office_code && u.office_name && u.office_code !== u.office_name) ? `${u.office_code} • ${u.office_name}` : (u.office_name || u.office_code);
+                  nameSpan.appendChild(offSpan);
+                }
 
                 if (u.is_messify_verified) {
                   const b = document.createElement('span');
@@ -7902,13 +8131,13 @@
         _addGcSearchTimer = setTimeout(() => {
           resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Searching...</div>';
           const gcId = window.activeCustomGc ? window.activeCustomGc.gc_id : 0;
-          fetch('search_users_gc.php?q=' + encodeURIComponent(q) + (gcId ? '&group_id=' + encodeURIComponent(gcId) : ''))
+          fetch('search_users_gc.php?q=' + encodeURIComponent(q) + (gcId ? '&group_id=' + encodeURIComponent(gcId) : '') + '&limit=5')
             .then(r => r.json())
             .then(data => {
               const currentMembers = Array.isArray(window.activeCustomGcMembers) ? window.activeCustomGcMembers : [];
               const rawUsers = data.users || [];
               const availableUsers = rawUsers.filter(u => !currentMembers.some(m => Number(m.account_id) === Number(u.account_id)));
-              const users = availableUsers.slice(0, 1); // max 1 result only
+              const users = availableUsers.slice(0, 5); // tig-5 users lang
               if (users.length === 0) {
                 resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">No users found.</div>';
                 return;
@@ -7920,16 +8149,24 @@
                 const isAlreadyInGc = false;
                 const row = document.createElement('div');
                 row.dataset.accountId = u.account_id;
-                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);flex-shrink:0;';
 
                 const nameSpan = document.createElement('span');
                 nameSpan.style.cssText = 'flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
 
                 const nameTextSpan = document.createElement('span');
-                nameTextSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                nameTextSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 nameTextSpan.textContent = u.full_name;
                 nameTextSpan.title = u.full_name;
                 nameSpan.appendChild(nameTextSpan);
+
+                if (u.office_code || u.office_name) {
+                  const offSpan = document.createElement('span');
+                  offSpan.style.cssText = 'font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 6px;border-radius:4px;flex-shrink:0;';
+                  offSpan.textContent = u.office_code || u.office_name;
+                  offSpan.title = (u.office_code && u.office_name && u.office_code !== u.office_name) ? `${u.office_code} • ${u.office_name}` : (u.office_name || u.office_code);
+                  nameSpan.appendChild(offSpan);
+                }
 
                 if (u.is_messify_verified) {
                   const b = document.createElement('span');
@@ -8298,4 +8535,530 @@
         chatBox.addEventListener('scroll', hideAvatarTooltip, { passive: true });
       }
       window.addEventListener('scroll', hideAvatarTooltip, { passive: true });
+    })();
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // BUILT-IN EMOJI MART PICKER & CUSTOM REACTION EMOJIS MODAL
+    // Uses locally bundled Emoji Mart (apple-data.js + emoji-mart.js + apple-sheet-64.png)
+    // so all emojis render identically across every desktop and mobile device.
+    // ═══════════════════════════════════════════════════════════════════════════
+    (function() {
+      const emojiPickerAnchor = document.getElementById('emojiPickerAnchor');
+      const emojiPickerBtn = document.getElementById('emojiPickerBtn');
+      const emojiPickerPopover = document.getElementById('emojiPickerPopover');
+      const emojiPickerMartHost = document.getElementById('emojiPickerMartHost');
+      const msgInput = document.getElementById('messageInput');
+
+      const SPRITESHEET_URL = 'assets/vendor/emoji-mart/apple-sheet-64.png';
+
+      function getEmojiMartTheme() {
+        return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+      }
+
+      function syncPickerTheme(pickerEl) {
+        if (!pickerEl) return;
+        const theme = getEmojiMartTheme();
+        if (pickerEl.component && typeof pickerEl.component.setState === 'function') {
+          try {
+            pickerEl.component.setState({ theme: theme });
+          } catch (e) {}
+        }
+        if (pickerEl.shadowRoot) {
+          const rootSec = pickerEl.shadowRoot.getElementById('root');
+          if (rootSec) rootSec.setAttribute('data-theme', theme);
+        }
+        applyPickerCustomStyles(pickerEl);
+      }
+
+      function applyPickerCustomStyles(pickerEl) {
+        if (!pickerEl) return;
+        function inject() {
+          const sr = pickerEl.shadowRoot;
+          if (!sr) return false;
+          let customStyle = sr.getElementById('chatify-custom-em-styles');
+          if (!customStyle) {
+            customStyle = document.createElement('style');
+            customStyle.id = 'chatify-custom-em-styles';
+            sr.appendChild(customStyle);
+          }
+          customStyle.textContent = `
+            #root {
+              --sidebar-width: 0px !important;
+            }
+            #nav {
+              padding: 8px 14px 6px 14px !important;
+              display: block !important;
+              box-sizing: border-box !important;
+              border-bottom: 1px solid var(--em-color-border, rgba(0, 0, 0, 0.08)) !important;
+            }
+            #nav > .relative {
+              display: flex !important;
+              align-items: center !important;
+              justify-content: space-between !important;
+              width: 100% !important;
+            }
+            #nav button {
+              flex: 1 !important;
+              display: flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+              padding: 6px 0 !important;
+              opacity: 0.65 !important;
+              transition: opacity 0.15s ease, color 0.15s ease !important;
+            }
+            #nav button:hover,
+            #nav button[aria-selected="true"] {
+              opacity: 1 !important;
+              color: #1b74e4 !important;
+            }
+            #nav .bar {
+              background-color: #1b74e4 !important;
+              height: 2.5px !important;
+              border-radius: 2px !important;
+            }
+            .spacer {
+              height: 6px !important;
+            }
+            .search {
+              padding: 0 !important;
+              margin: 4px 14px 6px 14px !important;
+              box-sizing: border-box !important;
+              position: relative !important;
+            }
+            .search input[type="search"] {
+              width: 100% !important;
+              height: 34px !important;
+              line-height: 34px !important;
+              border-radius: 10px !important;
+              font-size: 13.5px !important;
+              padding: 0 12px 0 34px !important;
+              background-color: var(--em-color-border, rgba(0, 0, 0, 0.05)) !important;
+              border: 1px solid var(--color-border, rgba(0, 0, 0, 0.1)) !important;
+              box-sizing: border-box !important;
+              outline: none !important;
+              transition: all 0.15s ease !important;
+            }
+            .search input[type="search"]:focus {
+              background-color: rgb(var(--em-rgb-background)) !important;
+              border-color: #1b74e4 !important;
+              box-shadow: 0 0 0 2px rgba(27, 116, 228, 0.18) !important;
+            }
+            .search .icon.loupe {
+              position: absolute !important;
+              left: 10px !important;
+              top: 50% !important;
+              transform: translateY(-50%) !important;
+              pointer-events: none !important;
+              width: 15px !important;
+              height: 15px !important;
+              display: flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+              color: var(--color-b, rgba(0, 0, 0, 0.45)) !important;
+              z-index: 3 !important;
+            }
+            .search .icon.delete {
+              position: absolute !important;
+              right: 10px !important;
+              top: 50% !important;
+              transform: translateY(-50%) !important;
+              width: 16px !important;
+              height: 16px !important;
+              display: flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+              color: var(--color-b, rgba(0, 0, 0, 0.45)) !important;
+              border: none !important;
+              background: transparent !important;
+              cursor: pointer !important;
+              z-index: 3 !important;
+            }
+            [data-theme="dark"] .search input[type="search"] {
+              background-color: rgba(255, 255, 255, 0.08) !important;
+              border-color: rgba(255, 255, 255, 0.12) !important;
+              color: #f0f2f5 !important;
+            }
+            [data-theme="dark"] .search input[type="search"]:focus {
+              background-color: rgb(var(--em-rgb-background)) !important;
+              border-color: #5ea8ff !important;
+              box-shadow: 0 0 0 2px rgba(94, 168, 255, 0.25) !important;
+            }
+            .scroll {
+              padding: 0 !important;
+              margin: 0 !important;
+              scrollbar-width: thin !important;
+              scrollbar-color: var(--em-color-border-over, rgba(120, 120, 120, 0.35)) transparent !important;
+              overflow-x: hidden !important;
+              overflow-y: auto !important;
+            }
+            .scroll::-webkit-scrollbar {
+              width: 5px !important;
+              height: 5px !important;
+            }
+            .scroll::-webkit-scrollbar-track {
+              background: transparent !important;
+            }
+            .scroll::-webkit-scrollbar-thumb {
+              background-color: var(--em-color-border-over, rgba(120, 120, 120, 0.35)) !important;
+              border-radius: 4px !important;
+              border: none !important;
+            }
+            .scroll::-webkit-scrollbar-thumb:hover {
+              background-color: var(--color-b, rgba(120, 120, 120, 0.6)) !important;
+            }
+            .category {
+              padding: 0 !important;
+              margin: 0 !important;
+            }
+            .category .sticky {
+              background-color: rgb(var(--em-rgb-background)) !important;
+              padding: 8px 14px 6px 14px !important;
+              font-size: 12.5px !important;
+              font-weight: 600 !important;
+              color: var(--color-b, rgba(0, 0, 0, 0.6)) !important;
+              letter-spacing: -0.2px !important;
+              opacity: 1 !important;
+              backdrop-filter: none !important;
+              -webkit-backdrop-filter: none !important;
+              border-bottom: 1px solid transparent !important;
+            }
+            .category .relative {
+              width: 100% !important;
+              box-sizing: border-box !important;
+              padding: 0 !important;
+              margin: 0 !important;
+            }
+            .row[data-index] {
+              width: 100% !important;
+              left: 0 !important;
+              right: 0 !important;
+              display: flex !important;
+              justify-content: center !important;
+              box-sizing: border-box !important;
+            }
+            .row button {
+              border-radius: 8px !important;
+              transition: transform 0.1s ease, background-color 0.1s ease !important;
+            }
+            .row button:hover {
+              transform: scale(1.15) !important;
+              z-index: 2 !important;
+            }
+            .category:last-child {
+              padding-bottom: 16px !important;
+            }
+          `;
+          return true;
+        }
+        if (!inject()) {
+          setTimeout(inject, 20);
+          setTimeout(inject, 100);
+          setTimeout(inject, 300);
+        }
+      }
+
+      if (window.EmojiMart && typeof window.EmojiMart.init === 'function' && window.CHATIFY_EMOJI_MART_DATA) {
+        try {
+          window.EmojiMart.init({
+            data: window.CHATIFY_EMOJI_MART_DATA,
+            set: 'apple'
+          });
+        } catch (e) {}
+      }
+
+      // ── 1. Chat Input Emoji Mart Popover ────────────────────────────────────
+      let isPickerOpen = false;
+      let chatEmojiMartPicker = null;
+
+      function insertEmojiAtCursor(emoji) {
+        if (!msgInput || !emoji) return;
+        const start = typeof msgInput.selectionStart === 'number' ? msgInput.selectionStart : msgInput.value.length;
+        const end = typeof msgInput.selectionEnd === 'number' ? msgInput.selectionEnd : msgInput.value.length;
+        const text = msgInput.value;
+
+        msgInput.value = text.slice(0, start) + emoji + text.slice(end);
+        const nextPos = start + emoji.length;
+
+        msgInput.focus({ preventScroll: true });
+        try {
+          msgInput.setSelectionRange(nextPos, nextPos);
+        } catch (e) {}
+
+        msgInput.dispatchEvent(new Event('input', { bubbles: true }));
+        if (typeof renderMentionHighlight === 'function') {
+          renderMentionHighlight();
+        }
+      }
+
+      function ensureChatEmojiMartPicker() {
+        if (!emojiPickerMartHost || !window.EmojiMart || !window.EmojiMart.Picker) return;
+        if (chatEmojiMartPicker) {
+          syncPickerTheme(chatEmojiMartPicker);
+          return;
+        }
+        chatEmojiMartPicker = new window.EmojiMart.Picker({
+          data: window.CHATIFY_EMOJI_MART_DATA,
+          set: 'apple',
+          getSpritesheetURL: function() { return SPRITESHEET_URL; },
+          previewPosition: 'none',
+          skinTonePosition: 'none',
+          navPosition: 'top',
+          dynamicWidth: true,
+          emojiSize: 22,
+          emojiButtonSize: 36,
+          maxFrequentRows: 2,
+          theme: getEmojiMartTheme(),
+          onEmojiSelect: function(emojiObj) {
+            if (emojiObj && emojiObj.native) {
+              insertEmojiAtCursor(emojiObj.native);
+            }
+          }
+        });
+        emojiPickerMartHost.textContent = '';
+        emojiPickerMartHost.appendChild(chatEmojiMartPicker);
+        applyPickerCustomStyles(chatEmojiMartPicker);
+      }
+
+      function openEmojiPicker() {
+        if (!emojiPickerBtn || !emojiPickerPopover || isPickerOpen) return;
+        isPickerOpen = true;
+        emojiPickerPopover.classList.add('open');
+        emojiPickerPopover.setAttribute('aria-hidden', 'false');
+        emojiPickerBtn.classList.add('active');
+        emojiPickerBtn.setAttribute('aria-expanded', 'true');
+        ensureChatEmojiMartPicker();
+        if (chatEmojiMartPicker) {
+          applyPickerCustomStyles(chatEmojiMartPicker);
+        }
+      }
+
+      function closeEmojiPicker() {
+        if (!isPickerOpen || !emojiPickerPopover || !emojiPickerBtn) return;
+        isPickerOpen = false;
+        emojiPickerPopover.classList.remove('open');
+        emojiPickerPopover.setAttribute('aria-hidden', 'true');
+        emojiPickerBtn.classList.remove('active');
+        emojiPickerBtn.setAttribute('aria-expanded', 'false');
+      }
+      window.closeEmojiPicker = closeEmojiPicker;
+
+      if (emojiPickerBtn) {
+        emojiPickerBtn.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (isPickerOpen) {
+            closeEmojiPicker();
+          } else {
+            openEmojiPicker();
+          }
+        });
+      }
+
+      document.addEventListener('mousedown', function(e) {
+        if (!isPickerOpen) return;
+        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+        if (emojiPickerAnchor && !emojiPickerAnchor.contains(e.target) && path.indexOf(emojiPickerAnchor) === -1) {
+          closeEmojiPicker();
+        }
+      });
+
+      document.addEventListener('touchstart', function(e) {
+        if (!isPickerOpen) return;
+        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+        if (emojiPickerAnchor && !emojiPickerAnchor.contains(e.target) && path.indexOf(emojiPickerAnchor) === -1) {
+          closeEmojiPicker();
+        }
+      }, { passive: true });
+
+      document.addEventListener('keydown', function(e) {
+        if (isPickerOpen && e.key === 'Escape') {
+          closeEmojiPicker();
+        }
+      });
+
+      const chatForm = document.getElementById('chatForm');
+      if (chatForm) {
+        chatForm.addEventListener('submit', function() {
+          if (isPickerOpen) closeEmojiPicker();
+        });
+      }
+
+      // ── 2. Custom Reaction Emojis Modal Controller (Powered by Emoji Mart) ──
+      const customReactionModal = document.getElementById('customReactionModal');
+      const customReactionSlotsWrap = document.getElementById('customReactionSlots');
+      const customReactionPickerHost = document.getElementById('customReactionPickerHost');
+      const customReactionStatus = document.getElementById('customReactionStatus');
+      const saveCustomReactionBtn = document.getElementById('saveCustomReactionBtn');
+
+      const SYSTEM_DEFAULT_REACTIONS = (Array.isArray(window.defaultReactionEmojis) && window.defaultReactionEmojis.length === 3)
+        ? window.defaultReactionEmojis.slice()
+        : ['😆', '❤️', '👍'];
+
+      let draftReactionEmojis = (typeof window.getUserReactionEmojis === 'function')
+        ? window.getUserReactionEmojis()
+        : SYSTEM_DEFAULT_REACTIONS.slice();
+      let activeReactionSlot = 0;
+      let reactionEmojiMartPicker = null;
+
+      function showCustomReactionStatus(msg, isError) {
+        if (!customReactionStatus) return;
+        if (!msg) {
+          customReactionStatus.style.display = 'none';
+          customReactionStatus.textContent = '';
+          return;
+        }
+        customReactionStatus.textContent = msg;
+        customReactionStatus.style.color = isError ? '#dc2626' : '#16a34a';
+        customReactionStatus.style.display = 'block';
+      }
+
+      function renderCustomReactionSlots() {
+        if (!customReactionSlotsWrap) return;
+        const slotBtns = customReactionSlotsWrap.querySelectorAll('.custom-reaction-slot');
+        slotBtns.forEach(function(btn, idx) {
+          const em = draftReactionEmojis[idx] || SYSTEM_DEFAULT_REACTIONS[idx] || '👍';
+          btn.textContent = '';
+          if (typeof window.createEmojiMartNode === 'function') {
+            btn.appendChild(window.createEmojiMartNode(em, 30));
+          } else {
+            btn.textContent = em;
+          }
+          btn.classList.toggle('active', idx === activeReactionSlot);
+        });
+      }
+
+      function handleCustomReactionEmojiSelect(rawEmoji) {
+        if (!rawEmoji) return;
+        const emoji = (rawEmoji === '❤') ? '❤️' : String(rawEmoji);
+        const existingIdx = draftReactionEmojis.indexOf(emoji);
+        if (existingIdx !== -1 && existingIdx !== activeReactionSlot) {
+          draftReactionEmojis[existingIdx] = draftReactionEmojis[activeReactionSlot];
+        }
+        draftReactionEmojis[activeReactionSlot] = emoji;
+        activeReactionSlot = (activeReactionSlot + 1) % 3;
+        showCustomReactionStatus('', false);
+        renderCustomReactionSlots();
+      }
+
+      function ensureReactionEmojiMartPicker() {
+        if (!customReactionPickerHost || !window.EmojiMart || !window.EmojiMart.Picker) return;
+        if (reactionEmojiMartPicker) {
+          syncPickerTheme(reactionEmojiMartPicker);
+          return;
+        }
+        reactionEmojiMartPicker = new window.EmojiMart.Picker({
+          data: window.CHATIFY_EMOJI_MART_DATA,
+          set: 'apple',
+          getSpritesheetURL: function() { return SPRITESHEET_URL; },
+          previewPosition: 'none',
+          skinTonePosition: 'none',
+          navPosition: 'top',
+          dynamicWidth: true,
+          emojiSize: 22,
+          emojiButtonSize: 36,
+          maxFrequentRows: 2,
+          theme: getEmojiMartTheme(),
+          onEmojiSelect: function(emojiObj) {
+            if (emojiObj && emojiObj.native) {
+              handleCustomReactionEmojiSelect(emojiObj.native);
+            }
+          }
+        });
+        customReactionPickerHost.textContent = '';
+        customReactionPickerHost.appendChild(reactionEmojiMartPicker);
+        applyPickerCustomStyles(reactionEmojiMartPicker);
+      }
+
+      window.openCustomReactionModalFromSettings = function() {
+        if (typeof closeCommSettingsModal === 'function') {
+          closeCommSettingsModal();
+        }
+        if (!customReactionModal) return;
+
+        const currentSaved = (typeof window.getUserReactionEmojis === 'function')
+          ? window.getUserReactionEmojis()
+          : SYSTEM_DEFAULT_REACTIONS.slice();
+        draftReactionEmojis = (Array.isArray(currentSaved) && currentSaved.length === 3)
+          ? currentSaved.slice()
+          : SYSTEM_DEFAULT_REACTIONS.slice();
+        activeReactionSlot = 0;
+
+        showCustomReactionStatus('', false);
+        renderCustomReactionSlots();
+
+        customReactionModal.classList.add('active');
+        customReactionModal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+
+        ensureReactionEmojiMartPicker();
+        if (reactionEmojiMartPicker) {
+          applyPickerCustomStyles(reactionEmojiMartPicker);
+        }
+      };
+
+      window.closeCustomReactionModal = function() {
+        if (!customReactionModal) return;
+        customReactionModal.classList.remove('active');
+        customReactionModal.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+      };
+
+      window.resetCustomReactionEmojis = function() {
+        draftReactionEmojis = SYSTEM_DEFAULT_REACTIONS.slice();
+        activeReactionSlot = 0;
+        showCustomReactionStatus('', false);
+        renderCustomReactionSlots();
+      };
+
+      window.saveCustomReactionEmojis = function() {
+        if (!Array.isArray(draftReactionEmojis) || draftReactionEmojis.length !== 3) return;
+        if (saveCustomReactionBtn) {
+          saveCustomReactionBtn.disabled = true;
+          saveCustomReactionBtn.textContent = 'Saving...';
+        }
+        showCustomReactionStatus('', false);
+
+        fetch('save_reaction_emojis.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emojis: draftReactionEmojis })
+        })
+          .then(function(res) { return res.json(); })
+          .then(function(data) {
+            if (saveCustomReactionBtn) {
+              saveCustomReactionBtn.disabled = false;
+              saveCustomReactionBtn.textContent = 'Save';
+            }
+            if (!data || !data.success) {
+              showCustomReactionStatus((data && data.error) ? data.error : 'Failed to save reaction emojis.', true);
+              return;
+            }
+            const savedList = (Array.isArray(data.emojis) && data.emojis.length === 3)
+              ? data.emojis
+              : draftReactionEmojis.slice();
+            if (typeof window.updateUserReactionEmojis === 'function') {
+              window.updateUserReactionEmojis(savedList);
+            }
+            window.closeCustomReactionModal();
+          })
+          .catch(function() {
+            if (saveCustomReactionBtn) {
+              saveCustomReactionBtn.disabled = false;
+              saveCustomReactionBtn.textContent = 'Save';
+            }
+            showCustomReactionStatus('Network error while saving reaction emojis.', true);
+          });
+      };
+
+      if (customReactionSlotsWrap) {
+        customReactionSlotsWrap.addEventListener('click', function(e) {
+          const slotBtn = e.target.closest('.custom-reaction-slot');
+          if (!slotBtn) return;
+          const idx = Number(slotBtn.getAttribute('data-slot'));
+          if (idx >= 0 && idx < 3) {
+            activeReactionSlot = idx;
+            renderCustomReactionSlots();
+          }
+        });
+      }
     })();

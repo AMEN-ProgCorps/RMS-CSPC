@@ -37,7 +37,7 @@ body {
     width: 100vw;
     min-height: 100vh;
     min-height: 100dvh;
-    background-image: var(--login-bg, url('/images/background.png'));
+    background-image: var(--login-bg, url('/images/background.webp'));
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;

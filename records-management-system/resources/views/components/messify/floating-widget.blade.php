@@ -89,12 +89,6 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
             </span>
-
-            <!-- Active Status Indicator Dot on Floating Button -->
-            <span id="messify-status-indicator" 
-                  title="Chatify Online" 
-                  style="position: absolute; bottom: 2px; right: 2px; width: 14px; height: 14px; border-radius: 50%; background: #10b981; border: 2.5px solid #ffffff; box-shadow: 0 0 6px rgba(16, 185, 129, 0.7); pointer-events: none; z-index: 5;">
-            </span>
         </button>
     </div>
 </div>

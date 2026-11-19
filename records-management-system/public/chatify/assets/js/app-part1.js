@@ -116,11 +116,16 @@
       );
 
       quotes.forEach(function(rq) {
-        const textEl = rq.querySelector('.reply-quote-text');
+        let textEl = rq.querySelector('.reply-quote-text');
         if (textEl) {
           textEl.textContent = truncated;
         } else if (!rq.querySelector('img')) {
           rq.innerHTML = `<div class="reply-quote-text">${escapeHtml(truncated)}</div>`;
+          textEl = rq.querySelector('.reply-quote-text');
+        }
+        if (textEl && typeof window.renderEmojiMartInElement === 'function') {
+          delete textEl.dataset.emRendered;
+          window.renderEmojiMartInElement(textEl);
         }
       });
     }
@@ -383,6 +388,10 @@
         linkifyContent(contentEl);
         applyReadMoreToElement(contentEl);
       }
+      const rqTextEl = container.querySelector('.reply-quote-text');
+      if (rqTextEl && typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(rqTextEl);
+      }
 
       // Cap the DOM at MAX_WINDOW visible messages so real-time
       // WebSocket pushes never grow the chat window without bound (only when NOT backreading).
@@ -523,6 +532,10 @@
         linkifyContent(contentEl);
         applyReadMoreToElement(contentEl);
       }
+      const rqTextEl = container.querySelector('.reply-quote-text');
+      if (rqTextEl && typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(rqTextEl);
+      }
 
       // Same MAX_WINDOW cap as DM/Global Chat — only trim while looking at the
       // live/latest window, never while paged back into older history.
@@ -592,12 +605,16 @@
               targetContainer.setAttribute('data-edit-count', String(prevCount + 1));
             }
 
+            const editedBubble = targetContainer.querySelector('.message-bubble');
             const contentEl = targetContainer.querySelector('.message-bubble .message-content');
             if (contentEl) {
               contentEl.textContent = data.message;
               delete contentEl.dataset.linkified;
               linkifyContent(contentEl);
               reapplyReadMore(contentEl);
+            }
+            if (editedBubble && typeof isEmojiOnly === 'function') {
+              editedBubble.classList.toggle('emoji-only', isEmojiOnly(data.message));
             }
 
             const bubbleWrapper = targetContainer.querySelector('.bubble-wrapper');
@@ -1781,15 +1798,14 @@
       if (wsConfig && Number(wsConfig.accountId) > 0 && id === Number(wsConfig.accountId)) {
         return true;
       }
+      // When WebSocket presence snapshot is received, onlineAccountsSet is the single authoritative source of truth
+      if (hasReceivedPresenceSnapshot) {
+        return onlineAccountsSet.has(id);
+      }
       if (onlineAccountsSet.has(id)) {
         return true;
       }
       if (user && (user.is_currently_online || user.db_is_currently_online)) {
-        return true;
-      }
-      // If last_online_time is within 60 seconds, treat as online
-      const lastTs = getBestLastOnlineTime(id, user);
-      if (lastTs && (Math.floor(Date.now() / 1000) - lastTs) < 60) {
         return true;
       }
       return false;
@@ -1811,7 +1827,8 @@
       const diffDay = Math.floor(diffHour / 24);
 
       if (diffSec < 60) {
-        return 'Active now';
+        const sec = Math.max(1, diffSec);
+        return `Active ${sec} ${sec === 1 ? 'second' : 'seconds'} ago`;
       } else if (diffMin < 60) {
         return `Active ${diffMin} ${diffMin === 1 ? 'minute' : 'minutes'} ago`;
       } else if (diffHour < 24) {
@@ -1917,17 +1934,10 @@
       }
 
       const accId = Number(user.account_id);
-      let isOnline = isUserCurrentlyOnline(accId, user);
+      const isOnline = isUserCurrentlyOnline(accId, user);
       const lastTime = isOnline ? null : getBestLastOnlineTime(accId, user);
       const statusText = formatActiveStatus(isOnline, lastTime);
-      if (statusText === 'Active now') {
-        isOnline = true;
-      }
-      if (isOnline) {
-        el.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#31a24c;margin-right:5px;vertical-align:middle;box-shadow:0 0 4px #31a24c;"></span>Active now';
-      } else {
-        el.textContent = statusText;
-      }
+      el.textContent = statusText;
     }
     window.updateHeaderActiveStatus = updateHeaderActiveStatus;
 
@@ -1961,21 +1971,29 @@
         if (!isOnline) {
           user.last_online_time = wsLastOnlineTime.get(accId);
         }
+      }
 
-        const item = (typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null) || sidebarUserItems.get(user.username);
-        if (item) {
-          const dot = item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
-          if (dot) {
-            if (isOnline) {
-              dot.classList.add('online');
-              dot.classList.remove('offline');
-            } else {
-              dot.classList.remove('online');
-              dot.classList.add('offline');
-            }
-          }
+      const matchingItems = new Set();
+      if (user) {
+        const keyItem = typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null;
+        if (keyItem) matchingItems.add(keyItem);
+        if (user.username) {
+          const uItem = sidebarUserItems.get(user.username);
+          if (uItem) matchingItems.add(uItem);
         }
       }
+      document.querySelectorAll(`.user-item[data-account-id="${accId}"]`).forEach(el => matchingItems.add(el));
+
+      matchingItems.forEach(item => {
+        const dot = item._dot || item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
+        if (dot) {
+          if (isOnline) {
+            dot.className = 'status-dot online';
+          } else {
+            dot.className = 'status-dot offline';
+          }
+        }
+      });
 
       if (activeDM && Number(activeDMAccountId) === accId) {
         updateHeaderActiveStatus(user);
@@ -2005,24 +2023,31 @@
         const isOnline = onlineAccountsSet.has(accId);
         user.status = isOnline ? 'online' : 'offline';
         user.is_currently_online = isOnline;
+        user.db_is_currently_online = isOnline;
         if (!isOnline) {
           const bestTs = getBestLastOnlineTime(accId, user);
           if (bestTs) user.last_online_time = bestTs;
         }
 
-        const item = (typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null) || sidebarUserItems.get(user.username);
-        if (item) {
-          const dot = item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
+        const matchingItems = new Set();
+        const keyItem = typeof getUserItemKey === 'function' ? sidebarUserItems.get(getUserItemKey(user)) : null;
+        if (keyItem) matchingItems.add(keyItem);
+        if (user.username) {
+          const uItem = sidebarUserItems.get(user.username);
+          if (uItem) matchingItems.add(uItem);
+        }
+        document.querySelectorAll(`.user-item[data-account-id="${accId}"]`).forEach(el => matchingItems.add(el));
+
+        matchingItems.forEach(item => {
+          const dot = item._dot || item.querySelector('.status-dot') || item.querySelector('.user-status-dot');
           if (dot) {
             if (isOnline) {
-              dot.classList.add('online');
-              dot.classList.remove('offline');
+              dot.className = 'status-dot online';
             } else {
-              dot.classList.remove('online');
-              dot.classList.add('offline');
+              dot.className = 'status-dot offline';
             }
           }
-        }
+        });
       });
 
       if (activeDM && activeDMAccountId) {
@@ -2238,13 +2263,13 @@
 
       // Preserve DB online indicator in db_is_currently_online and sync verified badges.
       // If the DB explicitly reports is_currently_online === true, seed into onlineAccountsSet
-      // as a progressive fallback before WebSocket presence events arrive.
+      // only as a progressive fallback before WebSocket presence events arrive.
       allUsersData.forEach(user => {
         user.db_is_currently_online = Boolean(user.is_currently_online);
         if (!user.is_office_gc && !user.is_custom_gc && user.account_id !== undefined && user.account_id !== null) {
           const uid = Number(user.account_id);
           if (!Number.isNaN(uid) && uid > 0) {
-            if (user.db_is_currently_online) {
+            if (!hasReceivedPresenceSnapshot && user.db_is_currently_online) {
               onlineAccountsSet.add(uid);
             }
             if (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) {
@@ -2307,6 +2332,11 @@
         });
       }
 
+      if (sidebarUsers && sidebarUsers.scrollTop <= 20) {
+        sidebarRenderLimit = getSidebarScreenCapacity();
+      } else {
+        sidebarRenderLimit = Math.max(sidebarRenderLimit || 0, getSidebarScreenCapacity());
+      }
       renderSidebarUsers();
       if (typeof reloadOfficeMembersList === 'function') {
         reloadOfficeMembersList(true);
@@ -2414,6 +2444,52 @@
     const sidebarUserItems = new Map(); // user item key -> item element
     let latestTotalUnread = 0;
 
+    // Viewport-based progressive loading:
+    // Calculates how many conversation rows fit on the user's screen + safety buffer.
+    function getSidebarScreenCapacity() {
+      const containerHeight = (sidebarUsers && sidebarUsers.clientHeight > 0)
+        ? sidebarUsers.clientHeight
+        : (window.innerHeight ? Math.max(300, window.innerHeight - 180) : 600);
+      const rowHeight = 62; // approximate height of one .user-item in pixels
+      return Math.max(12, Math.ceil(containerHeight / rowHeight) + 8);
+    }
+
+    let sidebarRenderLimit = 20;
+    let sidebarScrollTicking = false;
+
+    if (sidebarUsers) {
+      sidebarUsers.addEventListener('scroll', function() {
+        if (sidebarScrollTicking) return;
+        sidebarScrollTicking = true;
+        requestAnimationFrame(() => {
+          sidebarScrollTicking = false;
+          if (!sidebarUsers || !Array.isArray(allUsersData)) return;
+          const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+          if (query !== '') return;
+
+          // When scrolled near bottom (within 160px), progressively render next slice
+          if (sidebarUsers.scrollTop + sidebarUsers.clientHeight >= sidebarUsers.scrollHeight - 160) {
+            if (sidebarRenderLimit < allUsersData.length) {
+              const step = getSidebarScreenCapacity();
+              sidebarRenderLimit = Math.min(allUsersData.length, sidebarRenderLimit + step);
+              renderSidebarUsers();
+            }
+          }
+        });
+      }, { passive: true });
+    }
+
+    window.addEventListener('resize', () => {
+      if (!sidebarUsers || !Array.isArray(allUsersData)) return;
+      const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+      if (query !== '') return;
+      const needed = getSidebarScreenCapacity();
+      if (needed > sidebarRenderLimit && sidebarRenderLimit < allUsersData.length) {
+        sidebarRenderLimit = Math.min(allUsersData.length, needed);
+        renderSidebarUsers();
+      }
+    }, { passive: true });
+
     // In-memory snapshot of the last-rendered page of messages per DM
     // partner, so re-opening a conversation already visited this session
     // paints instantly (no waiting on load_dm.php) instead of showing the
@@ -2499,11 +2575,15 @@
           clone.classList.remove('msg-animate-sent', 'msg-animate-received', 'msg-animate-older', 'is-optimistic-sending', 'reply-target-blink');
         }
         const contentEl = clone.querySelector('.message-content');
-        if (contentEl && contentEl.dataset && contentEl.dataset.fullText) {
-          contentEl.textContent = contentEl.dataset.fullText;
-          delete contentEl.dataset.fullText;
-          delete contentEl.dataset.readmoreChecked;
-          delete contentEl.dataset.linkified;
+        if (contentEl && contentEl.dataset) {
+          // Keep truncated Read More DOM intact in cache so reopening this conversation
+          // never has to re-parse or re-truncate huge emoji/text messages!
+          // Just clear data-bound on the cloned .read-more-link so its click handler is
+          // cleanly re-attached on restore.
+          const rmLink = contentEl.querySelector('.read-more-link');
+          if (rmLink && rmLink.dataset) {
+            delete rmLink.dataset.bound;
+          }
         }
         clone.querySelectorAll('img[data-scroll-listener]').forEach(function(img) {
           img.removeAttribute('data-scroll-listener');
@@ -2731,9 +2811,9 @@
             speculateChannelCard(ocId, document.getElementById('officeChatItem'));
           }
 
-          // 3. Warm up top 4 visible conversations (Custom GCs and recent DMs)
+          // 3. Warm up visible conversations (Custom GCs and recent DMs)
           if (Array.isArray(allUsersData) && allUsersData.length > 0) {
-            const topSlice = allUsersData.slice(0, 4);
+            const topSlice = allUsersData.slice(0, 10);
             topSlice.forEach((u, i) => {
               setTimeout(() => {
                 if (u.is_custom_gc) {
@@ -2745,17 +2825,17 @@
                 } else if (u.account_id || u.username) {
                   speculateConversationCard(u, null);
                 }
-              }, i * 150);
+              }, i * 70);
             });
           }
         };
 
         if ('requestIdleCallback' in window) {
-          window.requestIdleCallback(runWarmup, { timeout: 1500 });
+          window.requestIdleCallback(runWarmup, { timeout: 500 });
         } else {
-          setTimeout(runWarmup, 100);
+          setTimeout(runWarmup, 40);
         }
-      }, 350);
+      }, 80);
     }
     window.prefetchTopConversations = prefetchTopConversations;
 
@@ -2946,7 +3026,29 @@
 
       const seen = new Set();
 
-      allUsersData.forEach((u, index) => {
+      // Screen-based progressive windowing:
+      // Only render items that fit the user's screen + buffer, expanding as user scrolls.
+      const screenCap = getSidebarScreenCapacity();
+      if (!sidebarRenderLimit || sidebarRenderLimit < screenCap) {
+        sidebarRenderLimit = screenCap;
+      }
+
+      if (query === '' && (activeDM || activeDMAccountId || isGlobalChat)) {
+        const activeIdx = (allUsersData || []).findIndex(u => {
+          if (u.is_office_gc) return isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv;
+          if (u.is_custom_gc) return isGlobalChat && window.activeChannel === 'gc' && !activeDM && !activeAdminConv && window.activeCustomGc && (Number(window.activeCustomGc.gc_id) === Number(u.gc_id) || window.activeCustomGc.conv_id === u.conv_id);
+          return (!isGlobalChat && !activeAdminConv && ((activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM)));
+        });
+        if (activeIdx !== -1 && activeIdx >= sidebarRenderLimit) {
+          sidebarRenderLimit = activeIdx + 5;
+        }
+      }
+
+      const usersToRender = (query === '')
+        ? (allUsersData || []).slice(0, sidebarRenderLimit)
+        : (allUsersData || []);
+
+      usersToRender.forEach((u, index) => {
         let isThisActive = false;
         if (typeof isAdminAllChatsView !== 'undefined' && isAdminAllChatsView) {
           isThisActive = false;
@@ -3190,6 +3292,10 @@
               : true;
             if (canSeeTyping && activeDraft && activeDraft.preview) {
               lastMsgEl.textContent = activeDraft.preview;
+              if (typeof window.renderEmojiMartInElement === 'function') {
+                delete lastMsgEl.dataset.emRendered;
+                window.renderEmojiMartInElement(lastMsgEl);
+              }
               lastMsgEl.style.display = 'block';
               lastMsgEl.style.fontStyle = 'italic';
               lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';
@@ -3258,6 +3364,12 @@
       updateSidebarActiveHighlight();
       if (typeof prefetchTopConversations === 'function') {
         prefetchTopConversations();
+      }
+
+      // If initial items don't fill the visible container completely (e.g. ultra-wide / tall screen), auto-expand
+      if (query === '' && Array.isArray(allUsersData) && sidebarRenderLimit < allUsersData.length && sidebarUsers && sidebarUsers.scrollHeight <= (sidebarUsers.clientHeight + 20)) {
+        sidebarRenderLimit = Math.min(allUsersData.length, sidebarRenderLimit + screenCap);
+        setTimeout(renderSidebarUsers, 0);
       }
     }
 
@@ -3799,7 +3911,11 @@
       resetReadMoreCopyBtn();
       readMoreModalBody.textContent = fullText || '';
       delete readMoreModalBody.dataset.linkified; // allow re-linkifying on every open
+      delete readMoreModalBody.dataset.emRendered;
       linkifyContent(readMoreModalBody);
+      if (typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(readMoreModalBody);
+      }
       readMoreModal.classList.add('active');
       readMoreModal.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
@@ -3877,9 +3993,181 @@
     // affordance; tapping it opens the modal above with the full text.
     const READMORE_CHAR_LIMIT = 400;
     const READMORE_LINE_LIMIT = 8;
+    const READMORE_EMOJI_LIMIT = 25;
+
+    // Linear-time O(N) emoji token matcher — avoids the catastrophic exponential
+    // regex backtracking of /^(?:A|B)+$/u when a string contains 20+ emojis followed
+    // by non-emoji text (such as an already-appended "Read More..." label).
+    const EMOJI_TOKEN_STRIP_REGEX = /(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u200D\uFE0F]|\uD83C[\uDDE0-\uDDFF]\uD83C[\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\p{Emoji}\uFE0F)/gu;
+    const _graphemeSegmenter = (typeof Intl !== 'undefined' && Intl.Segmenter)
+      ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+      : null;
+
+    // ── Shared Emoji Mart Sprite Renderer for Chat UI ──────────────────────
+    const _EM_SPRITESHEET_URL = 'assets/vendor/emoji-mart/apple-sheet-64.png';
+    let _emCoordMap = null;
+    let _emSheetCols = 61;
+    let _emSheetRows = 61;
+    const _emSpriteProto = document.createElement('span');
+    _emSpriteProto.className = 'em-sprite-icon';
+    _emSpriteProto.setAttribute('role', 'img');
+
+    function getEmojiMartCoordMap() {
+      if (_emCoordMap) return _emCoordMap;
+      _emCoordMap = new Map();
+      const data = window.CHATIFY_EMOJI_MART_DATA;
+      if (data && typeof data === 'object') {
+        if (data.sheet && data.sheet.cols && data.sheet.rows) {
+          _emSheetCols = Number(data.sheet.cols) || 61;
+          _emSheetRows = Number(data.sheet.rows) || 61;
+        }
+        const emojis = data.emojis || {};
+        Object.keys(emojis).forEach(function(id) {
+          const item = emojis[id];
+          if (!item || !Array.isArray(item.skins)) return;
+          item.skins.forEach(function(skin) {
+            if (!skin || typeof skin.native !== 'string') return;
+            const coords = { x: Number(skin.x) || 0, y: Number(skin.y) || 0 };
+            _emCoordMap.set(skin.native, coords);
+            const stripped = skin.native.replace(/\uFE0F/g, '');
+            if (stripped && (stripped.length > 1 || stripped.codePointAt(0) > 0xFF) && !_emCoordMap.has(stripped)) {
+              _emCoordMap.set(stripped, coords);
+            }
+          });
+        });
+      }
+      return _emCoordMap;
+    }
+    window.getEmojiMartCoordMap = getEmojiMartCoordMap;
+
+    window.createEmojiMartNode = function(rawEmoji, sizePx) {
+      const emoji = (rawEmoji === '❤') ? '❤️' : String(rawEmoji || '');
+      const map = getEmojiMartCoordMap();
+      const coords = map.get(emoji) || map.get(emoji.replace(/\uFE0F/g, ''));
+
+      if (!coords) {
+        const fallback = document.createElement('span');
+        fallback.className = 'em-sprite-fallback';
+        fallback.textContent = emoji;
+        return fallback;
+      }
+
+      const cols = _emSheetCols;
+      const rows = _emSheetRows;
+      const posX = ((100 / (cols - 1)) * coords.x).toFixed(4);
+      const posY = ((100 / (rows - 1)) * coords.y).toFixed(4);
+      const size = Number(sizePx) || 0;
+      const sizeRule = size > 0 ? ('width:' + size + 'px;height:' + size + 'px;') : '';
+
+      const span = _emSpriteProto.cloneNode(false);
+      span.setAttribute('aria-label', emoji);
+      span.setAttribute('title', emoji);
+      span.textContent = emoji;
+      span.style.cssText = sizeRule
+        + "background-image:url('" + _EM_SPRITESHEET_URL + "');"
+        + 'background-size:' + (100 * cols) + '% ' + (100 * rows) + '%;'
+        + 'background-position:' + posX + '% ' + posY + '%;'
+        + 'background-repeat:no-repeat;';
+      return span;
+    };
+
+    window.renderEmojiMartInElement = function(rootEl, sizePx) {
+      if (!rootEl || rootEl.dataset.emRendered === '1') return;
+      const map = getEmojiMartCoordMap();
+      if (!map || map.size === 0) return;
+
+      const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, null);
+      const textNodes = [];
+      let node;
+      while ((node = walker.nextNode())) {
+        const parent = node.parentElement;
+        if (parent && (parent.classList.contains('em-sprite-icon') || parent.classList.contains('read-more-link'))) {
+          continue;
+        }
+        const val = node.nodeValue;
+        if (!val || !/[^\u0000-\u007F]/.test(val)) continue;
+        textNodes.push(node);
+      }
+
+      textNodes.forEach(function(textNode) {
+        const text = textNode.nodeValue;
+        const segments = _graphemeSegmenter
+          ? Array.from(_graphemeSegmenter.segment(text), function(s) { return s.segment; })
+          : Array.from(text);
+
+        let hasEmoji = false;
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i];
+          if (map.has(seg) || (seg.length > 1 && map.has(seg.replace(/\uFE0F/g, '')))) {
+            hasEmoji = true;
+            break;
+          }
+        }
+        if (!hasEmoji) return;
+
+        const frag = document.createDocumentFragment();
+        let textBuf = '';
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i];
+          const hit = map.has(seg) || ((seg.length > 1 || seg.codePointAt(0) > 0xFF) && map.has(seg.replace(/\uFE0F/g, '')));
+          if (hit) {
+            if (textBuf) {
+              frag.appendChild(document.createTextNode(textBuf));
+              textBuf = '';
+            }
+            frag.appendChild(window.createEmojiMartNode(seg, sizePx));
+          } else {
+            textBuf += seg;
+          }
+        }
+        if (textBuf) {
+          frag.appendChild(document.createTextNode(textBuf));
+        }
+        if (textNode.parentNode) {
+          textNode.parentNode.replaceChild(frag, textNode);
+        }
+      });
+
+      rootEl.dataset.emRendered = '1';
+    };
+
+    function isEmojiOnlyText(str) {
+      if (!str) return false;
+      const stripped = str.replace(/\s/g, '');
+      if (!stripped) return false;
+      // Quick ASCII reject: if any standard ASCII letter exists, it cannot be emoji-only
+      if (/[a-zA-Z]/.test(stripped)) return false;
+      return stripped.replace(EMOJI_TOKEN_STRIP_REGEX, '') === '';
+    }
+    window.isEmojiOnlyText = isEmojiOnlyText;
+
+    function splitGraphemes(str) {
+      if (_graphemeSegmenter) {
+        return Array.from(_graphemeSegmenter.segment(str), s => s.segment);
+      }
+      return Array.from(str);
+    }
+
+    function countEmojiUnits(str, stopAfter = Infinity) {
+      const stripped = str.replace(/\s/g, '');
+      if (!stripped) return 0;
+      if (_graphemeSegmenter) {
+        let count = 0;
+        for (const _ of _graphemeSegmenter.segment(stripped)) {
+          count++;
+          if (count > stopAfter) return count;
+        }
+        return count;
+      }
+      return Array.from(stripped).length;
+    }
+    window.countEmojiUnits = countEmojiUnits;
 
     function readMoreNeeded(text) {
       if (!text) return false;
+      if (isEmojiOnlyText(text)) {
+        return countEmojiUnits(text, READMORE_EMOJI_LIMIT) > READMORE_EMOJI_LIMIT;
+      }
       if (text.length > READMORE_CHAR_LIMIT) return true;
       let lines = 1;
       for (let i = 0; i < text.length; i++) {
@@ -3892,9 +4180,28 @@
     }
 
     function readMorePreview(text) {
+      if (isEmojiOnlyText(text)) {
+        const stripped = text.replace(/\s/g, '');
+        if (_graphemeSegmenter) {
+          let out = '';
+          let count = 0;
+          for (const seg of _graphemeSegmenter.segment(stripped)) {
+            out += seg.segment;
+            count++;
+            if (count >= READMORE_EMOJI_LIMIT) break;
+          }
+          return out;
+        }
+        return Array.from(stripped).slice(0, READMORE_EMOJI_LIMIT).join('');
+      }
       let preview = text.split('\n').slice(0, READMORE_LINE_LIMIT).join('\n');
       if (preview.length > READMORE_CHAR_LIMIT) {
         preview = preview.slice(0, READMORE_CHAR_LIMIT);
+        // Avoid splitting a UTF-16 surrogate pair (e.g. emojis) in half
+        const lastCode = preview.charCodeAt(preview.length - 1);
+        if (lastCode >= 0xD800 && lastCode <= 0xDBFF) {
+          preview = preview.slice(0, -1);
+        }
       }
       return preview.replace(/\s+$/, '');
     }
@@ -3905,47 +4212,96 @@
     // bulk-rendered/polled messages, and directly wherever a message is
     // rendered outside that path (live WS push, optimistic send bubble).
     function applyReadMoreToElement(contentEl) {
-      if (!contentEl || contentEl.dataset.readmoreChecked === '1') return;
+      if (!contentEl) return;
       if (contentEl.classList.contains('sending-dots')) return; // "..." placeholder, not real text
 
-      const fullText = contentEl.textContent || '';
+      // Delegated click & keydown handler for "Read More..." links inside chatBox.
+      // Using a single delegated listener on chatBox means cached/precompiled HTML
+      // snapshots with <span class="read-more-link"> work immediately with zero
+      // per-node binding loops.
+      if (chatBox && !chatBox.dataset.readmoreDelegated) {
+        chatBox.dataset.readmoreDelegated = '1';
+        chatBox.addEventListener('click', function(e) {
+          const linkEl = e.target.closest('.read-more-link');
+          if (!linkEl) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const mc = linkEl.closest('.message-content');
+          const full = mc ? (mc.dataset.fullText || mc.textContent || '') : '';
+          const savedST = chatBox ? chatBox.scrollTop : null;
+          openReadMoreModal(full);
+          if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
+            chatBox.scrollTop = savedST;
+          }
+        });
+        chatBox.addEventListener('keydown', function(e) {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          const linkEl = e.target.closest('.read-more-link');
+          if (!linkEl) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const mc = linkEl.closest('.message-content');
+          const full = mc ? (mc.dataset.fullText || mc.textContent || '') : '';
+          const savedST = chatBox ? chatBox.scrollTop : null;
+          openReadMoreModal(full);
+          if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
+            chatBox.scrollTop = savedST;
+          }
+        });
+      }
+
+      // If this element was cached/cloned from DOM with an existing .read-more-link,
+      // skip immediately — the delegated listener on chatBox handles clicks.
+      const existingLink = contentEl.querySelector('.read-more-link');
+      if (existingLink) {
+        contentEl.dataset.readmoreChecked = '1';
+        if (typeof window.renderEmojiMartInElement === 'function' && !contentEl.querySelector('.em-sprite-icon')) {
+          delete contentEl.dataset.emRendered;
+          window.renderEmojiMartInElement(contentEl);
+        }
+        return;
+      }
+
+      if (contentEl.dataset.readmoreChecked === '1') {
+        if (typeof window.renderEmojiMartInElement === 'function' && contentEl.dataset.emRendered !== '1') {
+          window.renderEmojiMartInElement(contentEl);
+        }
+        return;
+      }
+
+      const fullText = contentEl.dataset.fullText || contentEl.textContent || '';
       contentEl.dataset.readmoreChecked = '1';
-      if (!readMoreNeeded(fullText)) return;
+      if (!readMoreNeeded(fullText)) {
+        delete contentEl.dataset.fullText;
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(contentEl);
+        }
+        return;
+      }
+
+      const parentBubble = contentEl.closest('.message-bubble');
+      if (parentBubble) parentBubble.classList.remove('emoji-only');
 
       contentEl.dataset.fullText = fullText;
-      contentEl.textContent = readMorePreview(fullText) + ' ';
+      const previewStr = readMorePreview(fullText);
+      const separator = isEmojiOnlyText(fullText) ? '\n' : ' ';
+      contentEl.textContent = previewStr + separator;
 
       const link = document.createElement('span');
       link.className = 'read-more-link';
       link.textContent = 'Read More...';
       link.setAttribute('role', 'button');
       link.setAttribute('tabindex', '0');
-      link.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const savedST = chatBox ? chatBox.scrollTop : null;
-        openReadMoreModal(contentEl.dataset.fullText || '');
-        if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
-          chatBox.scrollTop = savedST;
-        }
-      });
-      link.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          e.stopPropagation();
-          const savedST = chatBox ? chatBox.scrollTop : null;
-          openReadMoreModal(contentEl.dataset.fullText || '');
-          if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
-            chatBox.scrollTop = savedST;
-          }
-        }
-      });
       contentEl.appendChild(link);
 
       // Re-linkify just the (now truncated) visible text so any URL still
       // shown in the preview stays clickable.
       delete contentEl.dataset.linkified;
+      delete contentEl.dataset.emRendered;
       linkifyContent(contentEl);
+      if (typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(contentEl);
+      }
     }
 
     // Re-checks a message-content element after its text changed (e.g. an
@@ -3953,6 +4309,9 @@
     // and one that shrinks below it loses a stale truncation.
     function reapplyReadMore(contentEl) {
       delete contentEl.dataset.readmoreChecked;
+      delete contentEl.dataset.fullText;
+      delete contentEl.dataset.emojiChecked;
+      delete contentEl.dataset.emRendered;
       applyReadMoreToElement(contentEl);
     }
 
@@ -4021,12 +4380,23 @@
         (isGc && x.is_office_gc && ('office_' + x.office_id) === targetUsername) ||
         (activeDMAccountId && Number(x.account_id) === activeDMAccountId)
       );
-      if (u) u.unreadCount = 0;
+      let unreadCleared = false;
+      if (u && u.unreadCount > 0) {
+        u.unreadCount = 0;
+        unreadCleared = true;
+      }
       if (activeDM === targetUsername || (activeDMAccountId && u && Number(u.account_id) === activeDMAccountId)) {
         const activeU = allUsersData.find(x => x.username === activeDM || (activeDMAccountId && Number(x.account_id) === activeDMAccountId));
-        if (activeU) activeU.unreadCount = 0;
+        if (activeU && activeU.unreadCount > 0) {
+          activeU.unreadCount = 0;
+          unreadCleared = true;
+        }
       }
-      renderSidebarUsers();
+      if (unreadCleared) {
+        renderSidebarUsers();
+      } else {
+        updateSidebarActiveHighlight();
+      }
 
       // Handle GC read marking via conv_id
       if (isGc || (u && (u.is_custom_gc || u.is_office_gc))) {
@@ -4317,8 +4687,16 @@
     }
 
     function performSelectDM(u) {
-      if (typeof syncActiveChatCacheFromDom === 'function') syncActiveChatCacheFromDom();
+      if (!u) return;
+      // 1. Switch UI to the selected conversation IMMEDIATELY (0ms response on click/tap)
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
+
+      // 2. Save outgoing conversation DOM snapshot before clearing chatBox
+      if (typeof syncActiveChatCacheFromDom === 'function') syncActiveChatCacheFromDom();
       if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
       if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
       if (typeof abortAnyInFlightChatXhrs === 'function') abortAnyInFlightChatXhrs();
@@ -4339,6 +4717,7 @@
       window.activeDMAccountId = activeDMAccountId;
       activeDMUserObj = u;
       activeAdminConv = null;
+      const hadUnread = Number(u.unreadCount || 0) > 0;
       u.unreadCount = 0;
       updateSidebarActiveHighlight();
 
@@ -4394,16 +4773,12 @@
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
       chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       dmViewingOlder = false;
-      u.unreadCount = 0;
-      renderSidebarUsers();
-      updateSidebarActiveHighlight();
+      if (hadUnread) {
+        renderSidebarUsers();
+      }
       loadChat(false, false, true); // force: abort any in-flight request rather than drop this one
       
-      // Mobile/Tablet: hide sidebar when chat is selected
-      if (isMobileViewport()) {
-        sidebar.classList.remove('open');
-        if (backButton) backButton.style.display = 'inline-flex';
-      } else {
+      if (!isMobileViewport()) {
         // Desktop only: auto-focus the message input so the cursor is ready
         // without an extra click. preventScroll prevents the browser from shifting scrollable parents.
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
@@ -4452,11 +4827,11 @@
 
     function selectGlobalChat() {
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
       if (isGlobalChat && window.activeChannel === 'global' && !activeDM && !activeAdminConv) {
-        if (isMobileViewport()) {
-          sidebar.classList.remove('open');
-          if (backButton) backButton.style.display = 'inline-flex';
-        }
         return;
       }
 
@@ -4525,14 +4900,10 @@
       }
 
       removePaginationBtn();
-      renderSidebarUsers();
       updateSidebarActiveHighlight();
 
       loadGlobalChat(false, false, true);
-      if (isMobileViewport()) {
-        sidebar.classList.remove('open');
-        if (backButton) backButton.style.display = 'inline-flex';
-      } else {
+      if (!isMobileViewport()) {
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
@@ -4550,6 +4921,10 @@
 
     function selectOfficeChat(officeObj) {
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
       if (officeObj && (officeObj.office_id || officeObj.is_office_gc)) {
         if (!window.currentOfficeInfo) window.currentOfficeInfo = {};
         const oid = Number(officeObj.office_id || 0);
@@ -4578,10 +4953,6 @@
       }
 
       if (isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv) {
-        if (isMobileViewport()) {
-          sidebar.classList.remove('open');
-          if (backButton) backButton.style.display = 'inline-flex';
-        }
         return;
       }
 
@@ -4655,17 +5026,13 @@
       }
 
       removePaginationBtn();
-      renderSidebarUsers();
       updateSidebarActiveHighlight();
 
       loadGlobalChat(false, false, true);
       if (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) {
         markRead(window.currentOfficeInfo.conv_id);
       }
-      if (isMobileViewport()) {
-        sidebar.classList.remove('open');
-        if (backButton) backButton.style.display = 'inline-flex';
-      } else {
+      if (!isMobileViewport()) {
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
@@ -4674,12 +5041,12 @@
     function selectCustomGc(group) {
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       if (!group) return;
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
 
       if (isGlobalChat && window.activeChannel === 'gc' && window.activeCustomGc && window.activeCustomGc.gc_id === group.gc_id && !activeDM && !activeAdminConv) {
-        if (isMobileViewport()) {
-          sidebar.classList.remove('open');
-          if (backButton) backButton.style.display = 'inline-flex';
-        }
         return;
       }
 
@@ -4802,15 +5169,11 @@
       }
 
       removePaginationBtn();
-      renderSidebarUsers();
       updateSidebarActiveHighlight();
 
       loadGlobalChat(false, false, true);
       markRead(gcConv);
-      if (isMobileViewport()) {
-        sidebar.classList.remove('open');
-        if (backButton) backButton.style.display = 'inline-flex';
-      } else {
+      if (!isMobileViewport()) {
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
@@ -5193,6 +5556,14 @@
       const text = messageInput.value;
       messageInput.style.color = 'transparent';
 
+      if (!text) {
+        messageInputHighlight.textContent = '';
+        delete messageInputHighlight.dataset.emRendered;
+        messageInputHighlight.scrollTop = 0;
+        messageInputHighlight.scrollLeft = 0;
+        return;
+      }
+
       const names = (activeMentions || [])
         .map(function(m) { return m.name; })
         .filter(function(n, i, arr) { return arr.indexOf(n) === i; })
@@ -5200,6 +5571,10 @@
 
       if (names.length === 0 || text.indexOf('@') === -1) {
         messageInputHighlight.textContent = text.endsWith('\n') ? text + ' ' : text;
+        delete messageInputHighlight.dataset.emRendered;
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(messageInputHighlight, 18);
+        }
         messageInputHighlight.scrollTop = messageInput.scrollTop;
         messageInputHighlight.scrollLeft = messageInput.scrollLeft;
         return;
@@ -5228,6 +5603,10 @@
       if (plainRun) html += escapeHtml(plainRun);
       if (text.endsWith('\n')) html += '&nbsp;';
       messageInputHighlight.innerHTML = html;
+      delete messageInputHighlight.dataset.emRendered;
+      if (typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(messageInputHighlight, 18);
+      }
       messageInputHighlight.scrollTop = messageInput.scrollTop;
       messageInputHighlight.scrollLeft = messageInput.scrollLeft;
     }
@@ -7164,6 +7543,9 @@
       if (query === '') {
         // Immediately clear stale search results so sidebar shows loading state
         allUsersData = [];
+        if (typeof getSidebarScreenCapacity === 'function') {
+          sidebarRenderLimit = getSidebarScreenCapacity();
+        }
         renderSidebarUsers();
         fetchUsers();
       } else {

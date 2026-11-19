@@ -826,7 +826,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             }
         }
 
-        return DB::table('dts_sequence_list as seq')
+        $steps = DB::table('dts_sequence_list as seq')
             ->join((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'seq.office_code')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as r_ad', 'r_ad.account_id', '=', 'seq.account_received')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as r_acc', 'r_acc.id', '=', 'seq.account_received')
@@ -3317,8 +3317,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                             $isForwarded = !is_null($step->date_out) || $selectedTransaction->status === 'completed';
                                             $isCompleted = ($isReceived && $isForwarded) || strtolower($selectedTransaction->status ?? '') === 'completed';
 
-                                            $isCurrentOffice = $step->is_active_step && !is_null($step->date_in) && is_null($step->date_out) && $selectedTransaction->status !== 'completed';
-                                            $isInTransitToThisOffice = $step->is_active_step && is_null($step->date_in) && $selectedTransaction->status !== 'completed';
+                                            $isCurrentOffice = !empty($step->is_active_step) && !is_null($step->date_in) && is_null($step->date_out) && $selectedTransaction->status !== 'completed';
+                                            $isInTransitToThisOffice = !empty($step->is_active_step) && is_null($step->date_in) && $selectedTransaction->status !== 'completed';
                                             $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
                                             $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $selectedTransaction->sequence || $selectedTransaction->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
 
@@ -3424,7 +3424,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                     <tbody>
                                         @forelse ($this->fullFlowPath as $index => $step)
                                             @php
-                                                $isCurrentStep = $step->is_active_step && !is_null($step->date_in) && is_null($step->date_out);
+                                                $isCurrentStep = !empty($step->is_active_step) && !is_null($step->date_in) && is_null($step->date_out);
                                                 $isPassedStep = !is_null($step->date_out);
                                             @endphp
                                             <tr style="{{ $isCurrentStep ? 'background: #f0fdf4;' : '' }}">
@@ -3487,7 +3487,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                                     @endif
                                                 </td>
                                                 <td>
-                                                    @if ($step->is_active_step && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
+                                                    @if (!empty($step->is_active_step) && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
                                                         <select wire:model.live="activeAction" style="padding: 4px 8px; border: 1.5px solid #3b82f6; border-radius: 6px; font-size: 12px; font-weight: 600; background: #eff6ff; color: #1e40af;">
                                                             @foreach($this->actionOptions as $opt)
                                                                 <option value="{{ $opt }}">{{ $opt }}</option>
@@ -3549,7 +3549,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                                     @endif
                                                 </td>
                                                 <td>
-                                                    @if ($step->is_active_step && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
+                                                    @if (!empty($step->is_active_step) && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
                                                         <input type="text" wire:model="activeNotes" class="receive-field-input" placeholder="Type notes here..." style="font-size: 12px; height: 30px; padding: 0 8px;">
                                                     @else
                                                         <span style="font-size: 12px; color: {{ $step->note ? '#334155' : '#94a3b8' }};">

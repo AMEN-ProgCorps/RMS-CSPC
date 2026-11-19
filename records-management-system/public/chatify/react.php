@@ -36,7 +36,7 @@ $msgUuid  = trim($_POST['msg_uuid']  ?? '');
 $emoji    = trim($_POST['emoji']     ?? '');
 $chatType = trim($_POST['chat_type'] ?? '');
 
-if ($emoji === '❤' || $emoji === '🖤' || $emoji === '🤍') {
+if ($emoji === '❤') {
     $emoji = '❤️';
 }
 
@@ -48,10 +48,19 @@ if ($msgUuid === '' || $emoji === '' || !in_array($chatType, ['global', 'office_
     exit;
 }
 
-if (!in_array($emoji, Reactions::ALLOWED, true)) {
+if (!Reactions::isValidEmoji($emoji)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'Unsupported emoji.']);
     exit;
+}
+
+try {
+    $pdo = Database::getConnection();
+    SelfHealCache::once('messify_chat_reactions_emoji_col_32', function () use ($pdo) {
+        $pdo->exec("ALTER TABLE messify_chat_reactions ALTER COLUMN emoji TYPE VARCHAR(32)");
+    });
+} catch (Throwable $e) {
+    // Non-fatal
 }
 
 $targetId = null;
@@ -68,7 +77,7 @@ if ($chatType === 'private') {
         exit;
     }
     $convId = ConversationManager::convId($accountId, $targetId);
-    $result = ConversationManager::toggleReaction($convId, $msgUuid, $emoji, $accountId, Reactions::ALLOWED);
+    $result = ConversationManager::toggleReaction($convId, $msgUuid, $emoji, $accountId);
 } else {
     $channelConvId = trim($_POST['conv_id'] ?? '');
     if (empty($channelConvId)) {
@@ -108,7 +117,7 @@ if ($chatType === 'private') {
         }
     }
 
-    $result = GlobalChatManager::toggleReaction($msgUuid, $emoji, $accountId, Reactions::ALLOWED, $channelConvId);
+    $result = GlobalChatManager::toggleReaction($msgUuid, $emoji, $accountId, null, $channelConvId);
 }
 
 if (empty($result['ok'])) {

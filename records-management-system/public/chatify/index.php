@@ -881,8 +881,9 @@ try {
         </div>
         <div id="addGcSearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:40px;max-height:280px;overflow-y:auto;"></div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="modal-button cancel-button" onclick="closeAddGcMembersModal()">Close</button>
+      <div class="modal-footer" style="display:flex;justify-content:space-between;">
+        <button type="button" class="modal-button cancel-button" onclick="closeAddGcMembersModal()">Cancel</button>
+        <button type="button" class="modal-button confirm-button" id="addGcMembersSubmitBtn" onclick="submitAddGcMembers()" disabled>Add</button>
       </div>
     </div>
   </div>

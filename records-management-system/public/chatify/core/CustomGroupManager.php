@@ -176,70 +176,78 @@ class CustomGroupManager
             $stmt->execute([':account_id' => $accountId]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            if (empty($rows)) {
+                return [];
+            }
+
+            $convIds = [];
+            foreach ($rows as $row) {
+                $convIds[] = 'gc_' . (int) $row['id'];
+            }
+            $convIdsCsv = implode(',', $convIds);
+
+            // Batch-fetch unread counts for all groups in a single query
+            $unreadByConv = [];
+            try {
+                $uStmt = $pdo->prepare(
+                    "SELECT ('gc_' || m.group_id) AS conv_id, COUNT(msg.id) AS unread_count
+                     FROM messify_chat_custom_group_members m
+                     JOIN messify_chat_messages msg
+                       ON msg.conv_id = ('gc_' || m.group_id)
+                      AND msg.status = 'active'
+                      AND msg.sender_id != m.account_id
+                      AND (
+                        (COALESCE(m.last_read_msg_id, 0) <= 0 AND m.joined_at IS NOT NULL AND msg.created_at >= m.joined_at)
+                        OR (COALESCE(m.last_read_msg_id, 0) > 0 AND msg.id > m.last_read_msg_id)
+                      )
+                     WHERE m.account_id = :account_id
+                     GROUP BY m.group_id"
+                );
+                $uStmt->execute([':account_id' => $accountId]);
+                while ($uRow = $uStmt->fetch(PDO::FETCH_ASSOC)) {
+                    $unreadByConv[$uRow['conv_id']] = (int) $uRow['unread_count'];
+                }
+            } catch (Throwable) {}
+
+            // Batch-fetch latest message for all groups in a single query
+            $lastMsgByConv = [];
+            try {
+                $lStmt = $pdo->prepare(
+                    "SELECT DISTINCT ON (conv_id)
+                            conv_id,
+                            message,
+                            msg_type,
+                            EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
+                     FROM messify_chat_messages
+                     WHERE conv_id = ANY(string_to_array(:conv_ids_csv, ','))
+                       AND status = 'active'
+                     ORDER BY conv_id, created_at DESC, id DESC"
+                );
+                $lStmt->execute([':conv_ids_csv' => $convIdsCsv]);
+                while ($lRow = $lStmt->fetch(PDO::FETCH_ASSOC)) {
+                    $lastMsgByConv[$lRow['conv_id']] = $lRow;
+                }
+            } catch (Throwable) {}
+
             $groups = [];
             foreach ($rows as $row) {
                 $groupId = (int) $row['id'];
                 $convId  = 'gc_' . $groupId;
-                $lastReadId = (int) ($row['last_read_msg_id'] ?? 0);
-                $joinedAt = $row['joined_at'] ?? null;
 
-                // Calculate unread count for this user
-                $unreadCount = 0;
-                try {
-                    if ($lastReadId <= 0 && $joinedAt) {
-                        // If user has never opened the chat, only count messages created AFTER they joined
-                        $uStmt = $pdo->prepare(
-                            "SELECT COUNT(*) FROM messify_chat_messages
-                             WHERE conv_id = :conv_id
-                               AND status = 'active'
-                               AND sender_id != :account_id
-                               AND created_at >= :joined_at"
-                        );
-                        $uStmt->execute([
-                            ':conv_id'    => $convId,
-                            ':account_id' => $accountId,
-                            ':joined_at'  => $joinedAt,
-                        ]);
+                $unreadCount = $unreadByConv[$convId] ?? 0;
+
+                $lastMsg = '';
+                $lastTs  = 0;
+                if (isset($lastMsgByConv[$convId])) {
+                    $lRow   = $lastMsgByConv[$convId];
+                    $lastTs = (int) $lRow['ts'];
+                    if ($lRow['msg_type'] === 'upload') {
+                        $lastMsg = 'Sent a file';
                     } else {
-                        $uStmt = $pdo->prepare(
-                            "SELECT COUNT(*) FROM messify_chat_messages
-                             WHERE conv_id = :conv_id
-                               AND status = 'active'
-                               AND sender_id != :account_id
-                               AND id > :last_read_id"
-                        );
-                        $uStmt->execute([
-                            ':conv_id'      => $convId,
-                            ':account_id'   => $accountId,
-                            ':last_read_id' => $lastReadId,
-                        ]);
+                        $decrypted = safeDecrypt($lRow['message'] ?? '');
+                        $lastMsg   = mb_strimwidth($decrypted, 0, 60, '…');
                     }
-                    $unreadCount = (int) $uStmt->fetchColumn();
-                } catch (Throwable) {}
-
-                // Fetch last message
-                $lastMsg  = '';
-                $lastTs   = 0;
-                try {
-                    $lStmt = $pdo->prepare(
-                        "SELECT message, msg_type, EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
-                         FROM messify_chat_messages
-                         WHERE conv_id = :conv_id AND status = 'active'
-                         ORDER BY created_at DESC, id DESC
-                         LIMIT 1"
-                    );
-                    $lStmt->execute([':conv_id' => $convId]);
-                    $lRow = $lStmt->fetch(PDO::FETCH_ASSOC);
-                    if ($lRow) {
-                        $lastTs = (int) $lRow['ts'];
-                        if ($lRow['msg_type'] === 'upload') {
-                            $lastMsg = 'Sent a file';
-                        } else {
-                            $decrypted = safeDecrypt($lRow['message'] ?? '');
-                            $lastMsg   = mb_strimwidth($decrypted, 0, 60, '…');
-                        }
-                    }
-                } catch (Throwable) {}
+                }
 
                 $joinedTs = (int) ($row['joined_ts'] ?? 0);
                 $isNewlyAdded = !((bool)($row['new_member_seen'] ?? false)) && ((int)$row['creator_id'] !== $accountId);

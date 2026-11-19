@@ -47,7 +47,6 @@ if ($freshMyOfficeId > 0) {
         $stmt->execute([':id' => $freshMyOfficeId]);
         $freshMyOffice = $stmt->fetch(PDO::FETCH_ASSOC);
     } catch (Throwable) {}
-    $officeGcUnreadCount = OfficeChatManager::getUnreadCount($freshMyOfficeId, $myAccountId);
 }
 
 // ── Branch: Search vs. Active Conversations ───────────────────────────────────
@@ -57,6 +56,7 @@ if ($searchQuery !== '') {
         $oName = $freshMyOffice['office_name'] ?? '';
         $oCode = $freshMyOffice['office_code'] ?? '';
         if (stripos($oName, $searchQuery) !== false || stripos($oCode, $searchQuery) !== false) {
+            $officeGcUnreadCount = OfficeChatManager::getUnreadCount($freshMyOfficeId, $myAccountId);
             $sidebarUsers[] = [
                 'is_office_gc'        => true,
                 'office_id'           => $freshMyOfficeId,
@@ -216,6 +216,7 @@ if ($searchQuery !== '') {
 
     // ── Add User's Office GC to conversation list ──
     if ($freshMyOfficeId > 0 && $freshMyOffice) {
+        $officeGcUnreadCount = OfficeChatManager::getUnreadCount($freshMyOfficeId, $myAccountId);
         $officeLastMsg = '';
         $officeLastTs  = 0;
         try {

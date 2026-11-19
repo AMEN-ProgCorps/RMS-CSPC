@@ -2370,9 +2370,17 @@
       }
     }
 
+    let _fetchUsersXhr = null;
+
     function fetchUsers(query = '') {
       const currentInput = searchInput ? searchInput.value.trim() : '';
       const q = query !== '' ? query : currentInput;
+
+      // Abort any previous in-flight sidebar fetch so stale responses cannot
+      // overwrite newer results or pile up concurrent PHP-FPM workers.
+      if (_fetchUsersXhr) {
+        try { _fetchUsersXhr.abort(); } catch (e) {}
+      }
 
       // Always use XHR for reliability — WS real-time events (message,
       // chat_cleared, all_cleared, users_changed) trigger fetchUsers() which
@@ -2380,15 +2388,20 @@
       // bridge here because that path depends on internalFetchPhp successfully
       // reaching the PHP server, which can fail silently.
       const xhr = new XMLHttpRequest();
+      _fetchUsersXhr = xhr;
       const url = q !== '' ? 'fetch_users_dm.php?q=' + encodeURIComponent(q) : 'fetch_users_dm.php';
       xhr.open('GET', url, true);
       xhr.onload = function() {
+        if (_fetchUsersXhr === xhr) _fetchUsersXhr = null;
         if (this.status === 200) {
           try {
             const data = JSON.parse(this.responseText);
             processUsersDmPayload(data);
           } catch(e){ console.error('fetchUsers parse error', e); }
         }
+      };
+      xhr.onerror = xhr.onabort = function() {
+        if (_fetchUsersXhr === xhr) _fetchUsersXhr = null;
       };
       xhr.send();
     }

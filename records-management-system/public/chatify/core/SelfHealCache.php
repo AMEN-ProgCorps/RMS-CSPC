@@ -50,12 +50,21 @@ class SelfHealCache
             return true;
         }
 
-        // No APCu: fall back to old per-process-only behavior.
+        // No APCu: use a per-process array + cross-worker file stamp in temp dir
+        // so PHP-FPM workers still skip repeated DDL / backfill scans across requests.
         if (isset(self::$fallback[$key])) {
+            return false;
+        }
+        $stampDir  = rtrim(sys_get_temp_dir(), '/\\');
+        $stampFile = $stampDir . DIRECTORY_SEPARATOR . 'messify_selfheal_' . md5(__DIR__ . '|' . $key) . '.stamp';
+        $mtime     = @filemtime($stampFile);
+        if ($mtime !== false && (time() - $mtime) < self::TTL_SECONDS) {
+            self::$fallback[$key] = true;
             return false;
         }
         self::$fallback[$key] = true;
         $work();
+        @file_put_contents($stampFile, (string) time(), LOCK_EX);
         return true;
     }
 }

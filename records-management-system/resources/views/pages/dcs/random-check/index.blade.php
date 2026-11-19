@@ -457,21 +457,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     }
 
     /**
-     * Shares office.
+     * Export finalized visit as PDF or Excel (uses the active row filter).
      *
-     * @param ?string $filter
+     * @param  'pdf'|'excel'  $format
+     * @param  ?string  $filter
      */
-    public function shareOffice(?string $filter = null)
+    public function exportResult(string $format = 'pdf', ?string $filter = null)
     {
         RandomCheckHelper::assertCanAccess();
         if (! $this->checkId) {
             return null;
         }
+
+        $format = in_array($format, ['pdf', 'excel'], true) ? $format : 'pdf';
         $filter = in_array($filter, ['all', 'actions', 'not_complied'], true)
             ? $filter
             : (in_array($this->rowFilter, ['all', 'actions', 'not_complied'], true) ? $this->rowFilter : 'all');
 
-        // Validate only — binary PDF is downloaded via GET route (avoids Livewire UTF-8 crash).
+        // Validate only — binary download is via GET route (avoids Livewire UTF-8 crash).
         $check = RandomCheckHelper::loadCheck((int) $this->checkId);
         if (! $check) {
             $this->noticeType = 'err';
@@ -486,15 +489,27 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return null;
         }
 
-        $this->noticeType = 'ok';
-        $this->notice = 'PDF downloaded. Attach it to your email for the office — the Random Check page is not shared.';
+        $routeName = $format === 'excel'
+            ? 'dcs.random-check.export-excel'
+            : 'dcs.random-check.export-pdf';
 
-        $this->dispatch('rc-download-pdf', url: route('dcs.random-check.export-pdf', [
+        $this->noticeType = 'ok';
+        $this->notice = $format === 'excel'
+            ? 'Excel downloaded.'
+            : 'PDF downloaded.';
+
+        $this->dispatch('rc-download-export', url: route($routeName, [
             'id' => (int) $this->checkId,
             'filter' => $filter,
         ]));
 
         return null;
+    }
+
+    /** @deprecated Use exportResult('pdf') */
+    public function shareOffice(?string $filter = null)
+    {
+        return $this->exportResult('pdf', $filter);
     }
 
     /**
@@ -1036,11 +1051,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     {{ $showCompare ? 'Hide previous result' : 'View previous year' }}
                 </button>
                 @if($checkId && $locked)
-                    <button type="button" class="rc-btn-secondary" wire:click="shareOffice">
+                    <button type="button" class="rc-btn-secondary" wire:click="exportResult('pdf')">
                         <i class="fa-solid fa-file-pdf"></i>
                         Export PDF
                     </button>
-                    <span class="rc-meta-hint">Downloads a formal PDF for email — uses the filter above. Does not open the Random Check page for the office.</span>
+                    <button type="button" class="rc-btn-secondary" wire:click="exportResult('excel')">
+                        <i class="fa-solid fa-file-excel"></i>
+                        Export Excel
+                    </button>
                 @endif
             </div>
         </section>
@@ -1337,7 +1355,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
 @script
 <script>
-    $wire.on('rc-download-pdf', (payload) => {
+    const downloadExport = (payload) => {
         const url = payload?.url || payload?.[0]?.url;
         if (!url) return;
         const a = document.createElement('a');
@@ -1347,6 +1365,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         document.body.appendChild(a);
         a.click();
         a.remove();
-    });
+    };
+    $wire.on('rc-download-export', downloadExport);
+    $wire.on('rc-download-pdf', downloadExport);
 </script>
 @endscript

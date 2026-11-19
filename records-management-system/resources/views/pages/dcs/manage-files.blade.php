@@ -351,7 +351,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $files = [];
         foreach ($allFiles as $file) {
             if ($searching) {
-                $hay = $file['name'].' '.$file['title'].' '.($file['doc_label'] ?? '').' '.$file['kind'].' '.$file['path'].' '.$file['folder'];
+                $hay = $file['name'].' '.$file['title'].' '.($file['doc_label'] ?? '').' '.($file['keywords'] ?? '').' '.$file['kind'].' '.$file['path'].' '.$file['folder'];
                 if (! str_contains(mb_strtolower($hay), $needle) && RegisterQueryHelper::looseSearchScore($this->search, $hay) < 1) {
                     continue;
                 }
@@ -458,7 +458,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 continue;
             }
             $select = ['id', $column];
-            foreach (['doc_title', 'doc_no'] as $extra) {
+            foreach (['doc_title', 'doc_no', 'keywords'] as $extra) {
                 if (\Illuminate\Support\Facades\Schema::hasColumn($table, $extra)) {
                     $select[] = $extra;
                 }
@@ -470,7 +470,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 ->limit(5000)
                 ->get($select);
             foreach ($rows as $row) {
-                $this->pushDriveFile($files, $seen, (string) $row->{$column}, (string) ($source['category'] ?? ''), trim((string) ($row->doc_title ?? '')), trim((string) ($row->doc_no ?? '')));
+                $this->pushDriveFile(
+                    $files,
+                    $seen,
+                    (string) $row->{$column},
+                    (string) ($source['category'] ?? ''),
+                    trim((string) ($row->doc_title ?? '')),
+                    trim((string) ($row->doc_no ?? '')),
+                    trim((string) ($row->keywords ?? ''))
+                );
             }
         }
 
@@ -482,7 +490,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 ->limit(2000)
                 ->get(['file_path', 'title', 'file_name']);
             foreach ($reports as $report) {
-                $this->pushDriveFile($files, $seen, (string) $report->file_path, 'generated_reports', trim((string) ($report->title ?: $report->file_name)), '');
+                $this->pushDriveFile($files, $seen, (string) $report->file_path, 'generated_reports', trim((string) ($report->title ?: $report->file_name)), '', '');
             }
         }
 
@@ -501,7 +509,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      *
      * @return void
      */
-    private function pushDriveFile(array &$files, array &$seen, string $path, string $category, string $title, string $docNo): void
+    private function pushDriveFile(array &$files, array &$seen, string $path, string $category, string $title, string $docNo, string $keywords = ''): void
     {
         $path = ltrim(str_replace('\\', '/', $path), '/');
         if ($path === '' || isset($seen[$path])) {
@@ -519,6 +527,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'name' => $name,
             'title' => $name,
             'doc_label' => $label,
+            'keywords' => $keywords,
             'kind' => $this->driveKindLabel($path, $category),
             'url' => $this->driveFileUrl($path),
         ];
@@ -659,7 +668,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <section class="mf-toolbar">
             <div class="mf-search-wrap">
                 <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search documents, document numbers, or folders…">
+                <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search documents, document numbers, keywords, or folders…">
             </div>
 
             <div class="mf-toolbar-actions">

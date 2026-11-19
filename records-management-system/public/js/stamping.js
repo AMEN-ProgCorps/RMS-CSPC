@@ -50,6 +50,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const autoPlace   = document.getElementById('autoPlace');
     const manualWrap  = document.getElementById('manualPosWrap');
     const autoBadge   = document.getElementById('autoBadge');
+    const detectingBadge = document.getElementById('detectingBadge');
     const prevPageBtn = document.getElementById('prevPage');
     const nextPageBtn = document.getElementById('nextPage');
     const pageIndicator = document.getElementById('pageIndicator');
@@ -72,6 +73,7 @@ document.addEventListener('DOMContentLoaded', function () {
         currentPage: 1,
         pageCount: 1,
         placement: null,
+        placementPending: false,
         xPct: null,
         yPct: null,
         widthPct: null,
@@ -130,19 +132,32 @@ document.addEventListener('DOMContentLoaded', function () {
                 state.position = 'auto';
                 state.xPct = null;
                 state.yPct = null;
+                state.placement = null;
                 if (manualWrap) manualWrap.style.display = 'none';
                 if (customPosHint) customPosHint.style.display = 'none';
             } else {
                 state.position = document.querySelector('.st-pos-dot.active')?.dataset.pos || 'bottom-right';
                 state.xPct = null;
                 state.yPct = null;
+                state.placementPending = false;
                 if (manualWrap) manualWrap.style.display = 'block';
                 state.placement = null;
+                if (detectingBadge) detectingBadge.style.display = 'none';
                 if (customPosHint) customPosHint.style.display = 'none';
                 placePresetOnPage(state.position);
             }
             updateOverlay();
+            checkReady();
         });
+    }
+
+    function selectDefaultStampType() {
+        if (state.selectedFile && state.selectedFile.stamped) return;
+        const pill = document.querySelector('.st-type-pill[data-type="reference"]')
+            || document.querySelector('.st-type-pill');
+        if (pill && !pill.classList.contains('selected')) {
+            pill.click();
+        }
     }
 
     // ═══════════════════════════════════════════
@@ -186,6 +201,8 @@ document.addEventListener('DOMContentLoaded', function () {
         checkReady();
         loadPreview();
         stampModal.style.display = 'flex';
+        // Show stamp on the preview immediately so auto-place can be dragged before Apply.
+        selectDefaultStampType();
     });
 
     function buildFileSelector() {
@@ -259,8 +276,10 @@ document.addEventListener('DOMContentLoaded', function () {
         state.allPages = true;
         if (stampOverlay) stampOverlay.style.display = 'none';
         if (autoBadge) autoBadge.style.display = 'none';
+        if (detectingBadge) detectingBadge.style.display = 'none';
         state.currentPage = 1;
         state.placement = null;
+        state.placementPending = false;
         state.stampType = null;
         updatePageNav();
         updateOverlay();
@@ -452,16 +471,26 @@ document.addEventListener('DOMContentLoaded', function () {
         state.yPct = Math.round(y * 100) / 100;
         state.widthPct = Math.round(w * 100) / 100;
 
+        if (state.placementPending) {
+            if (detectingBadge) detectingBadge.style.display = 'inline-flex';
+            if (autoBadge) autoBadge.style.display = 'none';
+            if (customPosHint) customPosHint.style.display = 'block';
+            return;
+        }
+
+        if (detectingBadge) detectingBadge.style.display = 'none';
+
         if (mode === 'auto') {
             if (autoBadge) autoBadge.style.display = 'inline-flex';
-            if (customPosHint) customPosHint.style.display = 'none';
+            if (customPosHint) customPosHint.style.display = 'block';
+            if (positionLabel) positionLabel.textContent = 'Auto (preview)';
         } else if (mode === 'custom') {
             if (autoBadge) autoBadge.style.display = 'none';
             if (customPosHint) customPosHint.style.display = 'block';
             if (positionLabel) positionLabel.textContent = 'Custom (dragged)';
         } else {
             if (autoBadge) autoBadge.style.display = 'none';
-            if (customPosHint) customPosHint.style.display = 'none';
+            if (customPosHint) customPosHint.style.display = 'block';
         }
     }
 
@@ -561,10 +590,27 @@ document.addEventListener('DOMContentLoaded', function () {
         stampOverlay.addEventListener('pointercancel', endStampDrag);
     }
 
+    function setPlacementPending(pending) {
+        state.placementPending = !!pending;
+        if (detectingBadge) {
+            detectingBadge.style.display = pending ? 'inline-flex' : 'none';
+        }
+        if (pending && autoBadge) autoBadge.style.display = 'none';
+        checkReady();
+    }
+
     function fetchStampPlacement() {
         if (!state.selectedFile || !state.stampType || state.position !== 'auto') return;
 
         clearTimeout(placementTimer);
+        setPlacementPending(true);
+        // Temporary visible spot while detection runs — Apply stays locked until ready.
+        if (state.xPct == null || state.yPct == null) {
+            placePresetOnPage('bottom-right');
+            if (autoBadge) autoBadge.style.display = 'none';
+            if (detectingBadge) detectingBadge.style.display = 'inline-flex';
+        }
+
         placementTimer = setTimeout(function () {
             const reqId = ++placementRequestId;
             const payload = Object.assign(buildPayload(true), { page: state.currentPage });
@@ -599,12 +645,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 renderOverlayContent();
                 applyAutoPlacement(data);
+                setPlacementPending(false);
             })
             .catch(function (err) {
                 if (reqId !== placementRequestId) return;
                 if (autoBadge) autoBadge.style.display = 'none';
                 // Fall back to a visible bottom-right page placement.
                 placePresetOnPage('bottom-right');
+                setPlacementPending(false);
                 showToast(err.message || 'Could not detect stamp placement.', 'error');
             });
         }, 250);
@@ -630,10 +678,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 state.placement = null;
             } else {
                 state.position = document.querySelector('.st-pos-dot.active')?.dataset.pos || 'bottom-right';
+                state.placementPending = false;
             }
 
             // Immediate visible place on the page while auto-detect runs.
             placePresetOnPage(state.position === 'auto' ? 'bottom-right' : state.position);
+            if (state.position === 'auto' && detectingBadge) {
+                detectingBadge.style.display = 'inline-flex';
+                if (autoBadge) autoBadge.style.display = 'none';
+            }
             renderOverlayContent();
             updateOverlay();
             checkReady();
@@ -737,11 +790,26 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    function previewPlacementReady() {
+        if (!state.stampType) return false;
+        if (state.placementPending) return false;
+        if (state.xPct == null || state.yPct == null) return false;
+        if (!stampOverlay || stampOverlay.style.display === 'none') return false;
+        return true;
+    }
+
     function syncStampActions() {
         var stamped = !!(state.selectedFile && state.selectedFile.stamped);
         if (applyBtn) {
             applyBtn.style.display = stamped ? 'none' : '';
-            applyBtn.disabled = stamped || !state.stampType;
+            // Apply only after the stamp is visible on the preview (and auto-detect finished).
+            applyBtn.disabled = stamped || !previewPlacementReady();
+            var applyLabel = applyBtn.querySelector('span');
+            if (applyLabel) {
+                applyLabel.textContent = state.placementPending
+                    ? 'Finding position…'
+                    : 'Apply Stamp';
+            }
         }
         if (restoreBtn) {
             restoreBtn.style.display = stamped ? '' : 'none';
@@ -753,7 +821,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (downloadBtn) {
             // Allow download of live stamped file, or a stamped copy while placing.
-            downloadBtn.disabled = !(stamped || state.stampType);
+            downloadBtn.disabled = !(stamped || previewPlacementReady());
             var label = downloadBtn.querySelector('span');
             if (label) label.textContent = stamped ? 'Download Stamped' : 'Download Copy';
         }
@@ -893,6 +961,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (applyBtn) {
         applyBtn.addEventListener('click', function () {
             if (!state.selectedFile || !state.stampType) return;
+            if (!previewPlacementReady()) {
+                showToast('Wait for the stamp preview, then drag it if needed before applying.', 'error');
+                return;
+            }
             var cfg = STAMP_STYLES[state.stampType] || {};
             if (confirmLabel) confirmLabel.textContent = cfg.title || state.stampType;
             confirmModal.style.display = 'flex';

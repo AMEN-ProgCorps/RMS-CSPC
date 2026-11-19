@@ -464,7 +464,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <div class="rb-search-wrapper">
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" class="rb-search-input" wire:model.live.debounce.400ms="search"
-                placeholder="{{ $isSettingsTab ? 'Search deleted settings by name or type...' : 'Search deleted documents by title or document no...' }}"
+                placeholder="{{ $isSettingsTab ? 'Search deleted settings by name or type...' : 'Search deleted documents by title, document no, or keywords...' }}"
                 autocomplete="off">
         </div>
     </div>

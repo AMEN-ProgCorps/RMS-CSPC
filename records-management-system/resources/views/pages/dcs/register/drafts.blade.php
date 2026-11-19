@@ -142,7 +142,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <div class="upd-search-wrapper">
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" class="upd-search-input" wire:model.live.debounce.400ms="search"
-                placeholder="Search drafts by title, document no, DRF no..." autocomplete="off">
+                placeholder="Search drafts by title, document no, keywords, DRF no..." autocomplete="off">
         </div>
         <select class="upd-filter-select" wire:model.live="docTypeId">
             <option value="all">All Document Types</option>

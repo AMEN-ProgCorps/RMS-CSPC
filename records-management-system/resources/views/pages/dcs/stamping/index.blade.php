@@ -121,17 +121,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         if (trim($this->search) !== '') {
-            $like = '%' . trim($this->search) . '%';
-            $tokens = RegisterQueryHelper::searchTokens($this->search);
-            $query->where(function ($q) use ($like, $tokens) {
-                $q->where(function ($phrase) use ($like) {
-                    $phrase->whereExists(function ($q2) use ($like) {
+            $search = trim($this->search);
+            $like = '%' . $search . '%';
+            $tokens = RegisterQueryHelper::searchTokens($search);
+            $query->where(function ($q) use ($like, $tokens, $search) {
+                $q->where(function ($phrase) use ($like, $search) {
+                    $phrase->whereExists(function ($q2) use ($like, $search) {
                         $q2->select(DB::raw(1))
                             ->from('dcs_masterlist_registration as ml')
                             ->whereColumn('ml.request_id', 'dr.id')
-                            ->where(function ($q3) use ($like) {
+                            ->where(function ($q3) use ($like, $search) {
                                 $q3->where('ml.doc_no', 'ilike', $like)
                                     ->orWhere('ml.doc_title', 'ilike', $like);
+                                RegisterQueryHelper::applyMasterlistKeywordSearch($q3, $search);
                             });
                     })->orWhereExists(function ($q2) use ($like) {
                         $q2->select(DB::raw(1))
@@ -144,14 +146,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     $q->orWhere(function ($all) use ($tokens) {
                         foreach ($tokens as $token) {
                             $tokenLike = '%' . $token . '%';
-                            $all->where(function ($one) use ($tokenLike) {
-                                $one->whereExists(function ($q2) use ($tokenLike) {
+                            $all->where(function ($one) use ($tokenLike, $token) {
+                                $one->whereExists(function ($q2) use ($tokenLike, $token) {
                                     $q2->select(DB::raw(1))
                                         ->from('dcs_masterlist_registration as ml')
                                         ->whereColumn('ml.request_id', 'dr.id')
-                                        ->where(function ($q3) use ($tokenLike) {
+                                        ->where(function ($q3) use ($tokenLike, $token) {
                                             $q3->where('ml.doc_no', 'ilike', $tokenLike)
                                                 ->orWhere('ml.doc_title', 'ilike', $tokenLike);
+                                            RegisterQueryHelper::applyMasterlistKeywordSearch($q3, $token);
                                         });
                                 })->orWhereExists(function ($q2) use ($tokenLike) {
                                     $q2->select(DB::raw(1))
@@ -361,7 +364,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="st-search-wrap">
                 <i class="fa-solid fa-magnifying-glass"></i>
                 <input type="text" id="stSearch" class="st-search" wire:model.live.debounce.400ms="search"
-                       placeholder="Search by title, document number, or type..." autocomplete="off">
+                       placeholder="Search by title, document number, keywords, or type..." autocomplete="off">
             </div>
             <select id="stTypeFilter" class="st-filter" wire:model.live="typeId">
                 <option value="all">All Document Types</option>
@@ -569,8 +572,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         </div>
                                     </div>
                                     <span class="st-stamp-pages" id="overlayPages">All pages</span>
+                                    <span class="st-auto-badge is-detecting" id="detectingBadge" style="display:none;">
+                                        <i class="fa-solid fa-spinner fa-spin"></i> Finding empty area…
+                                    </span>
                                     <span class="st-auto-badge" id="autoBadge" style="display:none;">
-                                        <i class="fa-solid fa-wand-magic-sparkles"></i> Empty area detected
+                                        <i class="fa-solid fa-wand-magic-sparkles"></i> Preview position — drag to adjust
                                     </span>
                                 </div>
                             </div>
@@ -584,7 +590,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                     <p class="st-preview-note">
                         <i class="fa-solid fa-hand"></i>
-                        Stamp sticks to the PDF page (scroll-safe). Drag it on the page before applying.
+                        Preview the stamp first, drag it to the right empty spot, then click Apply Stamp.
                     </p>
                 </div>
 
@@ -598,7 +604,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <div class="st-section">
                         <label class="st-label">Stamp Type</label>
                         <p style="margin:0 0 8px;font-size:0.75rem;color:var(--st-text-subtle);">
-                            Click a stamp to place it on the preview, then drag it into position.
+                            The stamp appears on the PDF preview first. Drag it before you apply.
                         </p>
                         <div class="st-type-pills" id="typePills">
                             <button class="st-type-pill" data-type="reference" type="button">
@@ -612,7 +618,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <label class="st-checkbox-wrap" style="margin-bottom:10px;">
                             <input type="checkbox" id="autoPlace" checked>
                             <span class="st-checkbox-custom"></span>
-                            <span>Auto-place in empty area <small style="color:var(--st-text-subtle);font-weight:400;">(you can still drag afterward)</small></span>
+                            <span>Auto-place in empty area <small style="color:var(--st-text-subtle);font-weight:400;">(preview first — drag before Apply)</small></span>
                         </label>
 
                         <div id="manualPosWrap" style="display:none;">
@@ -629,7 +635,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </div>
                         <p class="st-pos-drag-hint" id="customPosHint" style="display:none;margin:8px 0 0;font-size:0.75rem;color:var(--st-text-subtle);">
                             <i class="fa-solid fa-arrows-up-down-left-right"></i>
-                            Custom position — drag the stamp on the PDF preview
+                            Drag the stamp on the preview to fine-tune, then Apply Stamp
                         </p>
                     </div>
 

@@ -391,8 +391,6 @@ class RegisterPersistHelper
             'dcs.settings.index' => 'Opened DCS Settings',
             'dcs.office.incoming' => 'Opened Office Incoming',
             'dcs.office.documents' => 'Opened Office Documents',
-            'dcs.office.random-checks' => 'Opened Office Random Checks',
-            'dcs.office.random-checks.show' => 'Viewed Office Random Check',
             'dcs.office.drf.index' => 'Opened Office DRF List',
             'dcs.office.drf.create' => 'Opened Create Office DRF',
             'dcs.office.drf.edit' => 'Opened Edit Office DRF',
@@ -437,7 +435,6 @@ class RegisterPersistHelper
             'dcs.office.dcn.show',
             'dcs.office.dcn.print',
             'dcs.office.dcn.edit',
-            'dcs.office.random-checks.show',
         ], true)) {
             $id = $request->route('id');
             if ($id) {

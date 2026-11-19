@@ -130,8 +130,6 @@
         @if(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser())
             @vite(['resources/css/dcs/office-intake.css'])
         @endif
-    @elseif(request()->routeIs('dcs.office.random-checks*'))
-        @vite(['resources/css/dcs/random-check.css'])
     @elseif(request()->routeIs('dcs.office.*'))
         @vite(['resources/css/dcs/register.css', 'resources/css/dcs/office-intake.css'])
     @elseif(request()->routeIs('dcs.requests.*'))

@@ -331,7 +331,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="drr-search-wrapper">
                     <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
                     <input type="text" class="drr-search-input" wire:model.live.debounce.400ms="search"
-                        placeholder="Search by title or document no..." autocomplete="off" aria-label="Search documents">
+                        placeholder="Search by title, document no, or keywords..." autocomplete="off" aria-label="Search documents">
                 </div>
                 <select class="drr-filter-select" wire:model.live="docTypeId" aria-label="Document type">
                     <option value="all">All Document Types</option>

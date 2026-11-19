@@ -176,6 +176,17 @@
     background-color: #f59e0b !important;
 }
 
+[data-theme="dark"] .dcs-top-tabs-host .top-nav-cal-btn {
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .dcs-top-tabs-host .top-nav-cal-btn:hover,
+[data-theme="dark"] .dcs-top-tabs-host .top-nav-cal-btn[aria-expanded="true"] {
+    background: rgba(96, 165, 250, 0.12) !important;
+    border-color: #334155 !important;
+    color: #bfdbfe !important;
+}
+
 /* Settings page tabs — inactive labels/icons were soft-black (#2d2d2d) on dark bg */
 [data-theme="dark"] .settings-tabs .tab-btn,
 [data-theme="dark"] .settings-main .tab-btn {

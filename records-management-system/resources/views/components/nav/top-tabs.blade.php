@@ -814,6 +814,29 @@
                 @endif
             </a>
         @endforeach
+
+        @if(
+            $system === 'dcs'
+            && auth()->check()
+            && !\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()
+            && !\App\Helpers\RegisterQueryHelper::isDcsPathPending()
+        )
+            <button
+                type="button"
+                class="top-nav-cal-btn"
+                x-data
+                @click.stop="$store.dcsCal?.toggle?.()"
+                :aria-expanded="($store.dcsCal?.open || false).toString()"
+                :title="($store.dcsCal?.open ? 'Hide calendar' : 'Show calendar')"
+                aria-label="Calendar"
+            >
+                <i
+                    class="fa-solid"
+                    :class="$store.dcsCal?.open ? 'fa-xmark' : 'fa-calendar-plus'"
+                    aria-hidden="true"
+                ></i>
+            </button>
+        @endif
     </div>
 </div>
 @endif

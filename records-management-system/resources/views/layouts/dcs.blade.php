@@ -246,6 +246,29 @@
         <div class="guide-container">
             <livewire:components.page-manual />
         </div>
+        @if(
+            auth()->check()
+            && !\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()
+            && !\App\Helpers\RegisterQueryHelper::isDcsPathPending()
+        )
+            {{-- Fallback when top tabs are off / empty (hidden via CSS if .top-nav-cal-btn exists). --}}
+            <div class="dcs-calendar-trigger-host" x-data>
+                <button
+                    type="button"
+                    class="dcs-header-cal-btn"
+                    @click.stop="$store.dcsCal?.toggle?.()"
+                    :aria-expanded="($store.dcsCal?.open || false).toString()"
+                    :title="($store.dcsCal?.open ? 'Hide calendar' : 'Show calendar')"
+                    aria-label="Calendar"
+                >
+                    <i
+                        class="fa-solid"
+                        :class="$store.dcsCal?.open ? 'fa-xmark' : 'fa-calendar-plus'"
+                        aria-hidden="true"
+                    ></i>
+                </button>
+            </div>
+        @endif
         <div class="notification-container">
             <livewire:components.notification.notifications />
         </div>

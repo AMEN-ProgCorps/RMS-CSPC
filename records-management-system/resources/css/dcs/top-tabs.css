@@ -53,6 +53,39 @@
     padding: 2px 0;
 }
 
+.dcs-top-tabs-host .top-nav-cal-btn {
+    margin-left: auto;
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dcs-accent, #003699);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.dcs-top-tabs-host .top-nav-cal-btn:hover,
+.dcs-top-tabs-host .top-nav-cal-btn[aria-expanded="true"] {
+    background: #EEF2FF;
+    border-color: #C7D2FE;
+    color: #043899;
+}
+
+.dcs-top-tabs-host .top-nav-cal-btn i {
+    font-size: 0.95rem;
+    line-height: 1;
+}
+
+/* Dashboard welcome date already opens the calendar — hide the tabs duplicate. */
+body:has(.dash-welcome-calendar) .dcs-top-tabs-host .top-nav-cal-btn {
+    display: none;
+}
+
 .dcs-top-tabs-host .top-nav-tabs-container::-webkit-scrollbar {
     display: none;
 }

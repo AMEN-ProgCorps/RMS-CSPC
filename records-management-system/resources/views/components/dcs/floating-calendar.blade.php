@@ -30,20 +30,6 @@
         @dcs-calendar-open.window="calendarOpen = true"
         @dcs-calendar-close.window="closeCalendar()"
     >
-        {{-- Shown on non-dashboard DCS pages (dashboard already has .dash-welcome-calendar). --}}
-        <button
-            type="button"
-            class="dcs-float-cal-launcher"
-            x-show="!calendarOpen"
-            x-cloak
-            @click.stop="toggleCalendar()"
-            :aria-expanded="calendarOpen.toString()"
-            title="Open calendar"
-        >
-            <i class="fa-solid fa-calendar-plus" aria-hidden="true"></i>
-            <span>Calendar</span>
-        </button>
-
         <div
             class="dcs-float-cal-panel"
             x-show="calendarOpen"

@@ -561,6 +561,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
 
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
@@ -580,7 +581,40 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         }
 
         if ($this->selectedStatus !== 'all') {
-            $query->where('dt.status', $this->selectedStatus);
+            $logsTable = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+            if ($this->selectedStatus === 'standby') {
+                $query->whereNotIn('dt.status', ['completed', 'cancelled'])
+                      ->where(function($q) use ($logsTable) {
+                          $q->whereExists(function($sub) use ($logsTable) {
+                              $sub->select(DB::raw(1))
+                                  ->from($logsTable . ' as l')
+                                  ->whereColumn('l.transaction_id', 'dt.transaction_id')
+                                  ->whereNotNull('l.date_in')
+                                  ->whereNull('l.date_out');
+                          })->orWhereNotExists(function($sub) use ($logsTable) {
+                              $sub->select(DB::raw(1))
+                                  ->from($logsTable . ' as l')
+                                  ->whereColumn('l.transaction_id', 'dt.transaction_id');
+                          });
+                      });
+            } elseif ($this->selectedStatus === 'ongoing') {
+                $query->whereNotIn('dt.status', ['completed', 'cancelled'])
+                      ->whereExists(function($sub) use ($logsTable) {
+                          $sub->select(DB::raw(1))
+                              ->from($logsTable . ' as l')
+                              ->whereColumn('l.transaction_id', 'dt.transaction_id')
+                              ->whereNotNull('l.date_out');
+                      })
+                      ->whereNotExists(function($sub) use ($logsTable) {
+                          $sub->select(DB::raw(1))
+                              ->from($logsTable . ' as l')
+                              ->whereColumn('l.transaction_id', 'dt.transaction_id')
+                              ->whereNotNull('l.date_in')
+                              ->whereNull('l.date_out');
+                      });
+            } else {
+                $query->where('dt.status', $this->selectedStatus);
+            }
         }
 
         if (!empty(trim($this->searchQuery))) {
@@ -610,7 +644,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             }
         }
 
-        if ($this->statusOrder === 'ongoing_first') {
+        if ($this->statusOrder === 'standby_first') {
+            $logsTable = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+            $query->orderByRaw("CASE 
+                WHEN LOWER(TRIM(dt.status)) NOT IN ('completed', 'cancelled') 
+                     AND (EXISTS (SELECT 1 FROM {$logsTable} as l WHERE l.transaction_id = dt.transaction_id AND l.date_in IS NOT NULL AND l.date_out IS NULL)
+                          OR NOT EXISTS (SELECT 1 FROM {$logsTable} as l WHERE l.transaction_id = dt.transaction_id)) 
+                THEN 0 ELSE 1 END ASC");
+        } elseif ($this->statusOrder === 'ongoing_first') {
             $query->orderByRaw("CASE WHEN LOWER(TRIM(dt.status)) = 'ongoing' THEN 0 ELSE 1 END ASC");
         } elseif ($this->statusOrder === 'completed_first') {
             $query->orderByRaw("CASE WHEN LOWER(TRIM(dt.status)) = 'completed' THEN 0 ELSE 1 END ASC");
@@ -627,6 +668,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             'dtd.control_number',
             'dtd.subject',
             'dtd.classification',
+            'req.requestor_name',
+            'dtd.action_needed',
             'dtd.date_created',
             DB::raw("COALESCE(NULLIF(flow.flow_name, ''), flow.referenced_flow) as doc_type_name"),
             'originated_office.office_name as originated_office_name',
@@ -646,23 +689,66 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 ->get();
 
             $firstLog = $logs->first();
-            $secondLog = $logs->count() > 1 ? $logs->get(1) : null;
             $latestLog = $logs->last();
 
             $t->remarks = $latestLog ? $latestLog->notes : '-';
             $t->received_by = $latestLog && $latestLog->first_name ? ($latestLog->first_name . ' ' . $latestLog->last_name) : '-';
 
-            // Step 1 Received & Released
-            $t->step1_received = $firstLog && $firstLog->date_in ? \Carbon\Carbon::parse($firstLog->date_in)->format('M d, Y h:i A') : ($t->date_created ? \Carbon\Carbon::parse($t->date_created)->format('M d, Y h:i A') : '-');
-            $t->step1_released = $firstLog && $firstLog->date_out ? \Carbon\Carbon::parse($firstLog->date_out)->format('M d, Y h:i A') : ($logs->count() > 1 ? \Carbon\Carbon::parse($firstLog?->date_in ?? $t->date_created)->format('M d, Y h:i A') : '-');
+            // Active Stage: Current Office and Destination Office Received & Released
+            if ($logs->count() > 1) {
+                $currentOfficeLog = $logs->get($logs->count() - 2);
+                $destOfficeLog = $logs->last();
+            } else {
+                $currentOfficeLog = $logs->first();
+                $destOfficeLog = null;
+            }
 
-            // Step 2 Received & Released
-            $t->step2_received = $secondLog && $secondLog->date_in ? \Carbon\Carbon::parse($secondLog->date_in)->format('M d, Y h:i A') : '-';
-            $t->step2_released = $secondLog && $secondLog->date_out ? \Carbon\Carbon::parse($secondLog->date_out)->format('M d, Y h:i A') : '-';
+            // Current Office Received & Released
+            $t->step1_received = $currentOfficeLog && $currentOfficeLog->date_in 
+                ? \Carbon\Carbon::parse($currentOfficeLog->date_in)->format('M d, Y h:i A') 
+                : ($t->date_created ? \Carbon\Carbon::parse($t->date_created)->format('M d, Y h:i A') : '-');
 
-            // Elapsed Days
-            $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
-            $t->elapsed_days = $createdDateRaw ? \App\Services\DtsWorkingHoursService::calculateWorkingDays($createdDateRaw) : 0;
+            $t->step1_released = $currentOfficeLog && $currentOfficeLog->date_out 
+                ? \Carbon\Carbon::parse($currentOfficeLog->date_out)->format('M d, Y h:i A') 
+                : '-';
+
+            // Destination Office Received & Released
+            $t->step2_received = $destOfficeLog && $destOfficeLog->date_in 
+                ? \Carbon\Carbon::parse($destOfficeLog->date_in)->format('M d, Y h:i A') 
+                : '-';
+
+            $t->step2_released = $destOfficeLog && $destOfficeLog->date_out 
+                ? \Carbon\Carbon::parse($destOfficeLog->date_out)->format('M d, Y h:i A') 
+                : '-';
+
+            // Dynamic display status: Standby vs Ongoing vs Completed vs Cancelled
+            $rawStatus = strtolower($t->status ?? '');
+            if ($rawStatus === 'completed') {
+                $t->display_status = 'completed';
+            } elseif ($rawStatus === 'cancelled') {
+                $t->display_status = 'cancelled';
+            } else {
+                $hasOpenReceived = $logs->contains(function($l) {
+                    return !empty($l->date_in) && empty($l->date_out);
+                });
+
+                if ($logs->isEmpty() || $hasOpenReceived) {
+                    $t->display_status = 'standby';
+                } else {
+                    $t->display_status = 'ongoing';
+                }
+            }
+
+            // Elapsed Days Calculation
+            // Configurable via Admin Console -> System Settings -> DTS Settings ("Elapsed Days Calculation Mode")
+            // Modes supported:
+            //   - 'total_lifetime': counts cumulative working days from transaction inception ($firstLog->date_in or $t->date_created).
+            //   - 'current_stage': counts working days only since active Current Office received/held the document ($currentOfficeLog).
+            $t->elapsed_days = \App\Services\DtsWorkingHoursService::calculateTransactionElapsedDays(
+                $t->date_created,
+                $firstLog?->date_in,
+                $currentOfficeLog
+            );
 
             // Previous office (from office)
             $prevLog = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
@@ -2629,6 +2715,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         [data-theme="dark"] .dts-im-btn:hover {
             background: #334155;
         }
+        .status-standby {
+            background-color: #fef3c7 !important;
+            color: #92400e !important;
+        }
     </style>
 @endpush
 
@@ -2656,6 +2746,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 </select>
                 <select class="rms-select" wire:model.live="selectedStatus">
                     <option value="all">All Status</option>
+                    <option value="standby">Standby</option>
                     <option value="ongoing">Ongoing</option>
                     <option value="completed">Completed</option>
                     <option value="revision">Revision</option>
@@ -2710,6 +2801,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <span class="rms-filter-label">Modifier:</span>
                     <select class="rms-select" wire:model.live="statusOrder" style="font-size: 0.82rem; height: 34px;" title="Filter Modifier">
+                        <option value="standby_first">Standby First</option>
                         <option value="ongoing_first">Ongoing First</option>
                         <option value="completed_first">Completed First</option>
                         <option value="none">None</option>
@@ -2745,22 +2837,26 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             <table class="rms-table">
                 <thead>
                     <tr>
-                        <th style="width: 40px; text-align: center;">
+                        <th rowspan="2" style="width: 40px; text-align: center; vertical-align: middle;">
                             <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                         </th>
-                        <th style="width: 60px;">Item No.</th>
-                        <th>Control No.</th>
-                        <th>QR Code</th>
-                        <th>Created</th>
-                        <th>Originator</th>
-                        <th>Subject</th>
-                        <th>Received</th>
-                        <th>Released</th>
-                        <th>Received</th>
-                        <th>Released</th>
-                        <th>Elapsed Day</th>
-                        <th>Status</th>
-                        <th style="width: 60px;">View</th>
+                        <th rowspan="2" style="width: 60px; text-align: center; vertical-align: middle;">Item No.</th>
+                        <th rowspan="2" style="vertical-align: middle;">Control No.</th>
+                        <th rowspan="2" style="vertical-align: middle;">QR Code</th>
+                        <th rowspan="2" style="vertical-align: middle;">Created</th>
+                        <th rowspan="2" style="vertical-align: middle;">Originator</th>
+                        <th rowspan="2" style="vertical-align: middle;">Subject</th>
+                        <th colspan="2" style="text-align: center; border-bottom: 1px solid #dee2e6;">Current Office</th>
+                        <th colspan="2" style="text-align: center; border-bottom: 1px solid #dee2e6;">Destination Office</th>
+                        <th rowspan="2" style="text-align: center; vertical-align: middle;">Elapsed Day</th>
+                        <th rowspan="2" style="text-align: center; vertical-align: middle;">Status</th>
+                        <th rowspan="2" style="width: 60px; text-align: center; vertical-align: middle;">View</th>
+                    </tr>
+                    <tr>
+                        <th style="text-align: center;">Received</th>
+                        <th style="text-align: center;">Released</th>
+                        <th style="text-align: center;">Received</th>
+                        <th style="text-align: center;">Released</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2796,8 +2892,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                 {{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->elapsed_days . ' day(s)') }}
                             </td>
                             <td style="text-align: center;">
-                                <span class="status-badge status-{{ $t->status }}">
-                                    {{ $t->status }}
+                                <span class="status-badge status-{{ strtolower($t->display_status ?? $t->status) }}">
+                                    {{ ucfirst($t->display_status ?? $t->status) }}
                                 </span>
                             </td>
                             <td style="text-align: center;">
@@ -2829,7 +2925,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                     <div class="dts-box-card-content">
                         <div class="dts-box-card-header">
                             <span class="dts-box-control-no" style="{{ $canSeeCtrlNo ? '' : 'color: #94a3b8;' }}">{{ $canSeeCtrlNo ? $t->control_number : '—' }}</span>
-                            <span class="status-badge status-{{ $t->status }}" style="font-size: 9px; padding: 2px 6px;">{{ $t->status }}</span>
+                            <span class="status-badge status-{{ strtolower($t->display_status ?? $t->status) }}" style="font-size: 9px; padding: 2px 6px;">{{ ucfirst($t->display_status ?? $t->status) }}</span>
                         </div>
 
                         <div class="dts-box-subject">

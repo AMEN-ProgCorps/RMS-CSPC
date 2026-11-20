@@ -197,6 +197,11 @@ class SmartSearchHelper
             $metaCols      = array_slice($flat, 2);
         }
 
+        // Defensively filter columns to only those belonging to tables or aliases actually present in the query
+        $primaryCols   = self::filterJoinedColumns($query, $primaryCols);
+        $secondaryCols = self::filterJoinedColumns($query, $secondaryCols);
+        $metaCols      = self::filterJoinedColumns($query, $metaCols);
+
         $allCols = array_values(array_unique(array_merge($primaryCols, $secondaryCols, $metaCols)));
         if (empty($allCols)) {
             return;
@@ -319,5 +324,62 @@ class SmartSearchHelper
             $target = $fieldExtractor($item);
             return self::calculateScore($search, $target);
         })->values();
+    }
+
+    /**
+     * Filter columns to only include those belonging to tables or aliases actually present in the query.
+     */
+    protected static function filterJoinedColumns($query, array $columns): array
+    {
+        try {
+            $baseQuery = $query instanceof \Illuminate\Database\Eloquent\Builder ? $query->getQuery() : $query;
+            if (!($baseQuery instanceof \Illuminate\Database\Query\Builder)) {
+                return $columns;
+            }
+
+            $aliases = [];
+            $from = $baseQuery->from ?? '';
+            if (is_string($from) && $from !== '') {
+                if (preg_match('/\s+as\s+(\w+)/i', $from, $m)) {
+                    $aliases[strtolower($m[1])] = true;
+                } elseif (preg_match('/\s+(\w+)$/i', $from, $m)) {
+                    $aliases[strtolower($m[1])] = true;
+                } else {
+                    $aliases[strtolower($from)] = true;
+                }
+            }
+
+            if (is_array($baseQuery->joins)) {
+                foreach ($baseQuery->joins as $join) {
+                    $table = $join->table ?? '';
+                    if (is_string($table) && $table !== '') {
+                        if (preg_match('/\s+as\s+(\w+)/i', $table, $m)) {
+                            $aliases[strtolower($m[1])] = true;
+                        } elseif (preg_match('/\s+(\w+)$/i', $table, $m)) {
+                            $aliases[strtolower($m[1])] = true;
+                        } else {
+                            $aliases[strtolower($table)] = true;
+                        }
+                    }
+                }
+            }
+
+            if (empty($aliases)) {
+                return $columns;
+            }
+
+            return array_values(array_filter($columns, function ($col) use ($aliases) {
+                if (is_string($col) && str_contains($col, '.')) {
+                    $prefix = strtolower(explode('.', $col, 2)[0]);
+                    if (str_contains($prefix, '(')) {
+                        return true;
+                    }
+                    return isset($aliases[$prefix]);
+                }
+                return true;
+            }));
+        } catch (\Throwable) {
+            return $columns;
+        }
     }
 }

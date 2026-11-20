@@ -155,4 +155,34 @@ class SmartSearchTest extends TestCase
         // Must contain ILIKE where clause
         $this->assertStringContainsString('ilike', strtolower($sql));
     }
+
+    /**
+     * Test applySearch defensively excludes columns from table aliases not joined in query.
+     */
+    public function test_apply_search_filters_unjoined_table_aliases(): void
+    {
+        $connection = $this->createMock(\Illuminate\Database\Connection::class);
+        $builder = new \Illuminate\Database\Query\Builder(
+            $connection,
+            new \Illuminate\Database\Query\Grammars\PostgresGrammar($connection),
+            new \Illuminate\Database\Query\Processors\PostgresProcessor()
+        );
+        $builder->from('dts_transactions as dt')
+            ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id');
+
+        // req is NOT joined in $builder
+        SmartSearchHelper::applySearch($builder, 'Test Search', [
+            'primary'   => ['dtd.control_number', 'dt.qr_code'],
+            'secondary' => ['dtd.subject'],
+            'meta'      => ['req.requestor_name', 'dtd.action_needed'],
+        ]);
+
+        $sql = $builder->toSql();
+
+        // Must NOT reference req.requestor_name
+        $this->assertStringNotContainsString('req.requestor_name', $sql);
+        // Must contain joined columns
+        $this->assertStringContainsString('dtd.control_number', $sql);
+        $this->assertStringContainsString('dt.qr_code', $sql);
+    }
 }

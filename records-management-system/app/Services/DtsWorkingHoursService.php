@@ -157,7 +157,7 @@ class DtsWorkingHoursService
      */
     public static function getTimezone(): string
     {
-        $tz = env('APP_TIMEZONE') ?: config('app.timezone');
+        $tz = env('APP_TIMEZONE') ?: (function_exists('app') && app()->has('config') ? config('app.timezone') : 'Asia/Manila');
         return (!empty($tz) && $tz !== 'UTC') ? $tz : 'Asia/Manila';
     }
 

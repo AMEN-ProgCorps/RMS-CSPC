@@ -31,6 +31,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public string $dtsWorkingHoursStart = '06:00';
     public string $dtsWorkingHoursEnd = '17:00';
     public string $dtsWorkingHoursDays = 'mon-fri';
+    /** @var string Calculation mode for Elapsed Days: 'total_lifetime' or 'current_stage' */
+    public string $dtsElapsedDaysMode = 'total_lifetime';
     public bool $rdpRequiredUploadFile = false;
     public bool $rdpIncludeDescriptionOnPrint = false;
     public string $rdpPrintFontFamily = 'Arial, sans-serif';
@@ -583,6 +585,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $whDays = \DB::table($sysTable)->where('key', 'dts_working_hours_days')->value('value');
         $this->dtsWorkingHoursDays = in_array($whDays, ['mon-fri', 'all']) ? $whDays : 'mon-fri';
+
+        $elapsedMode = \DB::table($sysTable)->where('key', 'dts_elapsed_days_mode')->value('value');
+        $this->dtsElapsedDaysMode = in_array($elapsedMode, ['total_lifetime', 'current_stage'], true) ? $elapsedMode : 'total_lifetime';
 
         $rdpReq = \DB::table('sys_system_settings')->where('key', 'rdp_required_upload_file')->value('value');
         $this->rdpRequiredUploadFile = ($rdpReq === 'true');
@@ -1231,6 +1236,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ['key' => 'dts_working_hours_days'],
                     [
                         'value' => $this->dtsWorkingHoursDays ?: 'mon-fri',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_elapsed_days_mode'],
+                    [
+                        'value' => in_array($this->dtsElapsedDaysMode, ['total_lifetime', 'current_stage'], true) ? $this->dtsElapsedDaysMode : 'total_lifetime',
                         'updated_at' => now(),
                     ]
                 );
@@ -2202,6 +2215,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         </div>
                     </div>
                     @endif
+
+                    <!-- Setting: Elapsed Days Calculation Mode -->
+                    <div class="setting-item" style="border-top: 1px solid #e2e8f0; padding-top: 18px; margin-top: 8px;">
+                        <div class="setting-details">
+                            <span class="setting-title" style="display: flex; align-items: center; gap: 8px;">
+                                <i class="fa-solid fa-clock-rotate-left" style="color: #2563eb; font-size: 14px;"></i>
+                                Elapsed Days Calculation Mode
+                            </span>
+                            <span class="setting-desc">
+                                Configure how the "Elapsed Day" column is calculated across document tracking tables:
+                                <br>
+                                • <strong>Total Lifetime:</strong> Cumulative working days from transaction inception (first logged/created) until today.
+                                <br>
+                                • <strong>Current Office / Stage:</strong> Working days only while in custody of the active Current Office (resets when forwarded to each station).
+                            </span>
+                        </div>
+                        <select wire:model="dtsElapsedDaysMode" style="height: 38px; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 12px; font-size: 13px; font-weight: 600; color: #0f172a; background: #ffffff; cursor: pointer;">
+                            <option value="total_lifetime">Total Lifetime (From Inception)</option>
+                            <option value="current_stage">Current Office / Stage (From Station Receipt)</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             @endif

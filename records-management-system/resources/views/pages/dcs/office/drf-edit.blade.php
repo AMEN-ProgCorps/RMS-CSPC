@@ -12,10 +12,12 @@
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
+    #[Locked]
     public int $id;
 
     /**
@@ -38,6 +40,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     public function with(): array
     {
+        abort_unless(OfficeIntakeHelper::canOfficeEditIntake('drf', $this->id), 403, OfficeIntakeHelper::IMMUTABLE_MESSAGE);
         $drf = OfficeIntakeHelper::findOfficeDrf($this->id);
         abort_unless($drf, 404);
 

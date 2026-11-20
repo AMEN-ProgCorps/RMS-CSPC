@@ -90,9 +90,22 @@ class OfficeIntakeHelper
      *
      * DEBUG: print/view 403 → officeMayPrintIntake() and ownership asserts.
      */
-    public static function assertOfficeIntakePrintAllowed(): void
+    /**
+     * Stops with 403 when print is still locked (CSS/JS alone is not enough).
+     * RFIO/reviewers (canBrowseAllOfficeIntake) always pass via officeMayPrintIntake.
+     */
+    public static function assertOfficeIntakePrintAllowed(?object $record = null, bool $viewerMode = false): void
     {
-        // Allowed for office creators and RFIO review_intake operators.
+        self::assertCanAccessIntake();
+        if ($record === null) {
+            return;
+        }
+
+        abort_unless(
+            self::officeMayPrintIntake($record),
+            403,
+            'Print unlocks after RFIO confirms this form and notifies you to print and sign.'
+        );
     }
 
     /**
@@ -1887,28 +1900,41 @@ class OfficeIntakeHelper
             $openDrf = self::findOpenDuplicateRecurringDrf($docNo, $docTitle, $exceptId);
             if ($openDrf) {
                 $payload['open_request_type'] = 'recurring_drf';
-                $payload['open_request_id'] = (int) $openDrf->id;
-                $payload['open_drf_id'] = (int) $openDrf->id;
-                $payload['open_request_url'] = route('dcs.office.drf.show', ['id' => (int) $openDrf->id], false);
                 $payload['open_request_message'] = self::duplicateRecurringDrfMessage($openDrf);
+                // Only expose open-form id/url when this user may open that record (no cross-office IDOR).
+                if (self::userCanAccessOfficeIntakeRecord($openDrf, 'drf')) {
+                    $payload['open_request_id'] = (int) $openDrf->id;
+                    $payload['open_drf_id'] = (int) $openDrf->id;
+                    $payload['open_request_url'] = route('dcs.office.drf.show', ['id' => (int) $openDrf->id], false);
+                } else {
+                    $payload['open_request_message'] = 'A Recurring DRF for this document is already submitted by another office and still waiting to be registered.';
+                }
             } else {
                 $openDcn = self::findOpenDuplicateDcn($docNo, $docTitle, '', [$originLabel], null);
                 if ($openDcn) {
                     $payload['open_request_type'] = 'dcn';
-                    $payload['open_request_id'] = (int) $openDcn->id;
-                    $payload['open_dcn_id'] = (int) $openDcn->id;
-                    $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $openDcn->id], false);
                     $payload['open_request_message'] = self::duplicateDcnBlocksRecurringMessage($openDcn);
+                    if (self::userCanAccessOfficeIntakeRecord($openDcn, 'dcn')) {
+                        $payload['open_request_id'] = (int) $openDcn->id;
+                        $payload['open_dcn_id'] = (int) $openDcn->id;
+                        $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $openDcn->id], false);
+                    } else {
+                        $payload['open_request_message'] = 'A Document Change Notice for this document is already submitted by another office and still waiting to be registered.';
+                    }
                 }
             }
         } else {
             $open = self::findOpenDuplicateDcn($docNo, $docTitle, '', [$originLabel], $exceptId);
-        if ($open) {
+            if ($open) {
                 $payload['open_request_type'] = 'dcn';
-                $payload['open_request_id'] = (int) $open->id;
-            $payload['open_dcn_id'] = (int) $open->id;
-                $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $open->id], false);
-            $payload['open_request_message'] = self::duplicateDcnMessage($open);
+                $payload['open_request_message'] = self::duplicateDcnMessage($open);
+                if (self::userCanAccessOfficeIntakeRecord($open, 'dcn')) {
+                    $payload['open_request_id'] = (int) $open->id;
+                    $payload['open_dcn_id'] = (int) $open->id;
+                    $payload['open_request_url'] = route('dcs.office.dcn.show', ['id' => (int) $open->id], false);
+                } else {
+                    $payload['open_request_message'] = 'A Document Change Notice for this document is already submitted by another office and still waiting to be registered.';
+                }
             }
         }
         if ($found) {

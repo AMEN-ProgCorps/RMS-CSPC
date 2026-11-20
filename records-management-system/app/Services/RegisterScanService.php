@@ -129,10 +129,9 @@ class RegisterScanService
             $reason = $ok ? 'ok' : (trim($rawText) === '' ? 'no_text' : 'parse_miss');
             $message = null;
             if (! $ok) {
+                // Keep client messages generic — raw OCR/engine errors stay in logs only.
                 $message = match ($reason) {
-                    'no_text' => $ocrError
-                        ? ('OCR failed on server: ' . Str::limit($ocrError, 320))
-                        : 'No readable text from this scan (Ghostscript/pdftoppm/PaddleOCR may be missing on the server).',
+                    'no_text' => 'No readable text from this scan. Upload kept — fill fields manually.',
                     'parse_miss' => $isDistribution
                         ? 'Scan was read but no distribution offices could be matched — add them manually.'
                         : 'Scan was read but DRF fields could not be matched — fill them in manually.',
@@ -155,8 +154,8 @@ class RegisterScanService
                 'message' => $message,
                 'fields' => $fields,
                 'raw_text_preview' => Str::limit($rawText, 500),
-                // Shown in UI / network tab so deploy can be diagnosed without SSH.
-                'diagnostics' => $ok ? null : $ocrDiagnostics,
+                // Diagnostics stay server-side (audit log); never expose paths/stack to the browser.
+                'diagnostics' => null,
             ];
         } catch (\Throwable $e) {
             Log::warning('OCR extraction failed: ' . $e->getMessage(), [

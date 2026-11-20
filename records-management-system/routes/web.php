@@ -289,7 +289,7 @@ Volt::route('/track-document', 'pages.portal.track-document')
 Volt::route('/tracked', 'pages.portal.tracked')
     ->name('tracked');
 
-// Auto-capture client error page popouts & runtime exceptions (public endpoint, rate-limited)
+// Auto-capture client error popouts (auth required; rate-limited)
 Route::post('/api/errors/auto-capture', function (\Illuminate\Http\Request $request) {
     $data = $request->validate([
         'reference' => 'nullable|string|max:32',
@@ -331,21 +331,40 @@ Route::post('/api/errors/auto-capture', function (\Illuminate\Http\Request $requ
         'ticket_number' => $ticket?->ticket_number ?? ($data['reference'] ?? null),
         'source' => $ticket?->source ?? 'auto',
     ]);
-})->name('api.errors.auto-capture');
+})->middleware('auth')->name('api.errors.auto-capture');
 
 // Active automated error guards for client-side circuit breaking and modal interception
 Route::get('/api/errors/active-guards', function () {
     return response()->json(\App\Services\ErrorTicketRecorder::getActiveGuards());
-})->name('api.errors.active-guards');
+})->middleware('auth')->name('api.errors.active-guards');
 
 // Successful page render clears the circuit-breaker for that path (page was fixed / recovered).
 // GET+POST: some clients/proxies reject POST here with 405; clearing a guard is idempotent.
+// Only the Referer path (the page the user actually loaded) may be cleared — not an arbitrary query path.
 Route::match(['GET', 'POST'], '/api/errors/clear-page-guard', function () {
-    $path = request()->input('path') ?: request()->headers->get('Referer');
-    if (is_string($path) && str_contains($path, '://')) {
-        $path = parse_url($path, PHP_URL_PATH) ?: '';
+    $referer = request()->headers->get('Referer');
+    $refererPath = '';
+    if (is_string($referer) && $referer !== '') {
+        $refererPath = (string) (parse_url($referer, PHP_URL_PATH) ?: '');
     }
-    $resolved = \App\Services\ErrorTicketRecorder::resolveGuardsForPath(is_string($path) ? $path : null);
+
+    $clientPath = request()->input('path');
+    if (is_string($clientPath) && str_contains($clientPath, '://')) {
+        $clientPath = parse_url($clientPath, PHP_URL_PATH) ?: '';
+    }
+    $clientPath = is_string($clientPath) ? $clientPath : '';
+
+    // Reject forged clears: client path must match the page that made the request.
+    if ($refererPath !== '' && $clientPath !== '' && $refererPath !== $clientPath) {
+        return response()->json([
+            'ok' => true,
+            'resolved' => 0,
+            'guards' => \App\Services\ErrorTicketRecorder::getActiveGuards(),
+        ]);
+    }
+
+    $path = $refererPath !== '' ? $refererPath : $clientPath;
+    $resolved = \App\Services\ErrorTicketRecorder::resolveGuardsForPath($path !== '' ? $path : null);
 
     return response()->json([
         'ok' => true,
@@ -1118,14 +1137,14 @@ Route::middleware(['auth'])
             Volt::route('/office/drf/{id}', 'pages.dcs.office.drf-show')->name('office.drf.show');
             Route::get('/office/drf/{id}/print', function (int $id) {
                 OfficeIntakeHelper::assertCanAccessIntake();
-                OfficeIntakeHelper::assertOfficeIntakePrintAllowed();
                 $drf = OfficeIntakeHelper::findOfficeDrf($id);
                 abort_unless($drf, 404);
                 OfficeIntakeHelper::assertOwnsDrf($drf);
+                $viewerMode = request()->boolean('view');
+                OfficeIntakeHelper::assertOfficeIntakePrintAllowed($drf, $viewerMode);
                 $logoPath = public_path('images/logo.png');
                 $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
                 $sourceOffices = OfficeIntakeHelper::drfSourceOffices($id);
-                $viewerMode = request()->boolean('view');
                 $allowPrint = OfficeIntakeHelper::officeMayPrintIntake($drf);
                 $printLockMessage = 'Print unlocks after RFIO confirms this form and notifies you to print and sign.';
 
@@ -1144,15 +1163,15 @@ Route::middleware(['auth'])
             Volt::route('/office/dcn/{id}', 'pages.dcs.office.dcn-show')->name('office.dcn.show');
             Route::get('/office/dcn/{id}/print', function (int $id) {
                 OfficeIntakeHelper::assertCanAccessIntake();
-                OfficeIntakeHelper::assertOfficeIntakePrintAllowed();
                 $dcn = OfficeIntakeHelper::findOfficeDcn($id);
                 abort_unless($dcn, 404);
                 OfficeIntakeHelper::assertOwnsDcn($dcn);
+                $viewerMode = request()->boolean('view');
+                OfficeIntakeHelper::assertOfficeIntakePrintAllowed($dcn, $viewerMode);
                 $logoPath = public_path('images/logo.png');
                 $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
                 $revisions = OfficeIntakeHelper::dcnRevisions($id);
                 $sourceOffices = OfficeIntakeHelper::dcnSourceOffices($id);
-                $viewerMode = request()->boolean('view');
                 $allowPrint = OfficeIntakeHelper::officeMayPrintIntake($dcn);
                 $printLockMessage = 'Print unlocks after RFIO confirms this form and notifies you to print and sign.';
 

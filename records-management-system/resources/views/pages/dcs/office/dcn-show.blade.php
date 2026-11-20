@@ -12,10 +12,12 @@
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
+    #[Locked]
     public int $id;
 
     /**
@@ -49,6 +51,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     {
         $dcn = OfficeIntakeHelper::findOfficeDcn($this->id);
         abort_unless($dcn, 404);
+        if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+            OfficeIntakeHelper::assertOwnsDcn($dcn);
+        }
 
         $revisions = OfficeIntakeHelper::dcnRevisions($this->id);
         $firstRev = $revisions->first();

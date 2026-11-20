@@ -629,13 +629,12 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                   });
             });
 
-        if (!empty($this->searchQuery)) {
-            $searchVal = trim($this->searchQuery);
-            $query->where(function($q) use ($searchVal) {
-                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dtd.subject', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
-            });
+        if (!empty(trim($this->searchQuery))) {
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->searchQuery, [
+                'primary'   => ['dtd.control_number', 'dt.qr_code'],
+                'secondary' => ['dtd.subject'],
+                'meta'      => ['req.requestor_name', 'originated_office.office_name', 'dtd.action_needed'],
+            ]);
         }
 
         $items = $query->select(
@@ -667,6 +666,16 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
 
             return $currentLog && ($currentLog->type === 'received' || (!empty($currentLog->date_in) && $currentLog->type !== 'forwarded'));
         });
+
+        if (!empty(trim($this->searchQuery))) {
+            $receivedOnly = \App\Helpers\SmartSearchHelper::sortCollection($receivedOnly, $this->searchQuery, function ($t) {
+                return [
+                    'primary'   => trim(($t->control_number ?? '') . ' ' . ($t->qr_code ?? '')),
+                    'secondary' => $t->subject ?? '',
+                    'meta'      => trim(($t->requestor_name ?? '') . ' ' . ($t->originated_office_name ?? '') . ' ' . ($t->action_needed ?? '')),
+                ];
+            });
+        }
 
         $page = \Illuminate\Pagination\Paginator::resolveCurrentPage() ?: 1;
         $sliced = $receivedOnly->slice(($page - 1) * $this->perPage, $this->perPage)->values();

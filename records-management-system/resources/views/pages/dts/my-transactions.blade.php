@@ -107,13 +107,12 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
             });
         }
 
-        if (!empty($this->searchQuery)) {
-            $searchVal = trim($this->searchQuery);
-            $query->where(function($q) use ($searchVal) {
-                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dtd.subject', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
-            });
+        if (!empty(trim($this->searchQuery))) {
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->searchQuery, [
+                'primary'   => ['dtd.control_number', 'dt.qr_code'],
+                'secondary' => ['dtd.subject'],
+                'meta'      => ['req.requestor_name', 'originated_office.office_name'],
+            ]);
         }
 
         $list = $query->select(

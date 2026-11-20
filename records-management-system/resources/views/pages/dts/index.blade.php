@@ -475,20 +475,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             $query->where('dt.trans_type', 'memorandom');
         }
 
-        // Search filter
-        if (!empty($this->searchQuery)) {
-            $searchVal = trim($this->searchQuery);
-            $decoded = base64_decode($searchVal, true);
-            if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
-                $searchVal = $decoded;
-            }
-            $query->where(function($q) use ($searchVal) {
-                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dtd.subject', 'like', '%' . $this->searchQuery . '%')
-                  ->orWhere('req.requestor_name', 'like', '%' . $this->searchQuery . '%')
-                  ->orWhere('src.s_office_name', 'like', '%' . $this->searchQuery . '%')
-                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
-            });
+        // Smart search filter & relevance ranking
+        if (!empty(trim($this->searchQuery))) {
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->searchQuery, [
+                'primary'   => ['dtd.control_number', 'dt.qr_code'],
+                'secondary' => ['dtd.subject'],
+                'meta'      => [
+                    'req.requestor_name',
+                    'src.s_office_name',
+                    'originated_office.office_name',
+                    'dtd.action_needed',
+                    'dtd.classification',
+                ],
+            ]);
         }
 
         $list = $query->select(

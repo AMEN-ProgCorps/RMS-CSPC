@@ -633,7 +633,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         if ($this->clusterPage > $clusterMaxPage) {
             $this->clusterPage = $clusterMaxPage;
         }
-        $createdClusters = $clustersCollection->sortByDesc('main_id')->values()->forPage($this->clusterPage, $this->clusterPerPage);
+        if (!empty(trim($this->clusterSearch))) {
+            $clustersCollection = \App\Helpers\SmartSearchHelper::sortCollection($clustersCollection, $this->clusterSearch, fn($c) => [
+                'primary'   => $c->cluster_name ?? '',
+                'secondary' => $c->office_name ?? '',
+                'meta'      => trim(($c->form_label ?? '') . ' ' . ($c->submitter_name ?? '')),
+            ]);
+            $createdClusters = $clustersCollection->forPage($this->clusterPage, $this->clusterPerPage);
+        } else {
+            $createdClusters = $clustersCollection->sortByDesc('main_id')->values()->forPage($this->clusterPage, $this->clusterPerPage);
+        }
 
         // -------------------------------------------------------------
         // 3. RECEIVED DOCUMENTS (DTS / DCS) - DTS is Default
@@ -653,13 +662,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         }
 
         if (!empty(trim($this->receivedSearch))) {
-            $term = '%' . trim($this->receivedSearch) . '%';
-            $recDocsQuery->where(function($q) use ($term) {
-                $q->where('document_code', 'ILIKE', $term)
-                  ->orWhere('document_title', 'ILIKE', $term)
-                  ->orWhere('description', 'ILIKE', $term)
-                  ->orWhere('origin_office', 'ILIKE', $term);
-            });
+            \App\Helpers\SmartSearchHelper::applySearch($recDocsQuery, $this->receivedSearch, [
+                'primary'   => ['document_code'],
+                'secondary' => ['document_title'],
+                'meta'      => ['description', 'origin_office'],
+            ]);
         }
 
         $totalReceivedDocs = (clone $recDocsQuery)->count();

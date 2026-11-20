@@ -585,17 +585,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             $query->where('dt.status', $this->selectedStatus);
         }
 
-        if (!empty($this->searchQuery)) {
-            $searchVal = trim($this->searchQuery);
-            $decoded = base64_decode($searchVal, true);
-            if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
-                $searchVal = $decoded;
-            }
-            $query->where(function($q) use ($searchVal) {
-                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dtd.subject', 'like', '%' . $this->searchQuery . '%')
-                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
-            });
+        if (!empty(trim($this->searchQuery))) {
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->searchQuery, [
+                'primary'   => ['dtd.control_number', 'dt.qr_code'],
+                'secondary' => ['dtd.subject'],
+                'meta'      => ['req.requestor_name', 'originated_office.office_name', 'dtd.action_needed'],
+            ]);
         }
 
         if (!empty($this->dateFrom) || !empty($this->dateTo)) {

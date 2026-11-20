@@ -305,12 +305,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
             });
         }
 
-        if (!empty($this->search)) {
-            $query->where(function ($q) {
-                $q->where('document_data.document_id', 'like', '%' . $this->search . '%')
-                  ->orWhere('document_data.document_name', 'like', '%' . $this->search . '%')
-                  ->orWhere('document_data.document_path', 'like', '%' . $this->search . '%');
-            });
+        if (!empty(trim($this->search))) {
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->search, [
+                'primary'   => ['document_data.document_id'],
+                'secondary' => ['document_data.document_name'],
+                'meta'      => ['document_data.document_path'],
+            ]);
         }
 
         if ($this->sortBy === 'office' && $canViewAll) {

@@ -4,8 +4,9 @@
 
 .guide-container {
     position: absolute;
-    top: 10px;
-    right: 226px; /* Spaced to the left of the notification container */
+    top: 0;
+    bottom: 0;
+    right: 188px; /* Clean 10px spacing from notification bell (148px + 30px) when urgent notice is hidden */
     height: 30px;
     margin-top: auto;
     margin-bottom: auto;
@@ -15,6 +16,15 @@
     z-index: 15;
     pointer-events: none;
     overflow: visible;
+    transition: right 0.2s ease;
+}
+
+/* When urgent notices has active items and is visible, shift guide to make room for urgent icon + gap */
+body:has(.urgent-wrapper.urgent-active) .guide-container,
+body:has(.urgent-wrapper[data-has-urgent="1"]) .guide-container,
+header.rms-app-header:has(.urgent-wrapper.urgent-active) .guide-container,
+header.rms-app-header:has(.urgent-wrapper:not([style*="display: none"]):not([style*="display:none"])) .guide-container {
+    right: 226px;
 }
 
 /* When the floating guide is open, lift the header stacking context so the
@@ -37,7 +47,7 @@ body.manual-widget-open .guide-container {
     background: transparent;
     border: none;
     cursor: pointer;
-    padding: 3px;
+    padding: 0;
     border-radius: 50%;
     position: relative;
     display: flex;
@@ -48,6 +58,7 @@ body.manual-widget-open .guide-container {
     color: #ffffff;
     width: 30px;
     height: 30px;
+    box-sizing: border-box;
 }
 
 .header-guide-btn:hover {
@@ -62,7 +73,8 @@ body.manual-widget-open .guide-container {
 
 .notification-container {
     position: absolute;
-    top: 10px; /* Centered matching the actions-container top alignment */
+    top: 0;
+    bottom: 0;
     right: 148px; /* Placed immediately to the left of the ACTIONS button (width: 123px) */
     height: 30px; /* Matches the ACTIONS button height */
     margin-top: auto;
@@ -85,7 +97,7 @@ body.manual-widget-open .guide-container {
     background: transparent;
     border: none;
     cursor: pointer;
-    padding: 3px; /* Compact padding to match 30px height */
+    padding: 0;
     border-radius: 50%;
     position: relative;
     display: flex;
@@ -93,6 +105,9 @@ body.manual-widget-open .guide-container {
     justify-content: center;
     transition: background-color 0.2s ease, transform 0.2s ease;
     outline: none;
+    width: 30px;
+    height: 30px;
+    box-sizing: border-box;
 }
 
 .notif-bell-btn:hover {
@@ -105,8 +120,8 @@ body.manual-widget-open .guide-container {
 }
 
 .notif-bell-svg {
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     stroke: #ffffff;
     fill: none;
     transition: stroke 0.2s ease;

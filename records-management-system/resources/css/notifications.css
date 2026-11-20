@@ -138,6 +138,12 @@ body.manual-widget-open .guide-container {
     transition: transform 0.15s ease, background-color 0.15s ease;
 }
 
+.notif-badge[style*="display: none"],
+.notif-badge[style*="display:none"],
+.notif-badge:empty {
+    display: none !important;
+}
+
 /* Dropdown Menu */
 .notif-dropdown {
     position: absolute;

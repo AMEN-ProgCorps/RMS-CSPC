@@ -497,8 +497,8 @@ new class extends Component {
         $this->forwardHubOffices = [];
         $this->forwardHubTempSelected = [];
         $this->showForwardHubModal = false;
-        $this->dispatch('scanner-modal-closed');
         $this->dispatch('stop-camera-scanner');
+        $this->dispatch('scanner-modal-closed');
     }
 
     /**
@@ -1361,7 +1361,9 @@ new class extends Component {
         <div 
             id="dts-scanner-widget-card"
             class="dts-scanner-widget-card {{ $isMaximized ? 'is-maximized' : '' }}"
-            @keydown.window.escape="$wire.closeModal()"
+            x-data
+            x-init="$cleanup(() => { if (typeof window.stopModalScanner === 'function') window.stopModalScanner(); })"
+            @keydown.window.escape="if (typeof window.stopModalScanner === 'function') window.stopModalScanner(); window.dispatchEvent(new CustomEvent('stop-camera-scanner')); $wire.closeModal()"
         >
             <!-- Chatify-Style Dark Header Bar -->
             <div class="dts-scanner-widget-header">
@@ -1426,7 +1428,7 @@ new class extends Component {
                     <!-- Minimize Button -->
                     <button
                         type="button"
-                        wire:click="closeModal"
+                        @click="if (typeof window.stopModalScanner === 'function') window.stopModalScanner(); window.dispatchEvent(new CustomEvent('stop-camera-scanner')); $wire.closeModal()"
                         class="scanner-header-icon-btn"
                         title="Minimize Scanner"
                     >
@@ -2514,6 +2516,29 @@ new class extends Component {
             if (input) input.focus();
         });
 
+        // Intercept getUserMedia so any active camera streams are directly tracked and reliably stoppable
+        if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function' && !window.__rmsGUMIntercepted) {
+            window.__rmsGUMIntercepted = true;
+            window.__rmsActiveScannerStreams = window.__rmsActiveScannerStreams || new Set();
+            const origGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+            navigator.mediaDevices.getUserMedia = async function(...args) {
+                const stream = await origGUM(...args);
+                if (stream) {
+                    window.__rmsActiveScannerStreams.add(stream);
+                    try {
+                        stream.getTracks().forEach(t => {
+                            t.addEventListener('ended', () => {
+                                if (window.__rmsActiveScannerStreams) {
+                                    window.__rmsActiveScannerStreams.delete(stream);
+                                }
+                            });
+                        });
+                    } catch(e) {}
+                }
+                return stream;
+            };
+        }
+
         /**
          * Stops and releases all active hardware media streams and tracks attached to modal video elements.
          *
@@ -2521,8 +2546,22 @@ new class extends Component {
          */
         function releaseAllModalMediaTracks() {
             try {
-                const modal = document.querySelector('.dts-scanner-widget-card, .global-scanner-modal');
-                const videos = modal ? modal.querySelectorAll('video') : document.querySelectorAll('#modal-qr-preview video');
+                // 1. Release streams captured via getUserMedia tracking
+                if (window.__rmsActiveScannerStreams && window.__rmsActiveScannerStreams.size > 0) {
+                    window.__rmsActiveScannerStreams.forEach(stream => {
+                        try {
+                            if (stream && typeof stream.getTracks === 'function') {
+                                stream.getTracks().forEach(track => {
+                                    try { track.stop(); } catch(e) {}
+                                });
+                            }
+                        } catch(e) {}
+                    });
+                    window.__rmsActiveScannerStreams.clear();
+                }
+
+                // 2. Query any video elements currently in the document
+                const videos = document.querySelectorAll('video');
                 videos.forEach(v => {
                     if (v.srcObject && typeof v.srcObject.getTracks === 'function') {
                         v.srcObject.getTracks().forEach(track => {
@@ -2543,6 +2582,7 @@ new class extends Component {
          */
         async function stopModalScanner() {
             stopModalWatchdog();
+            releaseAllModalMediaTracks();
             if (modalHtml5QrCode) {
                 const instance = modalHtml5QrCode;
                 modalHtml5QrCode = null;
@@ -2572,6 +2612,9 @@ new class extends Component {
                 previewEl.innerHTML = '';
             }
         }
+
+        window.stopModalScanner = stopModalScanner;
+        window.releaseAllModalMediaTracks = releaseAllModalMediaTracks;
 
         // ------------------------------------------------------------------
         // Camera watchdog: html5-qrcode keeps looping over a dead stream, so the
@@ -3317,6 +3360,8 @@ new class extends Component {
             window.__scannerModalEventsBound = true;
             window.addEventListener('init-camera-scanner', handleInitCameraScanner);
             window.addEventListener('stop-camera-scanner', handleStopCameraScanner);
+            window.addEventListener('close-scanner-modal', handleStopCameraScanner);
+            window.addEventListener('scanner-modal-closed', handleStopCameraScanner);
             window.addEventListener('scanner-code-invalid', handleScannerCodeInvalid);
 
             window.addEventListener('scanner-modal-opened', () => {
@@ -3330,6 +3375,9 @@ new class extends Component {
                 const detail = e.detail;
                 const w = (detail && typeof detail === 'object') ? (detail.widget || (Array.isArray(detail) ? detail[0]?.widget : null)) : detail;
                 if (w && w !== 'scanner') {
+                    if (typeof window.stopModalScanner === 'function') {
+                        window.stopModalScanner();
+                    }
                     const isScannerDomOpen = document.getElementById('dts-scanner-widget-card') || document.querySelector('.global-scanner-modal');
                     if (isScannerDomOpen) {
                         const comp = resolveModalComponent();
@@ -3346,6 +3394,10 @@ new class extends Component {
                 }
             });
         }
+
+        document.addEventListener('livewire:navigating', () => {
+            if (typeof window.stopModalScanner === 'function') window.stopModalScanner();
+        });
 
         window.addEventListener('beforeunload', () => {
             stopModalScanner();

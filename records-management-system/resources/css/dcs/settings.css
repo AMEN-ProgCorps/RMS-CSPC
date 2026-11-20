@@ -41,6 +41,8 @@ body {
     right: 0;
     bottom: 0;
     padding: var(--dcs-page-pad);
+    /* Extra bottom space so last rows / Add actions clear the floating chat FABs. */
+    padding-bottom: max(96px, calc(var(--dcs-page-pad-y, 28px) + 72px));
     background-color: var(--set-bg);
     overflow-y: auto;
     overflow-x: hidden;
@@ -267,6 +269,234 @@ body {
     text-align: center;
 }
 
+.st-college-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--set-accent, #1d4ed8);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+}
+
+.st-college-link:hover {
+    text-decoration: underline;
+}
+
+.st-college-caret {
+    flex: 0 0 0.85rem;
+    width: 0.85rem;
+    font-size: 0.72rem;
+    opacity: 0.75;
+    text-align: center;
+    line-height: 1;
+}
+
+.st-college-row.is-open > td {
+    background: #f8fbff;
+}
+
+.st-college-programs-row {
+    display: none;
+}
+
+.st-college-programs-row.is-visible {
+    display: table-row;
+}
+
+.st-college-programs-row > td {
+    padding: 0 !important;
+    background: #f8fbff;
+    border-top: none;
+    text-align: left !important;
+}
+
+.st-college-program-block {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed #e2e8f0;
+}
+
+.st-college-program-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--set-text, #0f172a);
+    margin-bottom: 6px;
+}
+
+.st-college-programs-panel {
+    margin: 0 12px 12px 12px;
+    padding: 12px;
+    border: 1px solid #dbeafe;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.st-college-programs-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.st-college-programs-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #1e3a8a;
+}
+
+.st-college-programs-label .program-count {
+    font-weight: 600;
+    color: #64748b;
+}
+
+.st-add-program-btn {
+    height: 32px;
+    padding: 0 12px;
+    font-size: 0.78rem;
+}
+
+.st-nested-programs {
+    margin: 0;
+    width: 100%;
+    table-layout: fixed;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.st-nested-programs thead th {
+    background: #f1f5f9;
+    text-align: left !important;
+}
+
+.st-nested-programs tbody td {
+    text-align: left !important;
+}
+
+.st-nested-programs .st-program-name-cell {
+    width: auto;
+    text-align: left !important;
+    padding-left: 16px !important;
+}
+
+.st-nested-programs .st-program-code-cell {
+    width: 120px;
+    text-align: left !important;
+}
+
+.st-nested-programs .st-program-actions-cell {
+    width: 120px;
+    text-align: right !important;
+}
+
+.st-input-readonly {
+    display: flex;
+    align-items: center;
+    background: #f8fafc;
+    color: #334155;
+    cursor: default;
+}
+
+/* School-year active switch — capsule track + white thumb (off = left, on = right). */
+.st-sy-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    width: 48px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    background: #e8edf3;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.2s ease, border-color 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.st-sy-switch-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
+    transition: transform 0.2s ease;
+    pointer-events: none;
+}
+
+.st-sy-switch.is-on {
+    background: #22c55e;
+    border-color: #16a34a;
+    cursor: default;
+}
+
+.st-sy-switch.is-on .st-sy-switch-thumb {
+    transform: translateX(20px);
+}
+
+.st-sy-switch:not(:disabled):hover {
+    background: #dbe3ec;
+    border-color: #cbd5e1;
+}
+
+.st-sy-switch.is-on:hover {
+    background: #22c55e;
+    border-color: #16a34a;
+}
+
+.st-sy-switch:disabled {
+    opacity: 1;
+}
+
+.st-status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+}
+
+.st-status-pill.is-on {
+    background: #ecfdf5;
+    color: #047857;
+    border-color: #a7f3d0;
+}
+
+.st-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 0.86rem;
+    color: var(--set-text, #334155);
+    cursor: pointer;
+    line-height: 1.35;
+}
+
+.st-check input {
+    margin-top: 2px;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
 .st-inline-select {
     width: 100%;
     max-width: 140px;
@@ -355,6 +585,9 @@ body {
     border-radius: var(--set-radius);
     box-shadow: var(--set-shadow);
     border: 1px solid var(--set-border-light);
+    padding-bottom: 16px;
+    background: var(--set-surface);
+    margin-bottom: 31px;
 }
 
 .settings-table {
@@ -750,12 +983,24 @@ body {
     animation: modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.modal.modal--college {
+    width: min(640px, 96vw);
+}
+
 .modal.modal--courses {
     width: min(780px, 96vw);
 }
 
 .modal.modal--courses-bulk {
     width: min(1080px, 98vw);
+}
+
+.st-college-program-rows {
+    overflow-x: hidden;
+}
+
+.st-college-program-rows .st-course-row {
+    grid-template-columns: minmax(88px, 0.4fr) minmax(0, 1fr) 36px;
 }
 
 .st-bulk-filters {
@@ -1127,6 +1372,7 @@ body {
 @media (max-width: 640px) {
     .settings-main {
         padding: 16px;
+        padding-bottom: 96px;
     }
 
     /* Header */
@@ -1333,6 +1579,7 @@ body {
 @media (max-width: 380px) {
     .settings-main {
         padding: 12px;
+        padding-bottom: 96px;
     }
 
     .settings-header h1 {

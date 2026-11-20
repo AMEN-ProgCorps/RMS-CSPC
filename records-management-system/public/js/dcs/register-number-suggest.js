@@ -184,10 +184,14 @@
         const confirmed = document.getElementById('insertShiftConfirmed');
         const docNo = document.getElementById('insertShiftDocNo');
         const letters = document.getElementById('insertShiftRenameLetters');
+        const requestIds = document.getElementById('insertShiftRequestIds');
         const allowDup = document.getElementById('allowDuplicateDocNo');
         if (confirmed) confirmed.value = '0';
         if (docNo) docNo.value = '';
         if (letters) letters.value = '0';
+        if (requestIds) requestIds.value = '';
+        window.__docNoInsertCandidates = [];
+        window.__docNoInsertFreePool = [];
         const kept = String(window.__keptDuplicateDocNo || '').trim().toLowerCase();
         const stillKept = kept !== '' && currentDocNo().toLowerCase() === kept;
         if (allowDup && (forceClearAllow || !stillKept)) {
@@ -302,7 +306,75 @@
         if (choices) choices.hidden = which !== 'choices';
         if (stackPick) stackPick.hidden = which !== 'stack';
         if (preview) preview.hidden = which !== 'shift';
-        if (letters) letters.hidden = which !== 'shift';
+        // Exact-number free mode never cascades letter variants.
+        if (letters) letters.hidden = true;
+    }
+
+    function selectedShiftRequestIds() {
+        return [...document.querySelectorAll('#docNoInsertPreviewBody input[data-shift-request]:checked')]
+            .map(function (el) { return String(el.getAttribute('data-shift-request') || ''); })
+            .filter(Boolean);
+    }
+
+    function refreshShiftToColumns() {
+        const pool = Array.isArray(window.__docNoInsertFreePool) ? window.__docNoInsertFreePool : [];
+        const rows = [...document.querySelectorAll('#docNoInsertPreviewBody tr[data-request-id]')];
+        let idx = 0;
+        rows.forEach(function (tr) {
+            const cb = tr.querySelector('input[data-shift-request]');
+            const toCell = tr.querySelector('[data-to-cell]');
+            if (!toCell) return;
+            if (cb && cb.checked) {
+                toCell.textContent = pool[idx] || '—';
+                toCell.classList.remove('is-keep');
+                idx += 1;
+            } else {
+                toCell.textContent = 'Keep';
+                toCell.classList.add('is-keep');
+            }
+        });
+        const confirmBtn = document.getElementById('docNoInsertConfirmShift');
+        if (confirmBtn) {
+            confirmBtn.disabled = selectedShiftRequestIds().length < 1;
+        }
+        const err = document.getElementById('docNoInsertPreviewError');
+        if (err && selectedShiftRequestIds().length > 0) {
+            err.hidden = true;
+            err.textContent = '';
+        }
+    }
+
+    function renderShiftCandidates(candidates) {
+        const body = document.getElementById('docNoInsertPreviewBody');
+        if (!body) return;
+        const rows = Array.isArray(candidates) ? candidates : [];
+        window.__docNoInsertCandidates = rows;
+        window.__docNoInsertFreePool = rows.map(function (row) { return String(row.to || ''); }).filter(Boolean);
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="4">No registrations currently use this exact number.</td></tr>';
+            const confirmBtn = document.getElementById('docNoInsertConfirmShift');
+            if (confirmBtn) confirmBtn.disabled = true;
+            return;
+        }
+        body.innerHTML = rows.map(function (row) {
+            const id = Number(row.request_id || 0);
+            const title = escapeHtml(row.title || 'Untitled');
+            const from = escapeHtml(row.from || '');
+            const to = escapeHtml(row.to || '—');
+            const rev = Number(row.revise_no || 0);
+            const copyBadge = row.is_copy
+                ? '<span class="reg-insert-badge">Copy</span>'
+                : '';
+            const checked = row.selected ? ' checked' : '';
+            return '<tr data-request-id="' + id + '">'
+                + '<td class="col-check"><input type="checkbox" data-shift-request="' + id + '"' + checked + ' aria-label="Renumber ' + title + '"></td>'
+                + '<td class="col-doc"><strong>' + title + '</strong>'
+                + '<span class="reg-insert-meta">Rev ' + rev + copyBadge + '</span></td>'
+                + '<td class="col-from"><code>' + from + '</code></td>'
+                + '<td class="col-to" data-to-cell>' + to + '</td>'
+                + '</tr>';
+        }).join('');
+        refreshShiftToColumns();
     }
 
     function checkedChecklistIds() {
@@ -441,20 +513,26 @@
         const err = document.getElementById('docNoInsertPreviewError');
         if (!preview || !body) return;
         showInsertPanel('shift');
-        body.innerHTML = '<tr><td colspan="3">Loading…</td></tr>';
+        const titleEl = document.getElementById('docNoInsertPreviewTitle');
+        const hintEl = document.getElementById('docNoInsertPreviewHint');
+        const docNo = currentDocNo();
+        if (titleEl) titleEl.textContent = 'Free ' + docNo;
+        if (hintEl) {
+            hintEl.textContent = 'Select the registration(s) you want to renumber. Nothing is moved until you check a row and confirm.';
+        }
+        body.innerHTML = '<tr><td colspan="4">Loading…</td></tr>';
         if (err) {
             err.hidden = true;
             err.textContent = '';
         }
-        const docNo = currentDocNo();
+        const confirmBtn = document.getElementById('docNoInsertConfirmShift');
+        if (confirmBtn) confirmBtn.disabled = true;
         const docTypeId = document.getElementById('docType')?.value || '';
         const subTypeId = document.getElementById('subType')?.value || '';
-        const rename = document.getElementById('docNoInsertRenameLetters')?.checked ? '1' : '0';
         const effectivity = document.getElementById('masterlistEffectivityDate')?.value || '';
         const url = '/dcs/register/preview-docno-shift?doc_no=' + encodeURIComponent(docNo)
             + '&doc_type_id=' + encodeURIComponent(docTypeId)
             + (subTypeId ? '&sub_type_id=' + encodeURIComponent(subTypeId) : '')
-            + '&rename_letters=' + rename
             + '&effectivity_date=' + encodeURIComponent(effectivity)
             + '&exclude_request_id=' + encodeURIComponent(String(excludeRequestId()));
         try {
@@ -463,18 +541,28 @@
                 body.innerHTML = '';
                 if (err) {
                     err.hidden = false;
-                    err.textContent = data.error || 'Could not build a shift preview.';
+                    err.textContent = data.error || 'Could not build a renumber preview.';
                 }
                 return;
             }
-            body.innerHTML = (data.shifts || []).map(function (row) {
-                return '<tr><td>' + escapeHtml(row.from) + '</td><td>' + escapeHtml(row.to)
-                    + '</td><td>' + escapeHtml(row.title || '') + '</td></tr>';
-            }).join('') || '<tr><td colspan="3">No rows to rename.</td></tr>';
+            const candidates = Array.isArray(data.candidates) && data.candidates.length
+                ? data.candidates
+                : (data.shifts || []).map(function (row) {
+                    return {
+                        request_id: row.request_id,
+                        from: row.from,
+                        to: row.to,
+                        title: row.title,
+                        revise_no: row.revise_no || 0,
+                        is_copy: !!row.is_copy,
+                        selected: false,
+                    };
+                });
+            renderShiftCandidates(candidates);
             const dateWarn = document.getElementById('docNoInsertDateWarning');
             if (dateWarn) {
-                dateWarn.hidden = !data.date_warning;
-                dateWarn.textContent = data.date_warning || '';
+                dateWarn.hidden = true;
+                dateWarn.textContent = '';
             }
         } catch (_) {
             body.innerHTML = '';
@@ -486,15 +574,24 @@
     }
 
     function confirmShift() {
+        const ids = selectedShiftRequestIds();
+        const err = document.getElementById('docNoInsertPreviewError');
+        if (ids.length < 1) {
+            if (err) {
+                err.hidden = false;
+                err.textContent = 'Select at least one document to renumber.';
+            }
+            return;
+        }
         const docNo = currentDocNo();
         const confirmed = document.getElementById('insertShiftConfirmed');
         const stored = document.getElementById('insertShiftDocNo');
         const letters = document.getElementById('insertShiftRenameLetters');
+        const requestIds = document.getElementById('insertShiftRequestIds');
         if (confirmed) confirmed.value = '1';
         if (stored) stored.value = docNo;
-        if (letters) {
-            letters.value = document.getElementById('docNoInsertRenameLetters')?.checked ? '1' : '0';
-        }
+        if (letters) letters.value = '0';
+        if (requestIds) requestIds.value = ids.join(',');
         const revField = document.getElementById('masterlistRevisionNo');
         if (revField) {
             revField.value = '0';
@@ -506,7 +603,8 @@
         }
         const revHint = document.getElementById('revNoHint');
         if (revHint) {
-            revHint.innerHTML = '<i class="fa-solid fa-circle-check"></i> New document at Rev 0. Existing numbers in this group will shift when you save.';
+            revHint.innerHTML = '<i class="fa-solid fa-circle-check"></i> New document at Rev 0. Selected registration(s) on '
+                + escapeHtml(docNo) + ' will be renumbered when you save.';
             revHint.style.color = '#16a34a';
             revHint.dataset.valid = 'insert';
         }
@@ -517,7 +615,8 @@
         }
         const hint = document.getElementById('docNoHint');
         if (hint) {
-            hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Insert confirmed. Later numbers in this group will shift when you save.';
+            hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Renumber confirmed for '
+                + escapeHtml(docNo) + ' (' + ids.length + ' selected). Other document numbers stay put.';
             hint.style.color = '#16a34a';
             hint.dataset.valid = 'insert';
         }
@@ -632,6 +731,10 @@
         document.addEventListener('change', function (e) {
             if (e.target && e.target.id === 'docNoInsertRenameLetters') {
                 void loadShiftPreview();
+                return;
+            }
+            if (e.target && e.target.matches('#docNoInsertPreviewBody input[data-shift-request]')) {
+                refreshShiftToColumns();
             }
         });
     }

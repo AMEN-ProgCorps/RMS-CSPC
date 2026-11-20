@@ -6,6 +6,7 @@ Distributions sent to your office that are not yet received, plus rows that are 
 
 ## On this page
 - Office header: Names your office and links to Masterlist.
+- Type filters (when top tabs are off): All / Internal / Internal Forms / External / Forms / Logbooks — same grouping pattern as Masterlist.
 - Table columns: Document No., Rev., Document Title, Effectivity Date, Pages, Action.
 - Pagination: Appears at the bottom when there are many rows.
 

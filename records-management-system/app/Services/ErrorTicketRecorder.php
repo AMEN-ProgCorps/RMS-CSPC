@@ -352,6 +352,77 @@ class ErrorTicketRecorder
     }
 
     /**
+     * When a guarded page renders successfully, resolve open auto tickets for that path
+     * so the client circuit-breaker stops blocking navigation back to a fixed page.
+     */
+    public static function resolveGuardsForPath(?string $path): int
+    {
+        $path = self::normalizeGuardPath($path);
+        if ($path === null || $path === '/' || str_contains($path, '/api/')) {
+            return 0;
+        }
+
+        try {
+            if (! Schema::hasTable('sys_error_tickets')) {
+                return 0;
+            }
+
+            $tickets = ErrorTicket::query()
+                ->whereIn('source', [ErrorTicket::SOURCE_AUTO, ErrorTicket::SOURCE_USER_AUTO])
+                ->whereIn('status', [ErrorTicket::STATUS_OPEN, ErrorTicket::STATUS_IN_PROGRESS])
+                ->whereNotNull('url')
+                ->get(['id', 'url', 'status', 'admin_notes', 'resolved_at']);
+
+            $resolved = 0;
+            foreach ($tickets as $ticket) {
+                $ticketPath = self::normalizeGuardPath(parse_url((string) $ticket->url, PHP_URL_PATH) ?: null);
+                if ($ticketPath !== $path) {
+                    continue;
+                }
+                $ticket->status = ErrorTicket::STATUS_RESOLVED;
+                $ticket->resolved_at = now();
+                $notes = trim((string) ($ticket->admin_notes ?? ''));
+                $autoNote = 'Auto-resolved after successful page render.';
+                $ticket->admin_notes = $notes === '' || str_contains($notes, $autoNote)
+                    ? ($notes !== '' ? $notes : $autoNote)
+                    : ($notes."\n".$autoNote);
+                $ticket->save();
+                $resolved++;
+            }
+
+            if ($resolved > 0) {
+                self::clearGuardsCache();
+            }
+
+            return $resolved;
+        } catch (Throwable) {
+            return 0;
+        }
+    }
+
+    /**
+     * Normalizes a URL path for circuit-breaker matching.
+     */
+    public static function normalizeGuardPath(?string $path): ?string
+    {
+        if ($path === null || $path === '') {
+            return null;
+        }
+        $path = strtolower(trim($path));
+        if ($path === '') {
+            return null;
+        }
+        if ($path[0] !== '/') {
+            $path = '/'.$path;
+        }
+        if (strlen($path) > 1 && str_ends_with($path, '/')) {
+            $path = rtrim($path, '/');
+        }
+
+        return $path;
+    }
+
+    /**
      * Consolidate historical open/in-progress tickets for the same page/fingerprint into unified threads.
      * Preserves total occurrences, updates last_seen_at, and retains historical reference codes.
      *

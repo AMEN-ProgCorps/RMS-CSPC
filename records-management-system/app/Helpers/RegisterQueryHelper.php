@@ -240,6 +240,17 @@ class RegisterQueryHelper
     }
 
     /**
+     * Fixed college form numbers shared across syllabi / TOS packs
+     * (college + program + course type keep each registration separate).
+     */
+    public static function isSharedFormDocNo(?string $docNo): bool
+    {
+        $n = strtoupper(trim((string) $docNo));
+
+        return $n === 'CSPC-F-COL-13' || $n === 'CSPC-F-COL-16';
+    }
+
+    /**
      * Helper used for search tokens.
      */
     public static function searchTokens(string $search): array
@@ -2773,14 +2784,19 @@ class RegisterQueryHelper
             $semesterId = (int) ($syllabiContext['semester_id'] ?? 0);
             $schoolYearId = (int) ($syllabiContext['school_year_id'] ?? 0);
             $courseType = trim((string) ($syllabiContext['course_type'] ?? ''));
-            if ($collegeId > 0 && $programId > 0) {
-                $query->whereExists(function ($q) use ($collegeId, $programId, $semesterId, $schoolYearId, $courseType) {
+            $shared = CourseTypeRules::isSharedType($courseType);
+            if ($collegeId > 0 && ($shared || $programId > 0)) {
+                $query->whereExists(function ($q) use ($collegeId, $programId, $semesterId, $schoolYearId, $courseType, $shared) {
                     $q->select(DB::raw(1))
                         ->from('dcs_syllabi as s')
                         ->leftJoin('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
                         ->whereColumn('s.request_id', 'dr.id')
-                        ->where('s.college_id', $collegeId)
-                        ->where('s.program_id', $programId);
+                        ->where('s.college_id', $collegeId);
+                    if ($shared) {
+                        $q->whereNull('s.program_id');
+                    } else {
+                        $q->where('s.program_id', $programId);
+                    }
                     if ($semesterId > 0) {
                         $q->where('s.semester_id', $semesterId);
                     }
@@ -7166,9 +7182,12 @@ class RegisterQueryHelper
         }
         // Registration's previous-documents table asks for the whole recurred
         // chain. The revision picker keeps the single document.
+        // Always filter to the anchor family afterward so same-number copies
+        // (Register another copy) do not appear in another document's history.
         if ($request->boolean('lineage')) {
             $merged = self::expandRevisionsToStack($merged, $docTypeId, $subTypeId, $visibleIds);
-        } elseif ($anchorRow) {
+        }
+        if ($anchorRow) {
             $merged = self::filterRevisionsToAnchorDocument($merged, $anchorRow);
         }
 
@@ -9261,19 +9280,22 @@ class RegisterQueryHelper
         $courseType = trim((string) $request->input('course_type', ''));
         $subTypeId = $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null;
         $excludeRequestId = (int) $request->input('exclude_request_id', 0);
+        $shared = CourseTypeRules::isSharedType($courseType);
 
-        if ($collegeId < 1 || $programId < 1 || $semesterId < 1 || $schoolYearId < 1
-            || $courseType === '') {
+        if ($collegeId < 1 || $semesterId < 1 || $schoolYearId < 1 || $courseType === ''
+            || (! $shared && $programId < 1)) {
             return [
                 'taken' => false,
                 'incomplete' => true,
-                'message' => 'Select college, program, semester, course type, and school year first.',
+                'message' => $shared
+                    ? 'Select college, semester, course type, and school year first.'
+                    : 'Select college, program, semester, course type, and school year first.',
             ];
         }
 
         $duplicate = RegisterPersistHelper::findSyllabiContextDuplicate(
             $collegeId,
-            $programId,
+            $shared ? 0 : $programId,
             $semesterId,
             $schoolYearId,
             $courseType,
@@ -9607,6 +9629,9 @@ class RegisterQueryHelper
 
     /**
      * Copies this saved Recur replaced. The open registration stays out of the list.
+     * Another registration that only shares the document number (Register another copy)
+     * stays out — Previous documents is this recur chain only.
+     *
      * @return list<array<string, mixed>>
      */
     public static function recurPreviousDocuments(?object $ml, ?object $docRequest): array
@@ -9648,6 +9673,8 @@ class RegisterQueryHelper
         if ($familyNos === [] && $stack === '' && $title === '' && $fromNo === '') {
             return [];
         }
+
+        // Never match on document number alone — that pulls unrelated same-number copies.
         $query = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->where('dr.doc_type_id', $docTypeId)
@@ -9656,35 +9683,44 @@ class RegisterQueryHelper
                 $draft->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
             })
             ->where(function ($family) use ($stack, $docNo, $title, $familyNos, $fromNo) {
-                $started = false;
-                if ($familyNos !== []) {
-                    $family->whereIn('ml.doc_no', $familyNos);
-                    $started = true;
-                }
                 if ($stack !== '') {
-                    $started ? $family->orWhere('ml.stack_group', $stack) : $family->where('ml.stack_group', $stack);
-                    $started = true;
+                    $family->where('ml.stack_group', $stack);
+                    if ($title !== '' && $familyNos !== []) {
+                        $family->orWhere(function ($older) use ($title, $familyNos) {
+                            $older->whereIn('ml.doc_no', $familyNos)
+                                ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)])
+                                ->where(function ($empty) {
+                                    $empty->whereNull('ml.stack_group')->orWhere('ml.stack_group', '');
+                                })
+                                ->whereIn('ml.revision_status', ['obsolete', 'superseded']);
+                        });
+                    }
+
+                    return;
                 }
+
                 if ($fromNo !== '') {
-                    $clause = function ($older) use ($fromNo, $title) {
+                    $family->where(function ($older) use ($fromNo, $title) {
                         $older->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($fromNo)]);
                         if ($title !== '') {
                             $older->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)]);
                         }
-                    };
-                    $started ? $family->orWhere($clause) : $family->where($clause);
-                    $started = true;
+                    });
                 }
+
                 if ($docNo !== '' && $title !== '') {
-                    $clause = function ($older) use ($docNo, $title) {
-                        $older->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)])
-                            ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)])
-                            ->where(function ($empty) {
-                                $empty->whereNull('ml.stack_group')->orWhere('ml.stack_group', '');
-                            })
-                            ->whereIn('ml.revision_status', ['obsolete', 'superseded']);
+                    $clause = function ($older) use ($docNo, $title, $familyNos) {
+                        $older->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)]);
+                        if ($familyNos !== []) {
+                            $older->whereIn('ml.doc_no', $familyNos);
+                        } else {
+                            $older->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)]);
+                        }
+                        $older->where(function ($empty) {
+                            $empty->whereNull('ml.stack_group')->orWhere('ml.stack_group', '');
+                        })->whereIn('ml.revision_status', ['obsolete', 'superseded']);
                     };
-                    $started ? $family->orWhere($clause) : $family->where($clause);
+                    $fromNo !== '' ? $family->orWhere($clause) : $family->where($clause);
                 } elseif ($docNo === '' && $title !== '') {
                     $clause = function ($older) use ($title) {
                         $older->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)])
@@ -9693,27 +9729,50 @@ class RegisterQueryHelper
                             })
                             ->whereIn('ml.revision_status', ['obsolete', 'superseded', 'latest']);
                     };
-                    $started ? $family->orWhere($clause) : $family->where($clause);
+                    $fromNo !== '' ? $family->orWhere($clause) : $family->where($clause);
+                } elseif ($fromNo === '' && $familyNos !== [] && $title !== '') {
+                    // Last resort without stack: same title within the number family only.
+                    $family->whereIn('ml.doc_no', $familyNos)
+                        ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)]);
                 }
             });
         self::applyNotDeleted($query, 'dr');
 
         $purposeByRequest = [];
+        $select = [
+            'ml.id as masterlist_id',
+            'ml.request_id',
+            'ml.doc_no',
+            'ml.doc_title',
+            'ml.revise_no',
+            'ml.revision_status',
+            'ml.effectivity_date',
+            'ml.scanned_masterlist',
+        ];
+        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            $select[] = 'ml.stack_group';
+        }
         $rows = $query
             ->orderByDesc('ml.revise_no')
             ->orderByDesc('ml.effectivity_date')
             ->orderByDesc('ml.id')
-            ->get([
-                'ml.id as masterlist_id',
-                'ml.request_id',
-                'ml.doc_no',
-                'ml.doc_title',
-                'ml.revise_no',
-                'ml.revision_status',
-                'ml.effectivity_date',
-                'ml.scanned_masterlist',
-            ]);
+            ->get($select);
         self::attachOriginatorNames($rows);
+
+        // Belt-and-suspenders: drop unrelated same-number copies (e.g. TEST 2 vs TESTRING).
+        $anchorTitle = mb_strtolower($title);
+        $rows = $rows->filter(function ($row) use ($stack, $anchorTitle) {
+            $rowStack = trim((string) ($row->stack_group ?? ''));
+            if ($stack !== '' && $rowStack !== '' && strcasecmp($stack, $rowStack) === 0) {
+                return true;
+            }
+            if ($anchorTitle === '') {
+                return $stack === '' || $rowStack === '';
+            }
+
+            return mb_strtolower(trim((string) ($row->doc_title ?? ''))) === $anchorTitle;
+        })->values();
+
         if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
             $purposeIds = $rows->filter(fn ($row) => (int) $row->revise_no > 0)->pluck('request_id')->all();
             if ($purposeIds !== []) {
@@ -10219,6 +10278,10 @@ class RegisterQueryHelper
         }
 
         $coursesByProgramSemester = [];
+        $coursesBySharedSemester = [];
+        // GE/PE/NSTP: one row per type+semester+year+name (prefer program_id null).
+        // Older Settings rows may still have a program_id until migration — still show them.
+        $sharedBest = [];
         $coursesQ = DB::table('dcs_program_courses');
         if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
             $coursesQ->orderByRaw("CASE year_level
@@ -10237,10 +10300,11 @@ class RegisterQueryHelper
                 WHEN 'Major' THEN 4
                 ELSE 99 END");
         }
-        $coursesQ->orderBy('course_name');
+        $coursesQ->orderBy('course_name')->orderBy('id');
         SettingsRecycleHelper::applyNotDeleted($coursesQ, 'dcs_program_courses');
         foreach ($coursesQ->get($courseColumns) as $c) {
-            $coursesByProgramSemester[$c->program_id . ':' . $c->semester_id][] = [
+            $type = trim((string) ($c->course_type ?? ''));
+            $payload = [
                 'id' => $c->id,
                 'course_name' => $c->course_name,
                 'course_code' => $c->course_code ?? '',
@@ -10249,6 +10313,37 @@ class RegisterQueryHelper
                 // Faculty is chosen during Syllabi / TOS-Rubrics registration (college-scoped).
                 'faculties' => [],
             ];
+            if (CourseTypeRules::isSharedType($type)) {
+                $dedupeKey = mb_strtolower($type)
+                    . '|' . (int) $c->semester_id
+                    . '|' . mb_strtolower(trim((string) ($c->year_level ?? '')))
+                    . '|' . mb_strtolower(trim((string) ($c->course_name ?? '')));
+                $existing = $sharedBest[$dedupeKey] ?? null;
+                $isNull = $c->program_id === null;
+                $existingNull = is_array($existing) && ($existing['_null'] ?? false);
+                if (! $existing
+                    || ($isNull && ! $existingNull)
+                    || ($isNull === $existingNull && (int) $c->id < (int) ($existing['id'] ?? 0))
+                ) {
+                    $payload['_null'] = $isNull;
+                    $payload['_semester_id'] = (int) $c->semester_id;
+                    $sharedBest[$dedupeKey] = $payload;
+                }
+                continue;
+            }
+            if ($c->program_id === null) {
+                continue;
+            }
+            $coursesByProgramSemester[$c->program_id.':'.$c->semester_id][] = $payload;
+        }
+        foreach ($sharedBest as $payload) {
+            $semesterId = (int) ($payload['_semester_id'] ?? 0);
+            $type = trim((string) ($payload['course_type'] ?? ''));
+            unset($payload['_null'], $payload['_semester_id']);
+            if ($type === '' || $semesterId < 1) {
+                continue;
+            }
+            $coursesBySharedSemester[$type.':'.$semesterId][] = $payload;
         }
 
         return $cache = [
@@ -10339,6 +10434,7 @@ class RegisterQueryHelper
                 ->all(),
             'programsByCollege' => $programsByCollege,
             'coursesByProgramSemester' => $coursesByProgramSemester,
+            'coursesBySharedSemester' => $coursesBySharedSemester,
             'faculties' => (function () {
                 $q = DB::table('dcs_faculties')->orderBy('faculty_name');
                 SettingsRecycleHelper::applyNotDeleted($q, 'dcs_faculties');

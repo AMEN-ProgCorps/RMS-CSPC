@@ -672,7 +672,7 @@
             }
         }
         // 6. Subsystems Section
-        elseif (request()->routeIs('admin.subsystems.*')) {
+        elseif (request()->routeIs('admin.subsystems.*') || request()->routeIs('admin.manuals.*')) {
             $sectionTitle = 'Subsystems';
             $tabs = [
                 [
@@ -694,6 +694,11 @@
                     'label' => 'Changes Logs',
                     'url' => route('admin.subsystems.changes-logs'),
                     'active' => request()->routeIs('admin.subsystems.changes-logs'),
+                ],
+                [
+                    'label' => 'Editor',
+                    'url' => route('admin.subsystems.manuals'),
+                    'active' => request()->routeIs('admin.subsystems.manuals') || request()->routeIs('admin.manuals.*'),
                 ],
             ];
         }

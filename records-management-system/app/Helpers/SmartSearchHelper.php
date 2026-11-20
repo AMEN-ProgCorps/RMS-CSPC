@@ -167,9 +167,41 @@ class SmartSearchHelper
     /**
      * Applies smart filtering and relevance ordering directly to an Eloquent/Query Builder instance.
      *
-     * @param \Illuminate\Database\Query\Builder|\Illuminate\Database\Eloquent\Builder $query
-     * @param string $search
-     * @param array $columnsConfig Array of columns with roles ['primary' => [...], 'secondary' => [...], 'meta' => [...]] or flat list of columns
+     * =========================================================================================
+     * INSTITUTIONAL DEVELOPER / DEBUGGING GUIDE:
+     * =========================================================================================
+     * Purpose:
+     *   Executes an intelligent SQL WHERE filter and relevance ORDER BY clause on database queries,
+     *   ensuring the most exact and relevant records appear at the very top of paginated tables.
+     *
+     * How It Works:
+     *   1. Normalization & Tokenization:
+     *      - Normalizes input (decoding Base64 QR strings if present).
+     *      - Extracts distinct words and alphanumeric tokens via tokenize().
+     *   2. Defensive Column Validation (filterJoinedColumns):
+     *      - Inspects the builder's FROM and JOIN clauses.
+     *      - Discards any configured columns whose table aliases are not joined.
+     *      - PREVENTS: Fatal PostgreSQL errors (e.g. error 500 "missing FROM-clause entry for table").
+     *   3. Multi-tier Matching (WHERE clause):
+     *      - Matches full search phrases across primary, secondary, and meta columns.
+     *      - For multi-word queries, requires all tokens to be present across the columns (AND logic).
+     *   4. Relevance Ranking (ORDER BY CASE clause):
+     *      - Assigns weighted scores:
+     *          * Exact match on Primary column (e.g. Control No / QR) = 10,000 pts
+     *          * Exact match on Secondary column (e.g. Subject)       = 5,000 pts
+     *          * Prefix match on Primary (starts with query)           = 3,000 pts
+     *          * Prefix match on Secondary                             = 2,000 pts
+     *          * Substring phrase contains                             = 500–1,500 pts
+     *          * Individual token presence                             = 40–200 pts
+     *
+     * Troubleshooting / Common Issues:
+     *   - If search returns 0 results: Check if the search string is overly specific or has special characters.
+     *   - If an SQL error occurs on join: Ensure the required table join is added in the caller query,
+     *     or let filterJoinedColumns() automatically strip the missing table alias.
+     *
+     * @param \Illuminate\Database\Query\Builder|\Illuminate\Database\Eloquent\Builder $query Active query builder
+     * @param string $search User's search input string
+     * @param array $columnsConfig Array of columns: ['primary' => [...], 'secondary' => [...], 'meta' => [...]]
      * @return void
      */
     public static function applySearch($query, string $search, array $columnsConfig): void
@@ -328,6 +360,25 @@ class SmartSearchHelper
 
     /**
      * Filter columns to only include those belonging to tables or aliases actually present in the query.
+     *
+     * =========================================================================================
+     * INSTITUTIONAL DEVELOPER / DEBUGGING GUIDE:
+     * =========================================================================================
+     * PostgreSQL Safety Guard:
+     *   Unlike MySQL (which may tolerate missing aliases in certain contexts), PostgreSQL strictly
+     *   throws a fatal exception ("missing FROM-clause entry for table 'xyz'") if any WHERE or ORDER BY
+     *   expression references a table alias that was never joined in the SQL query.
+     *
+     * How it works:
+     *   1. Extracts the primary table name and alias from the query's $baseQuery->from property.
+     *   2. Loops through all joined tables in $baseQuery->joins and extracts their table aliases.
+     *   3. Splits each candidate column (e.g., 'dtd.control_number' -> prefix 'dtd').
+     *   4. Strips out any candidate columns whose prefix is not in the list of recognized query aliases.
+     *   5. Returns only safe, joined columns so queries never fail with Error 500.
+     *
+     * @param mixed $query Laravel Query Builder or Eloquent Builder
+     * @param array $columns List of column names to validate
+     * @return array Validated list containing only columns from joined tables
      */
     protected static function filterJoinedColumns($query, array $columns): array
     {

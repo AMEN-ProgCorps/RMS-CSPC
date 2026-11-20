@@ -552,7 +552,34 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     }
 
     /**
-     * Retrieves and populates transactions property data.
+     * Retrieves, filters, and paginates internal transactions with dynamic routing metadata.
+     *
+     * =========================================================================================
+     * INSTITUTIONAL DEVELOPER / DEBUGGING GUIDE:
+     * =========================================================================================
+     * Pipeline Overview:
+     *   1. Authorization & Office Clearance:
+     *      - Users with sitewide clearance ($this->canViewAll()) can view all internal transactions or filter by office.
+     *      - Standard office staff are restricted to transactions originating from their station ($userOfficeCode).
+     *   2. Query Joining:
+     *      - Joins `dts_transactions` (dt) with `dts_transaction_details` (dtd).
+     *      - Left joins `dts_requestor_history` (req), `sys_office` (originated_office & current_office),
+     *        `dts_transaction_flow` (flow), and `sys_document_data` (doc).
+     *   3. Status Filtering:
+     *      - 'standby': Transactions held at a station (date_in set, date_out null, or awaiting initial dispatch).
+     *      - 'ongoing': Transactions released/dispatched from a station and currently in transit.
+     *      - 'completed' / 'cancelled': Final terminal states.
+     *   4. Smart Searching (SmartSearchHelper):
+     *      - Applies multi-column phrase and token search with defensive table alias validation.
+     *      - Applies SQL relevance ranking so exact/prefix matches appear first.
+     *   5. Modifier Sorting:
+     *      - Supports 'standby_first', 'ongoing_first', and 'completed_first' ordering.
+     *   6. Transformation & Life-cycle Routing (transform closure):
+     *      - Dynamically resolves Current Office and Destination Office from routing logs ($logs).
+     *      - Formats Received / Released timestamps for the active forwarding stage.
+     *      - Calculates Elapsed Days based on institutional settings policy.
+     *
+     * @return \Illuminate\Contracts\Pagination\LengthAwarePaginator
      */
     public function getTransactionsProperty()
     {
@@ -694,7 +721,24 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             $t->remarks = $latestLog ? $latestLog->notes : '-';
             $t->received_by = $latestLog && $latestLog->first_name ? ($latestLog->first_name . ' ' . $latestLog->last_name) : '-';
 
-            // Active Stage: Current Office and Destination Office Received & Released
+            // =========================================================================================
+            // INSTITUTIONAL DEVELOPER / DEBUGGING GUIDE: ACTIVE ROUTING & FORWARDING STAGE RESOLUTION
+            // =========================================================================================
+            // Dynamic Stage Progression:
+            //   The table features a 2-tier header:
+            //     [ Current Office (Received | Released) ] [ Destination Office (Received | Released) ]
+            //
+            //   Instead of hardcoding steps 1 & 2, this logic dynamically advances along the forwarding path:
+            //   - When Office A forwards to Office B (count == 2):
+            //       * $currentOfficeLog = Log 1 (Office A: Received & Released)
+            //       * $destOfficeLog    = Log 2 (Office B: Received & Released/pending)
+            //   - When Office B completes its forward to Office C (count == 3):
+            //       * $currentOfficeLog = Log 2 (Office B now acts as Current Office with its dispatch timestamp)
+            //       * $destOfficeLog    = Log 3 (Office C now acts as the new Destination Office)
+            //   - When newly created at Origin (count <= 1):
+            //       * $currentOfficeLog = Log 1 or creation timestamp
+            //       * $destOfficeLog    = null (displays '-' for Received & Released)
+            // =========================================================================================
             if ($logs->count() > 1) {
                 $currentOfficeLog = $logs->get($logs->count() - 2);
                 $destOfficeLog = $logs->last();
@@ -721,7 +765,15 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 ? \Carbon\Carbon::parse($destOfficeLog->date_out)->format('M d, Y h:i A') 
                 : '-';
 
-            // Dynamic display status: Standby vs Ongoing vs Completed vs Cancelled
+            // =========================================================================================
+            // INSTITUTIONAL DEVELOPER / DEBUGGING GUIDE: DYNAMIC STATUS RESOLUTION (STANDBY vs ONGOING)
+            // =========================================================================================
+            // Status Rules:
+            //   - 'completed' / 'cancelled': Preserved when final terminal state is reached.
+            //   - 'standby': Document is actively in custody of an office upon receipt and has not yet been released
+            //     (any log has date_in != null && date_out == null, or newly created awaiting initial dispatch).
+            //   - 'ongoing': Document has been released/dispatched (date_out is logged) and is in transit.
+            // =========================================================================================
             $rawStatus = strtolower($t->status ?? '');
             if ($rawStatus === 'completed') {
                 $t->display_status = 'completed';

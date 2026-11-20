@@ -586,6 +586,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $whDays = \DB::table($sysTable)->where('key', 'dts_working_hours_days')->value('value');
         $this->dtsWorkingHoursDays = in_array($whDays, ['mon-fri', 'all']) ? $whDays : 'mon-fri';
 
+        // Load Elapsed Days Mode: 'total_lifetime' (from inception) vs 'current_stage' (from active station receipt)
         $elapsedMode = \DB::table($sysTable)->where('key', 'dts_elapsed_days_mode')->value('value');
         $this->dtsElapsedDaysMode = in_array($elapsedMode, ['total_lifetime', 'current_stage'], true) ? $elapsedMode : 'total_lifetime';
 
@@ -1240,6 +1241,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
+                // Persist DTS Elapsed Days Calculation Mode to sys_system_settings
+                // 'total_lifetime': counts cumulative days from document creation
+                // 'current_stage': counts days only while in custody of current active office
                 \DB::table($sysTable)->updateOrInsert(
                     ['key' => 'dts_elapsed_days_mode'],
                     [

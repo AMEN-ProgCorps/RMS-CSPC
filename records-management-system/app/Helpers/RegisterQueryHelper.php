@@ -7182,9 +7182,12 @@ class RegisterQueryHelper
         }
         // Registration's previous-documents table asks for the whole recurred
         // chain. The revision picker keeps the single document.
+        // Always filter to the anchor family afterward so same-number copies
+        // (Register another copy) do not appear in another document's history.
         if ($request->boolean('lineage')) {
             $merged = self::expandRevisionsToStack($merged, $docTypeId, $subTypeId, $visibleIds);
-        } elseif ($anchorRow) {
+        }
+        if ($anchorRow) {
             $merged = self::filterRevisionsToAnchorDocument($merged, $anchorRow);
         }
 
@@ -9626,6 +9629,9 @@ class RegisterQueryHelper
 
     /**
      * Copies this saved Recur replaced. The open registration stays out of the list.
+     * Another registration that only shares the document number (Register another copy)
+     * stays out — Previous documents is this recur chain only.
+     *
      * @return list<array<string, mixed>>
      */
     public static function recurPreviousDocuments(?object $ml, ?object $docRequest): array
@@ -9667,6 +9673,8 @@ class RegisterQueryHelper
         if ($familyNos === [] && $stack === '' && $title === '' && $fromNo === '') {
             return [];
         }
+
+        // Never match on document number alone — that pulls unrelated same-number copies.
         $query = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->where('dr.doc_type_id', $docTypeId)
@@ -9675,35 +9683,44 @@ class RegisterQueryHelper
                 $draft->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
             })
             ->where(function ($family) use ($stack, $docNo, $title, $familyNos, $fromNo) {
-                $started = false;
-                if ($familyNos !== []) {
-                    $family->whereIn('ml.doc_no', $familyNos);
-                    $started = true;
-                }
                 if ($stack !== '') {
-                    $started ? $family->orWhere('ml.stack_group', $stack) : $family->where('ml.stack_group', $stack);
-                    $started = true;
+                    $family->where('ml.stack_group', $stack);
+                    if ($title !== '' && $familyNos !== []) {
+                        $family->orWhere(function ($older) use ($title, $familyNos) {
+                            $older->whereIn('ml.doc_no', $familyNos)
+                                ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)])
+                                ->where(function ($empty) {
+                                    $empty->whereNull('ml.stack_group')->orWhere('ml.stack_group', '');
+                                })
+                                ->whereIn('ml.revision_status', ['obsolete', 'superseded']);
+                        });
+                    }
+
+                    return;
                 }
+
                 if ($fromNo !== '') {
-                    $clause = function ($older) use ($fromNo, $title) {
+                    $family->where(function ($older) use ($fromNo, $title) {
                         $older->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($fromNo)]);
                         if ($title !== '') {
                             $older->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)]);
                         }
-                    };
-                    $started ? $family->orWhere($clause) : $family->where($clause);
-                    $started = true;
+                    });
                 }
+
                 if ($docNo !== '' && $title !== '') {
-                    $clause = function ($older) use ($docNo, $title) {
-                        $older->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)])
-                            ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)])
-                            ->where(function ($empty) {
-                                $empty->whereNull('ml.stack_group')->orWhere('ml.stack_group', '');
-                            })
-                            ->whereIn('ml.revision_status', ['obsolete', 'superseded']);
+                    $clause = function ($older) use ($docNo, $title, $familyNos) {
+                        $older->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)]);
+                        if ($familyNos !== []) {
+                            $older->whereIn('ml.doc_no', $familyNos);
+                        } else {
+                            $older->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)]);
+                        }
+                        $older->where(function ($empty) {
+                            $empty->whereNull('ml.stack_group')->orWhere('ml.stack_group', '');
+                        })->whereIn('ml.revision_status', ['obsolete', 'superseded']);
                     };
-                    $started ? $family->orWhere($clause) : $family->where($clause);
+                    $fromNo !== '' ? $family->orWhere($clause) : $family->where($clause);
                 } elseif ($docNo === '' && $title !== '') {
                     $clause = function ($older) use ($title) {
                         $older->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)])
@@ -9712,27 +9729,50 @@ class RegisterQueryHelper
                             })
                             ->whereIn('ml.revision_status', ['obsolete', 'superseded', 'latest']);
                     };
-                    $started ? $family->orWhere($clause) : $family->where($clause);
+                    $fromNo !== '' ? $family->orWhere($clause) : $family->where($clause);
+                } elseif ($fromNo === '' && $familyNos !== [] && $title !== '') {
+                    // Last resort without stack: same title within the number family only.
+                    $family->whereIn('ml.doc_no', $familyNos)
+                        ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)]);
                 }
             });
         self::applyNotDeleted($query, 'dr');
 
         $purposeByRequest = [];
+        $select = [
+            'ml.id as masterlist_id',
+            'ml.request_id',
+            'ml.doc_no',
+            'ml.doc_title',
+            'ml.revise_no',
+            'ml.revision_status',
+            'ml.effectivity_date',
+            'ml.scanned_masterlist',
+        ];
+        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            $select[] = 'ml.stack_group';
+        }
         $rows = $query
             ->orderByDesc('ml.revise_no')
             ->orderByDesc('ml.effectivity_date')
             ->orderByDesc('ml.id')
-            ->get([
-                'ml.id as masterlist_id',
-                'ml.request_id',
-                'ml.doc_no',
-                'ml.doc_title',
-                'ml.revise_no',
-                'ml.revision_status',
-                'ml.effectivity_date',
-                'ml.scanned_masterlist',
-            ]);
+            ->get($select);
         self::attachOriginatorNames($rows);
+
+        // Belt-and-suspenders: drop unrelated same-number copies (e.g. TEST 2 vs TESTRING).
+        $anchorTitle = mb_strtolower($title);
+        $rows = $rows->filter(function ($row) use ($stack, $anchorTitle) {
+            $rowStack = trim((string) ($row->stack_group ?? ''));
+            if ($stack !== '' && $rowStack !== '' && strcasecmp($stack, $rowStack) === 0) {
+                return true;
+            }
+            if ($anchorTitle === '') {
+                return $stack === '' || $rowStack === '';
+            }
+
+            return mb_strtolower(trim((string) ($row->doc_title ?? ''))) === $anchorTitle;
+        })->values();
+
         if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
             $purposeIds = $rows->filter(fn ($row) => (int) $row->revise_no > 0)->pluck('request_id')->all();
             if ($purposeIds !== []) {

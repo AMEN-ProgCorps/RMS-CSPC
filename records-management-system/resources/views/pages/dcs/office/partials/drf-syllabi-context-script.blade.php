@@ -265,6 +265,7 @@ GE/PE/NSTP = college only + shared catalog. Major = college + program.
         const taken = takenSchoolYearIdsForCourse();
         const takenSet = {};
         taken.forEach(function (id) { takenSet[id] = true; });
+        // Catalog already limited to the active school year (Settings).
         const available = (catalog.schoolYears || []).filter(function (sy) {
             return !takenSet[String(sy.school_year_id)];
         });
@@ -273,11 +274,18 @@ GE/PE/NSTP = college only + shared catalog. Major = college + program.
             placeholder = 'Select course first…';
         } else if (!available.length) {
             placeholder = taken.length
-                ? 'Already registered for every school year…'
-                : 'No school years in Settings…';
+                ? 'Active school year already has an open request for this course…'
+                : 'No active school year in Settings…';
         }
         fillSelect(schoolYearSel, available, 'school_year_id', 'school_year', placeholder, keep);
         setEnabled(schoolYearSel, courseOn && available.length > 0, true);
+        // Only one active year → auto-select so requestors cannot pick the wrong S/Y.
+        if (courseOn && available.length === 1 && schoolYearSel) {
+            const onlyId = String(available[0].school_year_id);
+            if (!keep || !schoolYearSel.value) {
+                schoolYearSel.value = onlyId;
+            }
+        }
     }
 
     /**

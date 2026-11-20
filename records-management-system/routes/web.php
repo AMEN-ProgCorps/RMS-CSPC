@@ -338,6 +338,21 @@ Route::get('/api/errors/active-guards', function () {
     return response()->json(\App\Services\ErrorTicketRecorder::getActiveGuards());
 })->name('api.errors.active-guards');
 
+// Successful page render clears the circuit-breaker for that path (page was fixed / recovered).
+Route::post('/api/errors/clear-page-guard', function () {
+    $path = request()->input('path') ?: request()->headers->get('Referer');
+    if (is_string($path) && str_contains($path, '://')) {
+        $path = parse_url($path, PHP_URL_PATH) ?: '';
+    }
+    $resolved = \App\Services\ErrorTicketRecorder::resolveGuardsForPath(is_string($path) ? $path : null);
+
+    return response()->json([
+        'ok' => true,
+        'resolved' => $resolved,
+        'guards' => \App\Services\ErrorTicketRecorder::getActiveGuards(),
+    ]);
+})->middleware('auth')->name('api.errors.clear-page-guard');
+
 // Secured routes (behind auth middleware)
 Route::middleware(['auth'])
     ->group(function () {

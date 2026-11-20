@@ -4213,14 +4213,25 @@ class OfficeIntakeHelper
      * Lists or paginates data for list signatory assignments.
      * @return \Illuminate\Support\Collection<int, object>
      */
+    /** @var array<string, \Illuminate\Support\Collection<int, object>> */
+    private static array $signatoryAssignmentsMemo = [];
+
     public static function listSignatoryAssignments(string $formKind = 'drf'): \Illuminate\Support\Collection
     {
+        $memoKey = strtolower(trim($formKind));
+        if ($memoKey === '') {
+            $memoKey = 'drf';
+        }
+        if (isset(self::$signatoryAssignmentsMemo[$memoKey])) {
+            return self::$signatoryAssignmentsMemo[$memoKey];
+        }
+
         if (! Schema::hasTable('dcs_signatory_templates')) {
-            return collect();
+            return self::$signatoryAssignmentsMemo[$memoKey] = collect();
         }
 
         $query = DB::table('dcs_signatory_templates as t')
-            ->where('t.form_kind', strtolower($formKind))
+            ->where('t.form_kind', $memoKey)
             ->orderByDesc('t.id');
 
         if (Schema::hasColumn('dcs_signatory_templates', 'doc_type_id') && Schema::hasTable('dcs_doc_types')) {
@@ -4243,7 +4254,7 @@ class OfficeIntakeHelper
         $rows = $query->limit(200)->get();
         self::attachSignatoryPayloads($rows);
 
-        return $rows;
+        return self::$signatoryAssignmentsMemo[$memoKey] = $rows;
     }
 
     /**
@@ -4904,10 +4915,15 @@ class OfficeIntakeHelper
      * }
      */
     /**
-     * School years already used for a course under a specific sub-type (Syllabi vs TOS/Rubrics):
-     * - controlled row with Syllabi Availability on for that sub-type, or
-     * - another open office DRF for the same course + school year + sub-type.
+     * School years reserved by another *open* office DRF for the same course + sub-type.
+     *
+     * Registered syllabi packs are NOT treated as taken — a second faculty can still
+     * submit a DRF for that course/S/Y; RFIO Proceed opens the existing registration
+     * (edit + intake stamp) instead of creating a new pack.
+     *
      * Key: "{college_id}:{program_id}:{semester_id}:{course_id}:{sub_type_id}" → list of school_year_id.
+     * program_id 0 = institutional GE/PE/NSTP.
+     *
      * @return array<string, list<int>>
      */
     public static function officeDrfSyllabiTakenSchoolYearsByCourse(?int $exceptDrfId = null): array
@@ -4934,45 +4950,8 @@ class OfficeIntakeHelper
             }
         };
 
-        // Only block when that course is registered under the same sub-type (Syllabi ≠ TOS).
-        if (Schema::hasTable('dcs_syllabi') && Schema::hasTable('dcs_document_requests')) {
-            $query = DB::table('dcs_syllabi as s')
-                ->join('dcs_document_requests as dr', 'dr.id', '=', 's.request_id')
-                ->whereNotNull('s.course_id')
-                ->whereNotNull('s.school_year_id')
-                ->whereNotNull('dr.sub_type_id');
-            if (Schema::hasColumn('dcs_syllabi', 'is_available')) {
-                $query->where('s.is_available', true);
-            }
-            if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
-                $query->whereNull('dr.deleted_at');
-            }
-            if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
-                $query->where(function ($q) {
-                    $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
-                });
-            }
-            foreach ($query->get([
-                's.college_id',
-                's.program_id',
-                's.semester_id',
-                's.course_id',
-                's.school_year_id',
-                'dr.sub_type_id',
-            ]) as $row) {
-                $push(
-                    $taken,
-                    $row->college_id ?? 0,
-                    $row->program_id ?? 0,
-                    $row->semester_id ?? 0,
-                    $row->course_id ?? 0,
-                    $row->school_year_id ?? 0,
-                    $row->sub_type_id ?? 0
-                );
-            }
-        }
-
-        // Open office intakes reserve the same course + school year + sub-type.
+        // Only open (unregistered) office DRFs reserve a course + school year + sub-type.
+        // Already-controlled packs stay available so another faculty can request a merge stamp.
         if (
             Schema::hasTable('dcs_office_intake_drf')
             && Schema::hasColumn('dcs_office_intake_drf', 'course_id')
@@ -5050,14 +5029,70 @@ class OfficeIntakeHelper
             'coursesByProgramSemester' => $courses,
             'coursesBySharedSemester' => $shared,
             'semesters' => $full['semesters'] ?? [],
-            'schoolYears' => $full['schoolYears'] ?? [],
+            // Requestors only see the single active school year (plus this DRF's year when editing).
+            'schoolYears' => self::officeDrfActiveSchoolYears($exceptDrfId),
             'takenSchoolYearsByCourse' => self::officeDrfSyllabiTakenSchoolYearsByCourse($exceptDrfId),
         ];
     }
 
     /**
-     * Whether this course + school year is already taken for the same sub-type
-     * (registered available row or open office DRF).
+     * School years offered on office Syllabi/TOS DRF: the active S/Y only.
+     * When editing, also include that DRF's saved year so the form can redisplay it.
+     *
+     * @return list<array{school_year_id:int,school_year:string,is_active?:bool}>
+     */
+    public static function officeDrfActiveSchoolYears(?int $exceptDrfId = null): array
+    {
+        if (! Schema::hasTable('dcs_school_years')) {
+            return [];
+        }
+
+        $q = DB::table('dcs_school_years')->orderBy('school_year');
+        SettingsRecycleHelper::applyNotDeleted($q, 'dcs_school_years');
+
+        $hasActiveCol = Schema::hasColumn('dcs_school_years', 'is_active');
+        $rows = collect();
+
+        if ($hasActiveCol) {
+            $active = (clone $q)->where('is_active', true)->get(['id', 'school_year', 'is_active']);
+            $rows = $rows->concat($active);
+        } else {
+            // Pre-migration fallback: keep previous "all years" behavior.
+            $rows = (clone $q)->get(['id', 'school_year']);
+        }
+
+        $keepId = 0;
+        if ($exceptDrfId && $exceptDrfId > 0
+            && Schema::hasTable('dcs_office_intake_drf')
+            && Schema::hasColumn('dcs_office_intake_drf', 'school_year_id')
+        ) {
+            $keepId = (int) (DB::table('dcs_office_intake_drf')->where('id', $exceptDrfId)->value('school_year_id') ?? 0);
+        }
+        if ($keepId > 0 && ! $rows->contains(fn ($r) => (int) $r->id === $keepId)) {
+            $extraQ = DB::table('dcs_school_years')->where('id', $keepId);
+            SettingsRecycleHelper::applyNotDeleted($extraQ, 'dcs_school_years');
+            $extraCols = $hasActiveCol ? ['id', 'school_year', 'is_active'] : ['id', 'school_year'];
+            $extra = $extraQ->first($extraCols);
+            if ($extra) {
+                $rows = $rows->push($extra);
+            }
+        }
+
+        return $rows
+            ->unique('id')
+            ->sortBy('school_year')
+            ->values()
+            ->map(fn ($y) => array_filter([
+                'school_year_id' => (int) $y->id,
+                'school_year' => (string) $y->school_year,
+                'is_active' => $hasActiveCol ? ! empty($y->is_active) : null,
+            ], fn ($v) => $v !== null))
+            ->all();
+    }
+
+    /**
+     * Whether this course + school year is reserved by another open office DRF
+     * for the same sub-type (registered packs do not block a new request).
      */
     public static function officeDrfSyllabiCourseSchoolYearTaken(
         int $collegeId,
@@ -5215,6 +5250,26 @@ class OfficeIntakeHelper
             throw ValidationException::withMessages(['schoolYearId' => 'Select a valid school year.']);
         }
 
+        // New requests must use the active school year only (editing may keep a legacy year).
+        if (
+            Schema::hasColumn('dcs_school_years', 'is_active')
+            && ! (bool) DB::table('dcs_school_years')->where('id', $schoolYearId)->value('is_active')
+        ) {
+            $editingSameYear = $exceptDrfId
+                && $exceptDrfId > 0
+                && Schema::hasTable('dcs_office_intake_drf')
+                && Schema::hasColumn('dcs_office_intake_drf', 'school_year_id')
+                && (int) (DB::table('dcs_office_intake_drf')->where('id', $exceptDrfId)->value('school_year_id') ?? 0) === $schoolYearId;
+            if (! $editingSameYear) {
+                $activeLabel = (string) (DB::table('dcs_school_years')->where('is_active', true)->value('school_year') ?? '');
+                throw ValidationException::withMessages([
+                    'schoolYearId' => $activeLabel !== ''
+                        ? 'Only the active school year (' . $activeLabel . ') can be requested. Change the active year in Settings if needed.'
+                        : 'No active school year is set. Ask Records to set one under Settings → School Years.',
+                ]);
+            }
+        }
+
         if (self::officeDrfSyllabiCourseSchoolYearTaken(
             $collegeId,
             $shared ? 0 : $programId,
@@ -5228,9 +5283,9 @@ class OfficeIntakeHelper
             $courseName = (string) (DB::table('dcs_program_courses')->where('id', $courseId)->value('course_name') ?? 'This course');
             $subLabel = trim((string) (DB::table('dcs_doc_types')->where('id', $subTypeId)->value('doc_type_name') ?? 'this document type'));
             throw ValidationException::withMessages([
-                'schoolYearId' => trim($courseName) . ' is already registered as ' . $subLabel . ' for S/Y '
-                    . ($sy !== '' ? $sy : 'that school year')
-                    . '. Choose another school year, or open the existing registration.',
+                'schoolYearId' => trim($courseName) . ' already has an open office ' . $subLabel
+                    . ' request for S/Y ' . ($sy !== '' ? $sy : 'that school year')
+                    . '. Finish or cancel that request first, or choose another school year.',
             ]);
         }
 

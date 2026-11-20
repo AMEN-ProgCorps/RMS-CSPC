@@ -34,8 +34,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $officeId = '';
     public string $programName = '';
     public string $programCode = '';
+    /** @var list<array{code: string, name: string}> Optional programs when creating a college */
+    public array $collegeProgramRows = [
+        ['code' => '', 'name' => ''],
+    ];
     public string $semesterName = '';
     public string $schoolYear = '';
+    /** When saving a school year, mark it as the sole active S/Y for office intake. */
+    public bool $schoolYearIsActive = false;
     public string $programId = '';
     public string $semesterId = '';
     public string $courseName = '';
@@ -56,6 +62,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $courseListCollegeId = '';
     public string $courseListProgramId = '';
     public int $courseListEpoch = 0;
+    /** When set, Colleges section shows this college's programs (programs live under college). */
+    public ?int $collegeDetailId = null;
     public $csvFile = null;
 
     public string $deleteTitle = '';
@@ -449,11 +457,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->reset([
             'docTypeName', 'originatorName',
             'facultyName', 'facultyCollegeIds', 'collegeId', 'collegeName', 'officeId', 'programName', 'programCode',
-            'semesterName', 'schoolYear', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseYearLevel', 'courseType',
+            'semesterName', 'schoolYear', 'schoolYearIsActive', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseYearLevel', 'courseType',
             'bulkCollegeId', 'bulkProgramId', 'bulkFillSemester', 'bulkFillYear', 'bulkFillType',
             'deleteTitle', 'deleteMessage',
         ]);
         $this->facultyCollegeIds = [];
+        $this->schoolYearIsActive = false;
+        $this->collegeProgramRows = [['code' => '', 'name' => '']];
         $this->courseRows = [['code' => '', 'name' => '']];
         $this->bulkRows = [];
         $this->csvFile = null;
@@ -545,12 +555,53 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->resetFormFor('college', $id);
         $this->officeId = '';
         $this->collegeName = '';
+        $this->programName = '';
+        $this->programCode = '';
+        $this->collegeProgramRows = [['code' => '', 'name' => '']];
         if ($id) {
             $row = DB::table('dcs_colleges')->where('id', $id)->first();
             abort_unless($row, 404);
             $this->collegeName = $row->college_name;
             $this->officeId = $row->office_id !== null ? (string) $row->office_id : '';
         }
+    }
+
+    /**
+     * Adds another optional program row in the Add College modal.
+     */
+    public function addCollegeProgramRow(): void
+    {
+        $this->collegeProgramRows[] = ['code' => '', 'name' => ''];
+    }
+
+    /**
+     * Removes an optional program row in the Add College modal.
+     */
+    public function removeCollegeProgramRow(int $index): void
+    {
+        if (count($this->collegeProgramRows) <= 1) {
+            $this->collegeProgramRows = [['code' => '', 'name' => '']];
+            return;
+        }
+        unset($this->collegeProgramRows[$index]);
+        $this->collegeProgramRows = array_values($this->collegeProgramRows);
+    }
+
+    /**
+     * Drill into a college to manage its programs.
+     */
+    public function openCollegePrograms(int $id): void
+    {
+        abort_unless(DB::table('dcs_colleges')->where('id', $id)->exists(), 404);
+        $this->collegeDetailId = $id;
+    }
+
+    /**
+     * Back to the colleges list.
+     */
+    public function closeCollegePrograms(): void
+    {
+        $this->collegeDetailId = null;
     }
 
     /**
@@ -576,16 +627,39 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      *
      * @return void
      */
+    /**
+     * Edit an existing program, or open Add Program (optionally locked to a college).
+     */
     public function openProgram(?int $id = null): void
     {
         $this->resetFormFor('program', $id);
+        $this->collegeId = '';
+        $this->programName = '';
+        $this->programCode = '';
         if ($id) {
             $row = DB::table('dcs_programs')->where('id', $id)->first();
             abort_unless($row, 404);
             $this->collegeId = (string) $row->college_id;
             $this->programName = $row->program_name;
             $this->programCode = $row->program_code ?? '';
+            $this->collegeDetailId = (int) $row->college_id;
+            return;
         }
+
+        if ($this->collegeDetailId) {
+            $this->collegeId = (string) $this->collegeDetailId;
+        }
+    }
+
+    /**
+     * Add a program under a specific college (from the college detail page).
+     */
+    public function openProgramForCollege(int $collegeId): void
+    {
+        abort_unless(DB::table('dcs_colleges')->where('id', $collegeId)->exists(), 404);
+        $this->collegeDetailId = $collegeId;
+        $this->openProgram(null);
+        $this->collegeId = (string) $collegeId;
     }
 
     /**
@@ -615,11 +689,35 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function openSchoolYear(?int $id = null): void
     {
         $this->resetFormFor('schoolYear', $id);
+        $this->schoolYearIsActive = false;
         if ($id) {
             $row = DB::table('dcs_school_years')->where('id', $id)->first();
             abort_unless($row, 404);
             $this->schoolYear = $row->school_year;
+            $this->schoolYearIsActive = Schema::hasColumn('dcs_school_years', 'is_active')
+                && ! empty($row->is_active);
         }
+    }
+
+    /**
+     * Make this the only active school year (used by office intake / requestors).
+     */
+    public function activateSchoolYear(int $id): void
+    {
+        if (! Schema::hasTable('dcs_school_years') || ! Schema::hasColumn('dcs_school_years', 'is_active')) {
+            $this->fail('School year activation is not available yet. Run migrations first.');
+            return;
+        }
+        $row = DB::table('dcs_school_years')->where('id', $id)->first();
+        abort_unless($row, 404);
+        if (Schema::hasColumn('dcs_school_years', 'deleted_at') && ! empty($row->deleted_at)) {
+            $this->fail('Restore this school year from the Recycle Bin before activating it.');
+            return;
+        }
+
+        DB::table('dcs_school_years')->update(['is_active' => false]);
+        DB::table('dcs_school_years')->where('id', $id)->update(['is_active' => true]);
+        $this->done('Active school year set to ' . $row->school_year . '. Office intake will only offer this year.');
     }
 
     /**
@@ -1302,8 +1400,65 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return;
         }
 
-        DB::table('dcs_colleges')->insert($payload);
-        $this->done('College added. You can add programs under it in Syllabi → Programs.');
+        $programRows = [];
+        foreach ($this->collegeProgramRows as $i => $row) {
+            $name = trim((string) ($row['name'] ?? ''));
+            $code = trim((string) ($row['code'] ?? ''));
+            if ($name === '' && $code === '') {
+                continue;
+            }
+            if ($name === '') {
+                $this->addError("collegeProgramRows.{$i}.name", 'Program name is required.');
+            }
+            if ($code === '') {
+                $this->addError("collegeProgramRows.{$i}.code", 'Program code is required.');
+            }
+            if (mb_strlen($name) > 255) {
+                $this->addError("collegeProgramRows.{$i}.name", 'Program name may not be greater than 255 characters.');
+            }
+            if (mb_strlen($code) > 50) {
+                $this->addError("collegeProgramRows.{$i}.code", 'Program code may not be greater than 50 characters.');
+            }
+            $programRows[] = ['index' => $i, 'name' => $name, 'code' => $code];
+        }
+
+        if ($this->getErrorBag()->isNotEmpty()) {
+            return;
+        }
+
+        $codesSeen = [];
+        foreach ($programRows as $entry) {
+            $key = mb_strtolower($entry['code']);
+            if (isset($codesSeen[$key])) {
+                $this->addError("collegeProgramRows.{$entry['index']}.code", 'Duplicate program code in this list.');
+                continue;
+            }
+            $codesSeen[$key] = true;
+        }
+        if ($this->getErrorBag()->isNotEmpty()) {
+            return;
+        }
+
+        $newId = (int) DB::table('dcs_colleges')->insertGetId($payload);
+        $this->collegeDetailId = $newId > 0 ? $newId : null;
+
+        if ($newId > 0 && $programRows !== []) {
+            DB::table('dcs_programs')->insert(array_map(
+                fn (array $entry) => [
+                    'college_id' => $newId,
+                    'program_name' => $entry['name'],
+                    'program_code' => $entry['code'],
+                ],
+                $programRows
+            ));
+            $count = count($programRows);
+            $this->done($count === 1
+                ? 'College and program added.'
+                : "College and {$count} programs added.");
+            return;
+        }
+
+        $this->done('College added. Click the college name to add programs.');
     }
 
     /**
@@ -1374,14 +1529,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ],
         ]);
 
+        $hasActive = Schema::hasColumn('dcs_school_years', 'is_active');
+        $payload = ['school_year' => $this->schoolYear];
+
         if ($this->editingId) {
-            DB::table('dcs_school_years')->where('id', $this->editingId)->update(['school_year' => $this->schoolYear]);
-            $this->done('School year updated.');
-            return;
+            DB::table('dcs_school_years')->where('id', $this->editingId)->update($payload);
+            $id = (int) $this->editingId;
+        } else {
+            $id = (int) DB::table('dcs_school_years')->insertGetId($payload);
         }
 
-        DB::table('dcs_school_years')->insert(['school_year' => $this->schoolYear]);
-        $this->done('School year added.');
+        if ($hasActive && $this->schoolYearIsActive && $id > 0) {
+            DB::table('dcs_school_years')->update(['is_active' => false]);
+            DB::table('dcs_school_years')->where('id', $id)->update(['is_active' => true]);
+        }
+
+        $this->done($this->editingId ? 'School year updated.' : 'School year added.');
     }
 
     /**
@@ -2228,10 +2391,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_colleges')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('college', $id);
+            if ($this->collegeDetailId === $id) {
+                $this->collegeDetailId = null;
+            }
             $this->done('College moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_colleges')->where('id', $id)->delete();
+        if ($this->collegeDetailId === $id) {
+            $this->collegeDetailId = null;
+        }
         $this->done('College deleted.');
     }
 
@@ -2299,6 +2468,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if (DB::table('dcs_syllabi')->where('school_year_id', $id)->exists()) {
             $this->fail('This school year is referenced by syllabi and cannot be deleted.');
             return;
+        }
+        if (Schema::hasColumn('dcs_school_years', 'is_active')) {
+            DB::table('dcs_school_years')->where('id', $id)->update(['is_active' => false]);
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_school_years')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('schoolYear', $id);
@@ -2404,6 +2576,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     private function catalog(): array
     {
+        // Opening/editing a modal should not reload courses + signatory history.
+        $modalLite = $this->modalKind !== '';
+        $needsFaculties = ! $modalLite || in_array($this->modalKind, ['faculty', 'importFaculties'], true);
+        $needsOriginators = ! $modalLite || in_array($this->modalKind, ['originator', 'importOriginators'], true);
+        $needsSignatories = ! $modalLite;
+        $needsCourses = ! $modalLite;
+
         $docTypeParentsQ = DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($docTypeParentsQ, 'dcs_doc_types');
         $docTypeParentCols = ['id', 'doc_type_name', 'parent_id'];
@@ -2414,8 +2593,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $docTypeSubs = $docTypeSubsQ->get($docTypeParentCols)
             ->groupBy(fn ($row) => (string) $row->parent_id);
 
+        $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $collegesQ = DB::table('dcs_colleges as c')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'c.office_id')
+            ->leftJoin($officeTable . ' as o', 'o.id', '=', 'c.office_id')
             ->orderBy('c.college_code');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($collegesQ, 'dcs_colleges', 'c');
         $colleges = $collegesQ->get(['c.id', 'c.college_code', 'c.college_name', 'c.office_id', 'o.office_name as office_name', 'o.office_code as office_code']);
@@ -2424,7 +2604,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $currentOfficeId = (int) (optional($colleges->firstWhere('id', $this->editingId))->office_id ?? 0);
             $linkedOfficeIds = $linkedOfficeIds->reject(fn ($id) => $id === $currentOfficeId);
         }
-        $collegeOfficesQuery = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true);
+        $collegeOfficesQuery = DB::table($officeTable)->where('is_active', true);
         \App\Helpers\RegisterQueryHelper::applySelectableOfficesFilter($collegeOfficesQuery);
         if ($linkedOfficeIds->isNotEmpty()) {
             $collegeOfficesQuery->whereNotIn('id', $linkedOfficeIds->values()->all());
@@ -2433,7 +2613,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ->orderBy('office_name')
             ->get(['id', 'office_name', 'office_code']);
         if ($this->modalKind === 'college' && $this->officeId !== '') {
-            $selectedOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('id', (int) $this->officeId)->first(['id', 'office_name', 'office_code']);
+            $selectedOffice = DB::table($officeTable)->where('id', (int) $this->officeId)->first(['id', 'office_name', 'office_code']);
             if ($selectedOffice && ! $collegeOffices->contains('id', $selectedOffice->id)) {
                 $collegeOffices = $collegeOffices->prepend($selectedOffice);
             }
@@ -2449,87 +2629,93 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programsQ, 'dcs_colleges', 'c');
         $programs = $programsQ->get(['p.id', 'p.college_id', 'p.program_name', 'p.program_code', 'c.college_name']);
 
-        $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
-        $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
-        $hasCourseType = Schema::hasColumn('dcs_program_courses', 'course_type');
-        $courseCols = ['pc.id', 'pc.program_id', 'pc.semester_id', 'pc.course_name', 'p.program_name', 'c.id as college_id', 'c.college_name', 'c.college_code', 's.semester_name'];
-        if ($hasYearLevel) {
-            $courseCols[] = 'pc.year_level';
-        }
-        if ($hasCourseType) {
-            $courseCols[] = 'pc.course_type';
-        }
-        if ($hasCourseCode) {
-            $courseCols[] = 'pc.course_code';
-        }
-
-        $programCoursesQ = DB::table('dcs_program_courses as pc')
-            ->leftJoin('dcs_programs as p', 'p.id', '=', 'pc.program_id')
-            ->leftJoin('dcs_colleges as c', 'c.id', '=', 'p.college_id')
-            ->leftJoin('dcs_semesters as s', 's.id', '=', 'pc.semester_id');
-        if ($hasYearLevel) {
-            $programCoursesQ->orderByRaw("CASE pc.year_level
-                WHEN '1st Year' THEN 1
-                WHEN '2nd Year' THEN 2
-                WHEN '3rd Year' THEN 3
-                WHEN '4th Year' THEN 4
-                WHEN '5th Year' THEN 5
-                ELSE 99 END");
-        }
-        $programCoursesQ->orderBy('c.college_name')->orderBy('p.program_name')->orderBy('pc.semester_id');
-        if ($hasCourseType) {
-            $programCoursesQ->orderBy('pc.course_type');
-        }
-        $programCoursesQ->orderBy('pc.course_name');
-        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programCoursesQ, 'dcs_program_courses', 'pc');
-        $programCourses = $programCoursesQ->get($courseCols);
-        // Institutional GE/PE/NSTP (program_id null) stay visible alongside Major filters.
-        if ($this->courseListCollegeId !== '') {
-            $want = (int) $this->courseListCollegeId;
-            $programCourses = $programCourses
-                ->filter(fn ($row) => $row->program_id === null || (int) ($row->college_id ?? 0) === $want)
-                ->values();
-        }
-        if ($this->courseListProgramId !== '') {
-            $want = (int) $this->courseListProgramId;
-            $programCourses = $programCourses
-                ->filter(fn ($row) => $row->program_id === null || (int) ($row->program_id ?? 0) === $want)
-                ->values();
-        }
-
-        $originatorsQ = Schema::hasTable('dcs_originators')
-            ? DB::table('dcs_originators')->orderBy('originator_name')
-            : null;
-        if ($originatorsQ) {
-            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($originatorsQ, 'dcs_originators');
-        }
-
-        $facultiesQ = DB::table('dcs_faculties as f')
-            ->orderBy('f.faculty_name');
-        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($facultiesQ, 'dcs_faculties', 'f');
-        $facultyRows = $facultiesQ->get(['f.id', 'f.faculty_name']);
-        $collegeIdsByFaculty = \App\Helpers\FacultyCollegeHelper::collegeIdsByFaculty(
-            $facultyRows->pluck('id')->map(fn ($id) => (int) $id)->all()
-        );
-        $collegeNameById = $colleges->keyBy('id');
-        $faculties = $facultyRows->map(function ($fac) use ($collegeIdsByFaculty, $collegeNameById) {
-            $ids = $collegeIdsByFaculty[(int) $fac->id] ?? [];
-            $names = [];
-            foreach ($ids as $cid) {
-                $college = $collegeNameById->get($cid);
-                if ($college) {
-                    $names[] = $college->college_name;
-                }
+        $programCourses = collect();
+        if ($needsCourses) {
+            $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
+            $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
+            $hasCourseType = Schema::hasColumn('dcs_program_courses', 'course_type');
+            $courseCols = ['pc.id', 'pc.program_id', 'pc.semester_id', 'pc.course_name', 'p.program_name', 'c.id as college_id', 'c.college_name', 'c.college_code', 's.semester_name'];
+            if ($hasYearLevel) {
+                $courseCols[] = 'pc.year_level';
+            }
+            if ($hasCourseType) {
+                $courseCols[] = 'pc.course_type';
+            }
+            if ($hasCourseCode) {
+                $courseCols[] = 'pc.course_code';
             }
 
-            return (object) [
-                'id' => $fac->id,
-                'faculty_name' => $fac->faculty_name,
-                'college_ids' => $ids,
-                'college_names' => $names,
-                'college_label' => $names !== [] ? implode(', ', $names) : '—',
-            ];
-        });
+            $programCoursesQ = DB::table('dcs_program_courses as pc')
+                ->leftJoin('dcs_programs as p', 'p.id', '=', 'pc.program_id')
+                ->leftJoin('dcs_colleges as c', 'c.id', '=', 'p.college_id')
+                ->leftJoin('dcs_semesters as s', 's.id', '=', 'pc.semester_id');
+            // Institutional GE/PE/NSTP (program_id null) stay visible alongside Major filters.
+            if ($this->courseListCollegeId !== '') {
+                $wantCollege = (int) $this->courseListCollegeId;
+                $programCoursesQ->where(function ($q) use ($wantCollege) {
+                    $q->whereNull('pc.program_id')->orWhere('c.id', $wantCollege);
+                });
+            }
+            if ($this->courseListProgramId !== '') {
+                $wantProgram = (int) $this->courseListProgramId;
+                $programCoursesQ->where(function ($q) use ($wantProgram) {
+                    $q->whereNull('pc.program_id')->orWhere('pc.program_id', $wantProgram);
+                });
+            }
+            if ($hasYearLevel) {
+                $programCoursesQ->orderByRaw("CASE pc.year_level
+                    WHEN '1st Year' THEN 1
+                    WHEN '2nd Year' THEN 2
+                    WHEN '3rd Year' THEN 3
+                    WHEN '4th Year' THEN 4
+                    WHEN '5th Year' THEN 5
+                    ELSE 99 END");
+            }
+            $programCoursesQ->orderBy('c.college_name')->orderBy('p.program_name')->orderBy('pc.semester_id');
+            if ($hasCourseType) {
+                $programCoursesQ->orderBy('pc.course_type');
+            }
+            $programCoursesQ->orderBy('pc.course_name');
+            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programCoursesQ, 'dcs_program_courses', 'pc');
+            $programCourses = $programCoursesQ->get($courseCols);
+        }
+
+        $originators = collect();
+        if ($needsOriginators && Schema::hasTable('dcs_originators')) {
+            $originatorsQ = DB::table('dcs_originators')->orderBy('originator_name');
+            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($originatorsQ, 'dcs_originators');
+            $originators = $originatorsQ->get(['id', 'originator_name']);
+        }
+
+        $faculties = collect();
+        if ($needsFaculties) {
+            $facultiesQ = DB::table('dcs_faculties as f')
+                ->orderBy('f.faculty_name');
+            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($facultiesQ, 'dcs_faculties', 'f');
+            $facultyRows = $facultiesQ->get(['f.id', 'f.faculty_name']);
+            $collegeIdsByFaculty = \App\Helpers\FacultyCollegeHelper::collegeIdsByFaculty(
+                $facultyRows->pluck('id')->map(fn ($id) => (int) $id)->all()
+            );
+            $collegeNameById = $colleges->keyBy('id');
+            $faculties = $facultyRows->map(function ($fac) use ($collegeIdsByFaculty, $collegeNameById) {
+                $ids = $collegeIdsByFaculty[(int) $fac->id] ?? [];
+                $names = [];
+                foreach ($ids as $cid) {
+                    $college = $collegeNameById->get($cid);
+                    if ($college) {
+                        $names[] = $college->college_name;
+                    }
+                }
+
+                return (object) [
+                    'id' => $fac->id,
+                    'faculty_name' => $fac->faculty_name,
+                    'college_ids' => $ids,
+                    'college_names' => $names,
+                    'college_label' => $names !== [] ? implode(', ', $names) : '—',
+                ];
+            });
+        }
 
         $semestersQ = DB::table('dcs_semesters')->orderBy('id');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($semestersQ, 'dcs_semesters');
@@ -2537,13 +2723,35 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $schoolYearsQ = DB::table('dcs_school_years')->orderBy('school_year');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($schoolYearsQ, 'dcs_school_years');
 
+        $sigHistoryTabs = [];
+        $signatoryAssignmentGroups = [];
+        $sigHasActiveAssignment = false;
+        $sigInheritanceHint = '';
+        if ($needsSignatories) {
+            $sigHistoryTabs = OfficeIntakeHelper::signatoryHistoryDocTypeTabs($this->sigFormKind, $docTypeParents);
+            $signatoryAssignmentGroups = OfficeIntakeHelper::groupedSignatoryAssignments(
+                $this->sigFormKind,
+                $this->sigHistoryTab !== '' ? $this->sigHistoryTab : 'all'
+            );
+            $sigHasActiveAssignment = OfficeIntakeHelper::hasActiveSignatoryAssignment(
+                $this->sigFormKind,
+                $this->sigDocTypeKind,
+                $this->resolvedSigDocTypeId(),
+                $this->resolvedSigCollegeId()
+            );
+            $sigInheritanceHint = OfficeIntakeHelper::signatoryInheritanceHint(
+                $this->sigFormKind,
+                $this->sigDocTypeKind,
+                $this->resolvedSigDocTypeId(),
+                $this->resolvedSigCollegeId()
+            );
+        }
+
         return [
             'canSoftDelete' => \App\Helpers\RegisterQueryHelper::isDcsSoftDeleteEnabled(),
             'docTypeParents' => $docTypeParents,
             'docTypeSubs' => $docTypeSubs,
-            'originators' => $originatorsQ
-                ? $originatorsQ->get(['id', 'originator_name'])
-                : collect(),
+            'originators' => $originators,
             'faculties' => $faculties,
             'colleges' => $colleges,
             'collegeOffices' => $collegeOffices,
@@ -2551,15 +2759,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'programs' => $programs,
             'programsByCollege' => $programs->groupBy(fn ($row) => (string) $row->college_id),
             'semesters' => $semestersQ->get(['id', 'semester_name']),
-            'schoolYears' => $schoolYearsQ->get(['id', 'school_year']),
+            'schoolYears' => $schoolYearsQ->get(
+                Schema::hasColumn('dcs_school_years', 'is_active')
+                    ? ['id', 'school_year', 'is_active']
+                    : ['id', 'school_year']
+            ),
             'programCourses' => $programCourses,
             'signatoryTemplatesReady' => Schema::hasTable('dcs_signatory_templates'),
-            'signatoryAssignments' => OfficeIntakeHelper::listSignatoryAssignments($this->sigFormKind),
-            'sigHistoryTabs' => OfficeIntakeHelper::signatoryHistoryDocTypeTabs($this->sigFormKind, $docTypeParents),
-            'signatoryAssignmentGroups' => OfficeIntakeHelper::groupedSignatoryAssignments(
-                $this->sigFormKind,
-                $this->sigHistoryTab !== '' ? $this->sigHistoryTab : 'all'
-            ),
+            'sigHistoryTabs' => $sigHistoryTabs,
+            'signatoryAssignmentGroups' => $signatoryAssignmentGroups,
             // Catalog parents only (Forms/Logbooks stay out of this dropdown until Admin enables them).
             'sigParentOptions' => $docTypeParents->filter(function ($type) {
                 $name = (string) ($type->doc_type_name ?? '');
@@ -2574,18 +2782,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 : collect(),
             'sigNeedsCollege' => $this->sigScopeNeedsCollege(),
             'sigCollegeOptions' => $colleges,
-            'sigHasActiveAssignment' => OfficeIntakeHelper::hasActiveSignatoryAssignment(
-                $this->sigFormKind,
-                $this->sigDocTypeKind,
-                $this->resolvedSigDocTypeId(),
-                $this->resolvedSigCollegeId()
-            ),
-            'sigInheritanceHint' => OfficeIntakeHelper::signatoryInheritanceHint(
-                $this->sigFormKind,
-                $this->sigDocTypeKind,
-                $this->resolvedSigDocTypeId(),
-                $this->resolvedSigCollegeId()
-            ),
+            'sigHasActiveAssignment' => $sigHasActiveAssignment,
+            'sigInheritanceHint' => $sigInheritanceHint,
         ];
     }
 
@@ -2676,12 +2874,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     x-data="{
         tab: new URLSearchParams(window.location.search).get('tab') || sessionStorage.getItem('settingsActiveTab') || 'doctypes',
         syllabiSection: new URLSearchParams(window.location.search).get('section') || sessionStorage.getItem('settingsSyllabiSection') || 'colleges',
-        modalOpen: false,
+        isModalOpen: false,
+        isModalLoading: false,
         init() {
             const legacySyllabi = {
                 faculties: 'faculties',
                 colleges: 'colleges',
-                programs: 'programs',
+                programs: 'colleges', // Programs now live under Colleges
                 semesters: 'semesters',
                 schoolyears: 'schoolyears',
                 coursenames: 'coursenames',
@@ -2704,15 +2903,25 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             if (name === 'signatories') $wire.loadSignatoryTemplateFields();
         },
         setSyllabiSection(name) {
-            this.syllabiSection = name;
-            sessionStorage.setItem('settingsSyllabiSection', name);
+            this.syllabiSection = name === 'programs' ? 'colleges' : name;
+            sessionStorage.setItem('settingsSyllabiSection', this.syllabiSection);
+            if (this.syllabiSection !== 'colleges') {
+                $wire.closeCollegePrograms();
+            }
         },
-        openUi() {
-            this.modalOpen = true;
+        openUi({ loading = false } = {}) {
+            this.isModalOpen = true;
+            this.isModalLoading = !!loading;
             document.body.style.overflow = 'hidden';
+            const overlay = document.getElementById('settingsOverlay');
+            if (overlay) {
+                overlay.style.display = '';
+                overlay.style.pointerEvents = '';
+            }
         },
         closeUi() {
-            this.modalOpen = false;
+            this.isModalOpen = false;
+            this.isModalLoading = false;
             document.body.style.overflow = '';
             const overlay = document.getElementById('settingsOverlay');
             if (overlay) {
@@ -2723,16 +2932,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         dismiss() {
             this.closeUi();
             $wire.closeModal();
+        },
+        openCollegeModal(id = null) {
+            // Instant shell only — hide it as soon as Livewire mounts the real overlay.
+            this.openUi({ loading: true });
+            id == null ? $wire.openCollege() : $wire.openCollege(id);
         }
     }"
-    @settings-open-modal.window="openUi()"
-    @settings-close-modal.window="closeUi()"
-    @settings-focus-course-row.window="$nextTick(() => document.querySelector('[data-course-first-input]')?.focus())"
-    @settings-focus-last-course-row.window="$nextTick(() => {
+    x-on:settings-open-modal.window="openUi({ loading: false })"
+    x-on:settings-close-modal.window="closeUi()"
+    x-on:settings-focus-course-row.window="$nextTick(() => document.querySelector('[data-course-first-input]')?.focus())"
+    x-on:settings-focus-last-course-row.window="$nextTick(() => {
         const rows = document.querySelectorAll('.st-course-row:not(.st-course-row-head) .st-input');
         rows[rows.length - 2]?.focus();
     })"
-    @keydown.escape.window="if (modalOpen) dismiss()"
+    x-on:keydown.escape.window="isModalOpen && dismiss()"
 >
 <main class="settings-main">
     <div class="settings-header">
@@ -3194,13 +3408,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <div class="panel-toolbar">
             <div>
                 <h2 class="sig-panel-title">Syllabi catalog</h2>
-                <p class="panel-subtitle">Everything used by Syllabi / TOS-Rubrics registration — colleges, programs, terms, courses, and faculty — in one place.</p>
+                <p class="panel-subtitle">Everything used by Syllabi / TOS-Rubrics registration — colleges (with their programs), terms, courses, and faculty — in one place.</p>
             </div>
         </div>
         <div class="settings-subtabs" role="tablist" aria-label="Syllabi settings sections">
             @foreach ([
                 'colleges' => ['fa-graduation-cap', 'Colleges'],
-                'programs' => ['fa-book-open', 'Programs'],
                 'semesters' => ['fa-calendar-week', 'Semesters'],
                 'schoolyears' => ['fa-calendar-days', 'School Years'],
                 'coursenames' => ['fa-list-check', 'Course Names'],
@@ -3278,84 +3491,122 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
         </div>
 
-        <div class="syllabi-section" wire:key="settings-syllabi-colleges" x-show="syllabiSection === 'colleges'" x-cloak>
-        <div class="panel-toolbar">
-            <span class="panel-subtitle">Academic colleges for programs and syllabi. Link an office only when that office is actually a college (CCS, CEA, etc.).</span>
-            <button type="button" class="btn-primary" wire:click="openCollege()"><i class="fa-solid fa-plus"></i> Add College</button>
-        </div>
-        <div class="table-wrap">
-            <table class="settings-table">
-                <thead><tr><th>College Name</th><th>Office</th><th style="width:100px;">Programs</th><th style="width:140px;">Actions</th></tr></thead>
-                <tbody>
-                    @forelse($colleges as $college)
-                        <tr wire:key="cl-{{ $college->id }}" data-id="{{ $college->id }}">
-                            <td data-label="College">{{ $college->college_name }}</td>
-                            <td data-label="Office">
-                                @if($college->office_code || $college->office_name)
-                                    {{ $college->office_code ? $college->office_code : '' }}{{ $college->office_code && $college->office_name ? ' — ' : '' }}{{ $college->office_name }}
-                                @else
-                                    —
-                                @endif
-                            </td>
-                            <td data-label="Programs">{{ $programCounts[$college->id] ?? 0 }}</td>
-                            <td>
-                                <div class="row-actions">
-                                    <button type="button" class="icon-btn" title="Edit" wire:click="openCollege({{ $college->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    @if(!empty($canSoftDelete))
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('college', {{ $college->id }}, 'Delete College', 'This college will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+        <div
+            class="syllabi-section"
+            wire:key="settings-syllabi-colleges-{{ $collegeDetailId ?? 0 }}"
+            x-show="syllabiSection === 'colleges'"
+            x-data="{
+                openId: {{ $collegeDetailId ? (int) $collegeDetailId : 'null' }},
+                isOpen(id) { return Number(this.openId) === Number(id); },
+                toggleCollege(id) {
+                    id = Number(id);
+                    // Local-only toggle — avoid Livewire remorph fighting the dropdown.
+                    this.openId = this.isOpen(id) ? null : id;
+                }
+            }"
+        >
+            <div class="panel-toolbar">
+                <span class="panel-subtitle">Add a college (office or name), then click the college name to show its programs.</span>
+                <button type="button" class="btn-primary" @click="openCollegeModal()"><i class="fa-solid fa-plus"></i> Add College</button>
+            </div>
+            <div class="table-wrap">
+                <table class="settings-table st-college-accordion">
+                    <thead><tr><th>College Name</th><th>Office</th><th style="width:100px;">Programs</th><th style="width:140px;">Actions</th></tr></thead>
+                    <tbody>
+                        @forelse($colleges as $college)
+                            @php
+                                $collegePrograms = $programsByCollege[(string) $college->id] ?? collect();
+                                $progCount = $collegePrograms->count();
+                                $cid = (int) $college->id;
+                            @endphp
+                            <tr
+                                wire:key="cl-{{ $cid }}"
+                                data-id="{{ $cid }}"
+                                class="st-college-row"
+                                :class="{ 'is-open': isOpen({{ $cid }}) }"
+                            >
+                                <td data-label="College">
+                                    <button
+                                        type="button"
+                                        class="st-college-link"
+                                        :aria-expanded="isOpen({{ $cid }}) ? 'true' : 'false'"
+                                        @click="toggleCollege({{ $cid }})"
+                                    >
+                                        <i
+                                            class="fa-solid st-college-caret"
+                                            :class="isOpen({{ $cid }}) ? 'fa-chevron-down' : 'fa-chevron-right'"
+                                            aria-hidden="true"
+                                        ></i>
+                                        <span>{{ $college->college_name }}</span>
+                                    </button>
+                                </td>
+                                <td data-label="Office">
+                                    @if($college->office_code || $college->office_name)
+                                        {{ $college->office_code ? $college->office_code : '' }}{{ $college->office_code && $college->office_name ? ' — ' : '' }}{{ $college->office_name }}
+                                    @else
+                                        —
                                     @endif
-                                </div>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr><td colspan="4" class="empty-cell">No colleges yet.</td></tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
-        </div>
-
-        <div class="syllabi-section" wire:key="settings-syllabi-programs" x-show="syllabiSection === 'programs'" x-cloak>
-        <div class="panel-toolbar">
-            <span class="panel-subtitle">Add programs under each academic college.</span>
-            <button type="button" class="btn-primary" wire:click="openProgram()"><i class="fa-solid fa-plus"></i> Add Program</button>
-        </div>
-        <div class="table-wrap">
-            <table class="settings-table">
-                <thead><tr><th>College</th><th>Program Name</th><th style="width:100px;">Code</th><th style="width:140px;">Actions</th></tr></thead>
-                <tbody>
-                    @forelse($colleges as $college)
-                        <tr class="college-group-header" wire:key="pgh-{{ $college->id }}">
-                            <td colspan="4">
-                                @php $progCount = ($programsByCollege[(string) $college->id] ?? collect())->count(); @endphp
-                                <i class="fa-solid fa-graduation-cap"></i>
-                                {{ $college->college_name }}
-                                <span class="program-count">({{ $progCount }} {{ \Illuminate\Support\Str::plural('program', $progCount) }})</span>
-                            </td>
-                        </tr>
-                        @forelse($programsByCollege[(string) $college->id] ?? [] as $prog)
-                            <tr wire:key="pg-{{ $prog->id }}" data-id="{{ $prog->id }}">
-                                <td data-label="College">{{ $college->college_name }}</td>
-                                <td data-label="Program">{{ $prog->program_name }}</td>
-                                <td data-label="Code">{{ $prog->program_code ?? '—' }}</td>
+                                </td>
+                                <td data-label="Programs">{{ $progCount }}</td>
                                 <td>
                                     <div class="row-actions">
-                                        <button type="button" class="icon-btn" title="Edit" wire:click="openProgram({{ $prog->id }})"><i class="fa-solid fa-pen"></i></button>
+                                        <button type="button" class="icon-btn" title="Edit college" @click="openCollegeModal({{ $cid }})"><i class="fa-solid fa-pen"></i></button>
                                         @if(!empty($canSoftDelete))
-                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('program', {{ $prog->id }}, 'Delete Program', 'This program will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('college', {{ $cid }}, 'Delete College', 'This college will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
                                         @endif
                                     </div>
                                 </td>
                             </tr>
+                            <tr
+                                wire:key="cl-programs-{{ $cid }}"
+                                class="st-college-programs-row"
+                                :class="{ 'is-visible': isOpen({{ $cid }}) }"
+                            >
+                                <td colspan="4">
+                                    <div class="st-college-programs-panel">
+                                        <div class="st-college-programs-head">
+                                            <span class="st-college-programs-label">
+                                                <i class="fa-solid fa-book-open" aria-hidden="true"></i>
+                                                Programs
+                                                <span class="program-count">({{ $progCount }})</span>
+                                            </span>
+                                            <button
+                                                type="button"
+                                                class="btn-primary st-add-program-btn"
+                                                @click="openId = {{ $cid }}"
+                                                wire:click="openProgramForCollege({{ $cid }})"
+                                            ><i class="fa-solid fa-plus"></i> Add Program</button>
+                                        </div>
+                                        <table class="settings-table st-nested-programs">
+                                            <thead><tr><th>Program Name</th><th style="width:120px;">Code</th><th style="width:120px;">Actions</th></tr></thead>
+                                            <tbody>
+                                                @forelse($collegePrograms as $prog)
+                                                    <tr wire:key="pg-{{ $prog->id }}" data-id="{{ $prog->id }}">
+                                                        <td data-label="Program" class="st-program-name-cell">{{ $prog->program_name }}</td>
+                                                        <td data-label="Code" class="st-program-code-cell">{{ $prog->program_code ?? '—' }}</td>
+                                                        <td class="st-program-actions-cell">
+                                                            <div class="row-actions">
+                                                                <button type="button" class="icon-btn" title="Edit" wire:click="openProgram({{ $prog->id }})"><i class="fa-solid fa-pen"></i></button>
+                                                                @if(!empty($canSoftDelete))
+                                                                <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('program', {{ $prog->id }}, 'Delete Program', 'This program will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                                                @endif
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                @empty
+                                                    <tr><td colspan="3" class="empty-cell">No programs yet. Click Add Program.</td></tr>
+                                                @endforelse
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </td>
+                            </tr>
                         @empty
-                            <tr class="college-group-empty"><td colspan="4" class="empty-cell">No programs under this college yet.</td></tr>
+                            <tr><td colspan="4" class="empty-cell">No colleges yet.</td></tr>
                         @endforelse
-                    @empty
-                        <tr><td colspan="4" class="empty-cell">No colleges or programs yet.</td></tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <div class="syllabi-section" wire:key="settings-syllabi-semesters" x-show="syllabiSection === 'semesters'" x-cloak>
@@ -3389,18 +3640,36 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         <div class="syllabi-section" wire:key="settings-syllabi-schoolyears" x-show="syllabiSection === 'schoolyears'" x-cloak>
         <div class="panel-toolbar">
-            <span class="panel-subtitle">Academic school years</span>
+            <span class="panel-subtitle">Academic school years — only the <strong>Active</strong> year is offered on office Syllabi/TOS DRF requests</span>
             <button type="button" class="btn-primary" wire:click="openSchoolYear()"><i class="fa-solid fa-plus"></i> Add School Year</button>
         </div>
         <div class="table-wrap">
             <table class="settings-table">
-                <thead><tr><th>School Year</th><th style="width:140px;">Actions</th></tr></thead>
+                <thead><tr><th>School Year</th><th style="width:110px;">Status</th><th style="width:160px;">Actions</th></tr></thead>
                 <tbody>
                     @forelse($schoolYears as $sy)
+                        @php $syActive = ! empty($sy->is_active); @endphp
                         <tr wire:key="sy-{{ $sy->id }}" data-id="{{ $sy->id }}">
                             <td data-label="School Year">{{ $sy->school_year }}</td>
+                            <td data-label="Status">
+                                @if($syActive)
+                                    <span class="st-status-pill is-on">Active</span>
+                                @else
+                                    <span class="st-status-pill">Inactive</span>
+                                @endif
+                            </td>
                             <td>
                                 <div class="row-actions">
+                                    <button
+                                        type="button"
+                                        class="st-sy-switch{{ $syActive ? ' is-on' : '' }}"
+                                        role="switch"
+                                        aria-checked="{{ $syActive ? 'true' : 'false' }}"
+                                        title="{{ $syActive ? 'Active school year' : 'Set as active school year' }}"
+                                        @if($syActive) disabled @else wire:click="activateSchoolYear({{ $sy->id }})" @endif
+                                    >
+                                        <span class="st-sy-switch-thumb" aria-hidden="true"></span>
+                                    </button>
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openSchoolYear({{ $sy->id }})"><i class="fa-solid fa-pen"></i></button>
                                     @if(!empty($canSoftDelete))
                                     <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('schoolYear', {{ $sy->id }}, 'Delete School Year', 'This school year will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
@@ -3409,7 +3678,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="2" class="empty-cell">No school years yet.</td></tr>
+                        <tr><td colspan="3" class="empty-cell">No school years yet.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -3460,8 +3729,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
             @endif
         @endif
-        {{-- Epoch remounts the table after save so year-group row morphing cannot blank the list. --}}
-        <div class="table-wrap" wire:key="course-names-{{ $courseListEpoch }}-{{ $courseListCollegeId }}-{{ $courseListProgramId }}">
+        {{-- Epoch remounts the table after save so year-group row morphing cannot blank the list.
+             wire:ignore keeps the heavy courses DOM stable while other modals open (lite catalog). --}}
+        <div class="table-wrap" wire:key="course-names-{{ $courseListEpoch }}-{{ $courseListCollegeId }}-{{ $courseListProgramId }}" wire:ignore>
             <table class="settings-table">
                 <thead><tr><th>College</th><th>Program</th><th>Semester</th><th>Year Level</th><th>Course Type</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
                 <tbody>
@@ -3531,19 +3801,47 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </section>
 </main>
 
+{{-- Instant Alpine shell while Livewire loads the real modal (one overlay at a time). --}}
+<div
+    class="overlay"
+    id="settingsOverlayLoading"
+    x-show="isModalOpen && isModalLoading"
+    x-cloak
+    x-on:click.self="dismiss()"
+    style="display: none;"
+>
+    <div class="modal modal--college" x-on:click.stop>
+        <div class="st-modal st-modal-loading">
+            <div class="st-modal-top">
+                <div class="st-modal-icon"><i class="fa-solid fa-pen-to-square"></i></div>
+                <button type="button" class="st-modal-close" x-on:click="dismiss()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="st-modal-title">Please wait</div>
+            <p class="st-faculty-hint" style="margin:0;">Loading form…</p>
+        </div>
+    </div>
+</div>
+
 @if($modalKind !== '')
-<div class="overlay" id="settingsOverlay">
-    <div class="modal{{ in_array($modalKind, ['programCourse', 'programCoursesBulk'], true) ? ' modal--courses' : '' }}{{ $modalKind === 'programCoursesBulk' ? ' modal--courses-bulk' : '' }}" id="settingsModalBox" @click.stop>
+<div
+    class="overlay"
+    id="settingsOverlay"
+    x-show="isModalOpen"
+    x-cloak
+    x-on:click.self="dismiss()"
+    style="display: none;"
+>
+    <div class="modal{{ $modalKind === 'college' ? ' modal--college' : '' }}{{ in_array($modalKind, ['programCourse', 'programCoursesBulk'], true) ? ' modal--courses' : '' }}{{ $modalKind === 'programCoursesBulk' ? ' modal--courses-bulk' : '' }}" id="settingsModalBox" x-on:click.stop>
         @if(str_ends_with($modalKind, ':delete'))
             <div class="st-modal delete-modal">
                 <div class="st-modal-top">
                     <div class="st-modal-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
-                    <button type="button" class="st-modal-close" @click="dismiss()"><i class="fa-solid fa-xmark"></i></button>
+                    <button type="button" class="st-modal-close" x-on:click="dismiss()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="delete-title">{{ $deleteTitle }}</div>
                 <div class="delete-message">{{ $deleteMessage }}</div>
                 <div class="st-actions-row">
-                    <button type="button" class="st-btn st-btn-ghost" @click="dismiss()">Cancel</button>
+                    <button type="button" class="st-btn st-btn-ghost" x-on:click="dismiss()">Cancel</button>
                     <button type="button" class="st-btn st-btn-danger" wire:click="destroy" wire:loading.attr="disabled">
                         <i class="fa-solid fa-trash"></i> Delete
                     </button>
@@ -3553,12 +3851,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="st-modal confirm-modal">
                 <div class="st-modal-top">
                     <div class="st-modal-icon"><i class="fa-solid fa-floppy-disk"></i></div>
-                    <button type="button" class="st-modal-close" @click="dismiss()"><i class="fa-solid fa-xmark"></i></button>
+                    <button type="button" class="st-modal-close" x-on:click="dismiss()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="confirm-title">{{ $deleteTitle }}</div>
                 <div class="confirm-message">{{ $deleteMessage }}</div>
                 <div class="st-actions-row">
-                    <button type="button" class="st-btn st-btn-ghost" @click="dismiss()">Cancel</button>
+                    <button type="button" class="st-btn st-btn-ghost" x-on:click="dismiss()">Cancel</button>
                     <button type="button" class="st-btn st-btn-primary" wire:click="saveSignatoryTemplate" wire:loading.attr="disabled" wire:target="saveSignatoryTemplate">
                         <span wire:loading.remove wire:target="saveSignatoryTemplate"><i class="fa-solid fa-check"></i> OK</span>
                         <span wire:loading wire:target="saveSignatoryTemplate">Saving…</span>
@@ -3569,7 +3867,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <form class="st-modal" wire:submit.prevent="{{ str_starts_with($modalKind, 'import') ? 'runCsvImport' : 'save' }}">
                 <div class="st-modal-top">
                     <div class="st-modal-icon"><i class="fa-solid {{ str_starts_with($modalKind, 'import') ? 'fa-file-csv' : 'fa-pen-to-square' }}"></i></div>
-                    <button type="button" class="st-modal-close" @click="dismiss()"><i class="fa-solid fa-xmark"></i></button>
+                    <button type="button" class="st-modal-close" x-on:click="dismiss()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="st-modal-title">
                     @if($modalKind === 'docType') {{ $editingId ? 'Edit Document Type' : ($parentId ? 'Add Sub-type' : 'Add Document Type') }}
@@ -3655,15 +3953,74 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <input type="text" class="st-input @error('collegeName') error @enderror" wire:model="collegeName">
                         @error('collegeName') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
+                    @if(! $editingId)
+                        <div class="st-college-program-block">
+                            <div class="st-college-program-title">Programs <span class="st-optional">optional</span></div>
+                            <p class="st-faculty-hint" style="margin-top:0;">Add one or more programs for this college now, or leave blank and add them later from the list.</p>
+                            <div class="st-course-rows st-college-program-rows">
+                                <div class="st-course-row st-course-row-head">
+                                    <span>Code</span>
+                                    <span>Program name</span>
+                                    <span></span>
+                                </div>
+                                @foreach($collegeProgramRows as $i => $row)
+                                    <div class="st-course-row" wire:key="college-program-row-{{ $i }}">
+                                        <div>
+                                            <input
+                                                type="text"
+                                                class="st-input @error('collegeProgramRows.'.$i.'.code') error @enderror"
+                                                wire:model="collegeProgramRows.{{ $i }}.code"
+                                                placeholder="e.g. BSCS"
+                                            >
+                                            @error('collegeProgramRows.'.$i.'.code') <div class="field-error">{{ $message }}</div> @enderror
+                                        </div>
+                                        <div>
+                                            <input
+                                                type="text"
+                                                class="st-input @error('collegeProgramRows.'.$i.'.name') error @enderror"
+                                                wire:model="collegeProgramRows.{{ $i }}.name"
+                                                placeholder="e.g. Bachelor of Science in Computer Science"
+                                                wire:keydown.enter.prevent="addCollegeProgramRow"
+                                            >
+                                            @error('collegeProgramRows.'.$i.'.name') <div class="field-error">{{ $message }}</div> @enderror
+                                        </div>
+                                        <button
+                                            type="button"
+                                            class="icon-btn icon-btn-danger"
+                                            title="Remove row"
+                                            wire:click="removeCollegeProgramRow({{ $i }})"
+                                            @disabled(count($collegeProgramRows) <= 1)
+                                        >
+                                            <i class="fa-solid fa-trash"></i>
+                                        </button>
+                                    </div>
+                                @endforeach
+                            </div>
+                            <button type="button" class="st-add-row-btn" wire:click="addCollegeProgramRow">
+                                <i class="fa-solid fa-plus"></i> Add another program
+                            </button>
+                            @error('collegeProgramRows') <div class="field-error">{{ $message }}</div> @enderror
+                        </div>
+                    @endif
                 @elseif($modalKind === 'program')
+                    @php
+                        $programCollegeLocked = $collegeId !== '' && $collegeDetailId && (int) $collegeId === (int) $collegeDetailId;
+                        $programCollegeName = $programCollegeLocked
+                            ? (string) optional($colleges->firstWhere('id', (int) $collegeId))->college_name
+                            : '';
+                    @endphp
                     <div class="st-field">
                         <label class="st-label">College</label>
-                        <select class="st-input @error('collegeId') error @enderror" wire:model="collegeId">
-                            <option value="">Select college</option>
-                            @foreach($colleges as $college)
-                                <option value="{{ $college->id }}">{{ $college->college_name }}</option>
-                            @endforeach
-                        </select>
+                        @if($programCollegeLocked && $programCollegeName !== '')
+                            <div class="st-input st-input-readonly">{{ $programCollegeName }}</div>
+                        @else
+                            <select class="st-input @error('collegeId') error @enderror" wire:model="collegeId">
+                                <option value="">Select college</option>
+                                @foreach($colleges as $college)
+                                    <option value="{{ $college->id }}">{{ $college->college_name }}</option>
+                                @endforeach
+                            </select>
+                        @endif
                         @error('collegeId') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
                     <div class="st-field">
@@ -3688,6 +4045,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <input type="text" class="st-input @error('schoolYear') error @enderror" wire:model="schoolYear" placeholder="e.g. 2025-2026">
                         @error('schoolYear') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
+                    @if(\Illuminate\Support\Facades\Schema::hasColumn('dcs_school_years', 'is_active'))
+                    <div class="st-field" style="margin-top:12px;">
+                        <label class="st-check">
+                            <input type="checkbox" wire:model="schoolYearIsActive">
+                            <span>Set as the active school year (office intake will only offer this year)</span>
+                        </label>
+                    </div>
+                    @endif
                 @elseif($modalKind === 'programCourse')
                     @php
                         $programOptions = $programs;
@@ -3969,7 +4334,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 @endif
 
                 <div class="st-actions-row">
-                    <button type="button" class="st-btn st-btn-ghost" @click="dismiss()">{{ $modalKind === 'programCourse' && ! $editingId ? 'Done' : 'Cancel' }}</button>
+                    <button type="button" class="st-btn st-btn-ghost" x-on:click="dismiss()">{{ $modalKind === 'programCourse' && ! $editingId ? 'Done' : 'Cancel' }}</button>
                     <button type="submit" class="st-btn st-btn-primary" wire:loading.attr="disabled" @disabled($modalKind === 'programCoursesBulk' && $bulkRows === [])>
                         <i class="fa-solid fa-check"></i>
                         @if(str_starts_with($modalKind, 'import'))

@@ -348,13 +348,9 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             </div>
                             <div id="supersedeDocResults" class="reg-reldocs-dropdown" style="display:none;"></div>
                         </div>
-                        <div class="reg-supersede-selected" id="supersedeSelectedBar" @if(!$recurSource) hidden @endif>
-                            <div class="reg-supersede-selected-copy">
-                                <span class="reg-supersede-selected-badge">{{ $supersedeFinderLocked ? 'Saved selection' : 'Selected' }}</span>
-                                <p id="supersedeDocPicked" class="reg-supersede-selected-text" @if(!$recurSource) hidden @endif>@if($recurSource){{ $recurSource['doc_no'] }} — {{ $recurSource['doc_title'] }} (Rev {{ $recurSource['revise_no'] }}, {{ $recurSource['status'] }}) {{ strtolower((string) ($recurSource['status'] ?? '')) === 'latest' ? 'stays the current copy until this recurring document is saved.' : 'was superseded.' }}@endif</p>
-                            </div>
-                            <button type="button" id="supersedeReselect" class="reg-supersede-change" hidden><i class="fa-solid fa-arrow-right-arrow-left"></i> Change document</button>
-                        </div>
+                        {{-- Selection summary removed: Previous documents table already shows the superseded copy. --}}
+                        <p id="supersedeDocPicked" class="reg-supersede-selected-text" hidden>@if($recurSource){{ $recurSource['doc_no'] }} — {{ $recurSource['doc_title'] }} (Rev {{ $recurSource['revise_no'] }}, {{ $recurSource['status'] }}) {{ strtolower((string) ($recurSource['status'] ?? '')) === 'latest' ? 'stays the current copy until this recurring document is saved.' : 'was superseded.' }}@endif</p>
+                        <button type="button" id="supersedeReselect" class="reg-supersede-change" hidden><i class="fa-solid fa-arrow-right-arrow-left"></i> Change document</button>
                     </div>
                     <div class="reg-field reg-revision-table" id="supersedeHistoryField" @if($recurPreviousDocuments->isEmpty()) hidden @endif>
                         <label>Previous documents</label>
@@ -3904,13 +3900,15 @@ async function showSupersedeDocumentHistory(doc, options) {
  * Renders and synchronizes supersede selected bar in the DOM.
  */
 function syncSupersedeSelectedBar() {
-    const bar = document.getElementById('supersedeSelectedBar');
     const picked = document.getElementById('supersedeDocPicked');
     const reselect = document.getElementById('supersedeReselect');
-    const show = !!(picked && !picked.hidden && (picked.textContent || '').trim());
-    if (bar) bar.hidden = !show;
-    if (reselect && show) {
-        reselect.hidden = !!window.__recurFromDatabase;
+    const history = document.getElementById('supersedeHistoryField');
+    const historyVisible = !!(history && !history.hidden);
+    const hasPick = !!(picked && (picked.textContent || '').trim());
+    if (picked) picked.hidden = true;
+    // Keep Change document only before save, and only when the table is not already showing the pick.
+    if (reselect) {
+        reselect.hidden = !!window.__recurFromDatabase || historyVisible || !hasPick;
     }
 }
 
@@ -3941,10 +3939,6 @@ function lockSupersedeFinderInputs(locked) {
             ? ''
             : 'Enter the document number and title. The originator picks the exact latest copy when more than one document shares that number.';
     }
-    const badge = document.querySelector('#supersedeSelectedBar .reg-supersede-selected-badge');
-    if (badge) {
-        badge.textContent = window.__recurFromDatabase ? 'Saved selection' : 'Selected';
-    }
     syncSupersedeSelectedBar();
     if (locked) {
         const reselect = document.getElementById('supersedeReselect');
@@ -3972,8 +3966,6 @@ function clearSupersedeSelection() {
         picked.hidden = true;
         picked.textContent = '';
     }
-    const bar = document.getElementById('supersedeSelectedBar');
-    if (bar) bar.hidden = true;
     const field = document.getElementById('supersedeHistoryField');
     const body = document.getElementById('supersedeHistoryBody');
     if (field) field.hidden = true;

@@ -48,9 +48,13 @@ class ErrorDiagnosis
             $status = 500;
         }
 
+        // File/line stay in logs & tickets only — never expose source paths on the user-facing page.
+        $frame = self::appFrame($e);
+        $publicFile = null;
+        $publicLine = null;
+
         if (self::isSlowConnection($e)) {
             $slow = self::forStatus(408);
-            $frame = self::appFrame($e);
 
             return new self(
                 $slow->kind,
@@ -58,8 +62,8 @@ class ErrorDiagnosis
                 $slow->title,
                 $slow->message,
                 null,
-                $frame['file'],
-                $frame['line'],
+                $publicFile,
+                $publicLine,
                 self::returnUrl(request()),
             );
         }
@@ -68,7 +72,6 @@ class ErrorDiagnosis
         $raw = trim($e->getMessage());
         $message = $specific ?? (self::isTechnical($raw) || $raw === '' ? null : $raw);
         $diagnosed = self::forStatus($status, $message);
-        $frame = self::appFrame($e);
         $returnUrl = self::returnUrl(request());
 
         if ($diagnosed->kind !== 'server') {
@@ -78,8 +81,8 @@ class ErrorDiagnosis
                 $diagnosed->title,
                 $diagnosed->message,
                 null,
-                $frame['file'],
-                $frame['line'],
+                $publicFile,
+                $publicLine,
                 $returnUrl,
             );
         }
@@ -126,8 +129,8 @@ class ErrorDiagnosis
             $diagnosed->title,
             $diagnosed->message,
             $reference,
-            $frame['file'],
-            $frame['line'],
+            $publicFile,
+            $publicLine,
             $returnUrl,
         );
     }

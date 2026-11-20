@@ -1361,8 +1361,16 @@ new class extends Component {
         <div 
             id="dts-scanner-widget-card"
             class="dts-scanner-widget-card {{ $isMaximized ? 'is-maximized' : '' }}"
-            x-data
-            x-init="$cleanup(() => { if (typeof window.stopModalScanner === 'function') window.stopModalScanner(); })"
+            x-data="{
+                destroy() {
+                    if (typeof window.stopModalScanner === 'function') window.stopModalScanner();
+                }
+            }"
+            x-init="() => {
+                return () => {
+                    if (typeof window.stopModalScanner === 'function') window.stopModalScanner();
+                };
+            }"
             @keydown.window.escape="if (typeof window.stopModalScanner === 'function') window.stopModalScanner(); window.dispatchEvent(new CustomEvent('stop-camera-scanner')); $wire.closeModal()"
         >
             <!-- Chatify-Style Dark Header Bar -->

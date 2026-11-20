@@ -383,7 +383,8 @@ class RegisterPersistHelper
             'dcs.register.update' => 'Opened Update Documents',
             'dcs.register.edit' => 'Opened Document Editor',
             'dcs.register.history' => 'Viewed Document History',
-            'dcs.recycle-bin' => 'Opened Recycle Bin',
+            'dcs.recycle-bin' => 'Opened Recycle Bin (redirected to Admin)',
+            'admin.recycle-bin' => 'Opened Admin Recycle Bin',
             'dcs.review' => 'Opened Document Review',
             'dcs.database.index' => 'Opened Document Database',
             'dcs.stamping.index' => 'Opened Document Stamping',
@@ -391,8 +392,6 @@ class RegisterPersistHelper
             'dcs.settings.index' => 'Opened DCS Settings',
             'dcs.office.incoming' => 'Opened Office Incoming',
             'dcs.office.documents' => 'Opened Office Documents',
-            'dcs.office.random-checks' => 'Opened Office Random Checks',
-            'dcs.office.random-checks.show' => 'Viewed Office Random Check',
             'dcs.office.drf.index' => 'Opened Office DRF List',
             'dcs.office.drf.create' => 'Opened Create Office DRF',
             'dcs.office.drf.edit' => 'Opened Edit Office DRF',
@@ -437,7 +436,6 @@ class RegisterPersistHelper
             'dcs.office.dcn.show',
             'dcs.office.dcn.print',
             'dcs.office.dcn.edit',
-            'dcs.office.random-checks.show',
         ], true)) {
             $id = $request->route('id');
             if ($id) {
@@ -3746,9 +3744,12 @@ class RegisterPersistHelper
     }
 
     /**
-     * Helper used for promote latest for doc.
+     * Promote the live tip of a doc family to latest.
+     *
+     * @param  bool  $relocateFamilyFiles  When false (soft-delete), only re-home the new tip
+     *                                     instead of moving every family scan synchronously.
      */
-    public static function promoteLatestForDoc(string $docNo, int $docTypeId, ?int $subTypeId): void
+    public static function promoteLatestForDoc(string $docNo, int $docTypeId, ?int $subTypeId, bool $relocateFamilyFiles = true): void
     {
         if (! RegisterQueryHelper::supportsRevisionStatus()) {
             return;
@@ -3789,12 +3790,14 @@ class RegisterPersistHelper
         }
 
         // Active tip = highest revise_no among live rows in this revision family.
+        // Include superseded so deleting a recur tip re-promotes the prior superseded copy
+        // (not an older obsolete revision with a lower revise_no).
         $activeTipQuery = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->whereIn('ml.request_id', $requestIds)
             ->whereIn('ml.doc_no', $familySeed)
             ->where(function ($q) {
-                $q->whereIn('ml.revision_status', ['latest', 'obsolete'])
+                $q->whereIn('ml.revision_status', ['latest', 'obsolete', 'superseded'])
                     ->orWhereNull('ml.revision_status')
                     ->orWhere('ml.revision_status', '');
             });
@@ -3897,7 +3900,12 @@ class RegisterPersistHelper
             ->where('id', $tipId)
             ->update(['revision_status' => 'latest', 'updated_at' => now()]);
 
-        DocumentStorageService::moveObsoleteDocinfoFilesForFamily($familyNos, $requestIds, $tipId);
+        if ($relocateFamilyFiles) {
+            DocumentStorageService::moveObsoleteDocinfoFilesForFamily($familyNos, $requestIds, $tipId);
+        } else {
+            // Soft-delete / fast path: tip placement only (caller may relocate the deleted row).
+            DocumentStorageService::ensureCorrectLifecyclePlacement($tipId);
+        }
         RegisterQueryHelper::bumpDocumentListCache();
     }
 

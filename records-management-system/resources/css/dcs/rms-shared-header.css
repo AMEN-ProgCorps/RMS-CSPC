@@ -99,8 +99,12 @@ header.rms-app-header .office_name {
 /* ACTIONS positioning — look & feel from ./actions-dropdown.css (same as dashboard.css) */
 header.rms-app-header .actions-container {
     position: absolute;
-    top: 10px;
+    top: 0;
+    bottom: 0;
     right: 15px;
+    height: 30px;
+    margin-top: auto;
+    margin-bottom: auto;
     z-index: 1001;
 }
 

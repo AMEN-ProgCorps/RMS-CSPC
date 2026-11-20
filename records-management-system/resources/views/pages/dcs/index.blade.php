@@ -552,7 +552,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <span class="dash-calendar-trigger-date" x-text="$store.dcsCal.headerDate || @js($headerDate)">{{ $headerDate }}</span>
                     <span class="dash-calendar-trigger-time" x-text="$store.dcsCal.nowClock || @js($headerTime ?? '')" x-cloak>{{ $headerTime ?? '' }}</span>
                 </span>
-                <i class="fa-solid fa-chevron-down dash-calendar-chevron" :class="{ 'is-open': $store.dcsCal.open }"></i>
+                <i
+                    class="fa-solid dash-calendar-chevron"
+                    :class="$store.dcsCal.open ? 'fa-xmark is-open' : 'fa-calendar-plus'"
+                    :title="$store.dcsCal.open ? 'Hide calendar' : 'Show calendar'"
+                    aria-hidden="true"
+                ></i>
             </button>
         </div>
 
@@ -824,7 +829,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                                             <span x-text="'Rev ' + rev.revision_no"></span>
                                                                             <span x-text="rev.effectivity_date_label || rev.effectivity_date"></span>
                                                                         </div>
-                                                                        <p x-show="rev.brief_purpose && rev.brief_purpose !== '—'" x-text="rev.brief_purpose"></p>
+                                                                        <div class="dash-cl-rev-purpose">
+                                                                            <span class="dash-cl-rev-purpose-label">Justification</span>
+                                                                            <p x-text="(rev.brief_purpose && rev.brief_purpose !== '—') ? rev.brief_purpose : '—'"></p>
+                                                                        </div>
                                                                     </div>
                                                                 </template>
                                                             </div>

@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Schema;
  * DCS Random Check — yearly June / December office visits.
  *
  * Visit stores results; document number/title/type come from the masterlist.
- * UI: pages/dcs/random-check/* and office/random-checks*
+ * UI: pages/dcs/random-check/* (admin only — Office Intake has no Random Check page)
  * LOCATION: app/Helpers — do not move under resources/views.
  *
  * DEBUG MAP:
@@ -986,16 +986,10 @@ class RandomCheckHelper
         return self::loadCheck((int) $row->id);
     }
 
-    /**
-     * Download a formal PDF for emailing. Does not open or share the Random Check page with office intake.
-     *
-     * @param  'all'|'actions'|'not_complied'  $filter
-     * @return array{ok:bool,message:string,download?:\Symfony\Component\HttpFoundation\Response}
-     */
     // =====================================================================
     // SECTION: SHARE / OFFICE INBOX — office view of shared random checks
     // =====================================================================
-    
+
     /**
      * Shares visit results with the office inbox / notification.
      */
@@ -1022,7 +1016,7 @@ class RandomCheckHelper
 
         return [
             'ok' => true,
-            'message' => 'PDF downloaded. Attach it to your email for the office — the Random Check page is not shared.',
+            'message' => 'PDF downloaded.',
             'download' => $download,
         ];
     }
@@ -1362,8 +1356,8 @@ class RandomCheckHelper
 
         return DcsNotificationService::createNotification(
             $code,
-            "Document Control will conduct {$label} {$year} in your office on {$when}. Please prepare your controlled copies. You may view details in DCS.",
-            '/dcs/office/random-checks'
+            "Document Control will conduct {$label} {$year} in your office on {$when}. Please prepare your controlled copies. The finalized report will be sent to your office.",
+            '/dcs'
         );
     }
 

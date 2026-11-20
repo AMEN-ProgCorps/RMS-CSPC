@@ -1776,14 +1776,57 @@ class RegisterQueryHelper
     }
 
     /**
-     * Permanent delete from Recycle Bin — HEAD Admin of DCS only (Recycle Bin clearance).
-     * Regular DCS admins soft-delete with a reason; they cannot destroy forever.
+     * Permanent delete from Recycle Bin — HEAD Admin of DCS, Super Admin, or Admin Recycle Bin access.
+     * Soft-delete still available to regular DCS admins; Delete forever needs the secret code in Admin Recycle Bin.
      *
      * DEBUG: unexpected allow/deny → check this predicate.
      */
     public static function canPermanentlyDeleteDcsDocuments(): bool
     {
-        return self::isDocumentControlHead();
+        if (self::isDocumentControlHead()) {
+            return true;
+        }
+
+        $perms = auth()->user()?->permissions;
+
+        return (bool) ($perms && ($perms->is_sadm || ! empty($perms->can_access_recycle_bin)));
+    }
+
+    /**
+     * Admin Console Recycle Bin access (Super Admin or can_access_recycle_bin).
+     */
+    public static function canAccessAdminRecycleBin(): bool
+    {
+        $perms = auth()->user()?->permissions;
+
+        return (bool) ($perms && ($perms->is_sadm || ! empty($perms->can_access_recycle_bin)));
+    }
+
+    /**
+     * Whether DCS soft-delete is allowed (Admin Settings → DCS).
+     * Covers Update documents and Settings catalogs (types, courses, etc.).
+     * Default off — admins must enable delete explicitly.
+     */
+    public static function isDocumentDeleteEnabled(): bool
+    {
+        try {
+            $table = Schema::hasTable('sys_system_settings')
+                ? 'sys_system_settings'
+                : (Schema::hasTable('system_settings') ? 'system_settings' : null);
+            if ($table === null) {
+                return false;
+            }
+
+            return DB::table($table)->where('key', 'dcs_document_delete_enabled')->value('value') === 'true';
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** Alias — same Admin toggle as isDocumentDeleteEnabled(). */
+    public static function isDcsSoftDeleteEnabled(): bool
+    {
+        return self::isDocumentDeleteEnabled();
     }
 
     /**
@@ -2132,30 +2175,60 @@ class RegisterQueryHelper
     }
 
     /**
-     * Applies a query filter/scope: apply masterlist keyword search.
+     * OR-match masterlist keywords for an already-joined ml alias.
+     * Call inside a document search where(function...) group so keywords work
+     * the same way as Dashboard search across Update / Database / Stamp / etc.
      *
      * DEBUG: wrong rows visible → check this scope/filter.
      */
-    private static function applyMasterlistKeywordSearch($query, string $search): void
+    public static function applyMasterlistKeywordSearch($query, string $search, string $mlAlias = 'ml'): void
     {
-        if (Schema::hasColumn('dcs_masterlist_registration', 'keywords') || ! Schema::hasTable('dcs_masterlist_keywords')) {
-            return;
-        }
-        $sql = self::masterlistKeywordsSql('ml');
+        $alias = preg_replace('/[^A-Za-z0-9_]/', '', $mlAlias) ?: 'ml';
         $search = trim($search);
-        if ($search === '' || $sql === 'NULL') {
+        if ($search === '') {
             return;
         }
+
+        $hasColumn = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
+        $hasTable = Schema::hasTable('dcs_masterlist_keywords');
+        if (! $hasColumn && ! $hasTable) {
+            return;
+        }
+
         $tokens = self::searchTokens($search);
         $phrase = '%'.$search.'%';
-        $query->orWhere(function ($outer) use ($sql, $phrase, $tokens) {
-            $outer->whereRaw($sql.' ilike ?', [$phrase]);
-            if (count($tokens) > 1) {
-                $outer->orWhere(function ($all) use ($sql, $tokens) {
-                    foreach ($tokens as $token) {
-                        $all->whereRaw($sql.' ilike ?', ['%'.$token.'%']);
-                    }
+
+        $query->orWhere(function ($outer) use ($alias, $phrase, $tokens, $hasColumn, $hasTable) {
+            if ($hasColumn) {
+                $outer->where($alias.'.keywords', 'ilike', $phrase);
+                if (count($tokens) > 1) {
+                    $outer->orWhere(function ($all) use ($alias, $tokens) {
+                        foreach ($tokens as $token) {
+                            $all->where($alias.'.keywords', 'ilike', '%'.$token.'%');
+                        }
+                    });
+                }
+            }
+
+            if ($hasTable) {
+                $outer->orWhereExists(function ($sub) use ($alias, $phrase) {
+                    $sub->select(DB::raw(1))
+                        ->from('dcs_masterlist_keywords as kw')
+                        ->whereColumn('kw.masterlist_id', $alias.'.id')
+                        ->where('kw.keyword', 'ilike', $phrase);
                 });
+                if (count($tokens) > 1) {
+                    $outer->orWhere(function ($all) use ($alias, $tokens) {
+                        foreach ($tokens as $token) {
+                            $all->whereExists(function ($sub) use ($alias, $token) {
+                                $sub->select(DB::raw(1))
+                                    ->from('dcs_masterlist_keywords as kw')
+                                    ->whereColumn('kw.masterlist_id', $alias.'.id')
+                                    ->where('kw.keyword', 'ilike', '%'.$token.'%');
+                            });
+                        }
+                    });
+                }
             }
         });
     }
@@ -3556,7 +3629,7 @@ class RegisterQueryHelper
                 }
                 $member['revision_status'] = $status;
                 $member['is_latest'] = $status === 'latest';
-                $member['can_delete'] = $status === 'latest';
+                $member['can_delete'] = $status === 'latest' && self::isDocumentDeleteEnabled();
             }
             unset($member);
 
@@ -3814,6 +3887,8 @@ class RegisterQueryHelper
         $lastPage = max(1, (int) ceil($total / $perPage));
         $page = min(max(1, $page), $lastPage);
         $pageGroups = $groups->slice(($page - 1) * $perPage, $perPage)->values()->all();
+        // Re-apply after cache — admin may toggle delete without bumping list version.
+        $pageGroups = self::applyDocumentDeletePermissionToUpdateGroups($pageGroups);
 
         return [
             'rows' => $pageGroups,
@@ -3822,6 +3897,35 @@ class RegisterQueryHelper
             'last_page' => $lastPage,
             'per_page' => $perPage,
         ];
+    }
+
+    /**
+     * Overlay Admin "document delete enabled" onto Update list rows (cache-safe).
+     *
+     * @param  list<array<string, mixed>>  $groups
+     * @return list<array<string, mixed>>
+     */
+    private static function applyDocumentDeletePermissionToUpdateGroups(array $groups): array
+    {
+        $enabled = self::isDocumentDeleteEnabled();
+        foreach ($groups as &$group) {
+            if (isset($group['parent']) && is_array($group['parent'])) {
+                $status = strtolower(trim((string) ($group['parent']['revision_status'] ?? 'latest')));
+                $group['parent']['can_delete'] = $enabled && ($status === 'latest' || $status === '');
+            }
+            if (! empty($group['children']) && is_array($group['children'])) {
+                foreach ($group['children'] as $i => $child) {
+                    if (! is_array($child)) {
+                        continue;
+                    }
+                    $status = strtolower(trim((string) ($child['revision_status'] ?? '')));
+                    $group['children'][$i]['can_delete'] = $enabled && $status === 'latest';
+                }
+            }
+        }
+        unset($group);
+
+        return $groups;
     }
 
     /**
@@ -3861,7 +3965,7 @@ class RegisterQueryHelper
         $query = self::updateListBaseQuery($docTypeId);
         $like = '%' . $search . '%';
         $tokens = self::searchTokens($search);
-        $query->where(function ($q) use ($like, $tokens) {
+        $query->where(function ($q) use ($search, $like, $tokens) {
             $q->where(function ($phrase) use ($like) {
                 $phrase->whereRaw('dr.id::text ilike ?', [$like])
                     ->orWhere('ml.doc_no', 'ilike', $like)
@@ -3885,6 +3989,7 @@ class RegisterQueryHelper
                     }
                 });
             }
+            self::applyMasterlistKeywordSearch($q, $search);
         });
 
         return $query->pluck('dr.id')->map(fn ($id) => (int) $id)->all();
@@ -4000,7 +4105,7 @@ class RegisterQueryHelper
                 'is_latest' => $status === 'latest' || $status === '',
                 'edit_url' => route('dcs.register.edit', $doc->id),
                 'history_url' => $isDraft ? null : self::editHistoryUrlForRow((int) $doc->id, $docNo),
-                'can_delete' => $status === 'latest' || $status === '',
+                'can_delete' => self::isDocumentDeleteEnabled() && ($status === 'latest' || $status === ''),
                 'can_edit' => $viewerCanEdit || self::canEditDocument((int) $doc->id, $doc),
             ];
         };
@@ -4190,6 +4295,7 @@ class RegisterQueryHelper
                         }
                     });
                 }
+                self::applyMasterlistKeywordSearch($q, $search);
             });
         }
 
@@ -4246,8 +4352,10 @@ class RegisterQueryHelper
 
     /**
      * Lists soft-deleted documents in the Recycle Bin.
+     *
+     * @param  bool  $scopeByOffice  When false (Admin Console), list all soft-deleted docs.
      */
-    public static function recycleBinList(string $search, int $page, int $perPage = 15): array
+    public static function recycleBinList(string $search, int $page, int $perPage = 15, bool $scopeByOffice = true): array
     {
         if (!Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
             return [
@@ -4269,7 +4377,9 @@ class RegisterQueryHelper
             ->leftJoin('dcs_document_request_form as drf', 'drf.request_id', '=', 'dr.id')
             ->whereNotNull('dr.deleted_at')
             ->orderByDesc('dr.deleted_at');
-        self::applyOfficeScope($query, 'dr');
+        if ($scopeByOffice) {
+            self::applyOfficeScope($query, 'dr');
+        }
 
         $select = [
             'dr.id',
@@ -4307,13 +4417,14 @@ class RegisterQueryHelper
                         }
                     });
                 }
+                self::applyMasterlistKeywordSearch($q, $search);
             });
             $matched = $query->get()->sortByDesc(function ($doc) use ($search) {
                 $title = $doc->ml_title ?: ($doc->drf_title ?: '');
 
                 return self::looseSearchScore(
                     $search,
-                    trim(($doc->doc_no ?? '') . ' ' . $title . ' ' . ($doc->doc_type_name ?? ''))
+                    trim(($doc->doc_no ?? '') . ' ' . $title . ' ' . ($doc->doc_type_name ?? '') . ' ' . ($doc->keywords ?? ''))
                 );
             })->values();
             $total = $matched->count();
@@ -4456,10 +4567,13 @@ class RegisterQueryHelper
 
         $search = trim($search);
         if ($search !== '') {
-            self::applyLooseColumnSearch($query, $search, [
-                'ml.doc_no',
-                'ml.doc_title',
-            ]);
+            $query->where(function ($q) use ($search) {
+                self::applyLooseColumnSearch($q, $search, [
+                    'ml.doc_no',
+                    'ml.doc_title',
+                ]);
+                self::applyMasterlistKeywordSearch($q, $search);
+            });
         }
 
         $perPage = max(1, $perPage);
@@ -6301,9 +6415,8 @@ class RegisterQueryHelper
                     $columns[] = 'ml.keywords';
                 }
                 self::applyLooseColumnSearch($qr, $q, $columns);
-                if (! $hasKeywordColumn) {
-                    self::applyMasterlistKeywordSearch($qr, $q);
-                }
+                // Also match normalized keyword rows even when ml.keywords exists.
+                self::applyMasterlistKeywordSearch($qr, $q);
             }
         });
 
@@ -8235,18 +8348,21 @@ class RegisterQueryHelper
                 ->get(['o.office_name'])
         );
 
-        $revisions = DB::table('dcs_doc_revision')
-            ->where('dcn_id', $dcn->id)
-            ->orderBy('id')
-            ->get()
-            ->map(fn ($rev) => [
-                'title' => $rev->title ?: '—',
-                'document_no' => $rev->document_no ?: '—',
-                'revision_no' => $rev->revision_no !== null ? (string) $rev->revision_no : '—',
-                'effectivity_date' => self::formatDisplayDate($rev->effectivity_date, '—'),
-                'brief_purpose' => $rev->brief_purpose ?: '—',
-            ])
-            ->all();
+        $justification = Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')
+            ? trim((string) ($dcn->brief_purpose ?? ''))
+            : '';
+        if ($justification === '' && Schema::hasTable('dcs_doc_revision')) {
+            // Fall back to the first non-empty revision purpose (not shown as a section).
+            $revPurpose = DB::table('dcs_doc_revision')
+                ->where('dcn_id', $dcn->id)
+                ->orderBy('id')
+                ->pluck('brief_purpose')
+                ->map(fn ($p) => trim((string) $p))
+                ->first(fn ($p) => $p !== '');
+            if (is_string($revPurpose) && $revPurpose !== '') {
+                $justification = $revPurpose;
+            }
+        }
 
         return [
             'title' => 'Document Change Notice',
@@ -8258,10 +8374,10 @@ class RegisterQueryHelper
                 self::previewField('DCN Date', self::formatDisplayDate($dcn->dcn_date)),
                 self::previewField('Receipt Date', self::formatDisplayDate($dcn->dcn_receipt_date)),
                 self::previewField('Receipt Time', self::formatDisplayTime($dcn->dcn_receipt_time)),
+                self::previewField('Justification of Change', $justification !== '' ? $justification : null),
             ],
             'sections' => array_values(array_filter([
                 self::previewOfficesSection('Offices', $offices),
-                $revisions !== [] ? ['heading' => 'Revisions', 'revisions' => $revisions] : null,
             ])),
         ];
     }
@@ -8333,7 +8449,7 @@ class RegisterQueryHelper
             ? (int) ($ml->file_size ?? 0)
             : 0;
         // Older registrations (and some revises) store the scan path but never
-        // filled file_size. Resolve from disk so Documented Information is truthful.
+        // filled file_size / checksum. Resolve from disk so Documented Information is truthful.
         if ($size <= 0 && $path !== '') {
             $size = DocumentStorageService::dcsPathFileSize($path);
             if (
@@ -8353,9 +8469,41 @@ class RegisterQueryHelper
                 }
             }
         }
+        if ($checksum === '' && $path !== '' && Schema::hasColumn('dcs_masterlist_registration', 'file_checksum')) {
+            $scanBytes = DocumentStorageService::getFileContent($path, true);
+            if (is_string($scanBytes) && $scanBytes !== '') {
+                $checksum = hash('sha256', $scanBytes);
+                $algo = 'sha256';
+                if (! empty($ml->id)) {
+                    try {
+                        $patch = [
+                            'file_checksum' => $checksum,
+                            'file_checksum_algo' => 'sha256',
+                        ];
+                        if (Schema::hasColumn('dcs_masterlist_registration', 'file_mime')) {
+                            $existingMime = trim((string) ($ml->file_mime ?? ''));
+                            if ($existingMime === '') {
+                                $patch['file_mime'] = 'application/pdf';
+                            }
+                        }
+                        DB::table('dcs_masterlist_registration')
+                            ->where('id', (int) $ml->id)
+                            ->where(function ($q) {
+                                $q->whereNull('file_checksum')->orWhere('file_checksum', '');
+                            })
+                            ->update($patch);
+                    } catch (\Throwable) {
+                        // Display still works even if backfill fails.
+                    }
+                }
+            }
+        }
         $mime = Schema::hasColumn('dcs_masterlist_registration', 'file_mime')
             ? trim((string) ($ml->file_mime ?? ''))
             : '';
+        if ($mime === '' && $path !== '') {
+            $mime = 'application/pdf';
+        }
 
         $registrant = null;
         $creatorId = (int) ($ml->created_by ?? 0);
@@ -8386,10 +8534,12 @@ class RegisterQueryHelper
             }
         }
 
-        $checksumStatus = $checksum !== '' ? 'Saved' : 'Missing';
+        $checksumStatus = $path === ''
+            ? 'No scanned file'
+            : ($checksum !== '' ? 'Saved' : 'Missing');
         $checksumDisplay = $checksum !== ''
             ? strtoupper($algo !== '' ? $algo : 'sha256') . ' ' . $checksum
-            : null;
+            : '—';
 
         $fields = [
             self::previewField('Document Title', $ml->doc_title),
@@ -8404,8 +8554,8 @@ class RegisterQueryHelper
             self::previewField('Storage Path', $path !== '' ? $path : null),
             self::previewField('Registrant', $registrant !== '' ? $registrant : null),
         ];
-        // Checksum is integrity metadata only (detect replaced/corrupt files). Show when present.
-        if ($checksumDisplay !== null) {
+        // Integrity metadata for the scanned masterlist (detect replaced/corrupt files).
+        if ($path !== '') {
             $fields[] = self::previewField('Checksum', $checksumDisplay);
             $fields[] = self::previewField('Checksum Status', $checksumStatus);
         }

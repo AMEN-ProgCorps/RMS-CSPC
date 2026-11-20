@@ -635,6 +635,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->courseRows = [['code' => '', 'name' => '']];
         $this->courseName = '';
         $this->courseCode = '';
+        $this->programId = '';
         if ($id) {
             $rowQ = DB::table('dcs_program_courses')->where('id', $id);
             \App\Helpers\SettingsRecycleHelper::applyNotDeleted($rowQ, 'dcs_program_courses');
@@ -646,6 +647,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $this->courseType = $row->course_type ?? '';
             $this->courseName = $row->course_name;
             $this->courseCode = $row->course_code ?? '';
+        } elseif ($this->courseListProgramId !== '') {
+            // Prefill from the Course Names list filter when present.
+            $this->programId = (string) $this->courseListProgramId;
         }
     }
 
@@ -857,6 +861,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     public function confirmDelete(string $kind, int $id, string $title, string $message): void
     {
+        if (! \App\Helpers\RegisterQueryHelper::isDcsSoftDeleteEnabled()) {
+            $this->fail('Delete is disabled. Ask an administrator to enable it in Admin Console → System Settings → Document Control (DCS).');
+
+            return;
+        }
+
         $this->resetFormFor('delete', $id);
         $this->deleteTitle = $title;
         $this->deleteMessage = $message;
@@ -891,6 +901,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function destroy(): void
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
+        if (! \App\Helpers\RegisterQueryHelper::isDcsSoftDeleteEnabled()) {
+            $this->closeModal();
+            $this->fail('Delete is disabled by the administrator.');
+
+            return;
+        }
+
         $kind = str_replace(':delete', '', $this->modalKind);
         $id = (int) $this->editingId;
 
@@ -1271,7 +1288,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         DB::table('dcs_colleges')->insert($payload);
-        $this->done('College added. You can add programs under it in the Programs tab.');
+        $this->done('College added. You can add programs under it in Syllabi → Programs.');
     }
 
     /**
@@ -1406,7 +1423,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $existing = DB::table('dcs_program_courses')->where('id', $editingId);
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($existing, 'dcs_program_courses');
         if (! $existing->exists()) {
-            $this->fail('That course is no longer available. It may have been moved to the Recycle Bin.');
+            $this->fail('That course is no longer available. It may have been moved to the Admin Console Recycle Bin.');
             $this->bumpCourseList();
             $this->closeModal();
 
@@ -1450,7 +1467,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             DB::table('dcs_program_courses')->where('id', $editingId)->update($payload);
         } catch (\Throwable $e) {
             report($e);
-            $this->fail('Could not update course. Check for a duplicate name/code (including items in the Recycle Bin).');
+            $this->fail('Could not update course. Check for a duplicate name/code (including items in the Admin Console Recycle Bin).');
 
             return;
         }
@@ -1941,7 +1958,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_doc_types')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('docType', $id);
-            $this->done('Document type moved to Recycle Bin.');
+            $this->done('Document type moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_doc_types')->where('id', $id)->delete();
@@ -1963,7 +1980,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_originators')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('originator', $id);
-            $this->done('Originator moved to Recycle Bin.');
+            $this->done('Originator moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_originators')->where('id', $id)->delete();
@@ -1985,7 +2002,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_faculties')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('faculty', $id);
-            $this->done('Faculty moved to Recycle Bin.');
+            $this->done('Faculty moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_faculties')->where('id', $id)->delete();
@@ -2009,7 +2026,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_colleges')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('college', $id);
-            $this->done('College moved to Recycle Bin.');
+            $this->done('College moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_colleges')->where('id', $id)->delete();
@@ -2035,7 +2052,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_programs')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('program', $id);
-            $this->done('Program moved to Recycle Bin.');
+            $this->done('Program moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_programs')->where('id', $id)->delete();
@@ -2061,7 +2078,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_semesters')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('semester', $id);
-            $this->done('Semester moved to Recycle Bin.');
+            $this->done('Semester moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_semesters')->where('id', $id)->delete();
@@ -2083,7 +2100,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_school_years')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('schoolYear', $id);
-            $this->done('School year moved to Recycle Bin.');
+            $this->done('School year moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_school_years')->where('id', $id)->delete();
@@ -2106,7 +2123,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_program_courses')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('programCourse', $id);
             $this->bumpCourseList();
-            $this->done('Course moved to Recycle Bin.');
+            $this->done('Course moved to the Admin Console Recycle Bin.');
             return;
         }
         DB::table('dcs_program_courses')->where('id', $id)->delete();
@@ -2318,6 +2335,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($schoolYearsQ, 'dcs_school_years');
 
         return [
+            'canSoftDelete' => \App\Helpers\RegisterQueryHelper::isDcsSoftDeleteEnabled(),
             'docTypeParents' => $docTypeParents,
             'docTypeSubs' => $docTypeSubs,
             'originators' => $originatorsQ
@@ -2454,17 +2472,37 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 <div
     x-data="{
         tab: new URLSearchParams(window.location.search).get('tab') || sessionStorage.getItem('settingsActiveTab') || 'doctypes',
+        syllabiSection: new URLSearchParams(window.location.search).get('section') || sessionStorage.getItem('settingsSyllabiSection') || 'colleges',
         modalOpen: false,
         init() {
-            const allowed = ['doctypes','signatories','originators','faculties','colleges','programs','semesters','schoolyears','coursenames'];
+            const legacySyllabi = {
+                faculties: 'faculties',
+                colleges: 'colleges',
+                programs: 'programs',
+                semesters: 'semesters',
+                schoolyears: 'schoolyears',
+                coursenames: 'coursenames',
+            };
+            const allowed = ['doctypes', 'signatories', 'originators', 'syllabi'];
+            const allowedSections = Object.values(legacySyllabi);
+            if (legacySyllabi[this.tab]) {
+                this.syllabiSection = legacySyllabi[this.tab];
+                this.tab = 'syllabi';
+            }
             if (!allowed.includes(this.tab)) this.tab = 'doctypes';
+            if (!allowedSections.includes(this.syllabiSection)) this.syllabiSection = 'colleges';
             sessionStorage.setItem('settingsActiveTab', this.tab);
+            sessionStorage.setItem('settingsSyllabiSection', this.syllabiSection);
             if (this.tab === 'signatories') $wire.loadSignatoryTemplateFields();
         },
         setTab(name) {
             this.tab = name;
             sessionStorage.setItem('settingsActiveTab', name);
             if (name === 'signatories') $wire.loadSignatoryTemplateFields();
+        },
+        setSyllabiSection(name) {
+            this.syllabiSection = name;
+            sessionStorage.setItem('settingsSyllabiSection', name);
         },
         openUi() {
             this.modalOpen = true;
@@ -2506,12 +2544,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'doctypes' => ['fa-tags', 'Document Types'],
             'signatories' => ['fa-signature', 'Signatories'],
             'originators' => ['fa-user-pen', 'Originators'],
-            'faculties' => ['fa-chalkboard-user', 'Faculty'],
-            'colleges' => ['fa-graduation-cap', 'Colleges'],
-            'programs' => ['fa-book-open', 'Programs'],
-            'semesters' => ['fa-calendar-week', 'Semesters'],
-            'schoolyears' => ['fa-calendar-days', 'School Years'],
-            'coursenames' => ['fa-list-check', 'Course Names'],
+            'syllabi' => ['fa-book-open', 'Syllabi'],
         ] as $key => $meta)
             <button type="button" class="tab-btn" :class="tab === '{{ $key }}' && 'active'" @click="setTab('{{ $key }}')">
                 <i class="fa-solid {{ $meta[0] }}"></i> {{ $meta[1] }}
@@ -2532,7 +2565,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <div class="row-actions">
                             <button type="button" class="icon-btn" title="Add sub-type" wire:click="openSubType({{ $type->id }})"><i class="fa-solid fa-plus"></i></button>
                             <button type="button" class="icon-btn" title="Edit" wire:click="openDocType({{ $type->id }})"><i class="fa-solid fa-pen"></i></button>
-                            <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('docType', {{ $type->id }}, 'Delete Document Type', 'This document type will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                            @if(!empty($canSoftDelete))
+                            <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('docType', {{ $type->id }}, 'Delete Document Type', 'This document type will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                            @endif
                         </div>
                     </div>
                     @if(($docTypeSubs[(string) $type->id] ?? collect())->count())
@@ -2542,7 +2577,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <div class="doctype-name"><i class="fa-solid fa-turn-up fa-rotate-90"></i><span>{{ $sub->doc_type_name }}</span></div>
                                     <div class="row-actions">
                                         <button type="button" class="icon-btn" title="Edit" wire:click="openDocType({{ $sub->id }})"><i class="fa-solid fa-pen"></i></button>
-                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('docType', {{ $sub->id }}, 'Delete Document Type', 'This document type will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        @if(!empty($canSoftDelete))
+                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('docType', {{ $sub->id }}, 'Delete Document Type', 'This document type will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        @endif
                                     </div>
                                 </div>
                             @endforeach
@@ -2936,7 +2973,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openOriginator({{ $orig->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('originator', {{ $orig->id }}, 'Delete Originator', 'This originator will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @if(!empty($canSoftDelete))
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('originator', {{ $orig->id }}, 'Delete Originator', 'This originator will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -2948,7 +2987,36 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </section>
 
-    <section class="tab-panel" wire:key="settings-tab-faculties" x-show="tab === 'faculties'" x-cloak>
+    <section class="tab-panel" wire:key="settings-tab-syllabi" x-show="tab === 'syllabi'" x-cloak>
+        <div class="panel-toolbar">
+            <div>
+                <h2 class="sig-panel-title">Syllabi catalog</h2>
+                <p class="panel-subtitle">Everything used by Syllabi / TOS-Rubrics registration — colleges, programs, terms, courses, and faculty — in one place.</p>
+            </div>
+        </div>
+        <div class="settings-subtabs" role="tablist" aria-label="Syllabi settings sections">
+            @foreach ([
+                'colleges' => ['fa-graduation-cap', 'Colleges'],
+                'programs' => ['fa-book-open', 'Programs'],
+                'semesters' => ['fa-calendar-week', 'Semesters'],
+                'schoolyears' => ['fa-calendar-days', 'School Years'],
+                'coursenames' => ['fa-list-check', 'Course Names'],
+                'faculties' => ['fa-chalkboard-user', 'Faculty'],
+            ] as $key => $meta)
+                <button
+                    type="button"
+                    class="settings-subtab"
+                    role="tab"
+                    :aria-selected="syllabiSection === '{{ $key }}'"
+                    :class="syllabiSection === '{{ $key }}' && 'active'"
+                    @click="setSyllabiSection('{{ $key }}')"
+                >
+                    <i class="fa-solid {{ $meta[0] }}"></i> {{ $meta[1] }}
+                </button>
+            @endforeach
+        </div>
+
+        <div class="syllabi-section" wire:key="settings-syllabi-faculties" x-show="syllabiSection === 'faculties'" x-cloak>
         <div x-data="{ collegeFilter: 'all' }">
         <div class="panel-toolbar">
             <span class="panel-subtitle">One faculty record can belong to several colleges (part-timers)</span>
@@ -2992,7 +3060,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openFaculty({{ $fac->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('faculty', {{ $fac->id }}, 'Delete Faculty', 'This faculty will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @if(!empty($canSoftDelete))
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('faculty', {{ $fac->id }}, 'Delete Faculty', 'This faculty will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -3003,9 +3073,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </table>
         </div>
         </div>
-    </section>
+        </div>
 
-    <section class="tab-panel" wire:key="settings-tab-colleges" x-show="tab === 'colleges'" x-cloak>
+        <div class="syllabi-section" wire:key="settings-syllabi-colleges" x-show="syllabiSection === 'colleges'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Academic colleges for programs and syllabi. Link an office only when that office is actually a college (CCS, CEA, etc.).</span>
             <button type="button" class="btn-primary" wire:click="openCollege()"><i class="fa-solid fa-plus"></i> Add College</button>
@@ -3028,7 +3098,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openCollege({{ $college->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('college', {{ $college->id }}, 'Delete College', 'This college will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @if(!empty($canSoftDelete))
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('college', {{ $college->id }}, 'Delete College', 'This college will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -3038,9 +3110,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </tbody>
             </table>
         </div>
-    </section>
+        </div>
 
-    <section class="tab-panel" wire:key="settings-tab-programs" x-show="tab === 'programs'" x-cloak>
+        <div class="syllabi-section" wire:key="settings-syllabi-programs" x-show="syllabiSection === 'programs'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Add programs under each academic college.</span>
             <button type="button" class="btn-primary" wire:click="openProgram()"><i class="fa-solid fa-plus"></i> Add Program</button>
@@ -3066,7 +3138,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td>
                                     <div class="row-actions">
                                         <button type="button" class="icon-btn" title="Edit" wire:click="openProgram({{ $prog->id }})"><i class="fa-solid fa-pen"></i></button>
-                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('program', {{ $prog->id }}, 'Delete Program', 'This program will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        @if(!empty($canSoftDelete))
+                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('program', {{ $prog->id }}, 'Delete Program', 'This program will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        @endif
                                     </div>
                                 </td>
                             </tr>
@@ -3079,9 +3153,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </tbody>
             </table>
         </div>
-    </section>
+        </div>
 
-    <section class="tab-panel" wire:key="settings-tab-semesters" x-show="tab === 'semesters'" x-cloak>
+        <div class="syllabi-section" wire:key="settings-syllabi-semesters" x-show="syllabiSection === 'semesters'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Academic semesters</span>
             <button type="button" class="btn-primary" wire:click="openSemester()"><i class="fa-solid fa-plus"></i> Add Semester</button>
@@ -3096,7 +3170,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openSemester({{ $sem->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('semester', {{ $sem->id }}, 'Delete Semester', 'This semester will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @if(!empty($canSoftDelete))
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('semester', {{ $sem->id }}, 'Delete Semester', 'This semester will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -3106,9 +3182,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </tbody>
             </table>
         </div>
-    </section>
+        </div>
 
-    <section class="tab-panel" wire:key="settings-tab-schoolyears" x-show="tab === 'schoolyears'" x-cloak>
+        <div class="syllabi-section" wire:key="settings-syllabi-schoolyears" x-show="syllabiSection === 'schoolyears'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Academic school years</span>
             <button type="button" class="btn-primary" wire:click="openSchoolYear()"><i class="fa-solid fa-plus"></i> Add School Year</button>
@@ -3123,7 +3199,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openSchoolYear({{ $sy->id }})"><i class="fa-solid fa-pen"></i></button>
-                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('schoolYear', {{ $sy->id }}, 'Delete School Year', 'This school year will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @if(!empty($canSoftDelete))
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('schoolYear', {{ $sy->id }}, 'Delete School Year', 'This school year will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -3133,9 +3211,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </tbody>
             </table>
         </div>
-    </section>
+        </div>
 
-    <section class="tab-panel" wire:key="settings-tab-coursenames" x-show="tab === 'coursenames'" x-cloak>
+        <div class="syllabi-section" wire:key="settings-syllabi-coursenames" x-show="syllabiSection === 'coursenames'" x-cloak>
         <div>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Curriculum course list per program, semester, year level, and course type — used to auto-fill Syllabi/TOS-Rubrics registration. Faculty is assigned during registration.</span>
@@ -3229,7 +3307,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td>
                                     <div class="row-actions">
                                         <button type="button" class="icon-btn" title="Edit" wire:click="openProgramCourse({{ $course->id }})"><i class="fa-solid fa-pen"></i></button>
-                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('programCourse', {{ $course->id }}, 'Delete Course', 'This course will be moved to the DCS Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        @if(!empty($canSoftDelete))
+                                        <button type="button" class="icon-btn icon-btn-danger" title="Delete" wire:click="confirmDelete('programCourse', {{ $course->id }}, 'Delete Course', 'This course will be moved to the Admin Console Recycle Bin.')"><i class="fa-solid fa-trash"></i></button>
+                                        @endif
                                     </div>
                                 </td>
                             </tr>
@@ -3238,6 +3318,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @endif
                 </tbody>
             </table>
+        </div>
         </div>
         </div>
     </section>
@@ -3424,12 +3505,37 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         }
                     @endphp
                     <div class="st-field">
-                        <label class="st-label">Program</label>
-                        <select class="st-input @error('programId') error @enderror" wire:model="programId">
-                            <option value="">Select program</option>
-                            @foreach($programOptions as $prog)
-                                <option value="{{ $prog->id }}">{{ $prog->college_name ?? '—' }} — {{ $prog->program_name }}</option>
+                        <label class="st-label">College / Program</label>
+                        <select class="st-input @error('programId') error @enderror" wire:model.live="programId">
+                            <option value="">Select college / program</option>
+                            @foreach($colleges as $college)
+                                @php
+                                    $collegePrograms = $programOptions
+                                        ->filter(fn ($p) => (string) ($p->college_id ?? '') === (string) $college->id)
+                                        ->values();
+                                @endphp
+                                @if($collegePrograms->isNotEmpty())
+                                    <optgroup label="{{ $college->college_name }}">
+                                        @foreach($collegePrograms as $prog)
+                                            <option value="{{ $prog->id }}">{{ $prog->program_name }}{{ $prog->program_code ? ' (' . $prog->program_code . ')' : '' }}</option>
+                                        @endforeach
+                                    </optgroup>
+                                @endif
                             @endforeach
+                            {{-- Orphan program (soft-filtered) not under a listed college --}}
+                            @php
+                                $collegeIds = $colleges->map(fn ($c) => (string) $c->id)->all();
+                                $orphanPrograms = $programOptions->filter(
+                                    fn ($p) => ! in_array((string) ($p->college_id ?? ''), $collegeIds, true)
+                                );
+                            @endphp
+                            @if($orphanPrograms->isNotEmpty())
+                                <optgroup label="Other">
+                                    @foreach($orphanPrograms as $prog)
+                                        <option value="{{ $prog->id }}">{{ $prog->college_name ?? '—' }} — {{ $prog->program_name }}</option>
+                                    @endforeach
+                                </optgroup>
+                            @endif
                         </select>
                         @error('programId') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
@@ -3481,7 +3587,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @else
                         <div class="st-field">
                             <label class="st-label">Courses</label>
-                            <p class="st-faculty-hint" style="margin-top:0;">Set program, semester, and year level once, then add as many courses as you need.</p>
+                            <p class="st-faculty-hint" style="margin-top:0;">Set college/program, semester, and year level once, then add as many courses as you need.</p>
                             <div class="st-course-rows">
                                 <div class="st-course-row st-course-row-head">
                                     <span>Code</span>

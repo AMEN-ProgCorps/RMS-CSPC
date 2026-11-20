@@ -14,6 +14,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $pagePrewarmingEnabled = true;
     public bool $dcsOfficeDrfFormsEnabled = false;
     public bool $dcsOfficeDrfLogbooksEnabled = false;
+    /** Allow soft-delete of registered documents from DCS Update → Recycle Bin */
+    public bool $dcsDocumentDeleteEnabled = false;
     public bool $emailAccessRequiredExternal = true;
     public bool $emailAccessRequiredApplication = true;
     public bool $emailAccessRequiredInternal = false;
@@ -44,6 +46,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $dtsRequiredUploadFile = false;
     public int $tabCloseIdleTimeoutMinutes = 15;
     public string $dcsRecycleDeleteCode = '';
+    /** @var array<string, bool> */
+    public array $dcsDbVisibleGroups = [];
     public bool $rateLimitEnabled = false;
     public int $rateLimitDtsCreatePerMinute = 10;
     public int $rateLimitDtsActionPerMinute = 20;
@@ -638,8 +642,75 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $this->dcsOfficeDrfFormsEnabled = \App\Helpers\OfficeIntakeHelper::isOfficeDrfParentEnabled('Forms');
         $this->dcsOfficeDrfLogbooksEnabled = \App\Helpers\OfficeIntakeHelper::isOfficeDrfParentEnabled('Logbooks');
+        $this->dcsDocumentDeleteEnabled = \App\Helpers\RegisterQueryHelper::isDocumentDeleteEnabled();
+        $this->dcsDbVisibleGroups = \App\Helpers\DcsDatabaseColumns::systemVisibleGroups();
 
         $this->loadNasCredentials();
+    }
+
+    /**
+     * Persist document-delete toggle immediately (same as column visibility toggles).
+     */
+    public function updatedDcsDocumentDeleteEnabled(bool $value): void
+    {
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings')
+            ? 'sys_system_settings'
+            : 'system_settings';
+
+        \DB::table($sysTable)->updateOrInsert(
+            ['key' => 'dcs_document_delete_enabled'],
+            [
+                'value' => $value ? 'true' : 'false',
+                'updated_at' => now(),
+            ]
+        );
+
+        \App\Helpers\RegisterQueryHelper::bumpDocumentListCache();
+
+        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+            'changes' => 'DCS document soft-delete ' . ($value ? 'enabled' : 'disabled') . ' (Admin Settings)',
+            'admin_id' => auth()->id(),
+            'what_system' => 3,
+            'when_changes' => now(),
+        ]);
+
+        $this->successMessage = $value
+            ? 'DCS soft-delete enabled for Update documents and Settings catalogs.'
+            : 'DCS soft-delete disabled. Delete buttons are hidden in Update and Settings.';
+        $this->dispatch('rms-settings-changed', type: 'site_settings', message: $this->successMessage);
+    }
+
+    public function toggleDcsDbGroup(string $groupKey): void
+    {
+        if (! in_array($groupKey, \App\Helpers\DcsDatabaseColumns::GROUP_KEYS, true)) {
+            return;
+        }
+
+        $groups = \App\Helpers\DcsDatabaseColumns::normalizeVisibleGroups($this->dcsDbVisibleGroups);
+        $groups[$groupKey] = ! ($groups[$groupKey] ?? true);
+        $this->dcsDbVisibleGroups = \App\Helpers\DcsDatabaseColumns::persistSystemVisibleGroups($groups);
+        $this->successMessage = 'DCS Inventory column visibility updated (system-wide).';
+        $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'DCS Database column visibility updated.');
+    }
+
+    public function showAllDcsDbGroups(): void
+    {
+        $this->dcsDbVisibleGroups = \App\Helpers\DcsDatabaseColumns::persistSystemVisibleGroups(
+            \App\Helpers\DcsDatabaseColumns::defaultVisibleGroups()
+        );
+        $this->successMessage = 'All DCS Inventory column groups are visible again.';
+        $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'DCS Database columns: show all.');
+    }
+
+    public function hideAllDcsDbGroups(): void
+    {
+        $hidden = \App\Helpers\DcsDatabaseColumns::defaultVisibleGroups();
+        foreach ($hidden as $key => $_) {
+            $hidden[$key] = false;
+        }
+        $this->dcsDbVisibleGroups = \App\Helpers\DcsDatabaseColumns::persistSystemVisibleGroups($hidden);
+        $this->successMessage = 'All DCS Inventory column groups are hidden.';
+        $this->dispatch('rms-settings-changed', type: 'site_settings', message: 'DCS Database columns: hide all.');
     }
 
     // ---- SERVER DEFAULT RECORD SERIES PICKER (DTS CONTINUITY) ----
@@ -1289,6 +1360,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 \App\Helpers\OfficeIntakeHelper::setOfficeDrfParentEnabled('Forms', $this->dcsOfficeDrfFormsEnabled);
                 \App\Helpers\OfficeIntakeHelper::setOfficeDrfParentEnabled('Logbooks', $this->dcsOfficeDrfLogbooksEnabled);
 
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dcs_document_delete_enabled'],
+                    [
+                        'value' => $this->dcsDocumentDeleteEnabled ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+                \App\Helpers\RegisterQueryHelper::bumpDocumentListCache();
+
                 // Log activity
                 $logText = "Updated system settings. Prewarming: " . ($this->pagePrewarmingEnabled ? 'true' : 'false') . 
                              ", ExtEmail: " . ($this->emailAccessRequiredExternal ? 'true' : 'false') . 
@@ -1302,6 +1382,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                              ", DcsDeleteCode: " . (trim($this->dcsRecycleDeleteCode) !== '' ? 'set' : 'cleared') .
                              ", DcsOfficeForms: " . ($this->dcsOfficeDrfFormsEnabled ? 'true' : 'false') .
                              ", DcsOfficeLogbooks: " . ($this->dcsOfficeDrfLogbooksEnabled ? 'true' : 'false') .
+                             ", DcsDocDelete: " . ($this->dcsDocumentDeleteEnabled ? 'true' : 'false') .
                              ", RateLimit: " . ($this->rateLimitEnabled ? 'true (' . $this->rateLimitDtsCreatePerMinute . '/min)' : 'false');
 
                 \DB::table('sys_admin_logs')->insert([
@@ -1874,7 +1955,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 'general'  => ['icon' => 'fa-solid fa-sliders', 'label' => 'General', 'count' => 2],
                 'dts'      => ['icon' => 'fa-solid fa-qrcode', 'label' => 'Document Tracking (DTS)', 'count' => 1],
                 'rdp'      => ['icon' => 'fa-solid fa-folder-tree', 'label' => 'Records (RDP)', 'count' => 1],
-                'dcs'      => ['icon' => 'fa-solid fa-file-shield', 'label' => 'Document Control (DCS)', 'count' => 1],
+                'dcs'      => ['icon' => 'fa-solid fa-file-shield', 'label' => 'Document Control (DCS)', 'count' => 3],
                 'security' => ['icon' => 'fa-solid fa-shield-halved', 'label' => 'Security', 'count' => 6],
             ];
         @endphp
@@ -2158,6 +2239,68 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <input type="checkbox" wire:model="dcsOfficeDrfLogbooksEnabled">
                             <span class="slider"></span>
                         </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-card">
+                <div>
+                    <div class="settings-card-header">
+                        <i class="fa-solid fa-trash-can"></i>
+                        <h3>DCS soft-delete</h3>
+                    </div>
+                    <p style="margin: 0 0 12px; font-size: 12px; color: #64748b; line-height: 1.4;">
+                        Controls whether DCS users can soft-delete items into the Admin Recycle Bin from:
+                        <strong>Document Registration → Update</strong> (registered documents) and
+                        <strong>DCS → Settings</strong> (document types, originators, colleges, programs, courses, etc.).
+                        When off, delete buttons are hidden and delete requests are blocked.
+                    </p>
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Allow soft-delete (documents &amp; settings catalogs)</span>
+                            <span class="setting-desc">Default is off. Turn on only when staff should be able to move items to the Recycle Bin.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model.live="dcsDocumentDeleteEnabled">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <p style="margin: 8px 0 0; font-size: 11.5px; color: #64748b;">
+                        Saves immediately when toggled. Refresh <strong>DCS → Update</strong> or <strong>DCS → Settings</strong> if delete icons do not appear yet.
+                    </p>
+                </div>
+            </div>
+
+            <div class="settings-card">
+                <div>
+                    <div class="settings-card-header">
+                        <i class="fa-solid fa-table"></i>
+                        <h3>DCS Database columns</h3>
+                    </div>
+                    <p style="margin: 0 0 12px; font-size: 12px; color: #64748b; line-height: 1.4;">
+                        Hide or show Inventory column groups <strong>system-wide</strong> for RFIO / full DCS users.
+                        Limited office users never see these groups. Changes apply on next Inventory load.
+                    </p>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+                        <button type="button" class="theme-option-btn" wire:click="showAllDcsDbGroups" style="padding:6px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;cursor:pointer;">Show all</button>
+                        <button type="button" class="theme-option-btn" wire:click="hideAllDcsDbGroups" style="padding:6px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;cursor:pointer;">Hide all groups</button>
+                    </div>
+                    @foreach(\App\Helpers\DcsDatabaseColumns::GROUP_KEYS as $gKey)
+                        <div class="setting-item">
+                            <div class="setting-details">
+                                <span class="setting-title">{{ \App\Helpers\DcsDatabaseColumns::GROUP_LABELS[$gKey] }}</span>
+                            </div>
+                            <button type="button" wire:click="toggleDcsDbGroup('{{ $gKey }}')" role="switch"
+                                aria-checked="{{ !empty($dcsDbVisibleGroups[$gKey]) ? 'true' : 'false' }}"
+                                aria-label="Toggle {{ \App\Helpers\DcsDatabaseColumns::GROUP_LABELS[$gKey] }}"
+                                style="position:relative;display:inline-flex;width:48px;height:26px;border:none;cursor:pointer;background-color:{{ !empty($dcsDbVisibleGroups[$gKey]) ? '#2563eb' : '#cbd5e1' }};transition:background-color 0.25s ease;border-radius:26px;padding:0;outline:none;flex-shrink:0;">
+                                <span style="position:absolute;top:3px;left:{{ !empty($dcsDbVisibleGroups[$gKey]) ? '25px' : '3px' }};width:20px;height:20px;background-color:#ffffff;border-radius:50%;transition:left 0.25s ease;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></span>
+                            </button>
+                        </div>
+                    @endforeach
+                    <div style="margin-top:10px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:11.5px;color:#1e40af;display:flex;align-items:flex-start;gap:8px;">
+                        <i class="fa-solid fa-circle-info" style="margin-top:2px;"></i>
+                        <span>This replaces the old Profile → DCS Database columns preference. Visibility is no longer per-account.</span>
                     </div>
                 </div>
             </div>
@@ -2626,9 +2769,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     <!-- Setting: DCS Recycle Bin permanent-delete code -->
                     <div class="setting-item" style="flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e2e8f0;">
                         <div class="setting-details">
-                            <span class="setting-title">DCS Recycle Bin Permanent-Delete Code</span>
+                            <span class="setting-title">Admin Recycle Bin Permanent-Delete Code (DCS)</span>
                             <span class="setting-desc">
-                                Secret code for Recycle Bin → Delete forever.
+                                Secret code for Admin Recycle Bin → DCS Documents/Settings → Delete forever.
                                 When set here it <strong>overrides</strong> <code>DCS_RECYCLE_DELETE_CODE</code> in .env (they can differ — Recycle Bin always uses this Settings value first).
                                 Clear this field and save to fall back to .env.
                                 @php

@@ -203,11 +203,8 @@ class User extends Authenticatable
     /** @return array<string, bool> */
     public function dcsDbVisibleGroups(): array
     {
-        $setting = $this->personalSetting;
-
-        return DcsDatabaseColumns::normalizeVisibleGroups(
-            $setting?->dcs_db_visible_groups ?? null
-        );
+        // System-wide visibility from Admin Settings → Document Control (DCS).
+        return DcsDatabaseColumns::systemVisibleGroups();
     }
 
     public function followScrollEnabled(): bool

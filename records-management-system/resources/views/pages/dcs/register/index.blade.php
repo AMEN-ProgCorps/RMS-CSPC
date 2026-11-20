@@ -274,17 +274,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
             <div class="reg-card-body">
 
-                <!-- ═══ CONTEXT: College / Program / Semester / Course Type / Year Level / School Year ═══ -->
+                <!-- ═══ CONTEXT: Course Type first → College/Program → Semester / Year Level / School Year ═══ -->
                 <div class="reg-grid-3 reg-grid-syllabi-context">
                     <div class="reg-field">
-                        <label>College</label>
-                        <select id="syllabiCollege" name="college_id">
-                            <option value="" selected disabled>Select college</option>
+                        <label>Course Type</label>
+                        <select id="syllabiCourseType" name="course_type">
+                            <option value="" selected disabled>Select course type</option>
+                            <option value="GE Courses">GE Courses</option>
+                            <option value="PE Courses">PE Courses</option>
+                            <option value="NSTP">NSTP</option>
+                            <option value="Major">Major</option>
                         </select>
                     </div>
-                    <div class="reg-field">
-                        <label>Program</label>
-                        <select id="syllabiProgram" name="program_id" disabled>
+                    <div class="reg-field" id="syllabiCollegeProgramComboWrap" hidden>
+                        <label>College / Program</label>
+                        <select id="syllabiCollegeProgramCombo">
+                            <option value="" selected disabled>Select college / program</option>
+                        </select>
+                        {{-- Hidden mirrors so college_id / program_id still post with the form --}}
+                        <select id="syllabiCollege" name="college_id" hidden aria-hidden="true" tabindex="-1">
+                            <option value="" selected disabled>Select college</option>
+                        </select>
+                        <select id="syllabiProgram" name="program_id" hidden aria-hidden="true" tabindex="-1">
                             <option value="" selected disabled>Select program</option>
                         </select>
                     </div>
@@ -294,19 +305,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <option value="" selected disabled>Select semester</option>
                         </select>
                     </div>
-                    <div class="reg-field">
-                        <label>Course Type</label>
-                        <select id="syllabiCourseType" name="course_type" disabled>
-                            <option value="" selected disabled>Select course type</option>
-                            <option value="GE Courses">GE Courses</option>
-                            <option value="PE Courses">PE Courses</option>
-                            <option value="NSTP">NSTP</option>
-                            <option value="Major">Major</option>
-                        </select>
-                    </div>
-                    <div class="reg-field">
+                    <div class="reg-field reg-field--year-level">
                         <label>Year Level</label>
-                        <div id="syllabiYearLevelPicker" class="reg-syllabi-years is-empty" role="group" aria-label="Year levels to include">Select program, semester, and course type</div>
+                        <div id="syllabiYearLevelPicker" class="reg-syllabi-years is-empty" role="group" aria-label="Year levels to include">Select course type, college/program, and semester</div>
                         <div id="syllabiYearLevelHiddens"></div>
                     </div>
                     <div class="reg-field">
@@ -2927,7 +2928,8 @@ function restoreOfficeIntakePrefillIfNeeded() {
  */
 function lockSyllabiContextDropdowns() {
     // Office-request context is fixed except Year Level.
-    ['syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear'].forEach((id) => {
+    // Include the visible College/Program combo (hidden college/program mirrors alone are not enough).
+    ['syllabiCollege', 'syllabiProgram', 'syllabiCollegeProgramCombo', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear'].forEach((id) => {
         const el = document.getElementById(id);
         if (!el) return;
         const name = el.getAttribute('name');
@@ -2957,7 +2959,7 @@ function lockSyllabiContextDropdowns() {
  * Unlocks syllabi context dropdowns.
  */
 function unlockSyllabiContextDropdowns() {
-    ['syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear'].forEach((id) => {
+    ['syllabiCollege', 'syllabiProgram', 'syllabiCollegeProgramCombo', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear'].forEach((id) => {
         const el = document.getElementById(id);
         const hidden = document.getElementById(id + '__locked');
         if (el) {
@@ -2965,11 +2967,17 @@ function unlockSyllabiContextDropdowns() {
                 el.setAttribute('name', hidden.name);
                 hidden.remove();
             }
-            el.disabled = false;
-            el.removeAttribute('disabled');
             el.classList.remove('reg-field-locked');
         }
     });
+    const courseTypeSel = document.getElementById('syllabiCourseType');
+    if (courseTypeSel) {
+        courseTypeSel.disabled = false;
+        courseTypeSel.removeAttribute('disabled');
+    }
+    if (typeof applySyllabiCourseTypeLayout === 'function') {
+        applySyllabiCourseTypeLayout(courseTypeSel?.value || '');
+    }
     const titleInput = document.getElementById('syllabiDocTitle');
     if (titleInput) {
         titleInput.readOnly = false;
@@ -3125,6 +3133,7 @@ async function applyOfficeIntakeSyllabiPrefill(prefill) {
 
     const collegeSel = document.getElementById('syllabiCollege');
     const programSel = document.getElementById('syllabiProgram');
+    const comboSel = document.getElementById('syllabiCollegeProgramCombo');
     const semSel = document.getElementById('syllabiSemester');
     const courseTypeSel = document.getElementById('syllabiCourseType');
     const sySel = document.getElementById('syllabiSchoolYear');
@@ -3141,27 +3150,35 @@ async function applyOfficeIntakeSyllabiPrefill(prefill) {
         loadSyllabiContextDropdowns();
     }
 
-    if (syl.college_id) {
-        collegeSel.value = String(syl.college_id);
-        fireChange(collegeSel);
-        await wait(60);
+    // Course type first, then single College/Program combo (mirrors user-facing cascade).
+    if (syl.course_type && courseTypeSel) {
+        courseTypeSel.disabled = false;
+        courseTypeSel.value = String(syl.course_type);
+        fireChange(courseTypeSel);
+        await wait(40);
     }
-    if (syl.program_id && programSel) {
-        programSel.disabled = false;
-        programSel.value = String(syl.program_id);
-        fireChange(programSel);
+    if (syl.college_id && syl.program_id && comboSel) {
+        if (typeof populateSyllabiCollegeProgramCombo === 'function') {
+            populateSyllabiCollegeProgramCombo();
+        }
+        const comboVal = String(syl.college_id) + '|' + String(syl.program_id);
+        comboSel.value = comboVal;
+        fireChange(comboSel);
+        await wait(80);
+    } else if (syl.college_id) {
+        collegeSel.value = String(syl.college_id);
+        if (syl.program_id && programSel) {
+            if (typeof fillSyllabiProgramsForCollege === 'function') {
+                fillSyllabiProgramsForCollege(syl.college_id, syl.program_id);
+            }
+            programSel.value = String(syl.program_id);
+        }
         await wait(40);
     }
     if (syl.semester_id && semSel) {
         semSel.disabled = false;
         semSel.value = String(syl.semester_id);
         fireChange(semSel);
-        await wait(40);
-    }
-    if (syl.course_type && courseTypeSel) {
-        courseTypeSel.disabled = false;
-        courseTypeSel.value = String(syl.course_type);
-        fireChange(courseTypeSel);
         await wait(40);
     }
     if (typeof refreshSyllabiYearLevelDisplay === 'function') {
@@ -7178,14 +7195,22 @@ function resetSyllabiSection() {
 
     const collegeSel = document.getElementById('syllabiCollege');
     const programSel = document.getElementById('syllabiProgram');
+    const comboSel = document.getElementById('syllabiCollegeProgramCombo');
     const semSel = document.getElementById('syllabiSemester');
     const courseTypeSel = document.getElementById('syllabiCourseType');
     const sySel = document.getElementById('syllabiSchoolYear');
-    if (collegeSel) collegeSel.selectedIndex = 0;
+    if (courseTypeSel) {
+        courseTypeSel.selectedIndex = 0;
+        courseTypeSel.disabled = false;
+        courseTypeSel.removeAttribute('disabled');
+        courseTypeSel.classList.remove('reg-field-locked');
+    }
+    if (comboSel) { comboSel.selectedIndex = 0; comboSel.value = ''; }
+    if (collegeSel) { collegeSel.selectedIndex = 0; collegeSel.disabled = true; }
     if (programSel) { programSel.innerHTML = '<option value="" selected disabled>Select program</option>'; programSel.disabled = true; }
     if (semSel) { semSel.selectedIndex = 0; semSel.disabled = true; }
-    if (courseTypeSel) { courseTypeSel.selectedIndex = 0; courseTypeSel.disabled = true; }
     if (sySel) { sySel.selectedIndex = 0; sySel.disabled = true; }
+    if (typeof applySyllabiCourseTypeLayout === 'function') applySyllabiCourseTypeLayout('');
     if (typeof refreshSyllabiYearLevelDisplay === 'function') refreshSyllabiYearLevelDisplay([]);
 
     if (typeof setSyllabiContextTaken === 'function') {
@@ -9276,7 +9301,9 @@ function getInputVal(id) {
 function getSelectText(id) {
     const el = document.getElementById(id);
     if (!el || el.selectedIndex < 0) return "";
-    return el.options[el.selectedIndex].text;
+    const opt = el.options[el.selectedIndex];
+    if (!opt || opt.disabled || opt.value === "") return "";
+    return opt.text || "";
 }
 
 /**
@@ -10306,20 +10333,14 @@ function updateSyllabiTitle() {
     const courseType = syllabiCourseTypeTitlePhrase(rawType);
     const label    = window.__syllabiModeLabel || 'Syllabi';
 
-    if (!college || !program || !semester || !schoolYr || !courseType) return;
-
-    // Single course row → office-intake style title (course name, not course type).
-    const courseNames = [...document.querySelectorAll('#syllabiTableBody textarea[name="syllabiCourseName[]"], #syllabiTableBody input[name="syllabiCourseName[]"]')]
-        .map((el) => String(el.value || '').trim())
-        .filter(Boolean);
-    if (courseNames.length === 1) {
-        const connector = /tos|rubric/i.test(label) ? 'TOS/Rubrics for' : 'Syllabus for';
-        const sy = String(formatSchoolYearText(schoolYr) || schoolYr).replace(/^\s*s\/?y\s*/i, '');
-        titleInput.value = college + ' ' + connector + ' ' + program + ' in ' + courseNames[0] + ', ' + semester + ' S/Y ' + sy;
+    // Incomplete context → clear so a prior auto-title cannot linger.
+    if (!college || !program || !semester || !schoolYr || !courseType) {
+        titleInput.value = '';
         syncSyllabiToMasterlistFields();
         return;
     }
 
+    // Same title shape for manual register and office-intake request (course type, not course name).
     // GE is owned by CAS; title leads with CAS and targets the selected college.
     if (rawType === 'GE Courses') {
         const casName = (() => {
@@ -10486,7 +10507,7 @@ function refreshSyllabiYearLevelDisplay(available, selected = null) {
             && document.getElementById('syllabiSemester')?.value
             && document.getElementById('syllabiCourseType')?.value
             ? 'No year levels in Settings for this program yet'
-            : 'Select program, semester, and course type';
+            : 'Select course type, college/program, and semester';
         syncSyllabiYearLevelHiddens();
         return;
     }
@@ -11037,9 +11058,113 @@ function clearSyllabiCourseRows() {
     updateSyllabiTotals();
 }
 
+/** @deprecated Kept for compatibility; all course types now use the College/Program combo. */
+function isSharedSyllabiCourseType(type) {
+    return ['GE Courses', 'PE Courses', 'NSTP', 'Major'].includes(String(type || ''));
+}
+
+function populateSyllabiCollegeProgramCombo() {
+    const combo = document.getElementById('syllabiCollegeProgramCombo');
+    if (!combo) return;
+    const catalog = window.__registerCatalog || {};
+    const colleges = catalog.colleges || [];
+    const byCollege = catalog.programsByCollege || {};
+    combo.innerHTML = '<option value="" selected disabled>Select college / program</option>';
+    colleges.forEach((c) => {
+        const programs = byCollege[String(c.college_id)] || [];
+        if (!programs.length) return;
+        const group = document.createElement('optgroup');
+        group.label = c.college_name || ('College #' + c.college_id);
+        programs.forEach((p) => {
+            const opt = new Option(p.program_name, String(c.college_id) + '|' + String(p.program_id));
+            opt.dataset.collegeId = String(c.college_id);
+            opt.dataset.programId = String(p.program_id);
+            opt.dataset.code = p.program_code || '';
+            group.appendChild(opt);
+        });
+        combo.appendChild(group);
+    });
+}
+
+function fillSyllabiProgramsForCollege(collegeId, selectedProgramId = '') {
+    const programSel = document.getElementById('syllabiProgram');
+    if (!programSel) return;
+    programSel.innerHTML = '<option value="" selected disabled>Select program</option>';
+    const programs = ((window.__registerCatalog || {}).programsByCollege || {})[String(collegeId)] || [];
+    programs.forEach((p) => {
+        const opt = new Option(p.program_name, p.program_id);
+        opt.dataset.code = p.program_code || '';
+        if (String(p.program_id) === String(selectedProgramId)) opt.selected = true;
+        programSel.add(opt);
+    });
+    programSel.disabled = !collegeId;
+}
+
+async function syncSyllabiCollegeProgramFromCombo() {
+    const combo = document.getElementById('syllabiCollegeProgramCombo');
+    const collegeSel = document.getElementById('syllabiCollege');
+    const programSel = document.getElementById('syllabiProgram');
+    const opt = combo?.selectedOptions?.[0];
+    const collegeId = opt?.dataset?.collegeId || '';
+    const programId = opt?.dataset?.programId || '';
+    if (!collegeSel || !programSel) return;
+
+    if (collegeSel.options.length <= 1) {
+        await loadSyllabiContextDropdowns();
+    }
+    if (collegeId) {
+        collegeSel.value = collegeId;
+        collegeSel.disabled = false;
+        fillSyllabiProgramsForCollege(collegeId, programId);
+        if (programId) {
+            programSel.value = programId;
+            programSel.disabled = false;
+        }
+        allFaculties = [];
+        window.__facultiesCacheKey = null;
+        await reloadFacultiesForCollege();
+    } else {
+        collegeSel.value = '';
+        programSel.innerHTML = '<option value="" selected disabled>Select program</option>';
+        programSel.disabled = true;
+    }
+}
+
+function applySyllabiCourseTypeLayout(courseType) {
+    const hasType = !!courseType;
+    const comboWrap = document.getElementById('syllabiCollegeProgramComboWrap');
+    const collegeSel = document.getElementById('syllabiCollege');
+    const programSel = document.getElementById('syllabiProgram');
+    const combo = document.getElementById('syllabiCollegeProgramCombo');
+    const courseTypeSel = document.getElementById('syllabiCourseType');
+
+    // Course type is always the first unlocked control (unless office-intake locked).
+    if (courseTypeSel && !window.__officeIntakeSyllabiLocked) {
+        courseTypeSel.disabled = false;
+        courseTypeSel.removeAttribute('disabled');
+    }
+
+    // One College/Program optgroup dropdown for every course type (GE/PE/NSTP/Major).
+    if (!hasType) {
+        if (comboWrap) comboWrap.hidden = true;
+        if (combo) combo.value = '';
+        if (collegeSel) collegeSel.value = '';
+        if (programSel) {
+            programSel.innerHTML = '<option value="" selected disabled>Select program</option>';
+        }
+        return;
+    }
+
+    if (comboWrap) comboWrap.hidden = false;
+    populateSyllabiCollegeProgramCombo();
+    if (collegeSel) collegeSel.disabled = false;
+    if (programSel) programSel.disabled = false;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     const collegeSel = document.getElementById("syllabiCollege");
     const programSel = document.getElementById("syllabiProgram");
+    const comboSel = document.getElementById("syllabiCollegeProgramCombo");
     const semSel = document.getElementById("syllabiSemester");
     const courseTypeSel = document.getElementById("syllabiCourseType");
     const sySel = document.getElementById("syllabiSchoolYear");
@@ -11051,68 +11176,53 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     /**
-     * Clears and resets downstream from.
-     *
-     * @param {*} level
+     * Clears and resets downstream from course-type-first cascade.
+     * 1 = course type, 2 = college/program combo, 3 = semester, 4 = school year
      */
     function resetDownstreamFrom(level) {
         // Office intake (and locked context) must keep college/program/semester/course type/S/Y
         // and the stamped request course — do not wipe the table.
         if (window.__officeIntakeSyllabiLocked) return;
-        if (level <= 1 && programSel) {
-            programSel.innerHTML = '<option value="" selected disabled>Select program</option>';
-            programSel.disabled = true;
+        if (level <= 1) {
+            if (comboSel) comboSel.value = '';
+            if (collegeSel) collegeSel.value = '';
+            if (programSel) {
+                programSel.innerHTML = '<option value="" selected disabled>Select program</option>';
+            }
         }
         if (level <= 2 && semSel) { semSel.value = ""; semSel.disabled = true; }
-        if (level <= 3 && courseTypeSel) { courseTypeSel.value = ""; courseTypeSel.disabled = true; }
-        if (level <= 4 && sySel) { sySel.value = ""; sySel.disabled = true; }
+        if (level <= 3 && sySel) { sySel.value = ""; sySel.disabled = true; }
+        // Course type / college-program changes always re-enable auto title and clear the old one.
+        if (level <= 2) {
+            syllabiTitleManuallyEdited = false;
+            if (titleInput) titleInput.value = '';
+        }
         updateSyllabiTitle();
         clearSyllabiCourseRows();
         refreshSyllabiYearLevelDisplay([]);
         setSyllabiContextHint('', false);
     }
 
-    if (collegeSel) {
-        collegeSel.addEventListener("change", async function () {
+    if (courseTypeSel) {
+        courseTypeSel.addEventListener("change", function () {
             resetDownstreamFrom(1);
-            allFaculties = [];
+            applySyllabiCourseTypeLayout(this.value);
             window.__facultiesCacheKey = null;
-
-            if (!this.value) return;
-            await reloadFacultiesForCollege();
-
-            try {
-                const programs = ((window.__registerCatalog || {}).programsByCollege || {})[String(this.value)] || [];
-                if (!programSel) return;
-                programs.forEach(p => {
-                    const opt = new Option(p.program_name, p.program_id);
-                    opt.dataset.code = p.program_code || "";
-                    programSel.add(opt);
-                });
-                programSel.disabled = false;
-            } catch (err) {
-                console.error("Failed to load programs:", err);
-            }
         });
     }
 
-    if (programSel) {
-        programSel.addEventListener("change", function () {
+    if (comboSel) {
+        comboSel.addEventListener("change", async function () {
             resetDownstreamFrom(2);
-            if (semSel) semSel.disabled = !this.value;
+            if (!this.value) return;
+            await syncSyllabiCollegeProgramFromCombo();
+            if (semSel) semSel.disabled = false;
         });
     }
 
     if (semSel) {
         semSel.addEventListener("change", function () {
             resetDownstreamFrom(3);
-            if (courseTypeSel) courseTypeSel.disabled = !this.value;
-        });
-    }
-
-    if (courseTypeSel) {
-        courseTypeSel.addEventListener("change", function () {
-            resetDownstreamFrom(4);
             if (sySel) sySel.disabled = !this.value;
             refreshSyllabiYearLevelDisplay(yearLevelsFromCourses(catalogCoursesForContext()));
             window.__facultiesCacheKey = null;
@@ -11126,6 +11236,8 @@ document.addEventListener("DOMContentLoaded", () => {
             autoPopulateSyllabiCourses();
         });
     }
+
+    applySyllabiCourseTypeLayout(courseTypeSel?.value || '');
 });
 
 /**
@@ -11137,6 +11249,7 @@ function getSelectTextWithCode(id) {
     const el = document.getElementById(id);
     if (!el || el.selectedIndex < 0) return "";
     const opt = el.options[el.selectedIndex];
+    if (!opt || opt.disabled || opt.value === "") return "";
     const text = opt.text || "";
     const code = opt.dataset ? opt.dataset.code : "";
     return code ? `${text} (${code})` : text;

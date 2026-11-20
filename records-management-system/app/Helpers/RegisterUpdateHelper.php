@@ -1021,6 +1021,14 @@ class RegisterUpdateHelper
      */
     public static function destroy(int $id, string $reason = ''): RedirectResponse
     {
+        if (! RegisterQueryHelper::isDocumentDeleteEnabled()) {
+            return self::flashRedirect(
+                'dcs.register.update',
+                'error',
+                'Document delete is disabled. Ask an administrator to enable it in Admin Console → System Settings → Document Control (DCS).'
+            );
+        }
+
         if (!RegisterQueryHelper::supportsSoftDelete()) {
             return self::flashRedirect(
                 'dcs.register.update',
@@ -1030,7 +1038,22 @@ class RegisterUpdateHelper
         }
 
         $docRequest = RegisterQueryHelper::findDocumentRequest($id);
-        abort_unless($docRequest, 404);
+        if (! $docRequest) {
+            // Already soft-deleted / stale list click — avoid Livewire 404 popout.
+            if (RegisterQueryHelper::findTrashedDocumentRequest($id)) {
+                return self::flashRedirect(
+                    'dcs.register.update',
+                    'success',
+                    'That document is already in the Recycle Bin.'
+                );
+            }
+
+            return self::flashRedirect(
+                'dcs.register.update',
+                'error',
+                'That document could not be found. It may have already been deleted — refresh the list and try again.'
+            );
+        }
         RegisterQueryHelper::assertCanAccessRequest($id);
 
         $isDraft = RegisterQueryHelper::supportsDrafts() && ! empty($docRequest->is_draft);
@@ -1095,7 +1118,8 @@ class RegisterUpdateHelper
             }
 
             if ($promoteDocNo) {
-                RegisterPersistHelper::promoteLatestForDoc($promoteDocNo, $promoteTypeId, $promoteSubTypeId);
+                // Fast path: tip re-home only — full family file moves made soft-delete feel stuck.
+                RegisterPersistHelper::promoteLatestForDoc($promoteDocNo, $promoteTypeId, $promoteSubTypeId, false);
                 RegisterQueryHelper::healRevisedFromFromDcnForActiveFamily(
                     $promoteDocNo,
                     $promoteTypeId,
@@ -1117,8 +1141,8 @@ class RegisterUpdateHelper
                 $listRoute,
                 'success',
                 $isDraft
-                    ? 'Draft moved to Recycle Bin for HEAD Admin of DCS review.'
-                    : 'Document moved to Recycle Bin for HEAD Admin of DCS review.'
+                    ? 'Draft moved to the Admin Console Recycle Bin.'
+                    : 'Document moved to the Admin Console Recycle Bin.'
             );
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -1146,7 +1170,9 @@ class RegisterUpdateHelper
     {
         $docRequest = RegisterQueryHelper::findTrashedDocumentRequest($id);
         abort_unless($docRequest, 404);
-        RegisterQueryHelper::assertCanAccessRequest($id);
+        if (! RegisterQueryHelper::canAccessAdminRecycleBin()) {
+            RegisterQueryHelper::assertCanAccessRequest($id);
+        }
 
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
 
@@ -1162,7 +1188,7 @@ class RegisterUpdateHelper
 
             if ($conflict->exists()) {
                 return self::flashRedirect(
-                    'dcs.recycle-bin',
+                    'admin.recycle-bin',
                     'error',
                     'Cannot restore document number "' . $ml->doc_no . '" (Rev ' . (int) $ml->revise_no
                         . '): it was already registered by a new document. Delete or renumber the active document first, then try restoring again.'
@@ -1201,7 +1227,7 @@ class RegisterUpdateHelper
         );
 
         return self::flashRedirect(
-            'dcs.recycle-bin',
+            'admin.recycle-bin',
             'success',
             'Document restored from Recycle Bin successfully.'
         );
@@ -1428,7 +1454,7 @@ class RegisterUpdateHelper
             }
 
             return self::flashRedirect(
-                'dcs.recycle-bin',
+                'admin.recycle-bin',
                 'success',
                 'Document permanently deleted.'
             );
@@ -1442,7 +1468,7 @@ class RegisterUpdateHelper
             }
 
             return self::flashRedirect(
-                'dcs.recycle-bin',
+                'admin.recycle-bin',
                 'error',
                 'Failed to permanently delete document. Please try again. (ref: ' . $refId . ')'
             );
@@ -1494,6 +1520,23 @@ class RegisterUpdateHelper
                         ->orWhere('related_doc_id', $masterlist->id);
                 })
                 ->delete();
+            // Originators / keywords cascade in schema, but clear explicitly for non-cascade DBs.
+            if (Schema::hasTable('dcs_masterlist_originators')) {
+                DB::table('dcs_masterlist_originators')->where('masterlist_id', $masterlist->id)->delete();
+            }
+            if (Schema::hasTable('dcs_masterlist_keywords')) {
+                DB::table('dcs_masterlist_keywords')->where('masterlist_id', $masterlist->id)->delete();
+            }
+            // Random-check items use restrictOnDelete so history is not auto-wiped —
+            // permanent recycle-bin delete must remove those links first.
+            if (Schema::hasTable('dcs_random_check_items')) {
+                DB::table('dcs_random_check_items')->where('masterlist_id', $masterlist->id)->delete();
+            }
+            if (Schema::hasTable('dcs_office_intake_drf') && Schema::hasColumn('dcs_office_intake_drf', 'previous_masterlist_id')) {
+                DB::table('dcs_office_intake_drf')
+                    ->where('previous_masterlist_id', $masterlist->id)
+                    ->update(['previous_masterlist_id' => null]);
+            }
             DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->delete();
         }
 

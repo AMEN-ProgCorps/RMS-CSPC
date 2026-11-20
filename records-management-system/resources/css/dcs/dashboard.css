@@ -6,6 +6,7 @@
 
 /* DCS file: DCS dashboard cards and the latest / superseded / obsolete chips. */
 @import './tokens.css';
+/* floating-calendar.css is loaded globally from layouts/dcs.blade.php */
 
 [x-cloak] { display: none !important; }
 
@@ -1087,8 +1088,25 @@ body.dash-cl-open {
     color: var(--dash-text-muted);
 }
 
-.dash-cl-rev-card p {
-    margin: 8px 0 0;
+.dash-cl-rev-purpose {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--dash-border-light, #e2e8f0);
+}
+
+.dash-cl-rev-purpose-label {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dash-text-subtle, #94a3b8);
+    margin-bottom: 2px;
+}
+
+.dash-cl-rev-card p,
+.dash-cl-rev-purpose p {
+    margin: 0;
     color: var(--dash-text-muted);
     font-size: 0.82rem;
     line-height: 1.45;
@@ -1495,12 +1513,15 @@ body.dash-cl-open {
 }
 
 .dash-calendar-chevron {
-    font-size: 11px;
-    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    font-size: 12px;
+    width: 1em;
+    text-align: center;
+    transition: color 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
 }
 
 .dash-calendar-chevron.is-open {
-    transform: rotate(180deg);
+    transform: none;
+    font-size: 13px;
 }
 
 /* Content left + calendar right; content shrinks when open */

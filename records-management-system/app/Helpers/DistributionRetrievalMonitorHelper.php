@@ -92,6 +92,11 @@ class DistributionRetrievalMonitorHelper
             'o.office_code',
             'o.office_name',
         ];
+        if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
+            $select[] = 'ml.keywords';
+        } elseif (Schema::hasTable('dcs_masterlist_keywords')) {
+            $select[] = DB::raw(RegisterQueryHelper::masterlistKeywordsSql('ml').' as keywords');
+        }
         $hasTypes = Schema::hasTable('dcs_doc_types');
         if ($hasTypes) {
             $select[] = 'dt.doc_type_name';
@@ -196,6 +201,7 @@ class DistributionRetrievalMonitorHelper
                     'distributed_on' => self::formatDate($row->doc_distribution_date_actual ?? ($row->distribution_date ?? null)),
                     'doc_type_name' => self::typeName($row),
                     'sub_type_name' => trim((string) ($row->sub_type_name ?? '')),
+                    'keywords' => trim((string) ($row->keywords ?? '')),
                     'stack_group' => $stackGroup,
                     'offices' => [],
                 ];
@@ -416,8 +422,14 @@ class DistributionRetrievalMonitorHelper
                 return true;
             }
             foreach ($family['revisions'] as $revision) {
-                $typeHay = mb_strtolower(trim((string) ($revision['doc_type_name'] ?? '')) . ' ' . trim((string) ($revision['sub_type_name'] ?? '')));
-                if ($typeHay !== ' ' && str_contains($typeHay, $needle)) {
+                $typeHay = mb_strtolower(
+                    trim((string) ($revision['doc_type_name'] ?? ''))
+                    . ' '
+                    . trim((string) ($revision['sub_type_name'] ?? ''))
+                    . ' '
+                    . trim((string) ($revision['keywords'] ?? ''))
+                );
+                if (trim($typeHay) !== '' && str_contains($typeHay, $needle)) {
                     return true;
                 }
                 foreach ($revision['offices'] as $office) {

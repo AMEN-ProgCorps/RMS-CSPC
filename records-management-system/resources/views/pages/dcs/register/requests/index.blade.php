@@ -205,26 +205,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $pgSize = 20;
             $pgFrom = $pgTotal === 0 ? 0 : (($pg - 1) * $pgSize) + 1;
             $pgTo = min($pgTotal, $pg * $pgSize);
-            $pgStart = max(1, $pg - 2);
-            $pgEnd = min($pgLast, $pg + 2);
         @endphp
-        @if($pgTotal > 0)
-        <div class="upd-pagination">
-            <div class="upd-pagination-info">
-                Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}
-            </div>
-            <div class="upd-pagination-links">
-                @if($pg > 1)
-                    <button type="button" class="upd-pg" wire:click="goToPage({{ $pg - 1 }})">Prev</button>
-                @endif
-                @for($p = $pgStart; $p <= $pgEnd; $p++)
-                    <button type="button" class="upd-pg {{ $p === $pg ? 'upd-pg-active' : '' }}" wire:click="goToPage({{ $p }})" @if($p === $pg) disabled @endif>{{ $p }}</button>
-                @endfor
-                @if($pg < $pgLast)
-                    <button type="button" class="upd-pg" wire:click="goToPage({{ $pg + 1 }})">Next</button>
-                @endif
-            </div>
-        </div>
-        @endif
+        @include('pages.dcs.partials.list-pagination', [
+            'from' => $pgFrom,
+            'to' => $pgTo,
+            'total' => $pgTotal,
+            'page' => $pg,
+            'lastPage' => $pgLast,
+        ])
     </div>
 </div>

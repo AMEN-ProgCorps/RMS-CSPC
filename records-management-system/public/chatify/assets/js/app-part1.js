@@ -116,11 +116,16 @@
       );
 
       quotes.forEach(function(rq) {
-        const textEl = rq.querySelector('.reply-quote-text');
+        let textEl = rq.querySelector('.reply-quote-text');
         if (textEl) {
           textEl.textContent = truncated;
         } else if (!rq.querySelector('img')) {
           rq.innerHTML = `<div class="reply-quote-text">${escapeHtml(truncated)}</div>`;
+          textEl = rq.querySelector('.reply-quote-text');
+        }
+        if (textEl && typeof window.renderEmojiMartInElement === 'function') {
+          delete textEl.dataset.emRendered;
+          window.renderEmojiMartInElement(textEl);
         }
       });
     }
@@ -383,6 +388,10 @@
         linkifyContent(contentEl);
         applyReadMoreToElement(contentEl);
       }
+      const rqTextEl = container.querySelector('.reply-quote-text');
+      if (rqTextEl && typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(rqTextEl);
+      }
 
       // Cap the DOM at MAX_WINDOW visible messages so real-time
       // WebSocket pushes never grow the chat window without bound (only when NOT backreading).
@@ -523,6 +532,10 @@
         linkifyContent(contentEl);
         applyReadMoreToElement(contentEl);
       }
+      const rqTextEl = container.querySelector('.reply-quote-text');
+      if (rqTextEl && typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(rqTextEl);
+      }
 
       // Same MAX_WINDOW cap as DM/Global Chat — only trim while looking at the
       // live/latest window, never while paged back into older history.
@@ -592,12 +605,16 @@
               targetContainer.setAttribute('data-edit-count', String(prevCount + 1));
             }
 
+            const editedBubble = targetContainer.querySelector('.message-bubble');
             const contentEl = targetContainer.querySelector('.message-bubble .message-content');
             if (contentEl) {
               contentEl.textContent = data.message;
               delete contentEl.dataset.linkified;
               linkifyContent(contentEl);
               reapplyReadMore(contentEl);
+            }
+            if (editedBubble && typeof isEmojiOnly === 'function') {
+              editedBubble.classList.toggle('emoji-only', isEmojiOnly(data.message));
             }
 
             const bubbleWrapper = targetContainer.querySelector('.bubble-wrapper');
@@ -2353,9 +2370,17 @@
       }
     }
 
+    let _fetchUsersXhr = null;
+
     function fetchUsers(query = '') {
       const currentInput = searchInput ? searchInput.value.trim() : '';
       const q = query !== '' ? query : currentInput;
+
+      // Abort any previous in-flight sidebar fetch so stale responses cannot
+      // overwrite newer results or pile up concurrent PHP-FPM workers.
+      if (_fetchUsersXhr) {
+        try { _fetchUsersXhr.abort(); } catch (e) {}
+      }
 
       // Always use XHR for reliability — WS real-time events (message,
       // chat_cleared, all_cleared, users_changed) trigger fetchUsers() which
@@ -2363,15 +2388,20 @@
       // bridge here because that path depends on internalFetchPhp successfully
       // reaching the PHP server, which can fail silently.
       const xhr = new XMLHttpRequest();
+      _fetchUsersXhr = xhr;
       const url = q !== '' ? 'fetch_users_dm.php?q=' + encodeURIComponent(q) : 'fetch_users_dm.php';
       xhr.open('GET', url, true);
       xhr.onload = function() {
+        if (_fetchUsersXhr === xhr) _fetchUsersXhr = null;
         if (this.status === 200) {
           try {
             const data = JSON.parse(this.responseText);
             processUsersDmPayload(data);
           } catch(e){ console.error('fetchUsers parse error', e); }
         }
+      };
+      xhr.onerror = xhr.onabort = function() {
+        if (_fetchUsersXhr === xhr) _fetchUsersXhr = null;
       };
       xhr.send();
     }
@@ -2558,11 +2588,15 @@
           clone.classList.remove('msg-animate-sent', 'msg-animate-received', 'msg-animate-older', 'is-optimistic-sending', 'reply-target-blink');
         }
         const contentEl = clone.querySelector('.message-content');
-        if (contentEl && contentEl.dataset && contentEl.dataset.fullText) {
-          contentEl.textContent = contentEl.dataset.fullText;
-          delete contentEl.dataset.fullText;
-          delete contentEl.dataset.readmoreChecked;
-          delete contentEl.dataset.linkified;
+        if (contentEl && contentEl.dataset) {
+          // Keep truncated Read More DOM intact in cache so reopening this conversation
+          // never has to re-parse or re-truncate huge emoji/text messages!
+          // Just clear data-bound on the cloned .read-more-link so its click handler is
+          // cleanly re-attached on restore.
+          const rmLink = contentEl.querySelector('.read-more-link');
+          if (rmLink && rmLink.dataset) {
+            delete rmLink.dataset.bound;
+          }
         }
         clone.querySelectorAll('img[data-scroll-listener]').forEach(function(img) {
           img.removeAttribute('data-scroll-listener');
@@ -2790,9 +2824,9 @@
             speculateChannelCard(ocId, document.getElementById('officeChatItem'));
           }
 
-          // 3. Warm up top 4 visible conversations (Custom GCs and recent DMs)
+          // 3. Warm up visible conversations (Custom GCs and recent DMs)
           if (Array.isArray(allUsersData) && allUsersData.length > 0) {
-            const topSlice = allUsersData.slice(0, 4);
+            const topSlice = allUsersData.slice(0, 10);
             topSlice.forEach((u, i) => {
               setTimeout(() => {
                 if (u.is_custom_gc) {
@@ -2804,17 +2838,17 @@
                 } else if (u.account_id || u.username) {
                   speculateConversationCard(u, null);
                 }
-              }, i * 150);
+              }, i * 70);
             });
           }
         };
 
         if ('requestIdleCallback' in window) {
-          window.requestIdleCallback(runWarmup, { timeout: 1500 });
+          window.requestIdleCallback(runWarmup, { timeout: 500 });
         } else {
-          setTimeout(runWarmup, 100);
+          setTimeout(runWarmup, 40);
         }
-      }, 350);
+      }, 80);
     }
     window.prefetchTopConversations = prefetchTopConversations;
 
@@ -3271,6 +3305,10 @@
               : true;
             if (canSeeTyping && activeDraft && activeDraft.preview) {
               lastMsgEl.textContent = activeDraft.preview;
+              if (typeof window.renderEmojiMartInElement === 'function') {
+                delete lastMsgEl.dataset.emRendered;
+                window.renderEmojiMartInElement(lastMsgEl);
+              }
               lastMsgEl.style.display = 'block';
               lastMsgEl.style.fontStyle = 'italic';
               lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';
@@ -3884,9 +3922,20 @@
       const prevST = chatBox ? chatBox.scrollTop : null;
       _currentReadMoreFullText = fullText || '';
       resetReadMoreCopyBtn();
-      readMoreModalBody.textContent = fullText || '';
+      readMoreModalBody.textContent = '';
+      const inner = document.createElement('div');
+      inner.className = 'read-more-inner';
+      if (isEmojiOnlyText(fullText || '')) {
+        inner.classList.add('emoji-only');
+      }
+      inner.textContent = fullText || '';
+      readMoreModalBody.appendChild(inner);
       delete readMoreModalBody.dataset.linkified; // allow re-linkifying on every open
-      linkifyContent(readMoreModalBody);
+      delete readMoreModalBody.dataset.emRendered;
+      linkifyContent(inner);
+      if (typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(inner);
+      }
       readMoreModal.classList.add('active');
       readMoreModal.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
@@ -3964,9 +4013,181 @@
     // affordance; tapping it opens the modal above with the full text.
     const READMORE_CHAR_LIMIT = 400;
     const READMORE_LINE_LIMIT = 8;
+    const READMORE_EMOJI_LIMIT = 25;
+
+    // Linear-time O(N) emoji token matcher — avoids the catastrophic exponential
+    // regex backtracking of /^(?:A|B)+$/u when a string contains 20+ emojis followed
+    // by non-emoji text (such as an already-appended "Read More..." label).
+    const EMOJI_TOKEN_STRIP_REGEX = /(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u200D\uFE0F]|\uD83C[\uDDE0-\uDDFF]\uD83C[\uDDE0-\uDDFF]|[\u0023\u002A\u0030-\u0039]\uFE0F?\u20E3|\p{Emoji}\uFE0F)/gu;
+    const _graphemeSegmenter = (typeof Intl !== 'undefined' && Intl.Segmenter)
+      ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+      : null;
+
+    // ── Shared Emoji Mart Sprite Renderer for Chat UI ──────────────────────
+    const _EM_SPRITESHEET_URL = 'assets/vendor/emoji-mart/apple-sheet-64.png';
+    let _emCoordMap = null;
+    let _emSheetCols = 61;
+    let _emSheetRows = 61;
+    const _emSpriteProto = document.createElement('span');
+    _emSpriteProto.className = 'em-sprite-icon';
+    _emSpriteProto.setAttribute('role', 'img');
+
+    function getEmojiMartCoordMap() {
+      if (_emCoordMap) return _emCoordMap;
+      _emCoordMap = new Map();
+      const data = window.CHATIFY_EMOJI_MART_DATA;
+      if (data && typeof data === 'object') {
+        if (data.sheet && data.sheet.cols && data.sheet.rows) {
+          _emSheetCols = Number(data.sheet.cols) || 61;
+          _emSheetRows = Number(data.sheet.rows) || 61;
+        }
+        const emojis = data.emojis || {};
+        Object.keys(emojis).forEach(function(id) {
+          const item = emojis[id];
+          if (!item || !Array.isArray(item.skins)) return;
+          item.skins.forEach(function(skin) {
+            if (!skin || typeof skin.native !== 'string') return;
+            const coords = { x: Number(skin.x) || 0, y: Number(skin.y) || 0 };
+            _emCoordMap.set(skin.native, coords);
+            const stripped = skin.native.replace(/\uFE0F/g, '');
+            if (stripped && (stripped.length > 1 || stripped.codePointAt(0) > 0xFF) && !_emCoordMap.has(stripped)) {
+              _emCoordMap.set(stripped, coords);
+            }
+          });
+        });
+      }
+      return _emCoordMap;
+    }
+    window.getEmojiMartCoordMap = getEmojiMartCoordMap;
+
+    window.createEmojiMartNode = function(rawEmoji, sizePx) {
+      const emoji = (rawEmoji === '❤') ? '❤️' : String(rawEmoji || '');
+      const map = getEmojiMartCoordMap();
+      const coords = map.get(emoji) || map.get(emoji.replace(/\uFE0F/g, ''));
+
+      if (!coords) {
+        const fallback = document.createElement('span');
+        fallback.className = 'em-sprite-fallback';
+        fallback.textContent = emoji;
+        return fallback;
+      }
+
+      const cols = _emSheetCols;
+      const rows = _emSheetRows;
+      const posX = ((100 / (cols - 1)) * coords.x).toFixed(4);
+      const posY = ((100 / (rows - 1)) * coords.y).toFixed(4);
+      const size = Number(sizePx) || 0;
+      const sizeRule = size > 0 ? ('width:' + size + 'px;height:' + size + 'px;') : '';
+
+      const span = _emSpriteProto.cloneNode(false);
+      span.setAttribute('aria-label', emoji);
+      span.setAttribute('title', emoji);
+      span.textContent = emoji;
+      span.style.cssText = sizeRule
+        + "background-image:url('" + _EM_SPRITESHEET_URL + "');"
+        + 'background-size:' + (100 * cols) + '% ' + (100 * rows) + '%;'
+        + 'background-position:' + posX + '% ' + posY + '%;'
+        + 'background-repeat:no-repeat;';
+      return span;
+    };
+
+    window.renderEmojiMartInElement = function(rootEl, sizePx) {
+      if (!rootEl || rootEl.dataset.emRendered === '1') return;
+      const map = getEmojiMartCoordMap();
+      if (!map || map.size === 0) return;
+
+      const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, null);
+      const textNodes = [];
+      let node;
+      while ((node = walker.nextNode())) {
+        const parent = node.parentElement;
+        if (parent && (parent.classList.contains('em-sprite-icon') || parent.classList.contains('read-more-link'))) {
+          continue;
+        }
+        const val = node.nodeValue;
+        if (!val || !/[^\u0000-\u007F]/.test(val)) continue;
+        textNodes.push(node);
+      }
+
+      textNodes.forEach(function(textNode) {
+        const text = textNode.nodeValue;
+        const segments = _graphemeSegmenter
+          ? Array.from(_graphemeSegmenter.segment(text), function(s) { return s.segment; })
+          : Array.from(text);
+
+        let hasEmoji = false;
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i];
+          if (map.has(seg) || (seg.length > 1 && map.has(seg.replace(/\uFE0F/g, '')))) {
+            hasEmoji = true;
+            break;
+          }
+        }
+        if (!hasEmoji) return;
+
+        const frag = document.createDocumentFragment();
+        let textBuf = '';
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i];
+          const hit = map.has(seg) || ((seg.length > 1 || seg.codePointAt(0) > 0xFF) && map.has(seg.replace(/\uFE0F/g, '')));
+          if (hit) {
+            if (textBuf) {
+              frag.appendChild(document.createTextNode(textBuf));
+              textBuf = '';
+            }
+            frag.appendChild(window.createEmojiMartNode(seg, sizePx));
+          } else {
+            textBuf += seg;
+          }
+        }
+        if (textBuf) {
+          frag.appendChild(document.createTextNode(textBuf));
+        }
+        if (textNode.parentNode) {
+          textNode.parentNode.replaceChild(frag, textNode);
+        }
+      });
+
+      rootEl.dataset.emRendered = '1';
+    };
+
+    function isEmojiOnlyText(str) {
+      if (!str) return false;
+      const stripped = str.replace(/\s/g, '');
+      if (!stripped) return false;
+      // Quick ASCII reject: if any standard ASCII letter exists, it cannot be emoji-only
+      if (/[a-zA-Z]/.test(stripped)) return false;
+      return stripped.replace(EMOJI_TOKEN_STRIP_REGEX, '') === '';
+    }
+    window.isEmojiOnlyText = isEmojiOnlyText;
+
+    function splitGraphemes(str) {
+      if (_graphemeSegmenter) {
+        return Array.from(_graphemeSegmenter.segment(str), s => s.segment);
+      }
+      return Array.from(str);
+    }
+
+    function countEmojiUnits(str, stopAfter = Infinity) {
+      const stripped = str.replace(/\s/g, '');
+      if (!stripped) return 0;
+      if (_graphemeSegmenter) {
+        let count = 0;
+        for (const _ of _graphemeSegmenter.segment(stripped)) {
+          count++;
+          if (count > stopAfter) return count;
+        }
+        return count;
+      }
+      return Array.from(stripped).length;
+    }
+    window.countEmojiUnits = countEmojiUnits;
 
     function readMoreNeeded(text) {
       if (!text) return false;
+      if (isEmojiOnlyText(text)) {
+        return countEmojiUnits(text, READMORE_EMOJI_LIMIT) > READMORE_EMOJI_LIMIT;
+      }
       if (text.length > READMORE_CHAR_LIMIT) return true;
       let lines = 1;
       for (let i = 0; i < text.length; i++) {
@@ -3979,9 +4200,28 @@
     }
 
     function readMorePreview(text) {
+      if (isEmojiOnlyText(text)) {
+        const stripped = text.replace(/\s/g, '');
+        if (_graphemeSegmenter) {
+          let out = '';
+          let count = 0;
+          for (const seg of _graphemeSegmenter.segment(stripped)) {
+            out += seg.segment;
+            count++;
+            if (count >= READMORE_EMOJI_LIMIT) break;
+          }
+          return out;
+        }
+        return Array.from(stripped).slice(0, READMORE_EMOJI_LIMIT).join('');
+      }
       let preview = text.split('\n').slice(0, READMORE_LINE_LIMIT).join('\n');
       if (preview.length > READMORE_CHAR_LIMIT) {
         preview = preview.slice(0, READMORE_CHAR_LIMIT);
+        // Avoid splitting a UTF-16 surrogate pair (e.g. emojis) in half
+        const lastCode = preview.charCodeAt(preview.length - 1);
+        if (lastCode >= 0xD800 && lastCode <= 0xDBFF) {
+          preview = preview.slice(0, -1);
+        }
       }
       return preview.replace(/\s+$/, '');
     }
@@ -3992,47 +4232,96 @@
     // bulk-rendered/polled messages, and directly wherever a message is
     // rendered outside that path (live WS push, optimistic send bubble).
     function applyReadMoreToElement(contentEl) {
-      if (!contentEl || contentEl.dataset.readmoreChecked === '1') return;
+      if (!contentEl) return;
       if (contentEl.classList.contains('sending-dots')) return; // "..." placeholder, not real text
 
-      const fullText = contentEl.textContent || '';
+      // Delegated click & keydown handler for "Read More..." links inside chatBox.
+      // Using a single delegated listener on chatBox means cached/precompiled HTML
+      // snapshots with <span class="read-more-link"> work immediately with zero
+      // per-node binding loops.
+      if (chatBox && !chatBox.dataset.readmoreDelegated) {
+        chatBox.dataset.readmoreDelegated = '1';
+        chatBox.addEventListener('click', function(e) {
+          const linkEl = e.target.closest('.read-more-link');
+          if (!linkEl) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const mc = linkEl.closest('.message-content');
+          const full = mc ? (mc.dataset.fullText || mc.textContent || '') : '';
+          const savedST = chatBox ? chatBox.scrollTop : null;
+          openReadMoreModal(full);
+          if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
+            chatBox.scrollTop = savedST;
+          }
+        });
+        chatBox.addEventListener('keydown', function(e) {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          const linkEl = e.target.closest('.read-more-link');
+          if (!linkEl) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const mc = linkEl.closest('.message-content');
+          const full = mc ? (mc.dataset.fullText || mc.textContent || '') : '';
+          const savedST = chatBox ? chatBox.scrollTop : null;
+          openReadMoreModal(full);
+          if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
+            chatBox.scrollTop = savedST;
+          }
+        });
+      }
+
+      // If this element was cached/cloned from DOM with an existing .read-more-link,
+      // skip immediately — the delegated listener on chatBox handles clicks.
+      const existingLink = contentEl.querySelector('.read-more-link');
+      if (existingLink) {
+        contentEl.dataset.readmoreChecked = '1';
+        if (typeof window.renderEmojiMartInElement === 'function' && !contentEl.querySelector('.em-sprite-icon')) {
+          delete contentEl.dataset.emRendered;
+          window.renderEmojiMartInElement(contentEl);
+        }
+        return;
+      }
+
+      if (contentEl.dataset.readmoreChecked === '1') {
+        if (typeof window.renderEmojiMartInElement === 'function' && contentEl.dataset.emRendered !== '1') {
+          window.renderEmojiMartInElement(contentEl);
+        }
+        return;
+      }
+
+      const fullText = contentEl.dataset.fullText || contentEl.textContent || '';
       contentEl.dataset.readmoreChecked = '1';
-      if (!readMoreNeeded(fullText)) return;
+      if (!readMoreNeeded(fullText)) {
+        delete contentEl.dataset.fullText;
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(contentEl);
+        }
+        return;
+      }
+
+      const parentBubble = contentEl.closest('.message-bubble');
+      if (parentBubble) parentBubble.classList.remove('emoji-only');
 
       contentEl.dataset.fullText = fullText;
-      contentEl.textContent = readMorePreview(fullText) + ' ';
+      const previewStr = readMorePreview(fullText);
+      const separator = isEmojiOnlyText(fullText) ? '\n' : ' ';
+      contentEl.textContent = previewStr + separator;
 
       const link = document.createElement('span');
       link.className = 'read-more-link';
       link.textContent = 'Read More...';
       link.setAttribute('role', 'button');
       link.setAttribute('tabindex', '0');
-      link.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const savedST = chatBox ? chatBox.scrollTop : null;
-        openReadMoreModal(contentEl.dataset.fullText || '');
-        if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
-          chatBox.scrollTop = savedST;
-        }
-      });
-      link.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          e.stopPropagation();
-          const savedST = chatBox ? chatBox.scrollTop : null;
-          openReadMoreModal(contentEl.dataset.fullText || '');
-          if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
-            chatBox.scrollTop = savedST;
-          }
-        }
-      });
       contentEl.appendChild(link);
 
       // Re-linkify just the (now truncated) visible text so any URL still
       // shown in the preview stays clickable.
       delete contentEl.dataset.linkified;
+      delete contentEl.dataset.emRendered;
       linkifyContent(contentEl);
+      if (typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(contentEl);
+      }
     }
 
     // Re-checks a message-content element after its text changed (e.g. an
@@ -4040,6 +4329,9 @@
     // and one that shrinks below it loses a stale truncation.
     function reapplyReadMore(contentEl) {
       delete contentEl.dataset.readmoreChecked;
+      delete contentEl.dataset.fullText;
+      delete contentEl.dataset.emojiChecked;
+      delete contentEl.dataset.emRendered;
       applyReadMoreToElement(contentEl);
     }
 
@@ -4108,12 +4400,23 @@
         (isGc && x.is_office_gc && ('office_' + x.office_id) === targetUsername) ||
         (activeDMAccountId && Number(x.account_id) === activeDMAccountId)
       );
-      if (u) u.unreadCount = 0;
+      let unreadCleared = false;
+      if (u && u.unreadCount > 0) {
+        u.unreadCount = 0;
+        unreadCleared = true;
+      }
       if (activeDM === targetUsername || (activeDMAccountId && u && Number(u.account_id) === activeDMAccountId)) {
         const activeU = allUsersData.find(x => x.username === activeDM || (activeDMAccountId && Number(x.account_id) === activeDMAccountId));
-        if (activeU) activeU.unreadCount = 0;
+        if (activeU && activeU.unreadCount > 0) {
+          activeU.unreadCount = 0;
+          unreadCleared = true;
+        }
       }
-      renderSidebarUsers();
+      if (unreadCleared) {
+        renderSidebarUsers();
+      } else {
+        updateSidebarActiveHighlight();
+      }
 
       // Handle GC read marking via conv_id
       if (isGc || (u && (u.is_custom_gc || u.is_office_gc))) {
@@ -4298,10 +4601,25 @@
       const wasNearBottom   = !userScrolledUp && ((preScrollHeight - preScrollTop - chatBox.clientHeight) <= 40);
       const existingWasAbove = existing ? (existing.offsetTop < preScrollTop) : false;
 
+      const partnerUser = (Array.isArray(allUsersData) ? allUsersData.find(u =>
+        (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) ||
+        (activeDM && u.username === activeDM)
+      ) : null);
+      const partnerName = (partnerUser && (partnerUser.full_name || partnerUser.name)) || activeDM || '';
+      const partnerInitials = typeof getInitialsFromFullName === 'function'
+        ? getInitialsFromFullName(partnerName)
+        : (partnerName.slice(0, 2).toUpperCase() || '?');
+      const partnerAvatarUrl = partnerUser ? (partnerUser.avatar_url || null) : null;
+
       const indicator = existing || document.createElement('div');
       indicator.className = 'seen-indicator';
-      indicator.innerHTML = '<span class="seen-indicator-text">seen</span>';
+      indicator.innerHTML = `<span class="seen-indicator-avatar" title="Seen by ${escapeHtml(partnerName)}">${avatarInnerHtml(partnerAvatarUrl, partnerInitials)}</span>`;
       target.insertAdjacentElement('afterend', indicator);
+      if (!isFirstLoad) {
+        indicator.classList.remove('is-dropping');
+        void indicator.offsetWidth;
+        indicator.classList.add('is-dropping');
+      }
 
       // Only adjust scroll if NOT on initial load (handleFirstLoadScroll handles initial load)
       if (!isFirstLoad) {
@@ -4404,8 +4722,16 @@
     }
 
     function performSelectDM(u) {
-      if (typeof syncActiveChatCacheFromDom === 'function') syncActiveChatCacheFromDom();
+      if (!u) return;
+      // 1. Switch UI to the selected conversation IMMEDIATELY (0ms response on click/tap)
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
+
+      // 2. Save outgoing conversation DOM snapshot before clearing chatBox
+      if (typeof syncActiveChatCacheFromDom === 'function') syncActiveChatCacheFromDom();
       if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
       if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
       if (typeof abortAnyInFlightChatXhrs === 'function') abortAnyInFlightChatXhrs();
@@ -4426,6 +4752,7 @@
       window.activeDMAccountId = activeDMAccountId;
       activeDMUserObj = u;
       activeAdminConv = null;
+      const hadUnread = Number(u.unreadCount || 0) > 0;
       u.unreadCount = 0;
       updateSidebarActiveHighlight();
 
@@ -4481,16 +4808,12 @@
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
       chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       dmViewingOlder = false;
-      u.unreadCount = 0;
-      renderSidebarUsers();
-      updateSidebarActiveHighlight();
+      if (hadUnread) {
+        renderSidebarUsers();
+      }
       loadChat(false, false, true); // force: abort any in-flight request rather than drop this one
       
-      // Mobile/Tablet: hide sidebar when chat is selected
-      if (isMobileViewport()) {
-        sidebar.classList.remove('open');
-        if (backButton) backButton.style.display = 'inline-flex';
-      } else {
+      if (!isMobileViewport()) {
         // Desktop only: auto-focus the message input so the cursor is ready
         // without an extra click. preventScroll prevents the browser from shifting scrollable parents.
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
@@ -4539,11 +4862,11 @@
 
     function selectGlobalChat() {
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
       if (isGlobalChat && window.activeChannel === 'global' && !activeDM && !activeAdminConv) {
-        if (isMobileViewport()) {
-          sidebar.classList.remove('open');
-          if (backButton) backButton.style.display = 'inline-flex';
-        }
         return;
       }
 
@@ -4612,14 +4935,10 @@
       }
 
       removePaginationBtn();
-      renderSidebarUsers();
       updateSidebarActiveHighlight();
 
       loadGlobalChat(false, false, true);
-      if (isMobileViewport()) {
-        sidebar.classList.remove('open');
-        if (backButton) backButton.style.display = 'inline-flex';
-      } else {
+      if (!isMobileViewport()) {
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
@@ -4637,6 +4956,10 @@
 
     function selectOfficeChat(officeObj) {
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
       if (officeObj && (officeObj.office_id || officeObj.is_office_gc)) {
         if (!window.currentOfficeInfo) window.currentOfficeInfo = {};
         const oid = Number(officeObj.office_id || 0);
@@ -4665,10 +4988,6 @@
       }
 
       if (isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv) {
-        if (isMobileViewport()) {
-          sidebar.classList.remove('open');
-          if (backButton) backButton.style.display = 'inline-flex';
-        }
         return;
       }
 
@@ -4742,17 +5061,13 @@
       }
 
       removePaginationBtn();
-      renderSidebarUsers();
       updateSidebarActiveHighlight();
 
       loadGlobalChat(false, false, true);
       if (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) {
         markRead(window.currentOfficeInfo.conv_id);
       }
-      if (isMobileViewport()) {
-        sidebar.classList.remove('open');
-        if (backButton) backButton.style.display = 'inline-flex';
-      } else {
+      if (!isMobileViewport()) {
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
@@ -4761,12 +5076,12 @@
     function selectCustomGc(group) {
       if (typeof setNoChatSelected === 'function') setNoChatSelected(false);
       if (!group) return;
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
 
       if (isGlobalChat && window.activeChannel === 'gc' && window.activeCustomGc && window.activeCustomGc.gc_id === group.gc_id && !activeDM && !activeAdminConv) {
-        if (isMobileViewport()) {
-          sidebar.classList.remove('open');
-          if (backButton) backButton.style.display = 'inline-flex';
-        }
         return;
       }
 
@@ -4889,15 +5204,11 @@
       }
 
       removePaginationBtn();
-      renderSidebarUsers();
       updateSidebarActiveHighlight();
 
       loadGlobalChat(false, false, true);
       markRead(gcConv);
-      if (isMobileViewport()) {
-        sidebar.classList.remove('open');
-        if (backButton) backButton.style.display = 'inline-flex';
-      } else {
+      if (!isMobileViewport()) {
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
@@ -5272,6 +5583,52 @@
     let mentionSearchTimer = null;
     let mentionSearchSeq = 0; // guards a slow response from overwriting a newer one
 
+    const _emojiAdvanceWidthCache = new Map();
+    let _emojiMeasureSpan = null;
+    function getTextareaEmojiAdvanceWidth(emojiStr, textareaEl) {
+      if (!emojiStr || !textareaEl) return 0;
+      const cs = window.getComputedStyle(textareaEl);
+      const fontKey = cs.fontWeight + '|' + cs.fontSize + '|' + cs.fontFamily + '|' + cs.letterSpacing;
+      const cacheKey = fontKey + '|' + emojiStr;
+      if (_emojiAdvanceWidthCache.has(cacheKey)) {
+        return _emojiAdvanceWidthCache.get(cacheKey);
+      }
+      if (!_emojiMeasureSpan) {
+        _emojiMeasureSpan = document.createElement('span');
+        _emojiMeasureSpan.setAttribute('aria-hidden', 'true');
+        _emojiMeasureSpan.style.cssText = 'position:fixed;left:-9999px;top:-9999px;visibility:hidden;white-space:pre;pointer-events:none;margin:0;padding:0;border:0;';
+        document.body.appendChild(_emojiMeasureSpan);
+      }
+      _emojiMeasureSpan.style.fontFamily = cs.fontFamily;
+      _emojiMeasureSpan.style.fontSize = cs.fontSize;
+      _emojiMeasureSpan.style.fontWeight = cs.fontWeight;
+      _emojiMeasureSpan.style.letterSpacing = cs.letterSpacing;
+      _emojiMeasureSpan.textContent = emojiStr;
+      const w = _emojiMeasureSpan.getBoundingClientRect().width;
+      if (w > 0) {
+        _emojiAdvanceWidthCache.set(cacheKey, w);
+      }
+      return w;
+    }
+
+    function syncHighlightEmojiWidths(highlightEl, textareaEl) {
+      if (!highlightEl || !textareaEl) return;
+      const icons = highlightEl.querySelectorAll('.em-sprite-icon');
+      for (let i = 0; i < icons.length; i++) {
+        const icon = icons[i];
+        const emojiStr = icon.getAttribute('aria-label') || icon.textContent;
+        const w = getTextareaEmojiAdvanceWidth(emojiStr, textareaEl);
+        if (w > 0) {
+          const size = Math.min(18, Math.floor(w * 100) / 100);
+          const sideMargin = (w - size) / 2;
+          icon.style.width = size + 'px';
+          icon.style.height = size + 'px';
+          icon.style.marginLeft = sideMargin.toFixed(3) + 'px';
+          icon.style.marginRight = sideMargin.toFixed(3) + 'px';
+        }
+      }
+    }
+
     // Rebuilds the highlight layer from the textarea's current text, wrapping
     // every still-present "@Name" (longest name first, so e.g. "Juan" can't
     // shadow-match inside "Juan Dela Cruz") in the same .mention-tag blue
@@ -5280,6 +5637,14 @@
       const text = messageInput.value;
       messageInput.style.color = 'transparent';
 
+      if (!text) {
+        messageInputHighlight.textContent = '';
+        delete messageInputHighlight.dataset.emRendered;
+        messageInputHighlight.scrollTop = 0;
+        messageInputHighlight.scrollLeft = 0;
+        return;
+      }
+
       const names = (activeMentions || [])
         .map(function(m) { return m.name; })
         .filter(function(n, i, arr) { return arr.indexOf(n) === i; })
@@ -5287,6 +5652,11 @@
 
       if (names.length === 0 || text.indexOf('@') === -1) {
         messageInputHighlight.textContent = text.endsWith('\n') ? text + ' ' : text;
+        delete messageInputHighlight.dataset.emRendered;
+        if (typeof window.renderEmojiMartInElement === 'function') {
+          window.renderEmojiMartInElement(messageInputHighlight, 18);
+        }
+        syncHighlightEmojiWidths(messageInputHighlight, messageInput);
         messageInputHighlight.scrollTop = messageInput.scrollTop;
         messageInputHighlight.scrollLeft = messageInput.scrollLeft;
         return;
@@ -5315,6 +5685,11 @@
       if (plainRun) html += escapeHtml(plainRun);
       if (text.endsWith('\n')) html += '&nbsp;';
       messageInputHighlight.innerHTML = html;
+      delete messageInputHighlight.dataset.emRendered;
+      if (typeof window.renderEmojiMartInElement === 'function') {
+        window.renderEmojiMartInElement(messageInputHighlight, 18);
+      }
+      syncHighlightEmojiWidths(messageInputHighlight, messageInput);
       messageInputHighlight.scrollTop = messageInput.scrollTop;
       messageInputHighlight.scrollLeft = messageInput.scrollLeft;
     }
@@ -6273,6 +6648,26 @@
       if (Array.isArray(window.activeCustomGcMembers)) {
         const m = window.activeCustomGcMembers.find(x => Number(x.account_id) === targetId);
         if (m) m.is_messify_verified = !!isVerified;
+      }
+      if (window._gcSelectedMembers && typeof window._gcSelectedMembers.get === 'function') {
+        const selected = window._gcSelectedMembers.get(targetId);
+        if (selected) selected.is_messify_verified = !!isVerified;
+      }
+      const gcSearchRow = document.querySelector(`#gcMemberSearchResults [data-account-id="${targetId}"]`);
+      if (gcSearchRow) {
+        const gcNameSpan = gcSearchRow.querySelector('span');
+        if (gcNameSpan) {
+          const existingGcBadge = gcNameSpan.querySelector('.verified-badge');
+          if (isVerified && !existingGcBadge) {
+            const vBadge = document.createElement('span');
+            vBadge.className = 'verified-badge';
+            vBadge.style.cssText = 'flex-shrink:0;';
+            vBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+            gcNameSpan.appendChild(vBadge);
+          } else if (!isVerified && existingGcBadge) {
+            existingGcBadge.remove();
+          }
+        }
       }
       const row = document.querySelector(`#officeMembersList [data-account-id="${targetId}"]`);
       if (!row) return;

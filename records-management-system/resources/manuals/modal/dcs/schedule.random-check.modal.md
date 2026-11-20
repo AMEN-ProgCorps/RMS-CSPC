@@ -12,4 +12,4 @@ Admin Random Check tool for planning an office visit.
 - Finalize the visit before exporting the PDF report
 
 > [!NOTE]
-> Office users do not schedule visits here. They only view Random Check Results for their office.
+> Office Intake has no Random Check page. Controllers schedule here and send the finalized export to the office.

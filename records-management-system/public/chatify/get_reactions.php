@@ -37,8 +37,8 @@ try {
     $reactions = [];
     foreach ($rows as $row) {
         $emoji = $row['emoji'];
-        // Normalize heart variants to red heart '❤️'
-        if ($emoji === '❤' || $emoji === '🖤' || $emoji === '🤍') {
+        // Normalize bare heart variant to red heart '❤️'
+        if ($emoji === '❤') {
             $emoji = '❤️';
         }
         $reactions[] = [

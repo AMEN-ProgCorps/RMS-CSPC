@@ -1873,6 +1873,69 @@ new class extends Component {
                     border-color: #0369a1 !important;
                     color: #7dd3fc !important;
                 }
+                [data-theme="dark"] .dts-scanner-left-pane select,
+                [data-theme="dark"] .dts-scanner-right-pane select {
+                    background: #0f172a !important;
+                    border-color: #334155 !important;
+                    color: #e2e8f0 !important;
+                }
+                [data-theme="dark"] .dts-scanner-right-pane h4 {
+                    color: #f8fafc !important;
+                }
+                [data-theme="dark"] .dts-scanner-right-pane p {
+                    color: #94a3b8 !important;
+                }
+                [data-theme="dark"] .scanner-standby-panel [style*="background: #f8fafc"],
+                [data-theme="dark"] .scanner-standby-panel [style*="background:#f8fafc"] {
+                    background: #0f172a !important;
+                    border-color: #334155 !important;
+                }
+                [data-theme="dark"] .scanner-standby-panel [style*="color: #0f172a"],
+                [data-theme="dark"] .scanner-standby-panel [style*="color:#0f172a"] {
+                    color: #f1f5f9 !important;
+                }
+                [data-theme="dark"] .scanner-standby-panel [style*="background: #e0f2fe"],
+                [data-theme="dark"] .scanner-standby-panel [style*="background:#e0f2fe"] {
+                    background: #0c4a6e !important;
+                    color: #7dd3fc !important;
+                }
+                [data-theme="dark"] .scanner-stat-pending [style*="color: #166534"],
+                [data-theme="dark"] .scanner-stat-pending [style*="color:#166534"],
+                [data-theme="dark"] .scanner-stat-pending [style*="color: #15803d"],
+                [data-theme="dark"] .scanner-stat-pending [style*="color:#15803d"] {
+                    color: #86efac !important;
+                }
+                [data-theme="dark"] .scanner-stat-custody [style*="color: #1e40af"],
+                [data-theme="dark"] .scanner-stat-custody [style*="color:#1e40af"],
+                [data-theme="dark"] .scanner-stat-custody [style*="color: #1d4ed8"],
+                [data-theme="dark"] .scanner-stat-custody [style*="color:#1d4ed8"] {
+                    color: #93c5fd !important;
+                }
+                [data-theme="dark"] .dts-available-inner-pane {
+                    background: #0f172a !important;
+                }
+                [data-theme="dark"] .dts-available-inner-pane [style*="background: #f8fafc"],
+                [data-theme="dark"] .dts-available-inner-pane [style*="background:#f8fafc"],
+                [data-theme="dark"] .dts-available-inner-pane [style*="background: #ffffff"],
+                [data-theme="dark"] .dts-available-inner-pane [style*="background:#ffffff"] {
+                    background: #111827 !important;
+                    border-color: #334155 !important;
+                    color: #e2e8f0 !important;
+                }
+                [data-theme="dark"] .dts-available-inner-pane [style*="color: #0f172a"],
+                [data-theme="dark"] .dts-available-inner-pane [style*="color:#0f172a"] {
+                    color: #f8fafc !important;
+                }
+                [data-theme="dark"] .dts-available-inner-pane [style*="border-bottom: 1px solid #e2e8f0"],
+                [data-theme="dark"] .dts-available-inner-pane [style*="border-bottom: 1px solid #f1f5f9"],
+                [data-theme="dark"] .dts-available-inner-pane [style*="border: 1px solid #e2e8f0"] {
+                    border-color: #334155 !important;
+                }
+                [data-theme="dark"] #modal-camera-select {
+                    background: #0f172a !important;
+                    border-color: #334155 !important;
+                    color: #e2e8f0 !important;
+                }
                 @media (max-width: 860px) {
                     [data-theme="dark"] .dts-scanner-left-pane {
                         border-bottom-color: #1e293b !important;

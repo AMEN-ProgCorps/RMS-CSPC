@@ -8,8 +8,12 @@ body {
 }
 .actions-container {
     position: absolute;
-    top: 10px;
+    top: 0;
+    bottom: 0;
     right: 15px;
+    height: 30px;
+    margin-top: auto;
+    margin-bottom: auto;
     display: flex;
         justify-content: center;
     z-index: 1001;
@@ -439,6 +443,7 @@ body > section{
             opacity: 1;
             flex-shrink: 0;
             transform: translateX(0);
+            border-top: none;
             transition: max-width 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
              .nav .account-container .account-label {
@@ -1306,11 +1311,19 @@ body > section{
 }
 
 [data-theme="dark"] .account-container {
-    border-top: 1px solid #1e293b !important;
+    border-top: none !important;
 }
 
 [data-theme="dark"] .nav .account-container .account-label .account-server-label {
     color: #60a5fa !important;
+}
+
+[data-theme="dark"] .nav .account-container .account-label .account-email {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .nav .account-container .account-label .account-office {
+    color: #f1f5f9 !important;
 }
 
 [data-theme="dark"] .account-name-container .name {

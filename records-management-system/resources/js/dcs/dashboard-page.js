@@ -731,16 +731,10 @@
             this.calendarOpen = false;
             this.jumpOpen = false;
             this.syncStore();
-            // Calendar lives on the dashboard; closing off-dashboard returns there.
-            this.goToDashboard();
         },
         toggleCalendar() {
             if (this.calendarOpen) {
                 this.closeCalendar();
-                return;
-            }
-            if (!this.isDashboardPage()) {
-                this.goToDashboard();
                 return;
             }
             this.calendarOpen = true;

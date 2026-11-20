@@ -4,6 +4,90 @@
  */
 @import './calendar-widget.css';
 
+/* Header fallback when top tabs are disabled / empty for the current page. */
+.dcs-calendar-trigger-host {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 195px; /* Between guide and notification bell (155px) */
+    height: 30px;
+    margin-top: auto;
+    margin-bottom: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 15;
+    pointer-events: none;
+}
+
+.dcs-header-cal-btn {
+    pointer-events: auto;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 3px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    transition: background-color 0.2s ease, transform 0.2s ease;
+    outline: none;
+}
+
+.dcs-header-cal-btn:hover,
+.dcs-header-cal-btn[aria-expanded="true"] {
+    background-color: rgba(255, 255, 255, 0.1);
+    transform: scale(1.05);
+}
+
+.dcs-header-cal-btn:active {
+    transform: scale(0.95);
+}
+
+.dcs-header-cal-btn i {
+    font-size: 1rem;
+    line-height: 1;
+    color: #ffffff;
+}
+
+/* Prefer the tabs-bar icon when it is present. */
+body:has(.top-nav-cal-btn) .dcs-calendar-trigger-host {
+    display: none;
+}
+
+/* Dashboard welcome date already opens the calendar. */
+body:has(.dash-welcome-calendar) .dcs-calendar-trigger-host {
+    display: none;
+}
+
+/* Make room for the header calendar icon (guide sits further left). */
+body:has(.dcs-calendar-trigger-host) .guide-container {
+    right: 235px;
+}
+
+body:has(.top-nav-cal-btn) .guide-container,
+body:has(.dash-welcome-calendar) .guide-container {
+    right: 195px;
+}
+
+@media (max-width: 640px) {
+    .dcs-calendar-trigger-host {
+        right: 175px;
+    }
+
+    body:has(.dcs-calendar-trigger-host) .guide-container {
+        right: 215px;
+    }
+
+    body:has(.top-nav-cal-btn) .guide-container,
+    body:has(.dash-welcome-calendar) .guide-container {
+        right: 175px;
+    }
+}
+
 .dcs-float-cal {
     position: fixed;
     z-index: 45000;
@@ -12,50 +96,6 @@
 
 .dcs-float-cal > * {
     pointer-events: auto;
-}
-
-.dcs-calendar-trigger-host {
-    position: absolute;
-    top: 12px;
-    right: 240px;
-    z-index: 15;
-    display: flex;
-    align-items: center;
-    max-width: min(420px, calc(100vw - 520px));
-}
-
-.dcs-header-calendar-trigger {
-    max-width: 100%;
-    gap: 8px;
-    padding: 8px 12px;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.08);
-    color: #f8fafc;
-    box-shadow: none;
-}
-
-.dcs-header-calendar-trigger:hover,
-.dcs-header-calendar-trigger[aria-expanded="true"] {
-    border-color: rgba(255, 255, 255, 0.35);
-    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.12);
-}
-
-.dcs-header-calendar-trigger .dash-calendar-trigger-date,
-.dcs-header-calendar-trigger .dash-calendar-trigger-time,
-.dcs-header-calendar-trigger .dash-calendar-chevron,
-.dcs-header-calendar-trigger > i {
-    color: #f8fafc;
-}
-
-.dcs-header-calendar-trigger .dash-calendar-trigger-time {
-    border-left-color: rgba(255, 255, 255, 0.28);
-}
-
-/* Dashboard already has the large welcome date trigger — hide the header duplicate. */
-body:has(.dash-welcome-calendar) .dcs-calendar-trigger-host {
-    display: none;
 }
 
 .dcs-float-cal .cal-title-btn {
@@ -280,34 +320,7 @@ body:has(.dash-welcome-calendar) .dcs-calendar-trigger-host {
     max-height: min(220px, 30vh);
 }
 
-@media (max-width: 1100px) {
-    .dcs-calendar-trigger-host {
-        right: 230px;
-        max-width: min(280px, calc(100vw - 460px));
-    }
-
-    .dcs-header-calendar-trigger .dash-calendar-trigger-date {
-        max-width: 140px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-}
-
 @media (max-width: 640px) {
-    .dcs-calendar-trigger-host {
-        right: 210px;
-        max-width: 140px;
-    }
-
-    .dcs-header-calendar-trigger {
-        padding: 6px 8px;
-    }
-
-    .dcs-header-calendar-trigger .dash-calendar-trigger-date {
-        display: none;
-    }
-
     .dcs-float-cal-panel {
         width: calc(100vw - 16px);
         max-height: calc(100dvh - 16px);

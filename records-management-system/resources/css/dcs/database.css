@@ -269,8 +269,27 @@ tr.db-row-collapsed {
     display: none !important;
 }
 
+.db-pagination {
+    display: flex;
+    gap: 12px 16px;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    border-top: 1px solid var(--db-border, #e2e8f0);
+    background: var(--db-surface, #fff);
+}
+
+.db-pagination-links {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+}
+
 .db-page-info {
-    margin-right: auto;
+    margin-right: 0;
     color: var(--db-text-sec, #475569);
     font-size: 13px;
 }
@@ -1330,6 +1349,72 @@ td.sticky-col-4 {
     cursor: not-allowed;
 }
 
+/* Column-header hide control */
+.db-group-hide-menu {
+    min-width: 168px;
+    max-width: 220px;
+    padding: 3px;
+    border-radius: 8px;
+    border-color: #e2e8f0;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
+    background: #fff;
+}
+
+.db-group-hide-btn {
+    display: flex !important;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 8px !important;
+    border-radius: 6px !important;
+    line-height: 1.2;
+}
+
+.db-group-hide-icon {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 10px;
+    border: 1px solid #bfdbfe;
+}
+
+.db-group-hide-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.db-group-hide-title {
+    font-size: 12px;
+    font-weight: 650;
+    color: #0f172a;
+}
+
+.db-group-hide-sub {
+    font-size: 10px;
+    font-weight: 500;
+    color: #94a3b8;
+}
+
+.db-group-hide-menu .db-group-hide-btn:hover {
+    background: #f1f5f9 !important;
+}
+
+.db-group-hide-menu .db-group-hide-btn:hover .db-group-hide-icon {
+    background: #dbeafe;
+    border-color: #93c5fd;
+}
+
+.db-group-hide-menu .db-group-hide-btn:hover .db-group-hide-title {
+    color: #1e3a8a;
+}
+
 .db-parent-row,
 .db-child-row {
     cursor: context-menu;
@@ -1432,6 +1517,34 @@ mark.db-office-hit {
 
 [data-theme="dark"] .db-col-context-menu button:disabled {
     color: #64748b;
+}
+
+[data-theme="dark"] .db-group-hide-menu {
+    background: #131c2e;
+    border-color: #1e293b;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .db-group-hide-icon {
+    background: rgba(37, 99, 235, 0.2);
+    border-color: rgba(96, 165, 250, 0.35);
+    color: #93c5fd;
+}
+
+[data-theme="dark"] .db-group-hide-title {
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .db-group-hide-sub {
+    color: #64748b;
+}
+
+[data-theme="dark"] .db-group-hide-menu .db-group-hide-btn:hover {
+    background: #1e293b !important;
+}
+
+[data-theme="dark"] .db-group-hide-menu .db-group-hide-btn:hover .db-group-hide-title {
+    color: #bfdbfe;
 }
 
 [data-theme="dark"] .db-row-context-label {

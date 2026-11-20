@@ -176,6 +176,17 @@
     background-color: #f59e0b !important;
 }
 
+[data-theme="dark"] .dcs-top-tabs-host .top-nav-cal-btn {
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .dcs-top-tabs-host .top-nav-cal-btn:hover,
+[data-theme="dark"] .dcs-top-tabs-host .top-nav-cal-btn[aria-expanded="true"] {
+    background: rgba(96, 165, 250, 0.12) !important;
+    border-color: #334155 !important;
+    color: #bfdbfe !important;
+}
+
 /* Settings page tabs — inactive labels/icons were soft-black (#2d2d2d) on dark bg */
 [data-theme="dark"] .settings-tabs .tab-btn,
 [data-theme="dark"] .settings-main .tab-btn {
@@ -205,6 +216,25 @@
 [data-theme="dark"] .settings-tabs .tab-btn.active i,
 [data-theme="dark"] .settings-main .tab-btn.active i {
     color: #60a5fa !important;
+}
+
+[data-theme="dark"] .settings-subtabs {
+    background: rgba(148, 163, 184, 0.08) !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .settings-subtab {
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .settings-subtab:hover,
+[data-theme="dark"] .settings-subtab.active {
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .settings-subtab.active {
+    background: rgba(96, 165, 250, 0.12) !important;
+    border-color: rgba(96, 165, 250, 0.35) !important;
 }
 
 [data-theme="dark"] .settings-main .panel-subtitle,
@@ -432,6 +462,18 @@
     background: #131c2e !important;
     color: #f8fafc !important;
     border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .dash-cl-rev-purpose {
+    border-top-color: #334155 !important;
+}
+
+[data-theme="dark"] .dash-cl-rev-purpose-label {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .dash-cl-rev-purpose p {
+    color: #cbd5e1 !important;
 }
 
 [data-theme="dark"] .dash-search-item:nth-child(even) {
@@ -3631,6 +3673,87 @@
     background: #0f172a !important;
     color: #cbd5e1 !important;
     border-color: #1e293b !important;
+}
+
+/* Masterlist / Register PDF compare loading chrome */
+[data-theme="dark"] .drr-compare-status,
+[data-theme="dark"] .reg-compare-status,
+[data-theme="dark"] .drr-compare-status.is-loading,
+[data-theme="dark"] .reg-compare-status.is-loading {
+    color: #93c5fd !important;
+    background: #0b1c33 !important;
+    border-color: #1e3a5f !important;
+}
+
+[data-theme="dark"] .drr-compare-status.is-success,
+[data-theme="dark"] .reg-compare-status.is-success {
+    color: #86efac !important;
+    background: #052e16 !important;
+    border-color: #166534 !important;
+}
+
+[data-theme="dark"] .drr-compare-status.is-error,
+[data-theme="dark"] .reg-compare-status.is-error {
+    color: #fca5a5 !important;
+    background: #450a0a !important;
+    border-color: #7f1d1d !important;
+}
+
+[data-theme="dark"] .drr-compare-status[data-state="info"],
+[data-theme="dark"] .reg-compare-status[data-state="info"] {
+    color: #fcd34d !important;
+    background: #422006 !important;
+    border-color: #854d0e !important;
+}
+
+[data-theme="dark"] .drr-compare-progress {
+    background: rgba(148, 163, 184, 0.22) !important;
+}
+
+[data-theme="dark"] .drr-compare-progress-fill {
+    background: linear-gradient(90deg, #38bdf8, #2563eb) !important;
+}
+
+[data-theme="dark"] .drr-compare-progress.is-complete .drr-compare-progress-fill {
+    background: #22c55e !important;
+}
+
+[data-theme="dark"] .drr-page-empty,
+[data-theme="dark"] .drr-compare-placeholder,
+[data-theme="dark"] .reg-compare-pdf-stage .drr-page-empty,
+[data-theme="dark"] .drr-pdf-stage .drr-page-empty {
+    color: #93c5fd !important;
+    background: #0b1220 !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .reg-compare-panel {
+    background: #0f172a !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .reg-compare-label {
+    color: #94a3b8 !important;
+    background: #0b1220 !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .reg-compare-pdf-stage {
+    background: #0b1220 !important;
+}
+
+[data-theme="dark"] .reg-compare-pdf-note {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .drr-page-wrap {
+    background: #0f172a !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .drr-page-caption,
+[data-theme="dark"] .drr-page-summary {
+    color: #94a3b8 !important;
 }
 
 [data-theme="dark"] .rpt-preview-shell--table,

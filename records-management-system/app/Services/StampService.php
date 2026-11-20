@@ -46,8 +46,9 @@ class StampService
             'title'     => 'REFERENCE',
             'subtitle'  => '',
             'color'     => [176, 48, 48],
-            'width'     => 28,
-            'height'    => 12,
+            // Aspect matches reference.png (~2.8:1) including signature overhang.
+            'width'     => 36,
+            'height'    => 13,
             'titleSize' => 9,
             'subSize'   => 5,
             'image'     => 'images/stamps/reference.png',
@@ -70,7 +71,9 @@ class StampService
             'doc_title'    => 'nullable|string|max:500',
             'rev'          => 'nullable|string|max:20',
             'stamp_type'   => 'required|string|in:reference',
-            'position'     => 'required|string|in:top-left,top-right,bottom-left,bottom-right,center,auto',
+            'position'     => 'required|string|in:top-left,top-right,bottom-left,bottom-right,center,auto,custom',
+            'x_pct'        => 'nullable|numeric|min:0|max:100|required_if:position,custom',
+            'y_pct'        => 'nullable|numeric|min:0|max:100|required_if:position,custom',
             'all_pages'    => 'required|boolean',
         ]);
 
@@ -420,8 +423,32 @@ class StampService
     /**
      * Parses or normalizes values used by resolve stamp position.
      */
-    private function resolveStampPosition(string $pdfPath, int $pageNum, string $position, float $pageWmm, float $pageHmm, float $stampWmm, float $stampHmm): array
-    {
+    private function resolveStampPosition(
+        string $pdfPath,
+        int $pageNum,
+        string $position,
+        float $pageWmm,
+        float $pageHmm,
+        float $stampWmm,
+        float $stampHmm,
+        array $options = []
+    ): array {
+        if ($position === 'custom') {
+            $xPct = max(0.0, min(100.0, (float) ($options['x_pct'] ?? 0)));
+            $yPct = max(0.0, min(100.0, (float) ($options['y_pct'] ?? 0)));
+
+            return $this->clampToPage(
+                [
+                    'x' => ($xPct / 100.0) * $pageWmm,
+                    'y' => ($yPct / 100.0) * $pageHmm,
+                ],
+                $pageWmm,
+                $pageHmm,
+                $stampWmm,
+                $stampHmm
+            );
+        }
+
         if ($position === 'auto') {
             // Scan each page independently — empty space differs page to page.
             $cacheKey = md5($pdfPath . '|p' . $pageNum . '|'
@@ -558,7 +585,11 @@ class StampService
                 $size['width'],
                 $size['height'],
                 $config['width'],
-                $config['height']
+                $config['height'],
+                [
+                    'x_pct' => $validated['x_pct'] ?? null,
+                    'y_pct' => $validated['y_pct'] ?? null,
+                ]
             );
 
             return response()->json([
@@ -649,6 +680,8 @@ class StampService
                 $validated['position'],
                 [
                     'stamp_all_pages' => $validated['all_pages'],
+                    'x_pct' => $validated['x_pct'] ?? null,
+                    'y_pct' => $validated['y_pct'] ?? null,
                 ]
             );
 
@@ -887,6 +920,27 @@ class StampService
         @set_time_limit(600);
         $this->autoPlacementCache = [];
 
+        // Download the already-stamped live file as-is (no re-stamp).
+        if ($request->boolean('use_live_file')) {
+            $requestId = (int) $request->input('request_id');
+            $fileKey = (string) $request->input('file_key', 'masterlist');
+            $request->validate([
+                'request_id' => 'required|integer|exists:dcs_document_requests,id',
+                'file_key' => ['required', 'string', 'max:50', 'in:masterlist'],
+            ]);
+            \App\Helpers\RegisterQueryHelper::assertCanAccessRequest($requestId);
+            $fullLive = $this->resolveOwnedFilePath($requestId, $fileKey);
+            if (!$fullLive) {
+                return response()->json(['success' => false, 'message' => 'File not found.'], 404);
+            }
+            $filename = $this->referenceScanDownloadFilename(
+                (string) $request->input('scan_name', ''),
+                $this->storedScanRelativePath($requestId, $fileKey) ?: basename($fullLive)
+            );
+
+            return response()->download($fullLive, $filename, ['Content-Type' => 'application/pdf']);
+        }
+
         $validated = $this->validateStampPayload($request);
 
         $fullPath = $this->resolveOwnedFilePath($validated['request_id'], $validated['file_key']);
@@ -912,12 +966,15 @@ class StampService
                 $validated['position'],
                 [
                     'stamp_all_pages' => $validated['all_pages'],
+                    'x_pct' => $validated['x_pct'] ?? null,
+                    'y_pct' => $validated['y_pct'] ?? null,
                 ]
             );
 
-            $stampLabel = strtolower(str_replace(' ', '-', self::STAMPS[$validated['stamp_type']]['label']));
-            $baseName   = pathinfo($validated['file_path'], PATHINFO_FILENAME);
-            $filename   = "stamped-{$stampLabel}-{$baseName}.pdf";
+            $filename = $this->referenceScanDownloadFilename(
+                (string) $request->input('scan_name', ''),
+                $validated['file_path']
+            );
 
             return response()
                 ->download($outputPath, $filename, ['Content-Type' => 'application/pdf'])
@@ -1409,6 +1466,33 @@ class StampService
     }
 
     /**
+     * Download name matching masterlist scan convention:
+     * REFERENCE (YYYY-MM-DD_DOC_…_RevN).pdf
+     */
+    private function referenceScanDownloadFilename(string $scanName, string $fallbackPath): string
+    {
+        $base = trim($scanName);
+        if ($base === '') {
+            $base = pathinfo($fallbackPath, PATHINFO_FILENAME);
+        }
+        $base = preg_replace('/\.pdf$/i', '', $base) ?? $base;
+        $base = preg_replace('/[\\\\\/:\*\?"<>\|]+/', '-', $base) ?? $base;
+        $base = trim($base, " .\t\n\r\0\x0B-");
+        if ($base === '') {
+            $base = 'document';
+        }
+
+        // Avoid REFERENCE (REFERENCE (...))
+        if (preg_match('/^REFERENCE\s*\(/i', $base)) {
+            $name = $base;
+        } else {
+            $name = 'REFERENCE (' . $base . ')';
+        }
+
+        return mb_substr($name, 0, 180) . '.pdf';
+    }
+
+    /**
      * Helper used for cleanup temp files.
      */
     private function cleanupTempFiles(): void
@@ -1431,7 +1515,16 @@ class StampService
             throw new \RuntimeException('Unsupported stamp type: ' . $type);
         }
 
-        $pos = $this->resolveStampPosition($pdfPath, $pageNum, $position, $pageW, $pageH, $config['width'], $config['height']);
+        $pos = $this->resolveStampPosition(
+            $pdfPath,
+            $pageNum,
+            $position,
+            $pageW,
+            $pageH,
+            $config['width'],
+            $config['height'],
+            $options
+        );
         $this->drawStandard($pdf, $pos['x'], $pos['y'], $config);
     }
 
@@ -1474,7 +1567,7 @@ class StampService
         $w = $cfg['width'];
         $h = $cfg['height'];
 
-        // Prefer clean stamp artwork (REFERENCE box only — no signature).
+        // Prefer stamp artwork: red REFERENCE box + blue signature at bottom-right.
         $imageRel = (string) ($cfg['image'] ?? '');
         if ($imageRel !== '') {
             $imagePath = public_path($imageRel);
@@ -1484,14 +1577,27 @@ class StampService
             }
         }
 
-        // Fallback: red rectangle + REFERENCE text only.
+        // Fallback: red rectangle + REFERENCE text + simple blue signature mark.
         [$r, $g, $b] = $cfg['color'];
+        $boxH = max(8.0, $h * 0.72);
         $pdf->SetDrawColor($r, $g, $b);
         $pdf->SetLineWidth(0.7);
-        $pdf->Rect($x, $y, $w, $h);
+        $pdf->Rect($x, $y, $w, $boxH);
         $pdf->SetFont('Helvetica', 'B', $cfg['titleSize']);
         $pdf->SetTextColor($r, $g, $b);
-        $pdf->SetXY($x, $y + ($h / 2) - 3.5);
+        $pdf->SetXY($x, $y + ($boxH / 2) - 3.5);
         $pdf->Cell($w, 7, $cfg['title'], 0, 0, 'C');
+
+        // Blue signature flourish overlapping the bottom-right corner.
+        $pdf->SetDrawColor(30, 79, 216);
+        $pdf->SetLineWidth(0.45);
+        $sx = $x + ($w * 0.55);
+        $sy = $y + $boxH - 1.2;
+        $pdf->Line($sx, $sy + 1.5, $sx + 3.2, $sy - 1.8);
+        $pdf->Line($sx + 3.2, $sy - 1.8, $sx + 6.0, $sy + 2.2);
+        $pdf->Line($sx + 6.0, $sy + 2.2, $sx + 9.5, $sy - 1.0);
+        $pdf->Line($sx + 9.5, $sy - 1.0, $sx + 13.0, $sy + 1.8);
+        $pdf->Line($sx + 13.0, $sy + 1.8, $sx + 16.5, $sy - 0.6);
+        $pdf->Line($sx + 2.0, $sy + 3.0, $sx + 15.5, $sy + 3.6);
     }
 }

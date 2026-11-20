@@ -271,22 +271,28 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
                 $query->whereNull('notification_div.is_in_user_list')
                       ->orWhere('notification_div.is_in_user_list', 1);
             })
-            ->orderBy('notifications.created_at', 'desc')
-            ->select(
-                'notifications.id',
-                'notifications.office',
-                'subsystems.subsystem_name',
-                'notif_content.content',
-                'notif_content.redirect_url',
-                'notifications.created_at',
-                'notification_div.processed_on',
-                'notification_div.read_at_session',
-                'notification_div.is_dismissed',
-                'notification_div.is_in_user_list',
-                'notification_div.account_rec',
-                DB::raw("COALESCE(notification_div.status, 'unread') as status")
-            )
-            ->get();
+            ->orderBy('notifications.created_at', 'desc');
+
+        $selectCols = [
+            'notifications.id',
+            'notifications.office',
+            'subsystems.subsystem_name',
+            'notif_content.content',
+            'notif_content.redirect_url',
+            'notifications.created_at',
+            'notification_div.processed_on',
+            'notification_div.is_in_user_list',
+            'notification_div.account_rec',
+            DB::raw("COALESCE(notification_div.status, 'unread') as status"),
+        ];
+        if (\Illuminate\Support\Facades\Schema::hasColumn($notifDivTbl, 'read_at_session')) {
+            $selectCols[] = 'notification_div.read_at_session';
+        }
+        if (\Illuminate\Support\Facades\Schema::hasColumn($notifDivTbl, 'is_dismissed')) {
+            $selectCols[] = 'notification_div.is_dismissed';
+        }
+
+        $rawNotifs = $rawNotifs->select($selectCols)->get();
 
         $this->mutedTypes = \App\Helpers\NotificationFilterHelper::getUserMutedTypes($userId);
         $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap($userId);
@@ -357,16 +363,19 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
         }
 
         $userId = Auth::id();
+        $payload = [
+            'status' => 'read',
+            'processed_on' => now(),
+        ];
+        if (\Illuminate\Support\Facades\Schema::hasColumn($notifDivTbl, 'read_at_session')) {
+            $payload['read_at_session'] = session()->getId();
+        }
         DB::table($notifDivTbl)->updateOrInsert(
             [
                 'id' => $notificationId,
                 'account_rec' => $userId
             ],
-            [
-                'status' => 'read',
-                'read_at_session' => session()->getId(),
-                'processed_on' => now()
-            ]
+            $payload
         );
         $this->loadNotifications();
         $this->dispatch('rms-notification-updated');
@@ -425,8 +434,8 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             'redirect_url' => $notif->redirect_url ?: 'None',
             'status' => $notif->display_status ?? ($notif->status ?? 'unread'),
             'is_muted' => !empty($notif->is_muted) ? 'Yes' : 'No',
-            'read_at_session' => $notif->read_at_session ?: 'None',
-            'is_dismissed' => !empty($notif->is_dismissed) ? 'Yes' : 'No',
+            'read_at_session' => ($notif->read_at_session ?? null) ?: 'None',
+            'is_dismissed' => !empty($notif->is_dismissed ?? null) ? 'Yes' : 'No',
             'is_in_user_list' => ($notif->is_in_user_list ?? true) ? 'Yes' : 'No',
             'account_rec' => $notif->account_rec ?? Auth::id(),
             'created_at' => $notif->created_at ? \Carbon\Carbon::parse($notif->created_at)->format('Y-m-d H:i:s') : 'N/A',

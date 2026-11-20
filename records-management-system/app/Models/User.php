@@ -104,6 +104,24 @@ class User extends Authenticatable
         return $setting ? (bool)($setting->notification_sound_alert ?? true) : true;
     }
 
+    public function urgentSoundAlert(): bool
+    {
+        $setting = $this->personalSetting;
+        return $setting ? (bool)($setting->urgent_sound_alert ?? true) : true;
+    }
+
+    public function notificationSoundTone(): string
+    {
+        $setting = $this->personalSetting;
+        return !empty($setting?->notification_sound_tone) ? $setting->notification_sound_tone : 'ping-default';
+    }
+
+    public function urgentSoundTone(): string
+    {
+        $setting = $this->personalSetting;
+        return !empty($setting?->urgent_sound_tone) ? $setting->urgent_sound_tone : 'urgent-alarm';
+    }
+
     public function popoutNotifications(): bool
     {
         $setting = $this->personalSetting;

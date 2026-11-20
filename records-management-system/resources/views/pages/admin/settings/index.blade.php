@@ -24,6 +24,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $dtsQrIncludeCodeDefault = false;
     public bool $dtsAllowCustomFlowScopeSelection = false;
     public bool $dtsEnableAvailableCodes = true;
+    public bool $dtsUrgentMonitoringEnabled = true;
+    public int $dtsUrgentWarningMinutes = 5;
+    public int $dtsUrgentActionMinutes = 10;
     public bool $dtsWorkingHoursEnabled = false;
     public string $dtsWorkingHoursStart = '06:00';
     public string $dtsWorkingHoursEnd = '17:00';
@@ -559,6 +562,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $availCodes = \DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
         $this->dtsEnableAvailableCodes = ($availCodes !== 'false');
+
+        $urgentEnabled = \DB::table($sysTable)->where('key', 'dts_urgent_monitoring_enabled')->value('value');
+        $this->dtsUrgentMonitoringEnabled = ($urgentEnabled !== 'false');
+
+        $warnMinutes = \DB::table($sysTable)->where('key', 'dts_urgent_warning_minutes')->value('value');
+        $this->dtsUrgentWarningMinutes = $warnMinutes !== null ? max(1, (int) $warnMinutes) : 5;
+
+        $urgentMinutes = \DB::table($sysTable)->where('key', 'dts_urgent_action_minutes')->value('value');
+        $this->dtsUrgentActionMinutes = $urgentMinutes !== null ? max(1, (int) $urgentMinutes) : 10;
 
         $whEnabled = \DB::table($sysTable)->where('key', 'dts_working_hours_enabled')->value('value');
         $this->dtsWorkingHoursEnabled = ($whEnabled === 'true');
@@ -1160,6 +1172,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ['key' => 'dts_enable_available_codes'],
                     [
                         'value' => $this->dtsEnableAvailableCodes ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_urgent_monitoring_enabled'],
+                    [
+                        'value' => $this->dtsUrgentMonitoringEnabled ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                $actionMin = max(2, (int) $this->dtsUrgentActionMinutes);
+                $warnMin = min($actionMin - 1, max(1, (int) $this->dtsUrgentWarningMinutes));
+
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_urgent_warning_minutes'],
+                    [
+                        'value' => (string) $warnMin,
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_urgent_action_minutes'],
+                    [
+                        'value' => (string) $actionMin,
                         'updated_at' => now(),
                     ]
                 );
@@ -2098,6 +2137,71 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <span class="slider"></span>
                         </label>
                     </div>
+
+                    <!-- Setting: Urgent Action & Elapsed Time Configuration -->
+                    <div class="setting-item" style="border-top: 1px solid #e2e8f0; padding-top: 18px; margin-top: 8px;">
+                        <div class="setting-details">
+                            <span class="setting-title" style="display: flex; align-items: center; gap: 8px;">
+                                <i class="fa-solid fa-triangle-exclamation" style="color: #ef4444; font-size: 14px;"></i>
+                                Enable Urgent Action &amp; Overdue Notice Tracking
+                            </span>
+                            <span class="setting-desc">Activates the header Urgent/Notice icon that tracks pending station transactions (incoming and in-custody) by elapsed time and alerts users through color-coded urgency and sound effects.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model.live="dtsUrgentMonitoringEnabled">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    @if($dtsUrgentMonitoringEnabled)
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin: 12px 0 6px 0;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 14px;">
+                            <div>
+                                <label style="display: block; font-size: 13px; font-weight: 700; color: #b45309; margin-bottom: 6px;">
+                                    <i class="fa-solid fa-circle" style="color: #f59e0b; font-size: 10px; margin-right: 4px;"></i>
+                                    Yellow Warning Notice Threshold (Minutes)
+                                </label>
+                                <span style="display: block; font-size: 11px; color: #64748b; margin-bottom: 8px;">
+                                    When elapsed processing time reaches this duration, transactions trigger a Yellow warning state.
+                                </span>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <input type="number" min="1" max="1440" wire:model="dtsUrgentWarningMinutes" style="width: 110px; height: 38px; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 700; color: #0f172a; background: #ffffff;">
+                                    <span style="font-size: 13px; font-weight: 600; color: #475569;">minutes</span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label style="display: block; font-size: 13px; font-weight: 700; color: #b91c1c; margin-bottom: 6px;">
+                                    <i class="fa-solid fa-circle" style="color: #ef4444; font-size: 10px; margin-right: 4px;"></i>
+                                    RED Urgent Action Limit (Minutes)
+                                </label>
+                                <span style="display: block; font-size: 11px; color: #64748b; margin-bottom: 8px;">
+                                    Admin set elapsed time limit (e.g. 10 minutes). Exceeding this marks the transaction as overdue and urgent.
+                                </span>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <input type="number" min="1" max="1440" wire:model="dtsUrgentActionMinutes" style="width: 110px; height: 38px; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 700; color: #0f172a; background: #ffffff;">
+                                    <span style="font-size: 13px; font-weight: 600; color: #475569;">minutes</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Urgency Legend Preview -->
+                        <div style="display: flex; flex-wrap: wrap; gap: 12px; padding-top: 10px; border-top: 1px dashed #cbd5e1; font-size: 11px; font-weight: 600;">
+                            <span style="display: inline-flex; align-items: center; gap: 5px; color: #15803d;">
+                                <span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+                                <strong>Green:</strong> Safe / newly created (&lt; {{ $dtsUrgentWarningMinutes }} mins)
+                            </span>
+                            <span style="display: inline-flex; align-items: center; gap: 5px; color: #b45309;">
+                                <span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; display: inline-block;"></span>
+                                <strong>Yellow:</strong> Warning Notice ({{ $dtsUrgentWarningMinutes }} – {{ $dtsUrgentActionMinutes }} mins)
+                            </span>
+                            <span style="display: inline-flex; align-items: center; gap: 5px; color: #b91c1c;">
+                                <span style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+                                <strong>RED:</strong> Need Action Now (&gt; {{ $dtsUrgentActionMinutes }} mins)
+                            </span>
+                        </div>
+                    </div>
+                    @endif
                 </div>
             </div>
             @endif

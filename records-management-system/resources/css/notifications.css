@@ -4,9 +4,8 @@
 
 .guide-container {
     position: absolute;
-    top: 0;
-    bottom: 0;
-    right: 195px; /* Immediately to the left of notification bell (155px) */
+    top: 10px;
+    right: 226px; /* Spaced to the left of the notification container */
     height: 30px;
     margin-top: auto;
     margin-bottom: auto;
@@ -63,15 +62,15 @@ body.manual-widget-open .guide-container {
 
 .notification-container {
     position: absolute;
-    top: 0;
-    bottom: 0;
-    right: 155px; /* Placed immediately to the left of the ACTIONS button (width: 123px) */
+    top: 10px; /* Centered matching the actions-container top alignment */
+    right: 148px; /* Placed immediately to the left of the ACTIONS button (width: 123px) */
     height: 30px; /* Matches the ACTIONS button height */
     margin-top: auto;
     margin-bottom: auto;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-end;
+    gap: 8px; /* Spaces notification bell and urgent notice icon */
     z-index: 15;
     pointer-events: none; /* Let clicks pass through container boundary to avoid blocking the action bar */
 }
@@ -145,6 +144,7 @@ body.manual-widget-open .guide-container {
     top: 35px; /* Adjusted to sit cleanly below the 30px height bell button */
     right: -60px; /* Centered relative to the bell button */
     width: 420px;
+    max-width: calc(100vw - 24px);
     background-color: #ffffff;
     border-radius: 12px;
     box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
@@ -155,6 +155,13 @@ body.manual-widget-open .guide-container {
     overflow: hidden;
     animation: notif_smooth_dropdown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     transform-origin: top right;
+}
+
+@media (max-width: 480px) {
+    .notif-dropdown {
+        width: calc(100vw - 24px) !important;
+        right: -10px !important;
+    }
 }
 
 @keyframes notif_smooth_dropdown {
@@ -938,3 +945,37 @@ body.manual-widget-open .guide-container {
         max-width: calc(100vw - 32px);
     }
 }
+
+/* ==========================================================================
+   Urgent Action & Notice Button & Counter Badge
+   ========================================================================== */
+
+.urgent-wrapper {
+    position: relative;
+    display: inline-block;
+    pointer-events: auto;
+}
+
+.urgent-wrapper .notif-dropdown {
+    right: -25px;
+}
+
+@keyframes urgentPulseAnimation {
+    0% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.85);
+        transform: scale(1);
+    }
+    50% {
+        box-shadow: 0 0 0 7px rgba(239, 68, 68, 0);
+        transform: scale(1.08);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+        transform: scale(1);
+    }
+}
+
+.urgent-pulse {
+    animation: urgentPulseAnimation 1.6s infinite ease-in-out !important;
+}
+

@@ -29,11 +29,15 @@ class PersonalSetting extends Model
         'follow_scroll_side',
         'follow_scroll_vertical',
         'muted_notification_types',
+        'notification_sound_tone',
+        'urgent_sound_tone',
+        'urgent_sound_alert',
     ];
 
     protected $casts = [
         'auto_open_chat' => 'boolean',
         'notification_sound_alert' => 'boolean',
+        'urgent_sound_alert' => 'boolean',
         'enable_popout_notifications' => 'boolean',
         'enable_top_tabs' => 'boolean',
         'dcs_db_visible_groups' => 'array',

@@ -2999,6 +2999,22 @@ new class extends Component {
                         }
                     });
                     el.innerHTML = '';
+
+                    // Shield video element against html5-qrcode's RenderedCameraImpl throwing unhandled onabort/onerror
+                    if (!el.__abortShielded && typeof MutationObserver !== 'undefined') {
+                        el.__abortShielded = true;
+                        const observer = new MutationObserver(mutations => {
+                            mutations.forEach(m => {
+                                m.addedNodes.forEach(node => {
+                                    if (node && node.nodeName === 'VIDEO') {
+                                        node.onabort = function() { console.warn('[Scanner] video surface onabort caught'); };
+                                        node.onerror = function() { console.warn('[Scanner] video surface onerror caught'); };
+                                    }
+                                });
+                            });
+                        });
+                        observer.observe(el, { childList: true, subtree: true });
+                    }
                 }
                 return new Html5Qrcode("modal-qr-preview", {
                     formatsToSupport: qrFormats,
@@ -3232,8 +3248,8 @@ new class extends Component {
                     let guidance = 'Please allow camera permission in your browser or connect a webcam.';
                     if (errName === 'NotAllowedError' || /permission/i.test(errMsg)) {
                         guidance = 'Camera access is blocked by your browser. Click the lock/camera icon in your address bar, select <b>Always allow</b>, and click Retry.';
-                    } else if (errName === 'NotFoundError' || /device not found/i.test(errMsg)) {
-                        guidance = 'No camera found. Check if your laptop privacy shutter is open or if Windows has "Camera off" toggled.';
+                    } else if (errName === 'NotFoundError' || /device not found|camera off|abort/i.test(errMsg)) {
+                        guidance = 'Camera is currently turned off or unavailable. Check if your camera privacy shutter is open or toggle Windows Camera on.';
                     } else if (errName === 'NotReadableError') {
                         guidance = 'Camera is in use by another application (e.g. Teams, Zoom, or another browser tab).';
                     }

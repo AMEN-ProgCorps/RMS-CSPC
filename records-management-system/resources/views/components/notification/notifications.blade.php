@@ -732,6 +732,7 @@ new class extends Component {
     class="notif-wrapper"
     wire:poll.15s.keep-alive="loadNotifications"
     data-notif-sound-url="{{ asset('sfx/ping-message.mp3') }}"
+    data-notif-tone="{{ Auth::user()?->notificationSoundTone() ?? 'ping-default' }}"
     x-data="{
         open: @entangle('showDropdown'),
         popoutEnabled: @entangle('popoutNotificationsEnabled'),
@@ -775,7 +776,12 @@ new class extends Component {
             if (now - this.lastSoundAt < 800) return;
             this.lastSoundAt = now;
             try {
-                if (typeof window.playRMSNotificationSound === 'function') {
+                const tone = $el.getAttribute('data-notif-tone') || 'ping-default';
+                if (typeof window.playRMSTonePreview === 'function') {
+                    window.playRMSTonePreview('notif', tone);
+                    return;
+                }
+                if (typeof window.playRMSNotificationSound === 'function' && tone === 'ping-default') {
                     window.playRMSNotificationSound();
                     return;
                 }
@@ -865,6 +871,7 @@ new class extends Component {
             open = !open;
             if (open) {
                 $wire.loadNotifications();
+                window.dispatchEvent(new CustomEvent('close-urgent-notices'));
                 window.closeActionsDropdown ? window.closeActionsDropdown() : (typeof closeActionsDropdown !== 'undefined' ? closeActionsDropdown() : null);
             }
         "

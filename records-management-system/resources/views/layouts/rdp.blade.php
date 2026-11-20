@@ -140,6 +140,7 @@
         </div>
         <div class="notification-container">
             <livewire:components.notification.notifications />
+            <livewire:components.notification.urgent-notices />
         </div>
         <x-actions.dropdown />
     </header>

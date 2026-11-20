@@ -502,8 +502,9 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
 </header>
 <section>
     <div class="portal-header-actions">
-        <div class="portal-notif-btn-wrapper desktop-only">
+        <div class="portal-notif-btn-wrapper desktop-only" style="display: flex; align-items: center; gap: 8px;">
             <livewire:components.notification.notifications />
+            <livewire:components.notification.urgent-notices />
         </div>
         <button type="button" title="Logout" class="logout" wire:click="logout">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

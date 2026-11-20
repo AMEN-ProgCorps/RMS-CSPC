@@ -770,19 +770,15 @@
 
         // Persist clear so returning to this page is not blocked by a fixed crash ticket.
         try {
-            var csrf = document.querySelector('meta[name="csrf-token"]');
-            fetch('/api/errors/clear-page-guard', {
-                method: 'POST',
+            fetch('/api/errors/clear-page-guard?path=' + encodeURIComponent(path), {
+                method: 'GET',
                 credentials: 'same-origin',
                 cache: 'no-store',
                 headers: {
-                    'Content-Type': 'application/json',
                     'Accept': 'application/json',
-                    'X-CSRF-TOKEN': csrf ? csrf.getAttribute('content') : '',
                     'X-Requested-With': 'XMLHttpRequest'
-                },
-                body: JSON.stringify({ path: path })
-            }).then(function (r) { return r.json(); }).then(function (data) {
+                }
+            }).then(function (r) { return r.ok ? r.json() : null; }).then(function (data) {
                 if (data && data.guards && typeof data.guards === 'object') {
                     window.__rmsActiveGuards = data.guards;
                 }

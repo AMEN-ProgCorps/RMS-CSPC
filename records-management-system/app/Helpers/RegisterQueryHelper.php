@@ -1743,7 +1743,13 @@ class RegisterQueryHelper
         if ($path === '') {
             $path = ltrim((string) request()->path(), '/');
         }
-        if ($path === 'chat/unread-count' || $path === '') {
+        // Livewire polls and chat unread-count run under API paths — resolve the real page from Referer.
+        if (
+            $path === ''
+            || $path === 'chat/unread-count'
+            || $path === 'livewire/update'
+            || str_starts_with($path, 'livewire/')
+        ) {
             $referer = (string) request()->headers->get('referer', '');
             $path = ltrim((string) (parse_url($referer, PHP_URL_PATH) ?? ''), '/');
         }

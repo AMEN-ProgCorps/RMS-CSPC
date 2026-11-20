@@ -16,7 +16,7 @@
     z-index: 15;
     pointer-events: none;
     overflow: visible;
-    transition: right 0.2s ease;
+    transition: right 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* When urgent notices has active items and is visible, shift guide to make room for urgent icon + gap */
@@ -975,6 +975,25 @@ body.manual-widget-open .guide-container {
     position: relative;
     display: inline-block;
     pointer-events: auto;
+}
+
+@keyframes urgentAppearSmooth {
+    0% {
+        opacity: 0;
+        transform: scale(0.4) rotate(-10deg);
+    }
+    60% {
+        opacity: 1;
+        transform: scale(1.15) rotate(2deg);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1) rotate(0deg);
+    }
+}
+
+.urgent-wrapper.urgent-active {
+    animation: urgentAppearSmooth 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .urgent-wrapper .notif-dropdown {

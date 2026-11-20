@@ -2267,6 +2267,63 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             transform: scale(1.2) !important;
         }
 
+        /* Slim unobtrusive scrollbar for timeline stepper inside table cells */
+        .dts-table-timeline-scroll {
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
+        }
+        .dts-table-timeline-scroll::-webkit-scrollbar {
+            height: 4px;
+        }
+        .dts-table-timeline-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .dts-table-timeline-scroll::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        .dts-table-timeline-scroll::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Fixed floating unclipped tooltip for timeline nodes */
+        #dts-timeline-floating-tooltip {
+            position: fixed;
+            z-index: 9999999;
+            display: none;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.12s ease;
+            width: 220px;
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 8px 10px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            border: 1px solid #334155;
+            font-size: 11px;
+            line-height: 1.4;
+            box-sizing: border-box;
+        }
+        #dts-timeline-floating-tooltip::after {
+            content: '';
+            position: absolute;
+            border-width: 6px;
+            border-style: solid;
+        }
+        #dts-timeline-floating-tooltip.arrow-down::after {
+            top: 100%;
+            left: var(--arrow-left, 50%);
+            transform: translateX(-50%);
+            border-color: #0f172a transparent transparent transparent;
+        }
+        #dts-timeline-floating-tooltip.arrow-up::after {
+            bottom: 100%;
+            left: var(--arrow-left, 50%);
+            transform: translateX(-50%);
+            border-color: transparent transparent #0f172a transparent;
+        }
+
         /* ═══════════════════════════════════════════════════════════════
            DTS ISSUANCE OVERHAULED MODAL (Unique Registry Dossier)
            ═══════════════════════════════════════════════════════════════ */
@@ -2911,7 +2968,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                         <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
                                     </span>
                                 @else
-                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 6px 6px 6px; max-width: 100%;">
+                                    <div class="dts-table-timeline-scroll" style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 6px 10px 6px; max-width: 100%;">
                                         @forelse ($t->timeline_path as $index => $step)
                                             @php
                                                 $isReceived = !is_null($step->date_in) || $t->status === 'completed';
@@ -2965,7 +3022,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                             @endphp
 
                                             <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0; flex-shrink: 0;">
-                                                <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isCompleted ? 'Forwarded' : ($isReceived ? 'Received/Holder' : ($isCurrentOffice || $isInTransitToThisOffice ? 'In Transit / Incoming' : 'Pending'))) }})">
+                                                <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}">
                                                     @if ($isRevisionStep)
                                                         <i class="fa-solid fa-rotate-left" style="font-size: 10px;"></i>
                                                     @elseif ($isHubStep)
@@ -2991,7 +3048,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                                     @endif
                                                 </span>
 
-                                                <div class="dts-node-tooltip" style="position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); width: 210px; background: #0f172a; color: #f8fafc; padding: 8px 10px; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s ease; z-index: 9999; text-align: left; font-size: 11px; line-height: 1.4;">
+                                                <div class="dts-node-tooltip-template" style="display: none;">
                                                     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 4px;">
                                                         <span style="font-weight: 700; font-size: 11px; color: #38bdf8;">Step {{ $index + 1 }}: @if ($isHubStep) [HUB] @else {{ $step->office_code }} @endif</span>
                                                         @if ($isRevisionStep)
@@ -4250,4 +4307,96 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
         wireApply="applyForwardHubModal"
         wireSearch="forwardHubSearch"
     />
+
+    <!-- Global Floating Tooltip for Timeline Stepper (Prevents Overflow Clipping) -->
+    <div id="dts-timeline-floating-tooltip"></div>
+
+    <script>
+    (function() {
+        let activeDot = null;
+        let tooltipEl = null;
+
+        function getTooltipEl() {
+            if (!tooltipEl) {
+                tooltipEl = document.getElementById('dts-timeline-floating-tooltip');
+            }
+            return tooltipEl;
+        }
+
+        function positionTooltip(dot, tooltip) {
+            const rect = dot.getBoundingClientRect();
+            const tooltipWidth = 220;
+            const tooltipHeight = tooltip.offsetHeight || 120;
+
+            let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
+            left = Math.max(12, Math.min(window.innerWidth - tooltipWidth - 12, left));
+
+            let top = rect.top - tooltipHeight - 10;
+            let arrowTop = true;
+            if (top < 10) {
+                top = rect.bottom + 10;
+                arrowTop = false;
+            }
+
+            const arrowLeft = Math.max(16, Math.min(tooltipWidth - 16, (rect.left + rect.width / 2) - left));
+            tooltip.style.setProperty('--arrow-left', arrowLeft + 'px');
+
+            if (arrowTop) {
+                tooltip.classList.remove('arrow-up');
+                tooltip.classList.add('arrow-down');
+            } else {
+                tooltip.classList.remove('arrow-down');
+                tooltip.classList.add('arrow-up');
+            }
+
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+        }
+
+        function hideTooltip() {
+            const el = getTooltipEl();
+            if (el) {
+                el.style.opacity = '0';
+                el.style.display = 'none';
+            }
+            activeDot = null;
+        }
+
+        document.addEventListener('mouseover', function(e) {
+            const dot = e.target.closest('.dts-timeline-node-dot');
+            if (!dot) return;
+            const wrapper = dot.closest('.dts-timeline-node-wrapper');
+            if (!wrapper) return;
+            const tpl = wrapper.querySelector('.dts-node-tooltip-template');
+            if (!tpl) return;
+
+            const el = getTooltipEl();
+            if (!el) return;
+
+            activeDot = dot;
+            el.innerHTML = tpl.innerHTML;
+            el.style.display = 'block';
+
+            positionTooltip(dot, el);
+            requestAnimationFrame(() => {
+                if (activeDot === dot) {
+                    el.style.opacity = '1';
+                }
+            });
+        });
+
+        document.addEventListener('mouseout', function(e) {
+            const dot = e.target.closest('.dts-timeline-node-dot');
+            if (dot && dot === activeDot) {
+                hideTooltip();
+            }
+        });
+
+        window.addEventListener('scroll', function() {
+            if (activeDot) {
+                hideTooltip();
+            }
+        }, true);
+    })();
+    </script>
 </div>

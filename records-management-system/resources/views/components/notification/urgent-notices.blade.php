@@ -286,6 +286,10 @@ new class extends Component {
         $this->greenCount = count(array_filter($items, fn($i) => $i['urgency'] === 'green'));
         $this->totalCount = count($items);
 
+        if ($this->totalCount === 0) {
+            $this->showDropdown = false;
+        }
+
         // Sound notification alert if new RED item appeared while viewing
         if ($this->hasMounted && $this->redCount > $this->previousRedCount && $this->urgentSoundAlert) {
             $this->dispatchBrowserUrgentPing();
@@ -358,6 +362,13 @@ new class extends Component {
     {
         $this->urgentSoundAlert = (bool) $enabled;
     }
+
+    #[On('refresh-urgent-notices')]
+    #[On('transaction-updated')]
+    public function refreshItems(): void
+    {
+        $this->loadUrgentItems();
+    }
 };
 ?>
 
@@ -366,6 +377,7 @@ new class extends Component {
     wire:poll.15s.keep-alive="loadUrgentItems"
     data-urgent-tone="{{ $urgentSoundTone }}"
     data-urgent-sound-enabled="{{ $urgentSoundAlert ? '1' : '0' }}"
+    @if($totalCount === 0 || !$monitoringEnabled) style="display: none !important;" @endif
     x-data="{
         open: @entangle('showDropdown'),
         lastAlertAt: 0,

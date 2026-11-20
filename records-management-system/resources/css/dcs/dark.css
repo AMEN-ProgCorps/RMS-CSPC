@@ -1568,10 +1568,53 @@
     background: #0f172a !important;
 }
 
+[data-theme="dark"] .reg-insert-preview-table-wrap table,
+[data-theme="dark"] .reg-insert-select-table {
+    background: #0f172a !important;
+}
+
 [data-theme="dark"] .reg-insert-preview-table-wrap table th,
 [data-theme="dark"] .reg-insert-preview-table-wrap table td {
     color: #e2e8f0 !important;
     border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .reg-insert-select-table thead th {
+    background: #1e293b !important;
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .reg-insert-select-table tbody tr:hover,
+[data-theme="dark"] .reg-insert-select-table tbody tr:has(input:checked) {
+    background: #1e293b !important;
+}
+
+[data-theme="dark"] .reg-insert-select-table .col-doc strong,
+[data-theme="dark"] .reg-insert-preview-head h4 {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .reg-insert-preview-head p,
+[data-theme="dark"] .reg-insert-meta {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .reg-insert-select-table .col-from code {
+    background: #1e293b !important;
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .reg-insert-select-table .col-to {
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .reg-insert-select-table .col-to.is-keep {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .reg-insert-badge {
+    background: #334155 !important;
+    color: #e2e8f0 !important;
 }
 
 [data-theme="dark"] .reg-insert-preview p {
@@ -1649,7 +1692,8 @@
 [data-theme="dark"] .review-row .is-missing,
 [data-theme="dark"] .review-value-missing,
 [data-theme="dark"] .review-value-missing i,
-[data-theme="dark"] .review-row-empty .review-label {
+[data-theme="dark"] .review-row-empty .review-label,
+[data-theme="dark"] .review-row-unavailable .review-label {
     color: #f87171 !important;
 }
 
@@ -1934,6 +1978,11 @@
     background: #131c2e !important;
     color: #f8fafc !important;
     border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .reg-office-table-wrap.is-attention {
+    border-color: #f59e0b !important;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.35);
 }
 
 [data-theme="dark"] .reg-dist-table thead {

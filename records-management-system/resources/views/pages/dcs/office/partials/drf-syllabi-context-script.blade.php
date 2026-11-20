@@ -5,14 +5,18 @@
 --}}
 {{--
 DCS file: Office DRF syllabi context cascade + auto title.
+GE/PE/NSTP = college only + shared catalog. Major = college + program.
 --}}
 <script>
 (function () {
     const catalog = window.__ofiSyllabiCatalog || {};
+    const SHARED_TYPES = { 'GE Courses': true, 'PE Courses': true, 'NSTP': true };
     const form = document.getElementById('ofiDrfForm');
     const block = document.getElementById('ofiDrfSyllabiContext');
+    const courseTypeSel = document.getElementById('ofiDrfCourseType');
     const collegeSel = document.getElementById('ofiDrfCollegeId');
     const programSel = document.getElementById('ofiDrfProgramId');
+    const programWrap = document.getElementById('ofiDrfProgramWrap');
     const semesterSel = document.getElementById('ofiDrfSemesterId');
     const courseSel = document.getElementById('ofiDrfCourseId');
     const schoolYearSel = document.getElementById('ofiDrfSchoolYearId');
@@ -55,6 +59,14 @@ DCS file: Office DRF syllabi context cascade + auto title.
         const n = selectedSubName().toLowerCase();
         if (n.indexOf('tos') !== -1 || n.indexOf('rubric') !== -1) return 'TOS/Rubrics,';
         return 'Syllabus,';
+    }
+
+    function selectedCourseType() {
+        return courseTypeSel ? String(courseTypeSel.value || '').trim() : '';
+    }
+
+    function isSharedType(type) {
+        return !!SHARED_TYPES[String(type || '').trim()];
     }
 
     /**
@@ -106,12 +118,50 @@ DCS file: Office DRF syllabi context cascade + auto title.
         if (!on) select.value = '';
     }
 
+    function setProgramWrapVisible(show) {
+        if (!programWrap) return;
+        programWrap.hidden = !show;
+        programWrap.classList.toggle('is-ofi-hidden', !show);
+    }
+
+    function applyCourseTypeLayout(keep) {
+        const type = selectedCourseType();
+        const shared = isSharedType(type);
+        // GE/PE/NSTP: hide Program entirely (shared catalog is college-scoped).
+        // Major: show Program after course type is chosen.
+        setProgramWrapVisible(!!type && !shared);
+        if (!type) {
+            setEnabled(collegeSel, false, false);
+            setEnabled(programSel, false, false);
+            setEnabled(semesterSel, false, false);
+            setEnabled(courseSel, false, false);
+            setEnabled(schoolYearSel, false, false);
+            return;
+        }
+        setEnabled(collegeSel, true, true);
+        fillSelect(collegeSel, catalog.colleges || [], 'college_id', 'college_name', 'Select college…', keep);
+        if (shared) {
+            setEnabled(programSel, false, false);
+            if (programSel) {
+                programSel.value = '';
+                programSel.removeAttribute('required');
+            }
+        } else {
+            rebuildPrograms(keep);
+        }
+    }
+
     /**
      * Rebuilds programs.
      *
      * @param {*} keep
      */
     function rebuildPrograms(keep) {
+        if (isSharedType(selectedCourseType())) {
+            setEnabled(programSel, false, false);
+            if (programSel) programSel.value = '';
+            return;
+        }
         const collegeId = String(collegeSel.value || '');
         const programs = collegeId ? ((catalog.programsByCollege || {})[collegeId] || []) : [];
         fillSelect(programSel, programs, 'program_id', 'program_name', 'Select program…', keep);
@@ -124,9 +174,12 @@ DCS file: Office DRF syllabi context cascade + auto title.
      * @param {*} keep
      */
     function rebuildSemesters(keep) {
-        const programOn = !!(programSel && programSel.value);
+        const shared = isSharedType(selectedCourseType());
+        const ready = shared
+            ? !!(collegeSel && collegeSel.value)
+            : !!(programSel && programSel.value);
         fillSelect(semesterSel, catalog.semesters || [], 'semester_id', 'semester_name', 'Select semester…', keep);
-        setEnabled(semesterSel, programOn, true);
+        setEnabled(semesterSel, ready, true);
     }
 
     /**
@@ -135,22 +188,43 @@ DCS file: Office DRF syllabi context cascade + auto title.
      * @param {*} keep
      */
     function rebuildCourses(keep) {
+        const type = selectedCourseType();
+        const shared = isSharedType(type);
         const programId = programSel ? String(programSel.value || '') : '';
         const semesterId = semesterSel ? String(semesterSel.value || '') : '';
-        // Settings → Course Names for this program + this semester only.
-        // Skip rows missing year level or course type (incomplete Settings data).
+        let courses = [];
+        let placeholder = 'Select course…';
+
+        if (shared) {
+            const key = type && semesterId ? (type + ':' + semesterId) : '';
+            const raw = key ? ((catalog.coursesBySharedSemester || {})[key] || []) : [];
+            courses = raw.filter(function (c) {
+                const year = String(c.year_level || '').trim();
+                const ct = String(c.course_type || '').trim();
+                return year !== '' && ct !== '';
+            });
+            if (!collegeSel.value || !semesterId) {
+                placeholder = 'Select college and semester first…';
+            } else if (!courses.length) {
+                placeholder = 'No institutional courses in Settings for this type and semester…';
+            }
+            fillSelect(courseSel, courses, 'id', 'course_name', placeholder, keep);
+            setEnabled(courseSel, !!(collegeSel.value && semesterId), true);
+            return;
+        }
+
+        // Major: Settings → Course Names for this program + this semester only.
         const key = programId && semesterId ? (programId + ':' + semesterId) : '';
         const raw = key ? ((catalog.coursesByProgramSemester || {})[key] || []) : [];
-        const courses = raw.filter(function (c) {
+        courses = raw.filter(function (c) {
             const year = String(c.year_level || '').trim();
-            const type = String(c.course_type || '').trim();
-            return year !== '' && type !== '';
+            const ct = String(c.course_type || '').trim();
+            return year !== '' && ct === 'Major';
         });
-        let placeholder = 'Select course…';
         if (!programId || !semesterId) {
             placeholder = 'Select program and semester first…';
         } else if (!courses.length) {
-            placeholder = 'No complete courses in Settings for this semester…';
+            placeholder = 'No complete Major courses in Settings for this semester…';
         }
         fillSelect(courseSel, courses, 'id', 'course_name', placeholder, keep);
         setEnabled(courseSel, !!(programId && semesterId), true);
@@ -169,12 +243,13 @@ DCS file: Office DRF syllabi context cascade + auto title.
      */
     function takenSchoolYearIdsForCourse() {
         const collegeId = collegeSel ? String(collegeSel.value || '') : '';
-        const programId = programSel ? String(programSel.value || '') : '';
+        const shared = isSharedType(selectedCourseType());
+        const programId = shared ? '0' : (programSel ? String(programSel.value || '') : '');
         const semesterId = semesterSel ? String(semesterSel.value || '') : '';
         const courseId = courseSel ? String(courseSel.value || '') : '';
         const subTypeId = selectedSubTypeId();
         // Taken years are scoped by sub-type (Syllabi registration does not block TOS).
-        if (!collegeId || !programId || !semesterId || !courseId || !subTypeId) return [];
+        if (!collegeId || (!shared && !programId) || !semesterId || !courseId || !subTypeId) return [];
         const key = collegeId + ':' + programId + ':' + semesterId + ':' + courseId + ':' + subTypeId;
         const raw = (catalog.takenSchoolYearsByCourse || {})[key] || [];
         return raw.map(function (id) { return String(id); });
@@ -220,16 +295,18 @@ DCS file: Office DRF syllabi context cascade + auto title.
      * Builds title.
      */
     function buildTitle() {
-        // Department Syllabus, Semester S/Y SchoolYear for Program in Course
         const college = selectText(collegeSel);
         const program = selectText(programSel);
         const course = selectText(courseSel);
         const semester = selectText(semesterSel);
         let schoolYear = selectText(schoolYearSel);
-        if (!college || !program || !course || !semester || !schoolYear) return '';
+        const shared = isSharedType(selectedCourseType());
+        if (!college || !course || !semester || !schoolYear) return '';
+        if (!shared && !program) return '';
         schoolYear = schoolYear.replace(/^\s*s\/?y\s*/i, '');
+        const forPart = shared ? college : program;
         return college + ' ' + connectorForSub() + ' ' + semester + ' S/Y ' + schoolYear
-            + ' for ' + program + ' in ' + course;
+            + ' for ' + forPart + ' in ' + course;
     }
 
     /**
@@ -250,17 +327,18 @@ DCS file: Office DRF syllabi context cascade + auto title.
         block.hidden = !on;
         block.classList.toggle('is-ofi-hidden', !on);
         if (!on) {
+            setEnabled(courseTypeSel, false, false);
             setEnabled(collegeSel, false, false);
             setEnabled(programSel, false, false);
             setEnabled(semesterSel, false, false);
             setEnabled(courseSel, false, false);
             setEnabled(schoolYearSel, false, false);
+            if (courseTypeSel) courseTypeSel.value = '';
             collegeSel.value = '';
             return;
         }
-        setEnabled(collegeSel, true, true);
-        fillSelect(collegeSel, catalog.colleges || [], 'college_id', 'college_name', 'Select college…', true);
-        rebuildPrograms(true);
+        setEnabled(courseTypeSel, true, true);
+        applyCourseTypeLayout(true);
         rebuildSemesters(true);
         rebuildCourses(true);
         rebuildSchoolYears(true);
@@ -289,17 +367,39 @@ DCS file: Office DRF syllabi context cascade + auto title.
         const seedEl = document.getElementById('ofiDrfSyllabiSeed');
         if (!seedEl) return;
         const parts = String(seedEl.value || '').split(',');
-        const collegeId = parts[0] || '';
-        const programId = parts[1] || '';
-        const semesterId = parts[2] || '';
-        const courseId = parts[3] || '';
-        const schoolYearId = parts[4] || '';
-        if (!collegeId) return;
+        // New: courseType,college,program,semester,course,schoolYear
+        // Legacy: college,program,semester,course,schoolYear
+        let courseType = '';
+        let collegeId = '';
+        let programId = '';
+        let semesterId = '';
+        let courseId = '';
+        let schoolYearId = '';
+        if (parts.length >= 6) {
+            courseType = parts[0] || '';
+            collegeId = parts[1] || '';
+            programId = parts[2] || '';
+            semesterId = parts[3] || '';
+            courseId = parts[4] || '';
+            schoolYearId = parts[5] || '';
+        } else {
+            collegeId = parts[0] || '';
+            programId = parts[1] || '';
+            semesterId = parts[2] || '';
+            courseId = parts[3] || '';
+            schoolYearId = parts[4] || '';
+        }
+        if (!collegeId && !courseType) return;
         seeding = true;
-        fillSelect(collegeSel, catalog.colleges || [], 'college_id', 'college_name', 'Select college…', false);
-        collegeSel.value = collegeId;
-        rebuildPrograms(false);
-        if (programSel) programSel.value = programId;
+        if (courseTypeSel && courseType) {
+            courseTypeSel.value = courseType;
+        }
+        applyCourseTypeLayout(false);
+        if (collegeId) collegeSel.value = collegeId;
+        if (!isSharedType(selectedCourseType())) {
+            rebuildPrograms(false);
+            if (programSel) programSel.value = programId;
+        }
         rebuildSemesters(false);
         if (semesterSel) semesterSel.value = semesterId;
         rebuildCourses(false);
@@ -317,6 +417,19 @@ DCS file: Office DRF syllabi context cascade + auto title.
         titleInput.addEventListener('input', function () {
             if (seeding) return;
             titleManual = String(titleInput.value || '').trim() !== '' && String(titleInput.value || '').trim() !== buildTitle();
+        });
+    }
+
+    if (courseTypeSel) {
+        courseTypeSel.addEventListener('change', function () {
+            applyCourseTypeLayout(false);
+            rebuildSemesters(false);
+            rebuildCourses(false);
+            rebuildSchoolYears(false);
+            syncTitle();
+            if (typeof window.__ofiRefreshDrfSignatories === 'function') {
+                window.__ofiRefreshDrfSignatories();
+            }
         });
     }
 

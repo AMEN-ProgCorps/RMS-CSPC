@@ -193,6 +193,22 @@ class RegisterUpdateHelper
         if ($versionIsRecur) {
             $rowStaysSeparate = false;
         }
+        // Unique index allows only one Latest per (doc_no, revise_no, doc_type), except
+        // when the user chose "Register another copy" (allow_duplicate_doc_no) — COL-13/16
+        // are also excluded from that index so those copies can save.
+        // insert_shift_confirmed frees selected holders first (applied below) — do not block here.
+        if (! $saveAsDraft
+            && $slotTakenByOther
+            && ! $versionIsRevised
+            && ! $versionIsRecur
+            && ! $request->boolean('allow_duplicate_doc_no')
+            && ! $request->boolean('insert_shift_confirmed')
+        ) {
+            return back()->withInput()->with(
+                'error',
+                'That document number and revision are already registered. Enter a different document number, or choose Register another copy.'
+            );
+        }
         if ($docNo && $allowsRevision && ! $sameNumber
             && ! $request->boolean('allow_duplicate_doc_no')
             && ! $request->boolean('insert_shift_confirmed')) {
@@ -279,14 +295,50 @@ class RegisterUpdateHelper
         $filesToDelete = [];
 
         if (! $saveAsDraft && $request->boolean('insert_shift_confirmed')) {
+            $request->merge([
+                'exclude_request_id' => (int) $id,
+                'doc_type_id' => (int) $docRequest->doc_type_id,
+                'sub_type_id' => $resolvedSubTypeId,
+                'insert_shift_doc_no' => trim((string) (
+                    $request->input('insert_shift_doc_no')
+                    ?: $request->input('masterlistDocNo')
+                    ?: ''
+                )),
+            ]);
             $shift = \App\Helpers\DocumentNumberSeriesHelper::applyInsertShift($request);
             if (empty($shift['ok'])) {
                 DB::rollBack();
 
                 return back()->withInput()->with(
                     'error',
-                    $shift['error'] ?? 'Could not insert this document number into the series.'
+                    $shift['error'] ?? 'Could not renumber the selected document(s).'
                 );
+            }
+
+            // After freeing selected holders, the tip slot must be clear for this registration.
+            if ($docNo
+                && $allowsRevision
+                && Schema::hasColumn('dcs_masterlist_registration', 'allows_revision')
+            ) {
+                $stillTaken = DB::table('dcs_masterlist_registration')
+                    ->whereRaw('LOWER(TRIM(doc_no)) = ?', [mb_strtolower(trim((string) $docNo))])
+                    ->where('revise_no', $reviseNoForSameRow)
+                    ->where('doc_type_id', (int) $docRequest->doc_type_id)
+                    ->when($ml, fn ($q) => $q->where('id', '!=', (int) $ml->id))
+                    ->where('allows_revision', true)
+                    ->when(
+                        Schema::hasColumn('dcs_masterlist_registration', 'revision_status'),
+                        fn ($q) => $q->where('revision_status', 'latest')
+                    )
+                    ->exists();
+                if ($stillTaken) {
+                    DB::rollBack();
+
+                    return back()->withInput()->with(
+                        'error',
+                        'That document number is still used by another registration. Select every tip registration on this number to renumber, or choose Register another copy.'
+                    );
+                }
             }
         }
 
@@ -664,8 +716,12 @@ class RegisterUpdateHelper
                     ->map(fn ($name) => trim((string) $name))
                     ->filter()
                     ->values();
-                $replaceSyllabi = $request->filled('program_id')
+                $courseTypeUpdate = trim((string) $request->input('course_type', ''));
+                $sharedSyllabiUpdate = \App\Helpers\CourseTypeRules::isSharedType($courseTypeUpdate);
+                $replaceSyllabi = $request->filled('college_id')
                     && $request->filled('semester_id')
+                    && $request->filled('course_type')
+                    && ($sharedSyllabiUpdate || $request->filled('program_id'))
                     && $incomingCourseNames->isNotEmpty();
                 if ($replaceSyllabi) {
                     $keepPaths = DB::table('dcs_syllabi as s')
@@ -931,27 +987,29 @@ class RegisterUpdateHelper
                 && $pending
                 && $explicit['type'] === $pending['type']
                 && (int) $explicit['id'] === (int) $pending['id'];
-            if ($saveAsDraft) {
-                if ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && (int) $pending['id'] > 0) {
+            // Only the form's office_intake_id may link/close — never a leftover Proceed cookie,
+            // or opening an unrelated draft would lock Delete on Drafts.
+            if ($explicitMatch && $pending && in_array($pending['type'], ['drf', 'dcn'], true) && (int) $pending['id'] > 0) {
+                if ($saveAsDraft) {
                     OfficeIntakeHelper::linkIntakeToRegistrationRequest(
                         $pending['type'],
                         (int) $pending['id'],
                         (int) $id
                     );
+                } else {
+                    // Close on first publish from draft OR when stacking a new office
+                    // syllabi request onto an existing registration (edit + intake id).
+                    OfficeIntakeHelper::closePendingIntakeForRegistration(
+                        $pending['type'],
+                        (int) $pending['id'],
+                        (int) $id,
+                        trim((string) ($ml->doc_no ?? $docNo ?? '')),
+                        trim((string) ($savedTitle ?? $ml->doc_title ?? '')) ?: null,
+                        null,
+                        false,
+                        false
+                    );
                 }
-            } elseif ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && (int) $pending['id'] > 0) {
-                // Close on first publish from draft OR when stacking a new office
-                // syllabi request onto an existing registration (edit + intake id).
-                OfficeIntakeHelper::closePendingIntakeForRegistration(
-                    $pending['type'],
-                    (int) $pending['id'],
-                    (int) $id,
-                    trim((string) ($ml->doc_no ?? $docNo ?? '')),
-                    trim((string) ($savedTitle ?? $ml->doc_title ?? '')) ?: null,
-                    null,
-                    false,
-                    ! $explicitMatch
-                );
             }
 
             $successMessage = $saveAsDraft

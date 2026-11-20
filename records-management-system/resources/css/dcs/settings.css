@@ -41,6 +41,8 @@ body {
     right: 0;
     bottom: 0;
     padding: var(--dcs-page-pad);
+    /* Extra bottom space so last rows / Add actions clear the floating chat FABs. */
+    padding-bottom: max(96px, calc(var(--dcs-page-pad-y, 28px) + 72px));
     background-color: var(--set-bg);
     overflow-y: auto;
     overflow-x: hidden;
@@ -355,6 +357,9 @@ body {
     border-radius: var(--set-radius);
     box-shadow: var(--set-shadow);
     border: 1px solid var(--set-border-light);
+    padding-bottom: 16px;
+    background: var(--set-surface);
+    margin-bottom: 31px;
 }
 
 .settings-table {
@@ -1127,6 +1132,7 @@ body {
 @media (max-width: 640px) {
     .settings-main {
         padding: 16px;
+        padding-bottom: 96px;
     }
 
     /* Header */
@@ -1333,6 +1339,7 @@ body {
 @media (max-width: 380px) {
     .settings-main {
         padding: 12px;
+        padding-bottom: 96px;
     }
 
     .settings-header h1 {

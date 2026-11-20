@@ -1259,6 +1259,8 @@ Route::middleware(['auth'])
                         ->name('register.checkRevNo');
                     Route::get('/register/check-syllabi-context', fn (Request $request) => response()->json(RegisterQueryHelper::checkSyllabiContext($request)))
                         ->name('register.checkSyllabiContext');
+                    Route::post('/register/ensure-faculty', fn (Request $request) => response()->json(RegisterPersistHelper::ensureFaculty($request)))
+                        ->name('register.ensureFaculty');
                     Route::post('/register/extract-scan', fn (Request $request) => response()->json(RegisterScanService::extract($request)))
                         ->name('register.extractScan');
                     Route::get('/register/distribution-office-groups', fn () => response()->json([

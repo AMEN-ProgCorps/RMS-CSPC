@@ -2,8 +2,8 @@
 Correct a DCN when RFIO enabled office editing.
 
 ## On this page
-- Document finder: Select or confirm the registered source document.
-- Form fields: Full CSPC-F-DCC-01 fields, prefilled.
+- Document finder: Select or confirm the registered source document before saving.
+- Form fields: Full CSPC-F-DCC-01 fields prefilled (From / To, Justification of Change, reviewers, approvals).
 - Preview form: Review the printable layout.
 - Save & resubmit to RFIO: Enabled after the confirm checkbox.
 

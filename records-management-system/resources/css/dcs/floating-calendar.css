@@ -4,12 +4,14 @@
  */
 @import './calendar-widget.css';
 
-/* Header fallback when top tabs are disabled / empty for the current page. */
+/* Header fallback when top tabs are disabled / empty for the current page.
+   Notification cluster is ~68px (bell + gap + urgent) starting at right:148px,
+   so its left edge is ~216px — calendar must sit left of that. */
 .dcs-calendar-trigger-host {
     position: absolute;
     top: 0;
     bottom: 0;
-    right: 195px; /* Between guide and notification bell (155px) */
+    right: 226px;
     height: 30px;
     margin-top: auto;
     margin-bottom: auto;
@@ -65,26 +67,28 @@ body:has(.dash-welcome-calendar) .dcs-calendar-trigger-host {
 
 /* Make room for the header calendar icon (guide sits further left). */
 body:has(.dcs-calendar-trigger-host) .guide-container {
-    right: 235px;
+    right: 266px;
 }
 
+/* Host is display:none when tabs/welcome already expose a calendar — restore default guide slot. */
 body:has(.top-nav-cal-btn) .guide-container,
 body:has(.dash-welcome-calendar) .guide-container {
-    right: 195px;
+    right: 226px;
 }
 
 @media (max-width: 640px) {
+    /* Keep the same clearances as desktop so icons do not stack on narrow viewports. */
     .dcs-calendar-trigger-host {
-        right: 175px;
+        right: 226px;
     }
 
     body:has(.dcs-calendar-trigger-host) .guide-container {
-        right: 215px;
+        right: 266px;
     }
 
     body:has(.top-nav-cal-btn) .guide-container,
     body:has(.dash-welcome-calendar) .guide-container {
-        right: 175px;
+        right: 226px;
     }
 }
 

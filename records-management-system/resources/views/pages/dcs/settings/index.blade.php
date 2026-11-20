@@ -641,15 +641,30 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             \App\Helpers\SettingsRecycleHelper::applyNotDeleted($rowQ, 'dcs_program_courses');
             $row = $rowQ->first();
             abort_unless($row, 404);
-            $this->programId = (string) $row->program_id;
+            $this->programId = $row->program_id !== null ? (string) $row->program_id : '';
             $this->semesterId = (string) $row->semester_id;
             $this->courseYearLevel = $row->year_level ?? '';
             $this->courseType = $row->course_type ?? '';
             $this->courseName = $row->course_name;
             $this->courseCode = $row->course_code ?? '';
         } elseif ($this->courseListProgramId !== '') {
-            // Prefill from the Course Names list filter when present.
+            // Prefill from the Course Names list filter when present (Major only).
             $this->programId = (string) $this->courseListProgramId;
+            $this->courseType = 'Major';
+        }
+    }
+
+    public function updatedCourseType(?string $value): void
+    {
+        if ($this->modalKind !== 'programCourse') {
+            return;
+        }
+        if (\App\Helpers\CourseTypeRules::isSharedType($value)) {
+            $this->programId = '';
+            $allowed = \App\Helpers\CourseTypeRules::allowedYearLevels($value);
+            if ($this->courseYearLevel !== '' && ! in_array($this->courseYearLevel, $allowed, true)) {
+                $this->courseYearLevel = '';
+            }
         }
     }
 
@@ -1398,13 +1413,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     private function saveSingleProgramCourse(bool $hasCourseCode, bool $hasYearLevel, bool $hasCourseType): void
     {
+        $courseType = $hasCourseType ? trim($this->courseType) : null;
+        $shared = $hasCourseType && \App\Helpers\CourseTypeRules::isSharedType($courseType);
+
         $rules = [
-            'programId' => 'required|integer|exists:dcs_programs,id',
             'semesterId' => 'required|integer|exists:dcs_semesters,id',
             'courseName' => 'required|string|max:255',
         ];
+        if ($shared) {
+            $rules['programId'] = 'nullable';
+        } else {
+            $rules['programId'] = 'required|integer|exists:dcs_programs,id';
+        }
         if ($hasYearLevel) {
-            $rules['courseYearLevel'] = 'required|string|max:50|in:1st Year,2nd Year,3rd Year,4th Year,5th Year';
+            $allowedYears = implode(',', \App\Helpers\CourseTypeRules::allowedYearLevels($courseType));
+            $rules['courseYearLevel'] = 'required|string|max:50|in:'.$allowedYears;
         }
         if ($hasCourseType) {
             $rules['courseType'] = 'required|string|max:50|in:GE Courses,PE Courses,NSTP,Major';
@@ -1413,6 +1436,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $rules['courseCode'] = 'required|string|max:50';
         }
         $this->validate($rules);
+
+        if (! $this->assertCourseTypeCaps($courseType, $hasYearLevel ? $this->courseYearLevel : null, (int) $this->semesterId)) {
+            return;
+        }
 
         $editingId = (int) $this->editingId;
         if ($editingId < 1) {
@@ -1431,19 +1458,36 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         $yearLevel = $hasYearLevel ? $this->courseYearLevel : null;
-        $courseType = $hasCourseType ? $this->courseType : null;
-        $programId = (int) $this->programId;
+        $programId = $shared ? null : (int) $this->programId;
         $semesterId = (int) $this->semesterId;
         $courseName = trim($this->courseName);
         $courseCode = $hasCourseCode ? trim($this->courseCode) : null;
 
-        if ($this->programCourseNameTaken($programId, $semesterId, $courseName, $yearLevel, $hasYearLevel, $courseType, $hasCourseType, $editingId)) {
-            $this->fail('This course is already listed for the selected program, semester, year level, and course type.');
+        // GE/PE/NSTP may still have legacy per-program copies — fold them into this row
+        // so a no-op edit of an existing course does not trip the uniqueness check.
+        if ($shared) {
+            $this->absorbSharedCourseDuplicates(
+                $editingId,
+                (string) $courseType,
+                $semesterId,
+                $yearLevel,
+                $hasYearLevel,
+                $courseCode,
+                $courseName
+            );
+        }
+
+        if ($this->programCourseNameTaken($programId, $semesterId, $courseName, $yearLevel, $hasYearLevel, $courseType, $hasCourseType, $editingId, $shared)) {
+            $this->fail($shared
+                ? 'This course is already listed in the institutional catalog for this semester, year level, and course type.'
+                : 'This course is already listed for the selected program, semester, year level, and course type.');
             return;
         }
 
-        if ($hasCourseCode && $this->programCourseCodeTaken($programId, $semesterId, (string) $courseCode, $yearLevel, $hasYearLevel, $courseType, $hasCourseType, $editingId)) {
-            $this->fail('This course code is already used for the selected program, semester, year level, and course type.');
+        if ($hasCourseCode && $this->programCourseCodeTaken($programId, $semesterId, (string) $courseCode, $yearLevel, $hasYearLevel, $courseType, $hasCourseType, $editingId, $shared)) {
+            $this->fail($shared
+                ? 'This course code is already used in the institutional catalog for this semester, year level, and course type.'
+                : 'This course code is already used for the selected program, semester, year level, and course type.');
             return;
         }
 
@@ -1467,9 +1511,32 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             DB::table('dcs_program_courses')->where('id', $editingId)->update($payload);
         } catch (\Throwable $e) {
             report($e);
-            $this->fail('Could not update course. Check for a duplicate name/code (including items in the Admin Console Recycle Bin).');
+            // One more pass: a recycle-bin / legacy twin may still hold the unique key.
+            if ($shared) {
+                try {
+                    $this->absorbSharedCourseDuplicates(
+                        $editingId,
+                        (string) $courseType,
+                        $semesterId,
+                        $yearLevel,
+                        $hasYearLevel,
+                        $courseCode,
+                        $courseName
+                    );
+                    DB::table('dcs_program_courses')->where('id', $editingId)->update($payload);
+                } catch (\Throwable $retry) {
+                    report($retry);
+                    $this->fail(
+                        'Could not change year level / semester — another GE/PE/NSTP row (or Recycle Bin item) still uses this code or name for that year and semester. Remove the other copy, then try again.'
+                    );
 
-            return;
+                    return;
+                }
+            } else {
+                $this->fail('Could not update course. Check for a duplicate name/code (including items in the Admin Console Recycle Bin).');
+
+                return;
+            }
         }
 
         // Force a clean table remount so year-group morphing does not blank the list.
@@ -1488,24 +1555,35 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      */
     private function saveBulkProgramCourses(bool $hasCourseCode, bool $hasYearLevel, bool $hasCourseType): void
     {
+        $courseType = $hasCourseType ? trim($this->courseType) : null;
+        $shared = $hasCourseType && \App\Helpers\CourseTypeRules::isSharedType($courseType);
+
         $rules = [
-            'programId' => 'required|integer|exists:dcs_programs,id',
             'semesterId' => 'required|integer|exists:dcs_semesters,id',
             'courseRows' => 'required|array|min:1',
             'courseRows.*.name' => 'nullable|string|max:255',
             'courseRows.*.code' => 'nullable|string|max:50',
         ];
+        if ($shared) {
+            $rules['programId'] = 'nullable';
+        } else {
+            $rules['programId'] = 'required|integer|exists:dcs_programs,id';
+        }
         if ($hasYearLevel) {
-            $rules['courseYearLevel'] = 'required|string|max:50|in:1st Year,2nd Year,3rd Year,4th Year,5th Year';
+            $allowedYears = implode(',', \App\Helpers\CourseTypeRules::allowedYearLevels($courseType));
+            $rules['courseYearLevel'] = 'required|string|max:50|in:'.$allowedYears;
         }
         if ($hasCourseType) {
             $rules['courseType'] = 'required|string|max:50|in:GE Courses,PE Courses,NSTP,Major';
         }
         $this->validate($rules);
 
+        if (! $this->assertCourseTypeCaps($courseType, $hasYearLevel ? $this->courseYearLevel : null, (int) $this->semesterId)) {
+            return;
+        }
+
         $yearLevel = $hasYearLevel ? $this->courseYearLevel : null;
-        $courseType = $hasCourseType ? $this->courseType : null;
-        $programId = (int) $this->programId;
+        $programId = $shared ? null : (int) $this->programId;
         $semesterId = (int) $this->semesterId;
 
         $entries = [];
@@ -1560,11 +1638,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         foreach ($entries as $entry) {
-            if ($this->programCourseNameTaken($programId, $semesterId, $entry['name'], $yearLevel, $hasYearLevel, $courseType, $hasCourseType)) {
-                $this->addError("courseRows.{$entry['index']}.name", 'Already listed for this program, semester, year level, and course type.');
+            if ($this->programCourseNameTaken($programId, $semesterId, $entry['name'], $yearLevel, $hasYearLevel, $courseType, $hasCourseType, null, $shared)) {
+                $this->addError(
+                    "courseRows.{$entry['index']}.name",
+                    $shared
+                        ? 'Already listed in the institutional catalog for this semester, year level, and course type.'
+                        : 'Already listed for this program, semester, year level, and course type.'
+                );
             }
-            if ($hasCourseCode && $this->programCourseCodeTaken($programId, $semesterId, $entry['code'], $yearLevel, $hasYearLevel, $courseType, $hasCourseType)) {
-                $this->addError("courseRows.{$entry['index']}.code", 'Code already used for this program, semester, year level, and course type.');
+            if ($hasCourseCode && $this->programCourseCodeTaken($programId, $semesterId, $entry['code'], $yearLevel, $hasYearLevel, $courseType, $hasCourseType, null, $shared)) {
+                $this->addError(
+                    "courseRows.{$entry['index']}.code",
+                    $shared
+                        ? 'Code already used in the institutional catalog for this semester, year level, and course type.'
+                        : 'Code already used for this program, semester, year level, and course type.'
+                );
             }
         }
 
@@ -1791,29 +1879,37 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 $seenCodes[$codeKey] = true;
             }
 
+            $rowType = $hasCourseType ? trim((string) ($row['course_type'] ?? '')) : null;
+            $rowShared = $hasCourseType && \App\Helpers\CourseTypeRules::isSharedType($rowType);
             if ($this->programCourseNameTaken(
-                $programId,
+                $rowShared ? null : $programId,
                 (int) $row['semester_id'],
                 trim((string) $row['name']),
                 $hasYearLevel ? ($row['year_level'] ?: null) : null,
                 $hasYearLevel,
-                $hasCourseType ? ($row['course_type'] ?: null) : null,
+                $rowType,
                 $hasCourseType,
-                (int) $row['id']
+                (int) $row['id'],
+                $rowShared
             )) {
-                $this->addError("bulkRows.{$i}.name", 'Already used by another course in this program.');
+                $this->addError("bulkRows.{$i}.name", $rowShared
+                    ? 'Already used in the institutional catalog for this semester, year, and type.'
+                    : 'Already used by another course in this program.');
             }
             if ($hasCourseCode && $this->programCourseCodeTaken(
-                $programId,
+                $rowShared ? null : $programId,
                 (int) $row['semester_id'],
                 trim((string) $row['code']),
                 $hasYearLevel ? ($row['year_level'] ?: null) : null,
                 $hasYearLevel,
-                $hasCourseType ? ($row['course_type'] ?: null) : null,
+                $rowType,
                 $hasCourseType,
-                (int) $row['id']
+                (int) $row['id'],
+                $rowShared
             )) {
-                $this->addError("bulkRows.{$i}.code", 'Already used by another course in this program.');
+                $this->addError("bulkRows.{$i}.code", $rowShared
+                    ? 'Already used in the institutional catalog for this semester, year, and type.'
+                    : 'Already used by another course in this program.');
             }
         }
 
@@ -1863,18 +1959,40 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      *
      * @return bool
      */
+    private function assertCourseTypeCaps(?string $courseType, ?string $yearLevel, int $semesterId): bool
+    {
+        if ($courseType === null || $courseType === '') {
+            return true;
+        }
+        if ($yearLevel !== null && $yearLevel !== '' && ! \App\Helpers\CourseTypeRules::isYearLevelAllowed($courseType, $yearLevel)) {
+            $this->fail('Year level is not allowed for '.$courseType.'.');
+
+            return false;
+        }
+        if ($semesterId > 0 && $yearLevel !== null && $yearLevel !== '') {
+            $semName = (string) (DB::table('dcs_semesters')->where('id', $semesterId)->value('semester_name') ?? '');
+            if ($semName !== '' && ! \App\Helpers\CourseTypeRules::isYearSemesterAllowed($courseType, $yearLevel, $semName)) {
+                $this->fail($courseType.' cannot use '.$yearLevel.' / '.$semName.'.');
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private function programCourseNameTaken(
-        int $programId,
+        ?int $programId,
         int $semesterId,
         string $courseName,
         ?string $yearLevel,
         bool $hasYearLevel,
         ?string $courseType = null,
         bool $hasCourseType = false,
-        ?int $exceptId = null
+        ?int $exceptId = null,
+        bool $sharedCatalog = false
     ): bool {
         $q = DB::table('dcs_program_courses')
-            ->where('program_id', $programId)
             ->where('semester_id', $semesterId)
             ->where('course_name', $courseName)
             ->when($hasYearLevel, function ($query) use ($yearLevel) {
@@ -1888,6 +2006,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     : $query->where('course_type', $courseType);
             })
             ->when($exceptId, fn ($query) => $query->where('id', '!=', $exceptId));
+        // Institutional GE/PE/NSTP: one name across the whole catalog (any program_id).
+        if (! $sharedCatalog) {
+            $q->when(
+                $programId === null || $programId < 1,
+                fn ($query) => $query->whereNull('program_id'),
+                fn ($query) => $query->where('program_id', $programId)
+            );
+        }
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($q, 'dcs_program_courses');
 
         return $q->exists();
@@ -1908,17 +2034,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
      * @return bool
      */
     private function programCourseCodeTaken(
-        int $programId,
+        ?int $programId,
         int $semesterId,
         string $courseCode,
         ?string $yearLevel,
         bool $hasYearLevel,
         ?string $courseType = null,
         bool $hasCourseType = false,
-        ?int $exceptId = null
+        ?int $exceptId = null,
+        bool $sharedCatalog = false
     ): bool {
         $q = DB::table('dcs_program_courses')
-            ->where('program_id', $programId)
             ->where('semester_id', $semesterId)
             ->where('course_code', $courseCode)
             ->when($hasYearLevel, function ($query) use ($yearLevel) {
@@ -1932,9 +2058,85 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     : $query->where('course_type', $courseType);
             })
             ->when($exceptId, fn ($query) => $query->where('id', '!=', $exceptId));
+        // Institutional GE/PE/NSTP: one code across the whole catalog (any program_id).
+        if (! $sharedCatalog) {
+            $q->when(
+                $programId === null || $programId < 1,
+                fn ($query) => $query->whereNull('program_id'),
+                fn ($query) => $query->where('program_id', $programId)
+            );
+        }
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($q, 'dcs_program_courses');
 
         return $q->exists();
+    }
+
+    /**
+     * Fold legacy / program-scoped / recycle-bin GE/PE/NSTP copies into the row being edited.
+     * Soft-deleted rows are included and hard-removed — they still occupy unique indexes.
+     */
+    private function absorbSharedCourseDuplicates(
+        int $keeperId,
+        string $courseType,
+        int $semesterId,
+        ?string $yearLevel,
+        bool $hasYearLevel,
+        ?string $courseCode,
+        string $courseName
+    ): void {
+        if ($keeperId < 1 || $courseType === '') {
+            return;
+        }
+
+        // Include soft-deleted rows: deleted_at does not free PostgreSQL unique indexes.
+        $q = DB::table('dcs_program_courses')
+            ->where('course_type', $courseType)
+            ->where('semester_id', $semesterId)
+            ->where('id', '!=', $keeperId);
+
+        if ($hasYearLevel) {
+            if ($yearLevel === null || $yearLevel === '') {
+                $q->where(fn ($inner) => $inner->whereNull('year_level')->orWhere('year_level', ''));
+            } else {
+                $q->where('year_level', $yearLevel);
+            }
+        }
+
+        $code = trim((string) $courseCode);
+        $name = trim($courseName);
+        if ($code === '' && $name === '') {
+            return;
+        }
+        $q->where(function ($inner) use ($code, $name) {
+            if ($code !== '') {
+                $inner->where('course_code', $code);
+            }
+            if ($name !== '') {
+                if ($code !== '') {
+                    $inner->orWhere('course_name', $name);
+                } else {
+                    $inner->where('course_name', $name);
+                }
+            }
+        });
+
+        $dupIds = $q->pluck('id')->map(fn ($id) => (int) $id)->filter(fn ($id) => $id > 0)->values()->all();
+        if ($dupIds === []) {
+            return;
+        }
+
+        if (Schema::hasTable('dcs_syllabi')) {
+            DB::table('dcs_syllabi')->whereIn('course_id', $dupIds)->update(['course_id' => $keeperId]);
+        }
+        if (Schema::hasTable('dcs_office_intake_drf') && Schema::hasColumn('dcs_office_intake_drf', 'course_id')) {
+            DB::table('dcs_office_intake_drf')->whereIn('course_id', $dupIds)->update(['course_id' => $keeperId]);
+        }
+        if (Schema::hasTable('dcs_program_course_faculties')) {
+            DB::table('dcs_program_course_faculties')->whereIn('program_course_id', $dupIds)->delete();
+        }
+
+        // Hard delete so unique (type+sem+year+code/name) is freed for the keeper update.
+        DB::table('dcs_program_courses')->whereIn('id', $dupIds)->delete();
     }
 
     /**
@@ -2281,16 +2483,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $programCoursesQ->orderBy('pc.course_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programCoursesQ, 'dcs_program_courses', 'pc');
         $programCourses = $programCoursesQ->get($courseCols);
+        // Institutional GE/PE/NSTP (program_id null) stay visible alongside Major filters.
         if ($this->courseListCollegeId !== '') {
             $want = (int) $this->courseListCollegeId;
             $programCourses = $programCourses
-                ->filter(fn ($row) => (int) ($row->college_id ?? 0) === $want)
+                ->filter(fn ($row) => $row->program_id === null || (int) ($row->college_id ?? 0) === $want)
                 ->values();
         }
         if ($this->courseListProgramId !== '') {
             $want = (int) $this->courseListProgramId;
             $programCourses = $programCourses
-                ->filter(fn ($row) => (int) ($row->program_id ?? 0) === $want)
+                ->filter(fn ($row) => $row->program_id === null || (int) ($row->program_id ?? 0) === $want)
                 ->values();
         }
 
@@ -3216,7 +3419,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <div class="syllabi-section" wire:key="settings-syllabi-coursenames" x-show="syllabiSection === 'coursenames'" x-cloak>
         <div>
         <div class="panel-toolbar">
-            <span class="panel-subtitle">Curriculum course list per program, semester, year level, and course type — used to auto-fill Syllabi/TOS-Rubrics registration. Faculty is assigned during registration.</span>
+            <span class="panel-subtitle">GE / PE / NSTP are one institutional list (no program). Major stays per program. Used to auto-fill Syllabi/TOS-Rubrics registration.</span>
             <div class="panel-actions">
                 <button
                     type="button"
@@ -3296,9 +3499,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </td>
                         </tr>
                         @foreach($yearCourses as $course)
+                            @php
+                                $isInstitutional = $course->program_id === null
+                                    && \App\Helpers\CourseTypeRules::isSharedType($course->course_type ?? null);
+                            @endphp
                             <tr wire:key="pc-{{ $course->id }}" class="st-course-data" data-id="{{ $course->id }}">
-                                <td data-label="College">{{ $course->college_name ?? '—' }}</td>
-                                <td data-label="Program">{{ $course->program_name ?? '—' }}</td>
+                                <td data-label="College">{{ $isInstitutional ? 'All colleges' : ($course->college_name ?? '—') }}</td>
+                                <td data-label="Program">{{ $isInstitutional ? 'Institutional' : ($course->program_name ?? '—') }}</td>
                                 <td data-label="Semester">{{ $course->semester_name ?? '—' }}</td>
                                 <td data-label="Year Level">{{ $course->year_level ?? '—' }}</td>
                                 <td data-label="Course Type">{{ $course->course_type ?? '—' }}</td>
@@ -3485,6 +3692,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @php
                         $programOptions = $programs;
                         $semesterOptions = $semesters;
+                        $isSharedCourseType = \App\Helpers\CourseTypeRules::isSharedType($courseType);
+                        $yearLevelOptions = \App\Helpers\CourseTypeRules::allowedYearLevels($courseType !== '' ? $courseType : 'Major');
                         // Keep the current program/semester selectable even if it was soft-filtered out of the catalog.
                         if ($editingId && $programId !== '' && ! $programOptions->contains(fn ($p) => (string) $p->id === (string) $programId)) {
                             $orphanProgram = \Illuminate\Support\Facades\DB::table('dcs_programs as p')
@@ -3505,6 +3714,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         }
                     @endphp
                     <div class="st-field">
+                        <label class="st-label">Course Type</label>
+                        <select class="st-input @error('courseType') error @enderror" wire:model.live="courseType">
+                            <option value="">Select course type</option>
+                            <option value="GE Courses">GE Courses (institutional)</option>
+                            <option value="PE Courses">PE Courses (institutional)</option>
+                            <option value="NSTP">NSTP (institutional)</option>
+                            <option value="Major">Major (per program)</option>
+                        </select>
+                        @error('courseType') <div class="field-error">{{ $message }}</div> @enderror
+                        @if($isSharedCourseType)
+                            <p class="st-faculty-hint" style="margin-top:6px;">Shared across all colleges/programs — enter once.</p>
+                        @endif
+                    </div>
+                    @if(! $isSharedCourseType)
+                    <div class="st-field">
                         <label class="st-label">College / Program</label>
                         <select class="st-input @error('programId') error @enderror" wire:model.live="programId">
                             <option value="">Select college / program</option>
@@ -3522,7 +3746,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     </optgroup>
                                 @endif
                             @endforeach
-                            {{-- Orphan program (soft-filtered) not under a listed college --}}
                             @php
                                 $collegeIds = $colleges->map(fn ($c) => (string) $c->id)->all();
                                 $orphanPrograms = $programOptions->filter(
@@ -3539,6 +3762,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </select>
                         @error('programId') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
+                    @endif
+                    <div class="st-field">
+                        <label class="st-label">Year Level</label>
+                        <select class="st-input @error('courseYearLevel') error @enderror" wire:model="courseYearLevel">
+                            <option value="">Select year level</option>
+                            @foreach($yearLevelOptions as $yearOpt)
+                                <option value="{{ $yearOpt }}">{{ $yearOpt }}</option>
+                            @endforeach
+                        </select>
+                        @error('courseYearLevel') <div class="field-error">{{ $message }}</div> @enderror
+                    </div>
                     <div class="st-field">
                         <label class="st-label">Semester</label>
                         <select class="st-input @error('semesterId') error @enderror" wire:model="semesterId">
@@ -3548,29 +3782,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @endforeach
                         </select>
                         @error('semesterId') <div class="field-error">{{ $message }}</div> @enderror
-                    </div>
-                    <div class="st-field">
-                        <label class="st-label">Year Level</label>
-                        <select class="st-input @error('courseYearLevel') error @enderror" wire:model="courseYearLevel">
-                            <option value="">Select year level</option>
-                            <option value="1st Year">1st Year</option>
-                            <option value="2nd Year">2nd Year</option>
-                            <option value="3rd Year">3rd Year</option>
-                            <option value="4th Year">4th Year</option>
-                            <option value="5th Year">5th Year</option>
-                        </select>
-                        @error('courseYearLevel') <div class="field-error">{{ $message }}</div> @enderror
-                    </div>
-                    <div class="st-field">
-                        <label class="st-label">Course Type</label>
-                        <select class="st-input @error('courseType') error @enderror" wire:model="courseType">
-                            <option value="">Select course type</option>
-                            <option value="GE Courses">GE Courses</option>
-                            <option value="PE Courses">PE Courses</option>
-                            <option value="NSTP">NSTP</option>
-                            <option value="Major">Major</option>
-                        </select>
-                        @error('courseType') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
 
                     @if($editingId)
@@ -3587,7 +3798,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @else
                         <div class="st-field">
                             <label class="st-label">Courses</label>
-                            <p class="st-faculty-hint" style="margin-top:0;">Set college/program, semester, and year level once, then add as many courses as you need.</p>
+                            <p class="st-faculty-hint" style="margin-top:0;">Set type{{ $isSharedCourseType ? '' : ', college/program' }}, year level, and semester once, then add as many courses as you need.</p>
                             <div class="st-course-rows">
                                 <div class="st-course-row st-course-row-head">
                                     <span>Code</span>

@@ -623,6 +623,73 @@ class ManualService
     }
 
     /**
+     * Resolve a manuals/*.md relative path for a target key using mappings, exact, and safe fuzzy lookup.
+     * Hyphen/underscore in keys are treated as dots so route-style keys match file basenames.
+     */
+    public static function resolveManualRelativePath(string $key, ?array $mappings = null, ?array $index = null): ?string
+    {
+        $key = trim($key);
+        if ($key === '') {
+            return null;
+        }
+
+        $mappings ??= self::getManualMapping();
+        $index ??= self::getFileIndex();
+        $baseDir = resource_path('manuals');
+
+        $mapped = $mappings[$key] ?? null;
+        if ($mapped !== null) {
+            $mapped = trim((string) $mapped);
+            if ($mapped === '' || $mapped === 'none' || $mapped === 'disabled') {
+                return null;
+            }
+            $cleanMapped = strtolower(ltrim(str_replace('\\', '/', $mapped), '/'));
+            if (isset($index['by_path'][$cleanMapped]) || is_file($baseDir . DIRECTORY_SEPARATOR . ltrim(str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $mapped), DIRECTORY_SEPARATOR))) {
+                return str_replace('\\', '/', $mapped);
+            }
+        }
+
+        $keyLower = strtolower($key);
+        $cleanModalKey = preg_replace('/^modal\./i', '', $keyLower);
+        $dotKey = str_replace(['_', '-'], '.', $keyLower);
+        $dotModalKey = str_replace(['_', '-'], '.', $cleanModalKey);
+        $segments = explode('.', $dotModalKey);
+        $subsystem = strtolower($segments[0] ?? '');
+        $withoutSubsystem = count($segments) >= 2 ? implode('.', array_slice($segments, 1)) : $dotModalKey;
+        // Keep hyphenated basenames too (e.g. schedule.random-check.modal.md).
+        $rawSegments = explode('.', $cleanModalKey);
+        $withoutSubsystemRaw = count($rawSegments) >= 2
+            ? implode('.', array_slice($rawSegments, 1))
+            : $cleanModalKey;
+
+        $candidates = array_values(array_unique(array_filter([
+            $keyLower,
+            $cleanModalKey,
+            $dotKey,
+            $dotModalKey,
+            $withoutSubsystem,
+            $withoutSubsystemRaw,
+            preg_replace('/^modal\./i', '', $dotKey),
+        ])));
+
+        foreach ($candidates as $needle) {
+            $found = $index['by_modal_base'][$needle]
+                ?? ($index['by_base'][$needle]
+                ?? ($index['by_path'][$needle . '.md']
+                ?? ($index['by_name'][$needle . '.md']
+                ?? ($index['by_path'][$subsystem . '/' . $needle . '.md']
+                ?? ($index['by_path']['modal/' . $subsystem . '/' . $needle . '.modal.md']
+                ?? ($index['by_path']['modal/' . $subsystem . '/' . $needle . '.md']
+                ?? null))))));
+            if ($found && is_file($found)) {
+                return str_replace('\\', '/', str_replace([$baseDir . DIRECTORY_SEPARATOR, $baseDir . '/'], '', $found));
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Synchronize and seed all known system targets and their matching manual guides into sys_page_manuals table.
      */
     public static function syncDatabaseCatalog(): int
@@ -635,33 +702,23 @@ class ManualService
         $mappings = self::getManualMapping();
         $index = self::getFileIndex();
         $baseDir = resource_path('manuals');
+        $knownKeys = [];
         $synced = 0;
 
         foreach ($allTargets as $t) {
             $key = $t['key'];
-            $keyLower = strtolower($key);
-            $cleanModalKey = preg_replace('/^modal\./i', '', $keyLower);
+            $knownKeys[] = $key;
 
-            $isExplicitlyDisabled = isset($mappings[$key]) && in_array($mappings[$key], ['disabled', 'none', '']);
+            $isExplicitlyDisabled = isset($mappings[$key]) && in_array($mappings[$key], ['disabled', 'none', ''], true);
             $assignedFile = null;
             $isCustomMapped = false;
 
             if (!$isExplicitlyDisabled) {
                 if (isset($mappings[$key]) && !empty($mappings[$key])) {
-                    $assignedFile = $mappings[$key];
+                    $assignedFile = ltrim(str_replace('\\', '/', (string) $mappings[$key]), '/');
                     $isCustomMapped = true;
                 } else {
-                    $found = $index['by_modal_base'][$cleanModalKey]
-                        ?? ($index['by_modal_base'][$keyLower]
-                        ?? ($index['by_base'][$cleanModalKey]
-                        ?? ($index['by_base'][$keyLower]
-                        ?? ($index['by_path'][$keyLower . '.md']
-                        ?? ($index['by_name'][$keyLower . '.md']
-                        ?? ($index['by_path'][$cleanModalKey . '.md']
-                        ?? ($index['by_name'][$cleanModalKey . '.md'] ?? null)))))));
-                    if ($found) {
-                        $assignedFile = str_replace('\\', '/', str_replace([$baseDir . DIRECTORY_SEPARATOR, $baseDir . '/'], '', $found));
-                    }
+                    $assignedFile = self::resolveManualRelativePath($key, $mappings, $index);
                 }
             }
 
@@ -671,6 +728,11 @@ class ManualService
                 if (is_file($full)) {
                     $lines = @file($full, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
                     $lineCount = is_array($lines) ? count($lines) : 0;
+                } else {
+                    // Mapping points at a missing file — treat as unassigned so UI shows Missing Guide honestly.
+                    if (!$isCustomMapped) {
+                        $assignedFile = null;
+                    }
                 }
             }
 
@@ -690,6 +752,13 @@ class ManualService
                 ]
             );
             $synced++;
+        }
+
+        // Drop stale catalog rows (e.g. old hyphenated keys) so Missing Guide does not linger.
+        if (!empty($knownKeys)) {
+            \Illuminate\Support\Facades\DB::table('sys_page_manuals')
+                ->whereNotIn('target_key', $knownKeys)
+                ->delete();
         }
 
         return $synced;
@@ -932,20 +1001,21 @@ class ManualService
             ['key' => 'dcs', 'name' => 'DCS Dashboard', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs', 'description' => 'Document Control System dashboard and review notifications'],
             ['key' => 'dcs.register.index', 'name' => 'Register Masterlist', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.register.index', 'description' => 'Institutional controlled documents register and upload'],
             ['key' => 'dcs.register.edit', 'name' => 'Edit Masterlist Document', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.register.edit', 'description' => 'Correction and revision form for registered documents'],
-            ['key' => 'dcs.office.drf-index', 'name' => 'DRF Office Requests', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.drf-index', 'description' => 'Document Request Forms directory for departments'],
-            ['key' => 'dcs.office.drf-create', 'name' => 'Create DRF Request', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.drf-create', 'description' => 'Form to request new creation, revision, or adoption of document'],
-            ['key' => 'dcs.office.drf-edit', 'name' => 'Edit DRF Request', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.drf-edit', 'description' => 'Update or resubmit unlocked DRF request'],
-            ['key' => 'dcs.office.dcn-index', 'name' => 'DCN Office Notices', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.dcn-index', 'description' => 'Document Change Notices masterlist and distribution'],
-            ['key' => 'dcs.office.dcn-create', 'name' => 'Create DCN Notice', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.dcn-create', 'description' => 'Form to announce document changes, obsolescence, or updates'],
-            ['key' => 'dcs.office.dcn-edit', 'name' => 'Edit DCN Notice', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.dcn-edit', 'description' => 'Update or resubmit unlocked DCN notice'],
+            ['key' => 'dcs.office.drf.index', 'name' => 'DRF Office Requests', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.drf.index', 'description' => 'Document Request Forms directory for departments'],
+            ['key' => 'dcs.office.drf.create', 'name' => 'Create DRF Request', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.drf.create', 'description' => 'Form to request new creation, revision, or adoption of document'],
+            ['key' => 'dcs.office.drf.edit', 'name' => 'Edit DRF Request', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.drf.edit', 'description' => 'Update or resubmit unlocked DRF request'],
+            ['key' => 'dcs.office.drf.show', 'name' => 'View DRF Request', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.drf.show', 'description' => 'Read-only office DRF with print unlock and correction banners'],
+            ['key' => 'dcs.office.dcn.index', 'name' => 'DCN Office Notices', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.dcn.index', 'description' => 'Document Change Notices masterlist and distribution'],
+            ['key' => 'dcs.office.dcn.create', 'name' => 'Create DCN Notice', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.dcn.create', 'description' => 'Form to announce document changes, obsolescence, or updates'],
+            ['key' => 'dcs.office.dcn.edit', 'name' => 'Edit DCN Notice', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.dcn.edit', 'description' => 'Update or resubmit unlocked DCN notice'],
+            ['key' => 'dcs.office.dcn.show', 'name' => 'View DCN Notice', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.dcn.show', 'description' => 'Read-only office DCN with linked DRF and print unlock'],
             ['key' => 'dcs.office.incoming', 'name' => 'Office Incoming Intakes', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.incoming', 'description' => 'Controlled document copies distributed to your unit'],
             ['key' => 'dcs.office.documents', 'name' => 'Office Controlled Documents', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.office.documents', 'description' => 'Active controlled documents in custody of your office'],
             ['key' => 'dcs.review', 'name' => 'Review & Stamping Desk', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.review', 'description' => 'Central review terminal with PDF watermarking and QR stamping'],
-            ['key' => 'dcs.history', 'name' => 'DCS Audit History', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.history', 'description' => 'Complete audit history of masterlist document modifications'],
-            ['key' => 'dcs.reports', 'name' => 'DCS Reports', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.reports', 'description' => 'Distribution logs and masterlist reports generation'],
-            ['key' => 'admin.recycle-bin', 'name' => 'Admin Recycle Bin', 'type' => 'page', 'subsystem' => 'Admin', 'route' => 'admin.recycle-bin', 'description' => 'Unified soft-deleted items including DCS documents and settings'],
+            ['key' => 'dcs.random-check', 'name' => 'Random Check (Admin)', 'type' => 'page', 'subsystem' => 'DCS', 'route' => 'dcs.random-check', 'description' => 'Admin compliance sampling visits, schedule, finalize, and export'],
             ['key' => 'modal.dcs.drf.preview', 'name' => 'DRF Preview Modal', 'type' => 'modal', 'subsystem' => 'DCS', 'route' => null, 'description' => 'Modal showing printable DRF request sheet and signatures'],
             ['key' => 'modal.dcs.stamping.config', 'name' => 'PDF Stamping Config Modal', 'type' => 'modal', 'subsystem' => 'DCS', 'route' => null, 'description' => 'Modal for configuring dynamic header stamps and watermarks'],
+            ['key' => 'modal.dcs.schedule.random-check', 'name' => 'Schedule Random Check Modal', 'type' => 'modal', 'subsystem' => 'DCS', 'route' => null, 'description' => 'Modal to schedule an office random-check visit date'],
 
             // ── Admin Console ──
             ['key' => 'admin.console', 'name' => 'Admin Console Dashboard', 'type' => 'page', 'subsystem' => 'ADMIN', 'route' => 'admin.console', 'description' => 'System administrator main dashboard and operational health'],

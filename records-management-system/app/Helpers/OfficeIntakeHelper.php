@@ -1132,7 +1132,8 @@ class OfficeIntakeHelper
     /**
      * A DCN, including one that also has a DRF, registers as a revision of the
      * document the office selected. A DRF with no DCN registers as a new document.
-     * @return array{registerType: string, intakeType: string, intakeId: int, registerUrl: string}
+     * Same syllabi context already registered → edit URL (merge faculty onto that pack).
+     * @return array{registerType: string, intakeType: string, intakeId: int, registerUrl: string, mergeRequestId?: int|null}
      */
     public static function registrationTarget(string $type, int $id): array
     {
@@ -1140,6 +1141,7 @@ class OfficeIntakeHelper
         $intakeType = $type;
         $intakeId = $id;
         $registerType = 'new';
+        $mergeRequestId = null;
 
         if ($type === 'dcn') {
             $registerType = 'revised';
@@ -1154,20 +1156,75 @@ class OfficeIntakeHelper
                 $previousNo = trim((string) ($drf->previous_document_no ?? ''));
                 if ($previousNo !== '') {
                     $registerType = 'recurring';
+                } else {
+                    $mergeRequestId = self::existingSyllabiRequestIdForDrf($drf);
                 }
             }
+        }
+
+        if ($mergeRequestId) {
+            return [
+                'registerType' => 'edit',
+                'intakeType' => $intakeType,
+                'intakeId' => $intakeId,
+                'mergeRequestId' => $mergeRequestId,
+                'registerUrl' => route('dcs.register.edit', [
+                    'id' => $mergeRequestId,
+                    'intake' => $intakeType,
+                    'intake_id' => $intakeId,
+                ], absolute: false),
+            ];
         }
 
         return [
             'registerType' => $registerType,
             'intakeType' => $intakeType,
             'intakeId' => $intakeId,
+            'mergeRequestId' => null,
             'registerUrl' => route('dcs.register.create', [
                 'type' => $registerType,
                 'intake' => $intakeType,
                 'intake_id' => $intakeId,
             ], absolute: false),
         ];
+    }
+
+    /**
+     * Existing controlled syllabi request for this office DRF's college/course-type/semester/S/Y.
+     * When present, Proceed should open Edit (merge faculty) instead of a new Register.
+     */
+    public static function existingSyllabiRequestIdForDrf(?object $drf): ?int
+    {
+        if (! $drf) {
+            return null;
+        }
+        $ctx = self::officeDrfSyllabiContextFromRow($drf);
+        if (empty($ctx['is_syllabi'])) {
+            return null;
+        }
+        $collegeId = (int) ($ctx['college_id'] ?? 0);
+        $programId = (int) ($ctx['program_id'] ?? 0);
+        $semesterId = (int) ($ctx['semester_id'] ?? 0);
+        $schoolYearId = (int) ($ctx['school_year_id'] ?? 0);
+        $courseType = trim((string) ($ctx['course_type'] ?? ''));
+        $subTypeId = (int) ($drf->sub_type_id ?? 0);
+        if ($collegeId < 1 || $semesterId < 1 || $schoolYearId < 1 || $courseType === '') {
+            return null;
+        }
+
+        $duplicate = RegisterPersistHelper::findSyllabiContextDuplicate(
+            $collegeId,
+            CourseTypeRules::isSharedType($courseType) ? 0 : $programId,
+            $semesterId,
+            $schoolYearId,
+            $courseType,
+            $subTypeId > 0 ? $subTypeId : null,
+            null
+        );
+
+        $requestId = (int) ($duplicate->request_id ?? 0);
+
+        return $requestId > 0 ? $requestId : null;
     }
 
     /**
@@ -4859,12 +4916,13 @@ class OfficeIntakeHelper
 
         $push = static function (array &$map, $collegeId, $programId, $semesterId, $courseId, $schoolYearId, $subTypeId): void {
             $collegeId = (int) $collegeId;
-            $programId = (int) $programId;
+            $programId = (int) ($programId ?? 0);
             $semesterId = (int) $semesterId;
             $courseId = (int) $courseId;
             $schoolYearId = (int) $schoolYearId;
             $subTypeId = (int) $subTypeId;
-            if ($collegeId < 1 || $programId < 1 || $semesterId < 1 || $courseId < 1 || $schoolYearId < 1 || $subTypeId < 1) {
+            // program_id 0 = institutional GE/PE/NSTP (no program).
+            if ($collegeId < 1 || $programId < 0 || $semesterId < 1 || $courseId < 1 || $schoolYearId < 1 || $subTypeId < 1) {
                 return;
             }
             $key = $collegeId . ':' . $programId . ':' . $semesterId . ':' . $courseId . ':' . $subTypeId;
@@ -4970,11 +5028,27 @@ class OfficeIntakeHelper
                 $courses[$key] = $filtered;
             }
         }
+        $shared = [];
+        foreach (($full['coursesBySharedSemester'] ?? []) as $key => $rows) {
+            $filtered = [];
+            foreach ((array) $rows as $row) {
+                $year = trim((string) ($row['year_level'] ?? ''));
+                $type = trim((string) ($row['course_type'] ?? ''));
+                if ($year === '' || $type === '') {
+                    continue;
+                }
+                $filtered[] = $row;
+            }
+            if ($filtered !== []) {
+                $shared[$key] = $filtered;
+            }
+        }
 
         return [
             'colleges' => $full['colleges'] ?? [],
             'programsByCollege' => $full['programsByCollege'] ?? [],
             'coursesByProgramSemester' => $courses,
+            'coursesBySharedSemester' => $shared,
             'semesters' => $full['semesters'] ?? [],
             'schoolYears' => $full['schoolYears'] ?? [],
             'takenSchoolYearsByCourse' => self::officeDrfSyllabiTakenSchoolYearsByCourse($exceptDrfId),
@@ -4994,7 +5068,8 @@ class OfficeIntakeHelper
         ?int $exceptDrfId = null,
         ?int $subTypeId = null
     ): bool {
-        if ($collegeId < 1 || $programId < 1 || $semesterId < 1 || $courseId < 1 || $schoolYearId < 1) {
+        // program_id 0 = institutional GE/PE/NSTP.
+        if ($collegeId < 1 || $programId < 0 || $semesterId < 1 || $courseId < 1 || $schoolYearId < 1) {
             return false;
         }
         $subTypeId = (int) ($subTypeId ?? 0);
@@ -5032,7 +5107,8 @@ class OfficeIntakeHelper
         string $course,
         string $semester,
         string $schoolYear,
-        string $connector = 'Syllabus,'
+        string $connector = 'Syllabus,',
+        ?string $courseType = null
     ): string {
         $college = trim($college);
         $program = trim($program);
@@ -5040,12 +5116,17 @@ class OfficeIntakeHelper
         $semester = trim($semester);
         $schoolYear = trim($schoolYear);
         $connector = trim($connector) !== '' ? trim($connector) : 'Syllabus,';
-        if ($college === '' || $program === '' || $course === '' || $semester === '' || $schoolYear === '') {
+        $shared = CourseTypeRules::isSharedType($courseType);
+        if ($college === '' || $course === '' || $semester === '' || $schoolYear === '') {
+            return '';
+        }
+        if (! $shared && $program === '') {
             return '';
         }
         $sy = preg_replace('/^\s*s\/?y\s*/i', '', $schoolYear) ?: $schoolYear;
+        $for = $shared ? $college : $program;
 
-        return $college.' '.$connector.' '.$semester.' S/Y '.$sy.' for '.$program.' in '.$course;
+        return $college.' '.$connector.' '.$semester.' S/Y '.$sy.' for '.$for.' in '.$course;
     }
 
     /**
@@ -5073,12 +5154,23 @@ class OfficeIntakeHelper
         $courseId = (int) ($data['courseId'] ?? $data['course_id'] ?? 0);
         $semesterId = (int) ($data['semesterId'] ?? $data['semester_id'] ?? 0);
         $schoolYearId = (int) ($data['schoolYearId'] ?? $data['school_year_id'] ?? 0);
+        $courseTypeHint = trim((string) ($data['courseType'] ?? $data['course_type'] ?? ''));
+
+        $courseCols = ['id', 'program_id', 'semester_id'];
+        if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $courseCols[] = 'course_type';
+        }
+        $course = $courseId > 0
+            ? DB::table('dcs_program_courses')->where('id', $courseId)->first($courseCols)
+            : null;
+        $courseType = trim((string) ($course->course_type ?? $courseTypeHint));
+        $shared = CourseTypeRules::isSharedType($courseType);
 
         $errors = [];
         if ($collegeId < 1) {
             $errors['collegeId'] = 'Select a college.';
         }
-        if ($programId < 1) {
+        if (! $shared && $programId < 1) {
             $errors['programId'] = 'Select a program.';
         }
         if ($semesterId < 1) {
@@ -5094,17 +5186,29 @@ class OfficeIntakeHelper
             throw ValidationException::withMessages($errors);
         }
 
-        $program = DB::table('dcs_programs')->where('id', $programId)->first(['id', 'college_id']);
-        if (! $program || (int) ($program->college_id ?? 0) !== $collegeId) {
-            throw ValidationException::withMessages(['programId' => 'Selected program does not belong to that college.']);
-        }
+        if ($shared) {
+            $programId = 0;
+            if (! $course
+                || $course->program_id !== null
+                || (int) ($course->semester_id ?? 0) !== $semesterId
+            ) {
+                throw ValidationException::withMessages(['courseId' => 'Selected course does not match the institutional catalog and semester.']);
+            }
+            if (! DB::table('dcs_colleges')->where('id', $collegeId)->exists()) {
+                throw ValidationException::withMessages(['collegeId' => 'Select a valid college.']);
+            }
+        } else {
+            $program = DB::table('dcs_programs')->where('id', $programId)->first(['id', 'college_id']);
+            if (! $program || (int) ($program->college_id ?? 0) !== $collegeId) {
+                throw ValidationException::withMessages(['programId' => 'Selected program does not belong to that college.']);
+            }
 
-        $course = DB::table('dcs_program_courses')->where('id', $courseId)->first(['id', 'program_id', 'semester_id']);
-        if (! $course
-            || (int) ($course->program_id ?? 0) !== $programId
-            || (int) ($course->semester_id ?? 0) !== $semesterId
-        ) {
-            throw ValidationException::withMessages(['courseId' => 'Selected course does not match the program and semester.']);
+            if (! $course
+                || (int) ($course->program_id ?? 0) !== $programId
+                || (int) ($course->semester_id ?? 0) !== $semesterId
+            ) {
+                throw ValidationException::withMessages(['courseId' => 'Selected course does not match the program and semester.']);
+            }
         }
 
         if (! DB::table('dcs_school_years')->where('id', $schoolYearId)->exists()) {
@@ -5113,7 +5217,7 @@ class OfficeIntakeHelper
 
         if (self::officeDrfSyllabiCourseSchoolYearTaken(
             $collegeId,
-            $programId,
+            $shared ? 0 : $programId,
             $semesterId,
             $courseId,
             $schoolYearId,
@@ -5132,7 +5236,7 @@ class OfficeIntakeHelper
 
         return [
             'college_id' => $collegeId,
-            'program_id' => $programId,
+            'program_id' => $shared ? null : $programId,
             'course_id' => $courseId,
             'semester_id' => $semesterId,
             'school_year_id' => $schoolYearId,
@@ -5208,6 +5312,129 @@ class OfficeIntakeHelper
             'course_type' => $courseType !== '' ? $courseType : null,
             'year_level' => $yearLevel !== '' ? $yearLevel : null,
             'connector' => self::officeDrfSyllabiConnector($subTypeId > 0 ? $subTypeId : null),
+        ];
+    }
+
+    /**
+     * Other open (not-yet-registered) syllabi-like DRFs for the same course context.
+     * Used to merge peer originators onto one shared syllabi registration.
+     *
+     * @return list<object>
+     */
+    public static function peerOpenSyllabiDrfs(object $drf, int $exceptId = 0): array
+    {
+        if (! Schema::hasTable(self::DRF_TABLE)) {
+            return [];
+        }
+
+        $collegeId = (int) ($drf->college_id ?? 0);
+        $courseId = (int) ($drf->course_id ?? 0);
+        $semesterId = (int) ($drf->semester_id ?? 0);
+        $schoolYearId = (int) ($drf->school_year_id ?? 0);
+        $programId = (int) ($drf->program_id ?? 0);
+        $subTypeId = (int) ($drf->sub_type_id ?? 0);
+        if ($collegeId < 1 || $courseId < 1 || $semesterId < 1 || $schoolYearId < 1) {
+            return [];
+        }
+
+        $courseType = '';
+        if (Schema::hasTable('dcs_program_courses') && Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $courseType = trim((string) (DB::table('dcs_program_courses')->where('id', $courseId)->value('course_type') ?? ''));
+        }
+        $shared = CourseTypeRules::isSharedType($courseType);
+
+        $query = DB::table(self::DRF_TABLE.' as d')
+            ->where('d.college_id', $collegeId)
+            ->where('d.course_id', $courseId)
+            ->where('d.semester_id', $semesterId)
+            ->where('d.school_year_id', $schoolYearId)
+            ->where('d.id', '!=', max(0, $exceptId));
+
+        if ($shared) {
+            $query->where(function ($q) {
+                $q->whereNull('d.program_id')->orWhere('d.program_id', 0);
+            });
+        } elseif ($programId > 0) {
+            $query->where('d.program_id', $programId);
+        }
+
+        if ($subTypeId > 0) {
+            $query->where('d.sub_type_id', $subTypeId);
+        } else {
+            // Only syllabi-like intakes when the seed row has no sub type.
+            $query->whereExists(function ($sub) {
+                $sub->select(DB::raw(1))
+                    ->from('dcs_doc_types as dt')
+                    ->whereColumn('dt.id', 'd.sub_type_id')
+                    ->where(function ($nameQ) {
+                        foreach (['syllabi', 'syllabus', 'tos', 'rubric'] as $needle) {
+                            $nameQ->orWhereRaw('LOWER(dt.doc_type_name) LIKE ?', ['%'.$needle.'%']);
+                        }
+                    });
+            });
+        }
+
+        if (Schema::hasColumn(self::DRF_TABLE, 'rfio_registered_at')) {
+            $query->whereNull('d.rfio_registered_at');
+        }
+        if (Schema::hasColumn(self::DRF_TABLE, 'registered_request_id')) {
+            $query->where(function ($q) {
+                $q->whereNull('d.registered_request_id')->orWhere('d.registered_request_id', 0);
+            });
+        }
+        if (Schema::hasColumn(self::DRF_TABLE, 'deleted_at')) {
+            $query->whereNull('d.deleted_at');
+        }
+
+        $rows = $query->orderBy('d.id')->get(['d.*']);
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $list = $rows->all();
+        self::hydrateIntakeOriginators('drf', $list);
+
+        return $list;
+    }
+
+    /**
+     * Peer originator names + intake ids for shared syllabi merge prefill.
+     *
+     * @return array{peer_originators: list<string>, peer_intake_ids: list<int>}
+     */
+    public static function peerSyllabiMergePayload(object $drf, int $exceptId = 0): array
+    {
+        $peers = self::peerOpenSyllabiDrfs($drf, $exceptId);
+        $names = [];
+        $ids = [];
+        $seenName = [];
+        foreach ($peers as $peer) {
+            $id = (int) ($peer->id ?? 0);
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+            $name = trim((string) ($peer->originator_name ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            // Junction may join multiple originators with ", ".
+            foreach (preg_split('/\s*,\s*/', $name) ?: [] as $part) {
+                $part = trim((string) $part);
+                if ($part === '') {
+                    continue;
+                }
+                $key = mb_strtolower($part);
+                if (isset($seenName[$key])) {
+                    continue;
+                }
+                $seenName[$key] = true;
+                $names[] = $part;
+            }
+        }
+
+        return [
+            'peer_originators' => $names,
+            'peer_intake_ids' => array_values(array_unique($ids)),
         ];
     }
 
@@ -6171,6 +6398,35 @@ class OfficeIntakeHelper
     }
 
     /**
+     * Peer office DRF ids merged onto a shared syllabi registration (comma/JSON list).
+     *
+     * @return list<int>
+     */
+    public static function peerIntakeIdsFromRequest(?\Illuminate\Http\Request $request = null): array
+    {
+        $request = $request ?? request();
+        $raw = $request?->input('office_intake_peer_ids', $request?->input('peer_intake_ids', ''));
+        if (is_array($raw)) {
+            return array_values(array_unique(array_filter(array_map('intval', $raw))));
+        }
+        $text = trim((string) $raw);
+        if ($text === '') {
+            return [];
+        }
+        if ($text[0] === '[') {
+            $decoded = json_decode($text, true);
+            if (is_array($decoded)) {
+                return array_values(array_unique(array_filter(array_map('intval', $decoded))));
+            }
+        }
+
+        return array_values(array_unique(array_filter(array_map(
+            'intval',
+            preg_split('/[\s,;|]+/', $text) ?: []
+        ))));
+    }
+
+    /**
      * Helper used for pending register intake.
      */
     public static function pendingRegisterIntake(?\Illuminate\Http\Request $request = null): ?array
@@ -6509,6 +6765,26 @@ class OfficeIntakeHelper
                 }
             }
             self::markIntakeRegistered($pairType, (int) $pairId, $requestId, $docNo, $docTitle, ! $deferRegisteredNotify, $deferRegisteredNotify);
+        }
+
+        // Shared syllabi: close peer pending DRFs merged onto this same registration.
+        if ($type === 'drf') {
+            foreach (self::peerIntakeIdsFromRequest(request()) as $peerId) {
+                if ($peerId === $id || ($pairType === 'drf' && $peerId === (int) $pairId)) {
+                    continue;
+                }
+                if (self::isIntakeRegistered('drf', $peerId)) {
+                    continue;
+                }
+                $peer = self::findOfficeDrf($peerId);
+                if (! $peer) {
+                    continue;
+                }
+                foreach (self::intakeSubmitterOfficeCodes($peer) as $code) {
+                    $codes[] = $code;
+                }
+                self::markIntakeRegistered('drf', $peerId, $requestId, $docNo, $docTitle, ! $deferRegisteredNotify, $deferRegisteredNotify);
+            }
         }
 
         return collect($codes)
@@ -7743,6 +8019,9 @@ class OfficeIntakeHelper
         $versionType = $isRecurring ? 'recurring' : 'new';
 
         $syllabi = self::officeDrfSyllabiContextFromRow($drf);
+        $peerMerge = ! empty($syllabi['is_syllabi'])
+            ? self::peerSyllabiMergePayload($drf, $id)
+            : ['peer_originators' => [], 'peer_intake_ids' => []];
         // Checklist 1 stays on so registration still includes a DRF; syllabi mode
         // hides #section-1 and uses the syllabi wizard DRF (#section-syllabi) instead.
 
@@ -7768,6 +8047,7 @@ class OfficeIntakeHelper
             // DCS register must not add further offices beyond that list.
             'lockDistributeOffices' => ($distributeIds !== [] || $distribute !== []),
             'isSyllabiLike' => ! empty($syllabi['is_syllabi']),
+            'peerIntakeIds' => $peerMerge['peer_intake_ids'],
             'syllabi' => ! empty($syllabi['is_syllabi']) ? [
                 'college_id' => $syllabi['college_id'],
                 'program_id' => $syllabi['program_id'],
@@ -7779,6 +8059,8 @@ class OfficeIntakeHelper
                 'year_level' => $syllabi['year_level'],
                 'doc_title' => trim((string) ($drf->doc_title ?? '')),
                 'drf_date' => $drfDate,
+                'peer_originators' => $peerMerge['peer_originators'],
+                'peer_intake_ids' => $peerMerge['peer_intake_ids'],
             ] : null,
         ];
 
@@ -8302,7 +8584,10 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Link claimed (not yet finalized) intakes to draft requests by title / doc no.
+     * Link claimed (not yet finalized) intakes to draft requests by exact title only.
+     * Never match on document number — shared form nos (e.g. CSPC-F-COL-13) wrongly
+     * lock Delete on unrelated drafts.
+     *
      * @param  list<array{request_id:int,title:string,doc_no:string}>  $drafts
      */
     public static function backfillDraftIntakeLinks(array $drafts): void
@@ -8311,23 +8596,21 @@ class OfficeIntakeHelper
             return;
         }
 
+        // Drop false links first (cookie/doc-no accidents), then optional title repair.
+        self::unlinkMismatchedDraftIntakeLinks($drafts);
+
         $byTitle = [];
-        $byDocNo = [];
         foreach ($drafts as $draft) {
             $rid = (int) ($draft['request_id'] ?? 0);
             if ($rid < 1 || self::requestIsLinkedToOfficeIntake($rid)) {
                 continue;
             }
             $title = mb_strtolower(trim((string) ($draft['title'] ?? '')));
-            $docNo = mb_strtolower(trim((string) ($draft['doc_no'] ?? '')));
             if ($title !== '' && $title !== 'untitled draft') {
                 $byTitle[$title] = $rid;
             }
-            if ($docNo !== '' && $docNo !== '—') {
-                $byDocNo[$docNo] = $rid;
-            }
         }
-        if ($byTitle === [] && $byDocNo === []) {
+        if ($byTitle === []) {
             return;
         }
 
@@ -8350,11 +8633,66 @@ class OfficeIntakeHelper
                 $title = mb_strtolower(trim((string) ($type === 'dcn'
                     ? ($row->document_title ?? '')
                     : ($row->doc_title ?? ''))));
-                $docNo = mb_strtolower(trim((string) ($row->document_no ?? $row->previous_document_no ?? '')));
-                $requestId = $byTitle[$title] ?? ($byDocNo[$docNo] ?? 0);
+                $requestId = $byTitle[$title] ?? 0;
                 if ($requestId > 0) {
                     self::linkIntakeToRegistrationRequest($type, (int) $row->id, $requestId);
                 }
+            }
+        }
+    }
+
+    /**
+     * Clear draft↔intake links that do not share the intake title (and are not finalized).
+     * Restores Delete on drafts that were wrongly locked by cookie / doc-no backfill.
+     *
+     * @param  list<array{request_id:int,title:string,doc_no?:string}>  $drafts
+     */
+    public static function unlinkMismatchedDraftIntakeLinks(array $drafts): void
+    {
+        if ($drafts === []) {
+            return;
+        }
+
+        $titlesByRequest = [];
+        foreach ($drafts as $draft) {
+            $rid = (int) ($draft['request_id'] ?? 0);
+            if ($rid < 1) {
+                continue;
+            }
+            $titlesByRequest[$rid] = mb_strtolower(trim((string) ($draft['title'] ?? '')));
+        }
+        if ($titlesByRequest === []) {
+            return;
+        }
+
+        foreach (['drf' => 'dcs_office_intake_drf', 'dcn' => 'dcs_office_intake_dcn'] as $type => $table) {
+            if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'registered_request_id')) {
+                continue;
+            }
+            $query = DB::table($table)
+                ->whereIn('registered_request_id', array_keys($titlesByRequest));
+            if (Schema::hasColumn($table, 'rfio_registered_at')) {
+                $query->whereNull('rfio_registered_at');
+            }
+            foreach ($query->get() as $row) {
+                $requestId = (int) ($row->registered_request_id ?? 0);
+                $draftTitle = $titlesByRequest[$requestId] ?? '';
+                $intakeTitle = mb_strtolower(trim((string) ($type === 'dcn'
+                    ? ($row->document_title ?? '')
+                    : ($row->doc_title ?? ''))));
+                // Syllabi office DRFs use a pack title on Register that differs from the
+                // request title — keep those links.
+                if ($type === 'drf' && (int) ($row->course_id ?? 0) > 0) {
+                    continue;
+                }
+                if ($draftTitle !== '' && $intakeTitle !== '' && $draftTitle === $intakeTitle) {
+                    continue;
+                }
+
+                DB::table($table)->where('id', (int) $row->id)->update([
+                    'registered_request_id' => null,
+                    'updated_at' => now(),
+                ]);
             }
         }
     }

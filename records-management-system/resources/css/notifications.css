@@ -4,7 +4,8 @@
 
 .guide-container {
     position: absolute;
-    top: 10px;
+    top: 0;
+    bottom: 0;
     right: 226px; /* Spaced to the left of the notification container */
     height: 30px;
     margin-top: auto;
@@ -62,7 +63,8 @@ body.manual-widget-open .guide-container {
 
 .notification-container {
     position: absolute;
-    top: 10px; /* Centered matching the actions-container top alignment */
+    top: 0;
+    bottom: 0;
     right: 148px; /* Placed immediately to the left of the ACTIONS button (width: 123px) */
     height: 30px; /* Matches the ACTIONS button height */
     margin-top: auto;

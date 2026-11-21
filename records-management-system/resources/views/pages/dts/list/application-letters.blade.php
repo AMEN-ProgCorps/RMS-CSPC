@@ -93,10 +93,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         if ($perms && !$perms->is_sadm && !$perms->can_dts_use_application) {
             abort(403, 'Unauthorized access to Application Letter transactions list.');
         }
+        $this->exportEnabled = \App\Helpers\DtsExportHelper::isExportEnabled();
     }
 
     // Export Modal Properties
     public bool $showExportModal = false;
+    public bool $exportEnabled = true;
+    public string $toastMessage = '';
+    public string $toastType = 'success';
     public string $exportFormat = 'pdf';
     public array $exportColumns = [];
     public int $exportFlowCount = 0;
@@ -104,11 +108,34 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public string $exportNotedBy = '';
 
     /**
+     * Toggles export capability globally in DTS List of Transactions (Super Admin only).
+     */
+    public function toggleExportEnabled(): void
+    {
+        if (!(auth()->user()?->permissions?->is_sadm ?? false)) {
+            $this->toastType = 'error';
+            $this->toastMessage = 'Only administrators can enable or disable transactions export.';
+            return;
+        }
+
+        $newState = !$this->exportEnabled;
+        \App\Helpers\DtsExportHelper::setExportEnabled($newState, auth()->id());
+        $this->exportEnabled = $newState;
+        $this->toastType = $newState ? 'success' : 'warning';
+        $this->toastMessage = 'Transactions Export has been ' . ($newState ? 'enabled' : 'disabled') . '.';
+    }
+
+    /**
      * Displays the export modal.
      * @return void
      */
     public function openExportModal(): void
     {
+        if (!$this->exportEnabled && !(auth()->user()?->permissions?->is_sadm ?? false)) {
+            $this->toastType = 'error';
+            $this->toastMessage = 'Exporting transactions is currently disabled by administrator.';
+            return;
+        }
         $this->exportFlowCount = 0;
         $available = \App\Helpers\DtsExportHelper::getAvailableColumns('application_letters', 0);
         $this->exportColumns = array_keys(array_filter($available, fn($c) => $c['default']));
@@ -225,6 +252,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
      */
     public function executeExport()
     {
+        if (!$this->exportEnabled && !(auth()->user()?->permissions?->is_sadm ?? false)) {
+            $this->toastType = 'error';
+            $this->toastMessage = 'Exporting transactions is currently disabled by administrator.';
+            return;
+        }
+
         if (empty($this->selectedIds)) {
             return;
         }
@@ -2685,9 +2718,34 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                         Table
                     @endif
                 </button>
-                <button type="button" class="rms-btn-export" wire:click="openExportModal">
-                    <svg class="btn-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg> Export
-                </button>
+                @if ($exportEnabled)
+                    <div style="display: inline-flex; align-items: center; gap: 4px;">
+                        <button type="button" class="rms-btn-export" wire:click="openExportModal">
+                            <svg class="btn-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg> Export
+                        </button>
+                        @if (auth()->user()?->permissions?->is_sadm)
+                            <button type="button" wire:click="toggleExportEnabled" title="Admin Control: Export is currently Enabled. Click to disable for all users." style="border: 1px solid #cbd5e1; background: #ffffff; color: #15803d; border-radius: 6px; padding: 4px 7px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; height: 32px;" onmouseover="this.style.background='#fef2f2'; this.style.color='#b91c1c'; this.style.borderColor='#fca5a5';" onmouseout="this.style.background='#ffffff'; this.style.color='#15803d'; this.style.borderColor='#cbd5e1';">
+                                <i class="fa-solid fa-toggle-on" style="font-size: 13px;"></i>
+                            </button>
+                        @endif
+                    </div>
+                @else
+                    @if (auth()->user()?->permissions?->is_sadm)
+                        <div style="display: inline-flex; align-items: center; gap: 4px;">
+                            <button type="button" class="rms-btn-export" wire:click="openExportModal" title="Admin Override: Export is disabled for standard users, but accessible to Administrators" style="border-color: #f59e0b; color: #b45309; background: #fffbeb;">
+                                <svg class="btn-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="fill: #b45309;"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg> Export (Admin)
+                            </button>
+                            <button type="button" wire:click="toggleExportEnabled" title="Admin Control: Export is currently Disabled. Click to enable for all users." style="border: 1px solid #f87171; background: #fef2f2; color: #b91c1c; border-radius: 6px; padding: 4px 7px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; height: 32px;" onmouseover="this.style.background='#ecfdf5'; this.style.color='#15803d'; this.style.borderColor='#86efac';" onmouseout="this.style.background='#fef2f2'; this.style.color='#b91c1c'; this.style.borderColor='#f87171';">
+                                <i class="fa-solid fa-toggle-off" style="font-size: 13px;"></i>
+                                <span>Enable</span>
+                            </button>
+                        </div>
+                    @else
+                        <button type="button" class="rms-btn-export" disabled title="Exporting transactions is currently disabled by Administrator" style="opacity: 0.55; cursor: not-allowed; background: #f1f5f9; color: #94a3b8; border-color: #cbd5e1;">
+                            <svg class="btn-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="fill: #94a3b8;"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg> Export (Disabled)
+                        </button>
+                    @endif
+                @endif
             </div>
         </div>
         <div class="rms-toolbar-bottom" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
@@ -4018,4 +4076,15 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         wireApply="applyForwardHubModal"
         wireSearch="forwardHubSearch"
     />
+
+    @if(!empty($toastMessage))
+        <div style="position: fixed; bottom: 24px; right: 24px; z-index: 999999; background: {{ $toastType === 'error' ? '#ef4444' : ($toastType === 'warning' ? '#f59e0b' : '#10b981') }}; color: #ffffff; padding: 12px 18px; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2); display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; font-family: system-ui, -apple-system, sans-serif;"
+             x-data="{ show: true }"
+             x-show="show"
+             x-init="setTimeout(() => { show = false; @this.set('toastMessage', ''); }, 3500)">
+            <i class="fa-solid {{ $toastType === 'error' ? 'fa-circle-xmark' : ($toastType === 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-check') }}"></i>
+            <span>{{ $toastMessage }}</span>
+            <button type="button" @click="show = false; @this.set('toastMessage', '')" style="background: none; border: none; color: #ffffff; cursor: pointer; font-size: 16px; margin-left: 8px;">&times;</button>
+        </div>
+    @endif
 </div>

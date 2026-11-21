@@ -33,6 +33,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public string $dtsWorkingHoursDays = 'mon-fri';
     /** @var string Calculation mode for Elapsed Days: 'total_lifetime' or 'current_stage' */
     public string $dtsElapsedDaysMode = 'total_lifetime';
+    public bool $dtsEnableTransactionsExport = true;
     public bool $rdpRequiredUploadFile = false;
     public bool $rdpIncludeDescriptionOnPrint = false;
     public string $rdpPrintFontFamily = 'Arial, sans-serif';
@@ -589,6 +590,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         // Load Elapsed Days Mode: 'total_lifetime' (from inception) vs 'current_stage' (from active station receipt)
         $elapsedMode = \DB::table($sysTable)->where('key', 'dts_elapsed_days_mode')->value('value');
         $this->dtsElapsedDaysMode = in_array($elapsedMode, ['total_lifetime', 'current_stage'], true) ? $elapsedMode : 'total_lifetime';
+
+        $expSetting = \DB::table($sysTable)->where('key', 'dts_enable_transactions_export')->value('value');
+        $this->dtsEnableTransactionsExport = ($expSetting === null || $expSetting === 'true' || $expSetting === '1');
 
         $rdpReq = \DB::table('sys_system_settings')->where('key', 'rdp_required_upload_file')->value('value');
         $this->rdpRequiredUploadFile = ($rdpReq === 'true');
@@ -1252,6 +1256,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_enable_transactions_export'],
+                    [
+                        'value' => $this->dtsEnableTransactionsExport ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
                 \App\Services\DtsWorkingHoursService::clearCache();
 
                 \DB::table('sys_system_settings')->updateOrInsert(
@@ -1395,6 +1407,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                              ", RDPReq: " . ($this->rdpRequiredUploadFile ? 'true' : 'false') .
                              ", RDPDescPrint: " . ($this->rdpIncludeDescriptionOnPrint ? 'true' : 'false') .
                              ", DTSReq: " . ($this->dtsRequiredUploadFile ? 'true' : 'false') .
+                             ", DTSExport: " . ($this->dtsEnableTransactionsExport ? 'true' : 'false') .
                              ", InactivityTimeout: " . $this->tabCloseIdleTimeoutMinutes . " mins" .
                              ", DcsDeleteCode: " . (trim($this->dcsRecycleDeleteCode) !== '' ? 'set' : 'cleared') .
                              ", DcsOfficeForms: " . ($this->dcsOfficeDrfFormsEnabled ? 'true' : 'false') .
@@ -2239,6 +2252,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <option value="total_lifetime">Total Lifetime (From Inception)</option>
                             <option value="current_stage">Current Office / Stage (From Station Receipt)</option>
                         </select>
+                    </div>
+
+                    <!-- Setting: Enable Export in List of Transactions -->
+                    <div class="setting-item" style="border-top: 1px solid #e2e8f0; padding-top: 18px; margin-top: 8px;">
+                        <div class="setting-details">
+                            <span class="setting-title" style="display: flex; align-items: center; gap: 8px;">
+                                <i class="fa-solid fa-file-export" style="color: #2563eb; font-size: 14px;"></i>
+                                Enable Export in List of Transactions
+                            </span>
+                            <span class="setting-desc">
+                                Allows users to export transaction tables to PDF and Excel spreadsheets across Internal, External, Application Letters, and Issuances. When disabled, the Export button and printing modal are deactivated for standard users.
+                            </span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="dtsEnableTransactionsExport">
+                            <span class="slider"></span>
+                        </label>
                     </div>
                 </div>
             </div>

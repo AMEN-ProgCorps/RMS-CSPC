@@ -679,4 +679,45 @@ class DtsExportHelper
             fclose($handle);
         }, 200, $headers);
     }
+
+    /**
+     * Check whether exporting transactions in DTS List of Transactions is globally enabled.
+     */
+    public static function isExportEnabled(): bool
+    {
+        try {
+            $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+            $val = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'dts_enable_transactions_export')->value('value');
+            return $val === null || $val === 'true' || $val === '1';
+        } catch (\Throwable) {
+            return true;
+        }
+    }
+
+    /**
+     * Set the enabled/disabled state of transaction exports.
+     */
+    public static function setExportEnabled(bool $enabled, ?int $adminId = null): void
+    {
+        try {
+            $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+            \Illuminate\Support\Facades\DB::table($sysTable)->updateOrInsert(
+                ['key' => 'dts_enable_transactions_export'],
+                ['value' => $enabled ? 'true' : 'false', 'updated_at' => now()]
+            );
+
+            // Audit log if admin logs table exists
+            $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+            if (\Illuminate\Support\Facades\Schema::hasTable($adminLogsTbl)) {
+                \Illuminate\Support\Facades\DB::table($adminLogsTbl)->insert([
+                    'changes' => ($enabled ? 'Enabled' : 'Disabled') . ' Export in DTS List of Transactions',
+                    'admin_id' => $adminId ?? auth()->id(),
+                    'what_system' => 1, // DTS
+                    'when_changes' => now(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to set DTS export enabled state: ' . $e->getMessage());
+        }
+    }
 }

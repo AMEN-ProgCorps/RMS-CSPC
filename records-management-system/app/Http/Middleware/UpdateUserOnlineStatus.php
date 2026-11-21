@@ -52,15 +52,19 @@ class UpdateUserOnlineStatus
         // 1. Determine configured session inactivity / tab-close timeout (Default: 15 minutes, cached 5 min)
         // Client shows a warning after $timeoutMinutes of idle, then allows +1 minute grace
         // before logout — keep the server threshold aligned so polls don't kick mid-warning.
-        $timeoutMinutes = \Illuminate\Support\Facades\Cache::remember('tab_close_idle_timeout_minutes', 300, function () use ($sysSettingsTbl) {
-            try {
-                $settingVal = DB::table($sysSettingsTbl)->where('key', 'tab_close_idle_timeout_minutes')->value('value');
-                if ($settingVal !== null && is_numeric($settingVal) && (int) $settingVal > 0) {
-                    return (int) $settingVal;
-                }
-            } catch (\Throwable) {}
-            return 15;
-        });
+        try {
+            $timeoutMinutes = \Illuminate\Support\Facades\Cache::remember('tab_close_idle_timeout_minutes', 300, function () use ($sysSettingsTbl) {
+                try {
+                    $settingVal = DB::table($sysSettingsTbl)->where('key', 'tab_close_idle_timeout_minutes')->value('value');
+                    if ($settingVal !== null && is_numeric($settingVal) && (int) $settingVal > 0) {
+                        return (int) $settingVal;
+                    }
+                } catch (\Throwable) {}
+                return 15;
+            });
+        } catch (\Throwable) {
+            $timeoutMinutes = 15;
+        }
         $logoutMinutes = $timeoutMinutes + 1;
 
         $isBackgroundPoll = $this->isAutomatedBackgroundPoll($request);
@@ -276,7 +280,12 @@ class UpdateUserOnlineStatus
         }
 
         // 2. Mark users who haven't made a request in $logoutMinutes as offline (throttled to once per minute)
-        if (\Illuminate\Support\Facades\Cache::add('rms_offline_cleanup_lock', true, 60)) {
+        try {
+            $shouldCleanup = \Illuminate\Support\Facades\Cache::add('rms_offline_cleanup_lock', true, 60);
+        } catch (\Throwable) {
+            $shouldCleanup = false;
+        }
+        if ($shouldCleanup) {
             try {
                 DB::table($accDetailsTbl)
                     ->where('is_currently_online', true)

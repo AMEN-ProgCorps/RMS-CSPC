@@ -29,6 +29,10 @@ new class extends Component {
     public string $availableSearch = '';
     public string $availableFilter = 'all';
 
+    // Direct Control Number Editing State
+    public bool $isEditingControlNumber = false;
+    public string $editingControlNumberValue = '';
+
     /**
      * Toggles modal maximize state between standard docked dialog and full-viewport view.
      *
@@ -54,6 +58,8 @@ new class extends Component {
         $this->forwardHubOffices = [];
         $this->forwardHubTempSelected = [];
         $this->showForwardHubModal = false;
+        $this->isEditingControlNumber = false;
+        $this->editingControlNumberValue = '';
         $this->dispatch('focus-scanner-input');
     }
 
@@ -128,6 +134,105 @@ new class extends Component {
     {
         $this->closeAvailableCodesModal();
         $this->loadTransaction($qrCode);
+    }
+
+    /**
+     * Starts inline editing of the active transaction's control number.
+     *
+     * @return void
+     */
+    public function startEditingControlNumber(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !($perms->can_dts_modify_control_no ?? false))) {
+            $this->errorMessage = 'You do not have clearance to modify the Control Number.';
+            return;
+        }
+
+        if (!$this->activeTransaction) {
+            return;
+        }
+
+        $this->editingControlNumberValue = (string) ($this->activeTransaction['control_number'] ?? '');
+        $this->isEditingControlNumber = true;
+    }
+
+    /**
+     * Cancels inline editing of the control number.
+     *
+     * @return void
+     */
+    public function cancelEditControlNumber(): void
+    {
+        $this->isEditingControlNumber = false;
+        $this->editingControlNumberValue = '';
+    }
+
+    /**
+     * Persists the modified control number to the database after validation.
+     *
+     * @return void
+     */
+    public function saveControlNumber(): void
+    {
+        $this->clearMessages();
+
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !($perms->can_dts_modify_control_no ?? false))) {
+            $this->errorMessage = 'You do not have clearance to modify the Control Number.';
+            $this->isEditingControlNumber = false;
+            return;
+        }
+
+        if (!$this->activeTransaction) {
+            $this->isEditingControlNumber = false;
+            return;
+        }
+
+        $newCode = trim($this->editingControlNumberValue);
+        $oldCode = trim((string) ($this->activeTransaction['control_number'] ?? ''));
+
+        if (empty($newCode)) {
+            $this->errorMessage = 'Control number cannot be empty.';
+            return;
+        }
+
+        if ($newCode === $oldCode) {
+            $this->isEditingControlNumber = false;
+            return;
+        }
+
+        $transId = (int) $this->activeTransaction['id'];
+
+        $exists = DB::table('dts_transaction_details')
+            ->where('control_number', $newCode)
+            ->where('id', '!=', $transId)
+            ->exists();
+
+        if ($exists) {
+            $this->errorMessage = "Control number '{$newCode}' is already in use by another transaction.";
+            return;
+        }
+
+        try {
+            DB::transaction(function () use ($transId, $newCode, $oldCode) {
+                DB::table('dts_transaction_details')
+                    ->where('id', $transId)
+                    ->update(['control_number' => $newCode]);
+
+                if (\Illuminate\Support\Facades\Schema::hasTable('dts_copy_filled_transaction')) {
+                    DB::table('dts_copy_filled_transaction')
+                        ->where('control_num', $oldCode)
+                        ->update(['control_num' => $newCode]);
+                }
+            });
+
+            $this->activeTransaction['control_number'] = $newCode;
+            $this->isEditingControlNumber = false;
+            $this->successMessage = "Control number updated successfully to '{$newCode}'.";
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Failed to update control number: ' . $e->getMessage();
+        }
     }
 
     /**
@@ -497,6 +602,8 @@ new class extends Component {
         $this->forwardHubOffices = [];
         $this->forwardHubTempSelected = [];
         $this->showForwardHubModal = false;
+        $this->isEditingControlNumber = false;
+        $this->editingControlNumberValue = '';
         $this->dispatch('stop-camera-scanner');
         $this->dispatch('scanner-modal-closed');
     }
@@ -1765,6 +1872,11 @@ new class extends Component {
                 [data-theme="dark"] .dts-scanner-widget-body {
                     background: #0f172a;
                 }
+                [data-theme="dark"] .scanner-ctrl-edit-input {
+                    background: #0f172a !important;
+                    color: #f8fafc !important;
+                    border-color: #3b82f6 !important;
+                }
                 [data-theme="dark"] .dts-scanner-left-pane {
                     background: #111827;
                     border-right-color: #1e293b;
@@ -1977,7 +2089,12 @@ new class extends Component {
                     color: #e2e8f0 !important;
                 }
                 @media (max-width: 860px) {
-                    [data-theme="dark"] .dts-scanner-left-pane {
+                    [data-theme="dark"] .scanner-ctrl-edit-input {
+                    background: #0f172a !important;
+                    color: #f8fafc !important;
+                    border-color: #3b82f6 !important;
+                }
+                [data-theme="dark"] .dts-scanner-left-pane {
                         border-bottom-color: #1e293b !important;
                     }
                 }
@@ -2119,9 +2236,64 @@ new class extends Component {
                             
                             <!-- Header Status Line -->
                             <div style="display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                                @php
+                                    $userPerms = auth()->user()?->permissions;
+                                    $canModifyControlNumber = (bool) (
+                                        ($userPerms->is_sadm ?? false) || 
+                                        ($userPerms->can_dts_modify_control_no ?? false)
+                                    );
+                                @endphp
                                 <div>
                                     <span style="font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">Control Number</span>
-                                    <h4 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 2px 0 0 0; word-break: break-all; font-family: monospace;">{{ $activeTransaction['control_number'] }}</h4>
+                                    @if($canModifyControlNumber && $isEditingControlNumber)
+                                        <div style="display: flex; align-items: center; gap: 5px; margin-top: 2px;">
+                                            <input 
+                                                type="text" 
+                                                wire:model="editingControlNumberValue" 
+                                                wire:keydown.enter="saveControlNumber"
+                                                wire:keydown.escape="cancelEditControlNumber"
+                                                class="scanner-ctrl-edit-input"
+                                                style="height: 30px; padding: 2px 8px; font-size: 14px; font-weight: 700; font-family: monospace; border: 1.5px solid #2563eb; border-radius: 6px; color: #0f172a; outline: none; background: #ffffff; min-width: 170px;"
+                                                autofocus
+                                            >
+                                            <button 
+                                                type="button" 
+                                                wire:click="saveControlNumber" 
+                                                title="Save Control Number (Enter)"
+                                                style="height: 30px; padding: 0 10px; font-size: 11.5px; font-weight: 700; background: #16a34a; color: #ffffff; border: none; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 3px rgba(22,163,74,0.3);"
+                                            >
+                                                <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                                <span>Save</span>
+                                            </button>
+                                            <button 
+                                                type="button" 
+                                                wire:click="cancelEditControlNumber" 
+                                                title="Cancel (Esc)"
+                                                style="height: 30px; padding: 0 8px; font-size: 11.5px; font-weight: 600; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center;"
+                                            >
+                                                <span>Cancel</span>
+                                            </button>
+                                        </div>
+                                    @else
+                                        <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
+                                            <h4 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0; word-break: break-all; font-family: monospace;">{{ $activeTransaction['control_number'] }}</h4>
+                                            @if($canModifyControlNumber)
+                                                <button 
+                                                    type="button" 
+                                                    wire:click="startEditingControlNumber" 
+                                                    title="Click to edit Control Number"
+                                                    style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 2px 7px; font-size: 11px; font-weight: 600; color: #2563eb; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s ease;"
+                                                    onmouseover="this.style.background='#e0f2fe'; this.style.borderColor='#93c5fd'" 
+                                                    onmouseout="this.style.background='#f1f5f9'; this.style.borderColor='#cbd5e1'"
+                                                >
+                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+                                                    </svg>
+                                                    <span>Edit</span>
+                                                </button>
+                                            @endif
+                                        </div>
+                                    @endif
                                 </div>
 
                                 <div style="display: flex; align-items: center; gap: 6px;">

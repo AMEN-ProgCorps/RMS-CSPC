@@ -66,6 +66,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     /** @var string Available codes filter: 'all', 'incoming', 'received' */
     public string $availableFilter = 'all';
 
+    // Direct Control Number Editing State
+    public bool $isEditingControlNumber = false;
+    public string $editingControlNumberValue = '';
+
     /**
      * Initializes component state, authorization gates, and default configurations.
      * @return void
@@ -268,7 +272,108 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $this->forwardHubTempSelected = [];
         $this->showForwardHubModal = false;
         $this->forwardHubSearch = '';
+        $this->isEditingControlNumber = false;
+        $this->editingControlNumberValue = '';
         $this->dispatch('focus-scanner-input');
+    }
+
+    /**
+     * Starts inline editing of the active transaction's control number.
+     *
+     * @return void
+     */
+    public function startEditingControlNumber(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !($perms->can_dts_modify_control_no ?? false))) {
+            $this->errorMessage = 'You do not have clearance to modify the Control Number.';
+            return;
+        }
+
+        if (!$this->activeTransaction) {
+            return;
+        }
+
+        $this->editingControlNumberValue = (string) ($this->activeTransaction['control_number'] ?? '');
+        $this->isEditingControlNumber = true;
+    }
+
+    /**
+     * Cancels inline editing of the control number.
+     *
+     * @return void
+     */
+    public function cancelEditControlNumber(): void
+    {
+        $this->isEditingControlNumber = false;
+        $this->editingControlNumberValue = '';
+    }
+
+    /**
+     * Persists the modified control number to the database after validation.
+     *
+     * @return void
+     */
+    public function saveControlNumber(): void
+    {
+        $this->clearAlerts();
+
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !($perms->can_dts_modify_control_no ?? false))) {
+            $this->errorMessage = 'You do not have clearance to modify the Control Number.';
+            $this->isEditingControlNumber = false;
+            return;
+        }
+
+        if (!$this->activeTransaction) {
+            $this->isEditingControlNumber = false;
+            return;
+        }
+
+        $newCode = trim($this->editingControlNumberValue);
+        $oldCode = trim((string) ($this->activeTransaction['control_number'] ?? ''));
+
+        if (empty($newCode)) {
+            $this->errorMessage = 'Control number cannot be empty.';
+            return;
+        }
+
+        if ($newCode === $oldCode) {
+            $this->isEditingControlNumber = false;
+            return;
+        }
+
+        $transId = (int) $this->activeTransaction['id'];
+
+        $exists = DB::table('dts_transaction_details')
+            ->where('control_number', $newCode)
+            ->where('id', '!=', $transId)
+            ->exists();
+
+        if ($exists) {
+            $this->errorMessage = "Control number '{$newCode}' is already in use by another transaction.";
+            return;
+        }
+
+        try {
+            DB::transaction(function () use ($transId, $newCode, $oldCode) {
+                DB::table('dts_transaction_details')
+                    ->where('id', $transId)
+                    ->update(['control_number' => $newCode]);
+
+                if (\Illuminate\Support\Facades\Schema::hasTable('dts_copy_filled_transaction')) {
+                    DB::table('dts_copy_filled_transaction')
+                        ->where('control_num', $oldCode)
+                        ->update(['control_num' => $newCode]);
+                }
+            });
+
+            $this->activeTransaction['control_number'] = $newCode;
+            $this->isEditingControlNumber = false;
+            $this->successMessage = "Control number updated successfully to '{$newCode}'.";
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Failed to update control number: ' . $e->getMessage();
+        }
     }
 
     /**
@@ -1516,9 +1621,59 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                     </span>
                                 @endif
                             </div>
-                            <h2 style="font-size: 20px; font-weight: 800; color: #0f172a; margin: 0; font-family: monospace; letter-spacing: 0.02em;">
-                                {{ $activeTransaction['control_number'] }}
-                            </h2>
+                            @php
+                                $pagePerms = auth()->user()?->permissions;
+                                $canModifyPageControlNo = (bool) (
+                                    ($pagePerms->is_sadm ?? false) || 
+                                    ($pagePerms->can_dts_modify_control_no ?? false)
+                                );
+                            @endphp
+                            @if($canModifyPageControlNo && $isEditingControlNumber)
+                                <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;">
+                                    <input 
+                                        type="text" 
+                                        wire:model="editingControlNumberValue" 
+                                        wire:keydown.enter="saveControlNumber"
+                                        wire:keydown.escape="cancelEditControlNumber"
+                                        style="height: 32px; padding: 2px 10px; font-size: 16px; font-weight: 700; font-family: monospace; border: 2px solid #0284c7; border-radius: 8px; color: #0f172a; outline: none; background: #ffffff; min-width: 220px;"
+                                        autofocus
+                                    >
+                                    <button 
+                                        type="button" 
+                                        wire:click="saveControlNumber" 
+                                        title="Save Control Number (Enter)"
+                                        style="height: 32px; padding: 0 12px; font-size: 12px; font-weight: 700; background: #16a34a; color: #ffffff; border: none; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 4px rgba(22,163,74,0.3);"
+                                    >
+                                        <i class="fa-solid fa-check"></i>
+                                        <span>Save</span>
+                                    </button>
+                                    <button 
+                                        type="button" 
+                                        wire:click="cancelEditControlNumber" 
+                                        title="Cancel (Esc)"
+                                        style="height: 32px; padding: 0 10px; font-size: 12px; font-weight: 600; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center;"
+                                    >
+                                        <span>Cancel</span>
+                                    </button>
+                                </div>
+                            @else
+                                <div style="display: flex; align-items: center; gap: 10px; margin-top: 2px;">
+                                    <h2 style="font-size: 20px; font-weight: 800; color: #0f172a; margin: 0; font-family: monospace; letter-spacing: 0.02em;">
+                                        {{ $activeTransaction['control_number'] }}
+                                    </h2>
+                                    @if($canModifyPageControlNo)
+                                        <button 
+                                            type="button" 
+                                            wire:click="startEditingControlNumber" 
+                                            title="Click to edit Control Number"
+                                            style="background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 6px; padding: 3px 8px; font-size: 11.5px; font-weight: 700; color: #0284c7; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s ease;"
+                                        >
+                                            <i class="fa-solid fa-pen-to-square"></i>
+                                            <span>Edit</span>
+                                        </button>
+                                    @endif
+                                </div>
+                            @endif
                         </div>
                         <div style="text-align: right;">
                             <span style="font-size: 11px; color: #94a3b8; display: block;">QR Code ID</span>

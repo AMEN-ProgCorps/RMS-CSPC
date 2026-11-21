@@ -19,11 +19,14 @@ header('Content-Type: application/json');
 
 // Auth::status() checks the session but does NOT call die() — safe for polling.
 $status = Auth::status();
+$myAccountId = Auth::accountId();
+
+// Release session lock immediately so parallel AJAX requests are never blocked
+session_write_close();
 
 // Only refresh presence while the session is actually still valid.
 if (!empty($status['valid'])) {
     try {
-        $myAccountId = Auth::accountId();
         if ($myAccountId) {
             $pdo = Database::getConnection();
             // Must match Laravel APP_TIMEZONE (Asia/Manila). Writing UTC via

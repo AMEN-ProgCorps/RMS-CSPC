@@ -582,8 +582,16 @@
     }
 
     window.__rmsGuardsReady = false;
+    var _syncGuardsInFlight = false;
+    var _lastGuardsSync = 0;
 
-    function syncActiveGuards() {
+    function syncActiveGuards(force) {
+        var now = Date.now();
+        if (_syncGuardsInFlight) return;
+        if (!force && (now - _lastGuardsSync < 6000)) return;
+
+        _syncGuardsInFlight = true;
+        _lastGuardsSync = now;
         try {
             fetch('/api/errors/active-guards', { credentials: 'same-origin', cache: 'no-store' })
                 .then(function (r) { return r.json(); })
@@ -596,16 +604,20 @@
                 .catch(function () {
                     // Keep blade snapshot usable if refresh fails.
                     window.__rmsGuardsReady = true;
+                })
+                .finally(function () {
+                    _syncGuardsInFlight = false;
                 });
         } catch (e) {
             window.__rmsGuardsReady = true;
+            _syncGuardsInFlight = false;
         }
     }
 
     // Always refresh — blade snapshot stays stale after tickets are resolved in another tab/session.
-    syncActiveGuards();
-    setInterval(syncActiveGuards, 15000);
-    window.addEventListener('focus', syncActiveGuards);
+    syncActiveGuards(true);
+    setInterval(syncActiveGuards, 20000);
+    window.addEventListener('focus', function () { syncActiveGuards(); });
     document.addEventListener('visibilitychange', function () {
         if (!document.hidden) syncActiveGuards();
     });

@@ -935,8 +935,8 @@ Route::middleware(['auth'])
 
         // DTS List of Transactions Printable Export Route
         Route::get('/dts/list/print', function (\Illuminate\Http\Request $request) {
-            if (!\App\Helpers\DtsExportHelper::isExportEnabled() && !(auth()->user()?->permissions?->is_sadm ?? false)) {
-                abort(403, 'Exporting transaction records is currently disabled.');
+            if (!\App\Helpers\DtsExportHelper::isExportEnabled()) {
+                abort(403, 'Transaction export is currently disabled by administrator in System Settings.');
             }
 
             $category = $request->query('category', 'internal');

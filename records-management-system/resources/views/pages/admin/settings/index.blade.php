@@ -24,6 +24,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $dtsQrIncludeCodeDefault = false;
     public bool $dtsAllowCustomFlowScopeSelection = false;
     public bool $dtsEnableAvailableCodes = true;
+    public bool $dtsEnableTransactionExport = true;
     public bool $dtsUrgentMonitoringEnabled = true;
     public int $dtsUrgentWarningMinutes = 5;
     public int $dtsUrgentActionMinutes = 10;
@@ -33,7 +34,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public string $dtsWorkingHoursDays = 'mon-fri';
     /** @var string Calculation mode for Elapsed Days: 'total_lifetime' or 'current_stage' */
     public string $dtsElapsedDaysMode = 'total_lifetime';
-    public bool $dtsEnableTransactionsExport = true;
     public bool $rdpRequiredUploadFile = false;
     public bool $rdpIncludeDescriptionOnPrint = false;
     public string $rdpPrintFontFamily = 'Arial, sans-serif';
@@ -566,6 +566,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $availCodes = \DB::table($sysTable)->where('key', 'dts_enable_available_codes')->value('value');
         $this->dtsEnableAvailableCodes = ($availCodes !== 'false');
 
+        $exportVal = \DB::table($sysTable)->where('key', 'dts_enable_transaction_export')->value('value');
+        $this->dtsEnableTransactionExport = ($exportVal !== 'false');
+
         $urgentEnabled = \DB::table($sysTable)->where('key', 'dts_urgent_monitoring_enabled')->value('value');
         $this->dtsUrgentMonitoringEnabled = ($urgentEnabled !== 'false');
 
@@ -590,9 +593,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         // Load Elapsed Days Mode: 'total_lifetime' (from inception) vs 'current_stage' (from active station receipt)
         $elapsedMode = \DB::table($sysTable)->where('key', 'dts_elapsed_days_mode')->value('value');
         $this->dtsElapsedDaysMode = in_array($elapsedMode, ['total_lifetime', 'current_stage'], true) ? $elapsedMode : 'total_lifetime';
-
-        $expSetting = \DB::table($sysTable)->where('key', 'dts_enable_transactions_export')->value('value');
-        $this->dtsEnableTransactionsExport = ($expSetting === null || $expSetting === 'true' || $expSetting === '1');
 
         $rdpReq = \DB::table('sys_system_settings')->where('key', 'rdp_required_upload_file')->value('value');
         $this->rdpRequiredUploadFile = ($rdpReq === 'true');
@@ -687,6 +687,38 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $this->successMessage = $value
             ? 'DCS soft-delete enabled for Update documents and Settings catalogs.'
             : 'DCS soft-delete disabled. Delete buttons are hidden in Update and Settings.';
+        $this->dispatch('rms-settings-changed', type: 'site_settings', message: $this->successMessage);
+    }
+
+    /**
+     * Persist DTS List of Transactions export toggle immediately.
+     */
+    public function updatedDtsEnableTransactionExport(bool $value): void
+    {
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings')
+            ? 'sys_system_settings'
+            : 'system_settings';
+
+        \DB::table($sysTable)->updateOrInsert(
+            ['key' => 'dts_enable_transaction_export'],
+            [
+                'value' => $value ? 'true' : 'false',
+                'updated_at' => now(),
+            ]
+        );
+
+        \App\Helpers\DtsExportHelper::clearExportCache();
+
+        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+            'changes' => 'DTS List of Transactions Export ' . ($value ? 'enabled' : 'disabled') . ' (Admin Settings)',
+            'admin_id' => auth()->id(),
+            'what_system' => 3,
+            'when_changes' => now(),
+        ]);
+
+        $this->successMessage = $value
+            ? 'DTS List of Transactions Export enabled successfully.'
+            : 'DTS List of Transactions Export disabled successfully.';
         $this->dispatch('rms-settings-changed', type: 'site_settings', message: $this->successMessage);
     }
 
@@ -1187,6 +1219,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 );
 
                 \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_enable_transaction_export'],
+                    [
+                        'value' => $this->dtsEnableTransactionExport ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+                \App\Helpers\DtsExportHelper::clearExportCache();
+
+                \DB::table($sysTable)->updateOrInsert(
                     ['key' => 'dts_urgent_monitoring_enabled'],
                     [
                         'value' => $this->dtsUrgentMonitoringEnabled ? 'true' : 'false',
@@ -1252,14 +1293,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ['key' => 'dts_elapsed_days_mode'],
                     [
                         'value' => in_array($this->dtsElapsedDaysMode, ['total_lifetime', 'current_stage'], true) ? $this->dtsElapsedDaysMode : 'total_lifetime',
-                        'updated_at' => now(),
-                    ]
-                );
-
-                \DB::table($sysTable)->updateOrInsert(
-                    ['key' => 'dts_enable_transactions_export'],
-                    [
-                        'value' => $this->dtsEnableTransactionsExport ? 'true' : 'false',
                         'updated_at' => now(),
                     ]
                 );
@@ -1407,7 +1440,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                              ", RDPReq: " . ($this->rdpRequiredUploadFile ? 'true' : 'false') .
                              ", RDPDescPrint: " . ($this->rdpIncludeDescriptionOnPrint ? 'true' : 'false') .
                              ", DTSReq: " . ($this->dtsRequiredUploadFile ? 'true' : 'false') .
-                             ", DTSExport: " . ($this->dtsEnableTransactionsExport ? 'true' : 'false') .
                              ", InactivityTimeout: " . $this->tabCloseIdleTimeoutMinutes . " mins" .
                              ", DcsDeleteCode: " . (trim($this->dcsRecycleDeleteCode) !== '' ? 'set' : 'cleared') .
                              ", DcsOfficeForms: " . ($this->dcsOfficeDrfFormsEnabled ? 'true' : 'false') .
@@ -2168,6 +2200,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         </label>
                     </div>
 
+                    <!-- Setting: Enable/Disable Export in List of Transactions -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title" style="display: flex; align-items: center; gap: 8px;">
+                                <span>Enable Export in List of Transactions</span>
+                                @if($dtsEnableTransactionExport)
+                                    <span style="font-size: 11px; font-weight: 700; background: #ecfdf5; color: #059669; padding: 2px 7px; border-radius: 5px; border: 1px solid #a7f3d0; text-transform: uppercase;">Enabled</span>
+                                @else
+                                    <span style="font-size: 11px; font-weight: 700; background: #fef2f2; color: #b91c1c; padding: 2px 7px; border-radius: 5px; border: 1px solid #fecaca; text-transform: uppercase;">Disabled</span>
+                                @endif
+                            </span>
+                            <span class="setting-desc">When enabled (default), users can export records to Excel and generate printable PDF transaction logs across all List of Transactions pages (Internal, External, Application Letters, and Issuances). When disabled, the Export button and modal are deactivated across all List of Transactions pages and direct export endpoints are restricted.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model.live="dtsEnableTransactionExport">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
                     <!-- Setting: Urgent Action & Elapsed Time Configuration -->
                     <div class="setting-item" style="border-top: 1px solid #e2e8f0; padding-top: 18px; margin-top: 8px;">
                         <div class="setting-details">
@@ -2252,23 +2303,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <option value="total_lifetime">Total Lifetime (From Inception)</option>
                             <option value="current_stage">Current Office / Stage (From Station Receipt)</option>
                         </select>
-                    </div>
-
-                    <!-- Setting: Enable Export in List of Transactions -->
-                    <div class="setting-item" style="border-top: 1px solid #e2e8f0; padding-top: 18px; margin-top: 8px;">
-                        <div class="setting-details">
-                            <span class="setting-title" style="display: flex; align-items: center; gap: 8px;">
-                                <i class="fa-solid fa-file-export" style="color: #2563eb; font-size: 14px;"></i>
-                                Enable Export in List of Transactions
-                            </span>
-                            <span class="setting-desc">
-                                Allows users to export transaction tables to PDF and Excel spreadsheets across Internal, External, Application Letters, and Issuances. When disabled, the Export button and printing modal are deactivated for standard users.
-                            </span>
-                        </div>
-                        <label class="switch">
-                            <input type="checkbox" wire:model="dtsEnableTransactionsExport">
-                            <span class="slider"></span>
-                        </label>
                     </div>
                 </div>
             </div>

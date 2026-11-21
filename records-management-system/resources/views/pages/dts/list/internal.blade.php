@@ -90,7 +90,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
-        if ($perms && !$perms->is_sadm && !$perms->can_dts_use_internal) {
+        if ($perms && !$perms->is_sadm && !($perms->can_dts_create_internal || $perms->can_dts_receive_internal || $perms->can_dts_use_internal)) {
             abort(403, 'Unauthorized access to Internal transactions list.');
         }
     }

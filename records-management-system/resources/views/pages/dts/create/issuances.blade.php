@@ -411,7 +411,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
-        if ($perms && !$perms->is_sadm && !$perms->can_dts_use_issuance) {
+        if ($perms && !$perms->is_sadm && !($perms->can_dts_create_issuance ?? $perms->can_dts_use_issuance)) {
             abort(403, 'Unauthorized access to Issuance transactions.');
         }
 
@@ -421,7 +421,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
 
         // Fallback for roles where sub-clearances are not yet assigned
         if (!$this->canReceivingOffice && !$this->canTransactionFlow) {
-            if ($isSadm || (bool) ($perms?->can_dts_use_issuance ?? false)) {
+            if ($isSadm || (bool) ($perms?->can_dts_create_issuance ?? $perms?->can_dts_use_issuance ?? false)) {
                 $this->canReceivingOffice = true;
                 $this->canTransactionFlow = true;
             } else {

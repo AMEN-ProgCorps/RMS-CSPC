@@ -265,10 +265,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     {
         $perms = auth()->user()?->permissions;
         if ($perms && !$perms->is_sadm) {
-            if ($tab === 'internal' && !$perms->can_dts_use_internal) return;
-            if ($tab === 'external' && !$perms->can_dts_use_external) return;
-            if ($tab === 'applications' && !$perms->can_dts_use_application) return;
-            if ($tab === 'issuances' && !$perms->can_dts_use_issuance) return;
+            if ($tab === 'internal' && !($perms->can_dts_receive_internal ?? $perms->can_dts_use_internal)) return;
+            if ($tab === 'external' && !($perms->can_dts_receive_external ?? $perms->can_dts_use_external)) return;
+            if ($tab === 'applications' && !($perms->can_dts_receive_application ?? $perms->can_dts_use_application)) return;
+            if ($tab === 'issuances' && !($perms->can_dts_receive_issuance ?? $perms->can_dts_use_issuance)) return;
         }
 
         $this->activeTab = $tab;
@@ -444,16 +444,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $perms = auth()->user()?->permissions;
         if ($perms && !$perms->is_sadm) {
             $allowedTypes = [];
-            if ($perms->can_dts_use_internal) {
+            if ($perms->can_dts_receive_internal ?? $perms->can_dts_use_internal) {
                 $allowedTypes[] = 'internal';
             }
-            if ($perms->can_dts_use_external) {
+            if ($perms->can_dts_receive_external ?? $perms->can_dts_use_external) {
                 $allowedTypes[] = 'external';
             }
-            if ($perms->can_dts_use_application) {
+            if ($perms->can_dts_receive_application ?? $perms->can_dts_use_application) {
                 $allowedTypes[] = 'others';
             }
-            if ($perms->can_dts_use_issuance) {
+            if ($perms->can_dts_receive_issuance ?? $perms->can_dts_use_issuance) {
                 $allowedTypes[] = 'memorandom';
             }
 
@@ -2669,7 +2669,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 All Records
             </button>
 
-            @if ($isSadm || ($perms?->can_dts_use_internal ?? false))
+            @if ($isSadm || ($perms?->can_dts_receive_internal ?? $perms?->can_dts_use_internal ?? false))
                 <button wire:click="setTab('internal')"
                     class="dts-nav-btn {{ $activeTab === 'internal' ? 'dts-nav-btn--active' : 'dts-nav-btn--inactive' }}">
                     <svg class="dts-nav-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 26 26" fill="none">
@@ -2681,7 +2681,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 </button>
             @endif
 
-            @if ($isSadm || ($perms?->can_dts_use_external ?? false))
+            @if ($isSadm || ($perms?->can_dts_receive_external ?? $perms?->can_dts_use_external ?? false))
                 <button wire:click="setTab('external')"
                     class="dts-nav-btn {{ $activeTab === 'external' ? 'dts-nav-btn--active' : 'dts-nav-btn--inactive' }}">
                     <svg class="dts-nav-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="17" viewBox="0 0 17 21" fill="none">
@@ -2693,7 +2693,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 </button>
             @endif
 
-            @if ($isSadm || ($perms?->can_dts_use_application ?? false))
+            @if ($isSadm || ($perms?->can_dts_receive_application ?? $perms?->can_dts_use_application ?? false))
                 <button wire:click="setTab('applications')"
                     class="dts-nav-btn dts-nav-btn--pill {{ $activeTab === 'applications' ? 'dts-nav-btn--active' : 'dts-nav-btn--inactive' }}">
                     <svg class="dts-nav-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="15" viewBox="0 0 21 19" fill="none">
@@ -2703,7 +2703,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 </button>
             @endif
 
-            @if ($isSadm || ($perms?->can_dts_use_issuance ?? false))
+            @if ($isSadm || ($perms?->can_dts_receive_issuance ?? $perms?->can_dts_use_issuance ?? false))
                 <button wire:click="setTab('issuances')"
                     class="dts-nav-btn dts-nav-btn--pill {{ $activeTab === 'issuances' ? 'dts-nav-btn--active' : 'dts-nav-btn--inactive' }}">
                     <svg class="dts-nav-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="17" viewBox="0 0 21 22" fill="none">

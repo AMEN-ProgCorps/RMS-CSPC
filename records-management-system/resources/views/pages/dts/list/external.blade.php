@@ -90,7 +90,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
-        if ($perms && !$perms->is_sadm && !$perms->can_dts_use_external) {
+        if ($perms && !$perms->is_sadm && !($perms->can_dts_create_external || $perms->can_dts_receive_external || $perms->can_dts_use_external)) {
             abort(403, 'Unauthorized access to External transactions list.');
         }
     }

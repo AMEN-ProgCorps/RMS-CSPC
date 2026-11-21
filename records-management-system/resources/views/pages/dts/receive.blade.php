@@ -768,19 +768,46 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                                     <input type="text" wire:model="notes" placeholder="Type notes for the next stop..." style="width: 100%; background: #f8fafc; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 10px; font-size: 13px; outline: none;" />
                                 </div>
 
-                                @if ($actionNeeded === 'To be Forwarded to')
-                                    <button type="button" wire:click="proceedTransaction" style="width: 100%; padding: 12px; background: #2563eb; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; box-shadow: 0 4px 6px -1px rgba(37,99,235,0.25);">
-                                        <i class="fa-solid fa-paper-plane"></i> Forward to Office
-                                    </button>
-                                @elseif (!empty($activeTransaction['is_last_step']))
-                                    <button type="button" wire:click="proceedTransaction" style="width: 100%; padding: 12px; background: #16a34a; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; box-shadow: 0 4px 6px -1px rgba(22,163,74,0.25);">
-                                        <i class="fa-solid fa-circle-check"></i> Complete Sequence (Finish Final Step)
-                                    </button>
-                                @else
-                                    <button type="button" wire:click="proceedTransaction" style="width: 100%; padding: 12px; background: #059669; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; box-shadow: 0 4px 6px -1px rgba(5,150,105,0.25);">
-                                        <i class="fa-solid fa-paper-plane"></i> Forward Transaction
-                                    </button>
-                                @endif
+                                @php
+                                    $rcvActionLower = strtolower(trim($actionNeeded));
+                                    $rcvIsApprovalFlow = in_array($rcvActionLower, [
+                                        'for approval', 
+                                        'for endorsement', 
+                                        'for recomendation', 
+                                        'for recommendation', 
+                                        'for signature'
+                                    ]);
+                                    $rcvIsRevision = in_array($rcvActionLower, [
+                                        'for revision', 
+                                        'returned for revision'
+                                    ]);
+                                    $rcvIsToBeForwarded = ($rcvActionLower === 'to be forwarded to');
+
+                                    if ($rcvIsRevision) {
+                                        $rcvBtnLabel = 'Return for Revision';
+                                        $rcvBtnBg = '#dc2626';
+                                        $rcvBtnIcon = 'fa-rotate-left';
+                                    } elseif ($rcvIsToBeForwarded) {
+                                        $rcvBtnLabel = 'Proceed Action';
+                                        $rcvBtnBg = '#2563eb';
+                                        $rcvBtnIcon = 'fa-paper-plane';
+                                    } elseif ($rcvIsApprovalFlow) {
+                                        $rcvBtnLabel = 'Proceed Forward';
+                                        $rcvBtnBg = '#16a34a';
+                                        $rcvBtnIcon = 'fa-paper-plane';
+                                    } elseif (!empty($activeTransaction['is_last_step'])) {
+                                        $rcvBtnLabel = 'Complete Sequence (Finish Final Step)';
+                                        $rcvBtnBg = '#16a34a';
+                                        $rcvBtnIcon = 'fa-circle-check';
+                                    } else {
+                                        $rcvBtnLabel = 'Forward Transaction';
+                                        $rcvBtnBg = '#059669';
+                                        $rcvBtnIcon = 'fa-paper-plane';
+                                    }
+                                @endphp
+                                <button type="button" wire:click="proceedTransaction" style="width: 100%; padding: 12px; background: {{ $rcvBtnBg }}; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.15);">
+                                    <i class="fa-solid {{ $rcvBtnIcon }}"></i> {{ $rcvBtnLabel }}
+                                </button>
                             @endif
                         </div>
                     </div>

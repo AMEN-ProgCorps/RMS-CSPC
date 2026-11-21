@@ -3863,9 +3863,42 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                     </button>
                                 @endif
                             @else
-                                <button type="button" class="dts-im-btn dts-im-btn-primary" wire:click="completeTransaction">
-                                    <i class="fa-solid fa-paper-plane"></i>
-                                    <span>{{ $activeAction === 'To be Forwarded to' ? 'Forward to Office' : 'Forward Transaction' }}</span>
+                                @php
+                                    $listActionLower = strtolower(trim($activeAction));
+                                    $listIsApprovalFlow = in_array($listActionLower, [
+                                        'for approval', 
+                                        'for endorsement', 
+                                        'for recomendation', 
+                                        'for recommendation', 
+                                        'for signature'
+                                    ]);
+                                    $listIsRevision = in_array($listActionLower, [
+                                        'for revision', 
+                                        'returned for revision'
+                                    ]);
+                                    $listIsToBeForwarded = ($listActionLower === 'to be forwarded to');
+
+                                    if ($listIsRevision) {
+                                        $listBtnLabel = 'Return for Revision';
+                                        $listBtnBg = '#dc2626';
+                                        $listBtnIcon = 'fa-arrow-rotate-left';
+                                    } elseif ($listIsToBeForwarded) {
+                                        $listBtnLabel = 'Proceed Action';
+                                        $listBtnBg = '#2563eb';
+                                        $listBtnIcon = 'fa-paper-plane';
+                                    } elseif ($listIsApprovalFlow) {
+                                        $listBtnLabel = 'Proceed Forward';
+                                        $listBtnBg = '#16a34a';
+                                        $listBtnIcon = 'fa-paper-plane';
+                                    } else {
+                                        $listBtnLabel = 'Forward to Office';
+                                        $listBtnBg = '#16a34a';
+                                        $listBtnIcon = 'fa-paper-plane';
+                                    }
+                                @endphp
+                                <button type="button" class="dts-im-btn" wire:click="completeTransaction" style="background: {{ $listBtnBg }} !important; color: #ffffff !important; border-color: {{ $listBtnBg }} !important;">
+                                    <i class="fa-solid {{ $listBtnIcon }}"></i>
+                                    <span>{{ $listBtnLabel }}</span>
                                 </button>
                             @endif
                         @endif

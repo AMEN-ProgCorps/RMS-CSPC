@@ -1682,15 +1682,50 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                 </div>
                             @endif
 
+                            @php
+                                $pageActionLower = strtolower(trim($actionNeeded));
+                                $pageIsApprovalFlow = in_array($pageActionLower, [
+                                    'for approval', 
+                                    'for endorsement', 
+                                    'for recomendation', 
+                                    'for recommendation', 
+                                    'for signature'
+                                ]);
+                                $pageIsRevision = in_array($pageActionLower, [
+                                    'for revision', 
+                                    'returned for revision'
+                                ]);
+                                $pageIsToBeForwarded = ($pageActionLower === 'to be forwarded to');
+
+                                if ($pageIsRevision) {
+                                    $pageForwardLabel = 'Return for Revision';
+                                    $pageForwardBg = '#dc2626';
+                                    $pageForwardIcon = 'fa-rotate-left';
+                                } elseif ($pageIsToBeForwarded) {
+                                    $pageForwardLabel = 'Proceed Action';
+                                    $pageForwardBg = '#2563eb';
+                                    $pageForwardIcon = 'fa-paper-plane';
+                                } elseif ($pageIsApprovalFlow) {
+                                    $pageForwardLabel = 'Proceed Forward';
+                                    $pageForwardBg = '#16a34a';
+                                    $pageForwardIcon = 'fa-paper-plane';
+                                } else {
+                                    $pageForwardLabel = 'Forward to Office';
+                                    $pageForwardBg = '#16a34a';
+                                    $pageForwardIcon = 'fa-paper-plane';
+                                }
+                            @endphp
                             <div style="display: flex; gap: 10px;">
-                                <button type="button" wire:click="executeForward" 
-                                        style="flex: 2; height: 44px; background: #16a34a; color: #ffffff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 10px rgba(22, 163, 74, 0.25);">
-                                    <i class="fa-solid fa-paper-plane"></i> {{ $actionNeeded === 'To be Forwarded to' ? 'FORWARD TO OFFICE' : 'FORWARD TO ' . strtoupper($activeTransaction['next_office'] ?? 'NEXT OFFICE') }}
+                                <button type="button" wire:click="{{ $pageIsRevision ? 'executeReturnRevision' : 'executeForward' }}" 
+                                        style="flex: 2; height: 44px; background: {{ $pageForwardBg }}; color: #ffffff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15); transition: background-color 0.15s ease;">
+                                    <i class="fa-solid {{ $pageForwardIcon }}"></i> {{ $pageForwardLabel }}
                                 </button>
+                                @if(!$pageIsRevision)
                                 <button type="button" wire:click="executeReturnRevision" 
                                         style="flex: 1; height: 44px; background: #dc2626; color: #ffffff; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
                                     <i class="fa-solid fa-rotate-left"></i> Return Revision
                                 </button>
+                                @endif
                             </div>
 
                         {{-- Case C: Already completed or cancelled --}}

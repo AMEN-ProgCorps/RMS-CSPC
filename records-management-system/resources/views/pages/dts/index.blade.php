@@ -4897,12 +4897,41 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     Complete Transaction
                                 </button>
                             @elseif ($isReceivedState)
-                                <button type="button" class="receive-action-btn" wire:click="completeTransaction" style="background-color: #2563eb;">
+                                @php
+                                    $indexActionLower = strtolower(trim($activeAction));
+                                    $indexIsApprovalFlow = in_array($indexActionLower, [
+                                        'for approval', 
+                                        'for endorsement', 
+                                        'for recomendation', 
+                                        'for recommendation', 
+                                        'for signature'
+                                    ]);
+                                    $indexIsRevision = in_array($indexActionLower, [
+                                        'for revision', 
+                                        'returned for revision'
+                                    ]);
+                                    $indexIsToBeForwarded = ($indexActionLower === 'to be forwarded to');
+
+                                    if ($indexIsRevision) {
+                                        $indexBtnLabel = 'Return for Revision';
+                                        $indexBtnBg = '#dc2626';
+                                    } elseif ($indexIsToBeForwarded) {
+                                        $indexBtnLabel = 'Proceed Action';
+                                        $indexBtnBg = '#2563eb';
+                                    } elseif ($indexIsApprovalFlow) {
+                                        $indexBtnLabel = 'Proceed Forward';
+                                        $indexBtnBg = '#16a34a';
+                                    } else {
+                                        $indexBtnLabel = 'Forward to Office';
+                                        $indexBtnBg = '#16a34a';
+                                    }
+                                @endphp
+                                <button type="button" class="receive-action-btn" wire:click="completeTransaction" style="background-color: {{ $indexBtnBg }};">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                         <line x1="22" y1="2" x2="11" y2="13"></line>
                                         <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                                     </svg>
-                                    {{ $activeAction === 'To be Forwarded to' ? 'Forward to Office' : 'Forward Transaction' }}
+                                    {{ $indexBtnLabel }}
                                 </button>
                             @elseif (!$isReceivedState)
                                 <button type="button" class="receive-action-btn" wire:click="receiveTransaction" style="background-color: #059669;">

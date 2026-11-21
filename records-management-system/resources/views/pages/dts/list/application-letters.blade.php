@@ -1581,8 +1581,43 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
      * Triggers upload file modal.
      * @return void
      */
+    /**
+     * Checks if the active user is allowed to upload/manage documents for the selected transaction.
+     * Allowed only if transaction is currently on the user's office, or an admin is using edit mode.
+     * @return bool
+     */
+    public function canUploadDocument(): bool
+    {
+        if (!$this->selectedTransaction) {
+            return false;
+        }
+
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+        $status = strtolower($this->selectedTransaction->status ?? '');
+        $effectiveCurrentOffice = ($this->selectedTransaction->current_office === 'ORIGIN')
+            ? ($this->selectedTransaction->originated_from ?? null)
+            : ($this->selectedTransaction->current_office ?? null);
+
+        $isCurrentOffice = !empty($userOfficeCode)
+            && ($effectiveCurrentOffice === $userOfficeCode)
+            && ($status !== 'completed');
+
+        $perms = auth()->user()?->permissions;
+        $isAdmin = $perms && (
+            $perms->is_sadm
+            || $perms->is_admin
+            || ($perms->can_dts_modify_transaction ?? false)
+            || ($perms->can_dts_list_modify_transaction ?? false)
+        );
+
+        return $isCurrentOffice || ($isAdmin && $this->editingAll);
+    }
+
     public function triggerUploadFileModal(): void
     {
+        if (!$this->canUploadDocument()) {
+            return;
+        }
         $this->uploadFileName = '';
         $this->uploadErrorMessage = '';
         $this->uploadedFile = null;
@@ -1631,7 +1666,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
      */
     public function removeUploadedFile(): void
     {
-        if (!$this->selectedTransactionId || !$this->selectedTransaction) return;
+        if (!$this->selectedTransactionId || !$this->selectedTransaction || !$this->canUploadDocument()) return;
 
         $oldDocDir = $this->selectedTransaction->doc_dir ?? null;
 
@@ -1653,6 +1688,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
      */
     public function changeUploadedFile(): void
     {
+        if (!$this->canUploadDocument()) {
+            $this->showViewFileModal = false;
+            return;
+        }
         $this->showViewFileModal = false;
         $this->triggerUploadFileModal();
     }
@@ -1675,6 +1714,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public function handleUploadFile(): void
     {
         $this->uploadErrorMessage = '';
+
+        if (!$this->canUploadDocument()) {
+            $this->uploadErrorMessage = 'Upload is only permitted when the transaction is at your office or via admin edit mode.';
+            return;
+        }
 
         $requiredUpload = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_required_upload_file')->value('value') === 'true';
         if ($requiredUpload && !$this->uploadedFile) {
@@ -3224,17 +3268,21 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                             <button type="button" class="dts-im-btn" wire:click="openPdfPreviewModal" style="padding: 4px 10px; font-size: 11.5px; color: #0284c7; border-color: #bae6fd; background: #f0f9ff;">
                                                 <i class="fa-solid fa-file-pdf"></i> Preview
                                             </button>
+                                            @if ($this->canUploadDocument())
                                             <button type="button" class="dts-im-btn" wire:click="openViewFileModal" style="padding: 4px 10px; font-size: 11.5px;">
                                                 <i class="fa-solid fa-gear"></i> Manage
                                             </button>
+                                            @endif
                                         </div>
                                     </div>
                                 @else
                                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px;">
                                         <span style="font-size: 12px; color: #94a3b8; font-style: italic;">No document currently attached</span>
+                                        @if ($this->canUploadDocument())
                                         <button type="button" class="dts-im-btn" wire:click="triggerUploadFileModal" style="padding: 4px 10px; font-size: 11.5px; color: #16a34a; border-color: #bbf7d0; background: #f0fdf4;">
                                             <i class="fa-solid fa-cloud-arrow-up"></i> Upload Document
                                         </button>
+                                        @endif
                                     </div>
                                 @endif
                             </div>

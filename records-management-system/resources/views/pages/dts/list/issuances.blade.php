@@ -1734,8 +1734,43 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
      * Triggers upload file modal.
      * @return void
      */
+    /**
+     * Checks if the active user is allowed to upload/manage documents for the selected transaction.
+     * Allowed only if transaction is currently on the user's office, or an admin is using edit mode.
+     * @return bool
+     */
+    public function canUploadDocument(): bool
+    {
+        if (!$this->selectedTransaction) {
+            return false;
+        }
+
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+        $status = strtolower($this->selectedTransaction->status ?? '');
+        $effectiveCurrentOffice = ($this->selectedTransaction->current_office === 'ORIGIN')
+            ? ($this->selectedTransaction->originated_from ?? null)
+            : ($this->selectedTransaction->current_office ?? null);
+
+        $isCurrentOffice = !empty($userOfficeCode)
+            && ($effectiveCurrentOffice === $userOfficeCode)
+            && ($status !== 'completed');
+
+        $perms = auth()->user()?->permissions;
+        $isAdmin = $perms && (
+            $perms->is_sadm
+            || $perms->is_admin
+            || ($perms->can_dts_modify_transaction ?? false)
+            || ($perms->can_dts_list_modify_transaction ?? false)
+        );
+
+        return $isCurrentOffice || ($isAdmin && $this->editingAll);
+    }
+
     public function triggerUploadFileModal(): void
     {
+        if (!$this->canUploadDocument()) {
+            return;
+        }
         $this->uploadFileName = '';
         $this->uploadErrorMessage = '';
         $this->uploadedFile = null;
@@ -1784,7 +1819,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
      */
     public function removeUploadedFile(): void
     {
-        if (!$this->selectedTransactionId || !$this->selectedTransaction) return;
+        if (!$this->selectedTransactionId || !$this->selectedTransaction || !$this->canUploadDocument()) return;
 
         $oldDocDir = $this->selectedTransaction->doc_dir ?? null;
 
@@ -1806,6 +1841,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
      */
     public function changeUploadedFile(): void
     {
+        if (!$this->canUploadDocument()) {
+            $this->showViewFileModal = false;
+            return;
+        }
         $this->showViewFileModal = false;
         $this->triggerUploadFileModal();
     }
@@ -1828,6 +1867,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
     public function handleUploadFile(): void
     {
         $this->uploadErrorMessage = '';
+
+        if (!$this->canUploadDocument()) {
+            $this->uploadErrorMessage = 'Upload is only permitted when the transaction is at your office or via admin edit mode.';
+            return;
+        }
 
         $requiredUpload = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_required_upload_file')->value('value') === 'true';
         if ($requiredUpload && !$this->uploadedFile) {
@@ -3444,16 +3488,25 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                                 {{ $attachedDocName ?: basename($selectedTransaction->doc_dir) }}
                                             </span>
                                         </div>
-                                        <button type="button" wire:click="openPdfPreviewModal" class="dts-im-btn dts-im-btn-primary" style="padding: 4px 10px; font-size: 11.5px; height: 28px; white-space: nowrap;">
-                                            <i class="fa-solid fa-eye"></i> Preview
-                                        </button>
+                                        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                                            <button type="button" wire:click="openPdfPreviewModal" class="dts-im-btn dts-im-btn-primary" style="padding: 4px 10px; font-size: 11.5px; height: 28px; white-space: nowrap;">
+                                                <i class="fa-solid fa-eye"></i> Preview
+                                            </button>
+                                            @if ($this->canUploadDocument())
+                                            <button type="button" class="dts-im-btn" wire:click="openViewFileModal" style="padding: 4px 10px; font-size: 11.5px; height: 28px; white-space: nowrap;">
+                                                <i class="fa-solid fa-gear"></i> Manage
+                                            </button>
+                                            @endif
+                                        </div>
                                     </div>
                                 @else
                                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px;">
                                         <span style="font-size: 12px; color: #94a3b8; font-style: italic;">No document uploaded</span>
+                                        @if ($this->canUploadDocument())
                                         <button type="button" wire:click="triggerUploadFileModal" class="dts-im-btn" style="padding: 4px 10px; font-size: 11.5px; height: 28px; white-space: nowrap;">
                                             <i class="fa-solid fa-upload"></i> Upload
                                         </button>
+                                        @endif
                                     </div>
                                 @endif
                             </div>

@@ -25,6 +25,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public ?int $parentId = null;
 
     public string $docTypeName = '';
+    /** @var list<array{name: string}> Optional sub-types when creating a top-level document type */
+    public array $docTypeSubRows = [
+        ['name' => ''],
+    ];
     public string $originatorName = '';
     public string $facultyName = '';
     /** @var list<string> Multi-college membership for faculty modal */
@@ -464,6 +468,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->facultyCollegeIds = [];
         $this->schoolYearIsActive = false;
         $this->collegeProgramRows = [['code' => '', 'name' => '']];
+        $this->docTypeSubRows = [['name' => '']];
         $this->courseRows = [['code' => '', 'name' => '']];
         $this->bulkRows = [];
         $this->csvFile = null;
@@ -483,6 +488,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     {
         $this->resetFormFor('docType', $id);
         $this->parentId = $parentId;
+        $this->docTypeSubRows = [['name' => '']];
         if ($id) {
             $row = DB::table('dcs_doc_types')->where('id', $id)->first();
             abort_unless($row, 404);
@@ -501,6 +507,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function openSubType(int $parentId): void
     {
         $this->openDocType(null, $parentId);
+    }
+
+    /**
+     * Adds another blank sub-type row in the Add Document Type modal.
+     */
+    public function addDocTypeSubRow(): void
+    {
+        $this->docTypeSubRows[] = ['name' => ''];
+    }
+
+    /**
+     * Removes a sub-type row from the Add Document Type modal.
+     */
+    public function removeDocTypeSubRow(int $index): void
+    {
+        if (count($this->docTypeSubRows) <= 1) {
+            $this->docTypeSubRows = [['name' => '']];
+
+            return;
+        }
+        unset($this->docTypeSubRows[$index]);
+        $this->docTypeSubRows = array_values($this->docTypeSubRows);
     }
 
     /**
@@ -1067,9 +1095,58 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return;
         }
 
-        DB::table('dcs_doc_types')->insert(array_merge($payload, [
+        // Creating a top-level type: optional sub-types in the same modal (like college + programs).
+        $subRows = [];
+        if ($parentId === null) {
+            foreach ($this->docTypeSubRows as $i => $row) {
+                $name = trim((string) ($row['name'] ?? ''));
+                if ($name === '') {
+                    continue;
+                }
+                if (mb_strlen($name) > 255) {
+                    $this->addError("docTypeSubRows.{$i}.name", 'Sub-type name may not be greater than 255 characters.');
+                    continue;
+                }
+                $subRows[] = ['index' => $i, 'name' => $name];
+            }
+            if ($this->getErrorBag()->isNotEmpty()) {
+                return;
+            }
+
+            $namesSeen = [];
+            foreach ($subRows as $entry) {
+                $key = mb_strtolower($entry['name']);
+                if (isset($namesSeen[$key])) {
+                    $this->addError("docTypeSubRows.{$entry['index']}.name", 'Duplicate sub-type name in this list.');
+                    continue;
+                }
+                $namesSeen[$key] = true;
+            }
+            if ($this->getErrorBag()->isNotEmpty()) {
+                return;
+            }
+        }
+
+        $newId = (int) DB::table('dcs_doc_types')->insertGetId(array_merge($payload, [
             'parent_id' => $parentId,
         ]));
+
+        if ($parentId === null && $newId > 0 && $subRows !== []) {
+            DB::table('dcs_doc_types')->insert(array_map(
+                fn (array $entry) => [
+                    'doc_type_name' => $entry['name'],
+                    'parent_id' => $newId,
+                ],
+                $subRows
+            ));
+            $count = count($subRows);
+            $this->done($count === 1
+                ? 'Document type and sub-type added.'
+                : "Document type and {$count} sub-types added.");
+
+            return;
+        }
+
         $this->done($parentId ? 'Sub-type added.' : 'Document type added.');
     }
 
@@ -3831,7 +3908,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     x-on:click.self="dismiss()"
     style="display: none;"
 >
-    <div class="modal{{ $modalKind === 'college' ? ' modal--college' : '' }}{{ in_array($modalKind, ['programCourse', 'programCoursesBulk'], true) ? ' modal--courses' : '' }}{{ $modalKind === 'programCoursesBulk' ? ' modal--courses-bulk' : '' }}" id="settingsModalBox" x-on:click.stop>
+    <div class="modal{{ $modalKind === 'college' ? ' modal--college' : '' }}{{ $modalKind === 'faculty' ? ' modal--faculty' : '' }}{{ ($modalKind === 'docType' && ! $editingId && ! $parentId) ? ' modal--doc-type' : '' }}{{ in_array($modalKind, ['programCourse', 'programCoursesBulk'], true) ? ' modal--courses' : '' }}{{ $modalKind === 'programCoursesBulk' ? ' modal--courses-bulk' : '' }}" id="settingsModalBox" x-on:click.stop>
         @if(str_ends_with($modalKind, ':delete'))
             <div class="st-modal delete-modal">
                 <div class="st-modal-top">
@@ -3864,24 +3941,26 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
             </div>
         @else
-            <form class="st-modal" wire:submit.prevent="{{ str_starts_with($modalKind, 'import') ? 'runCsvImport' : 'save' }}">
+            <form class="st-modal{{ $modalKind === 'faculty' ? ' st-modal--faculty' : '' }}" wire:submit.prevent="{{ str_starts_with($modalKind, 'import') ? 'runCsvImport' : 'save' }}">
                 <div class="st-modal-top">
-                    <div class="st-modal-icon"><i class="fa-solid {{ str_starts_with($modalKind, 'import') ? 'fa-file-csv' : 'fa-pen-to-square' }}"></i></div>
-                    <button type="button" class="st-modal-close" x-on:click="dismiss()"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="st-modal-title">
-                    @if($modalKind === 'docType') {{ $editingId ? 'Edit Document Type' : ($parentId ? 'Add Sub-type' : 'Add Document Type') }}
-                    @elseif($modalKind === 'originator') {{ $editingId ? 'Edit Originator' : 'Add Originator' }}
-                    @elseif($modalKind === 'faculty') {{ $editingId ? 'Edit Faculty' : 'Add Faculty' }}
-                    @elseif($modalKind === 'importOriginators') Import Originators (CSV)
-                    @elseif($modalKind === 'importFaculties') Import Faculties (CSV)
-                    @elseif($modalKind === 'college') {{ $editingId ? 'Edit College' : 'Add College' }}
-                    @elseif($modalKind === 'program') {{ $editingId ? 'Edit Program' : 'Add Program' }}
-                    @elseif($modalKind === 'semester') {{ $editingId ? 'Edit Semester' : 'Add Semester' }}
-                    @elseif($modalKind === 'schoolYear') {{ $editingId ? 'Edit School Year' : 'Add School Year' }}
-                    @elseif($modalKind === 'programCourse') {{ $editingId ? 'Edit Course' : 'Add Courses' }}
-                    @elseif($modalKind === 'programCoursesBulk') Edit courses by program
-                    @endif
+                    <div class="st-modal-heading">
+                        <div class="st-modal-icon"><i class="fa-solid {{ $modalKind === 'faculty' ? 'fa-chalkboard-user' : (str_starts_with($modalKind, 'import') ? 'fa-file-csv' : 'fa-pen-to-square') }}"></i></div>
+                        <div class="st-modal-title">
+                            @if($modalKind === 'docType') {{ $editingId ? 'Edit Document Type' : ($parentId ? 'Add Sub-type' : 'Add Document Type') }}
+                            @elseif($modalKind === 'originator') {{ $editingId ? 'Edit Originator' : 'Add Originator' }}
+                            @elseif($modalKind === 'faculty') {{ $editingId ? 'Edit Faculty' : 'Add Faculty' }}
+                            @elseif($modalKind === 'importOriginators') Import Originators (CSV)
+                            @elseif($modalKind === 'importFaculties') Import Faculties (CSV)
+                            @elseif($modalKind === 'college') {{ $editingId ? 'Edit College' : 'Add College' }}
+                            @elseif($modalKind === 'program') {{ $editingId ? 'Edit Program' : 'Add Program' }}
+                            @elseif($modalKind === 'semester') {{ $editingId ? 'Edit Semester' : 'Add Semester' }}
+                            @elseif($modalKind === 'schoolYear') {{ $editingId ? 'Edit School Year' : 'Add School Year' }}
+                            @elseif($modalKind === 'programCourse') {{ $editingId ? 'Edit Course' : 'Add Courses' }}
+                            @elseif($modalKind === 'programCoursesBulk') Edit courses by program
+                            @endif
+                        </div>
+                    </div>
+                    <button type="button" class="st-modal-close" x-on:click="dismiss()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
                 </div>
 
                 @if($modalKind === 'importOriginators' || $modalKind === 'importFaculties')
@@ -3900,10 +3979,55 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                 @elseif($modalKind === 'docType')
                     <div class="st-field">
-                        <label class="st-label">Name</label>
-                        <input type="text" class="st-input @error('docTypeName') error @enderror" wire:model="docTypeName" placeholder="e.g. Internal, Syllabi">
+                        <label class="st-label" for="stDocTypeName">{{ $parentId ? 'Sub-type name' : 'Document type name' }}</label>
+                        <input
+                            id="stDocTypeName"
+                            type="text"
+                            class="st-input @error('docTypeName') error @enderror"
+                            wire:model="docTypeName"
+                            placeholder="{{ $parentId ? 'e.g. Memo, Circular' : 'e.g. Internal, Syllabi' }}"
+                        >
                         @error('docTypeName') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
+                    @if(! $editingId && ! $parentId)
+                        <div class="st-college-program-block">
+                            <div class="st-college-program-title">Sub-types <span class="st-optional">optional</span></div>
+                            <p class="st-faculty-hint" style="margin-top:0;">Add one or more sub-types for this document type now, or leave blank and add them later from the list.</p>
+                            <div class="st-course-rows st-doc-type-sub-rows">
+                                <div class="st-course-row st-course-row-head st-doc-type-sub-head">
+                                    <span>Sub-type name</span>
+                                    <span></span>
+                                </div>
+                                @foreach($docTypeSubRows as $i => $row)
+                                    <div class="st-course-row st-doc-type-sub-row" wire:key="doc-type-sub-row-{{ $i }}">
+                                        <div>
+                                            <input
+                                                type="text"
+                                                class="st-input @error('docTypeSubRows.'.$i.'.name') error @enderror"
+                                                wire:model="docTypeSubRows.{{ $i }}.name"
+                                                placeholder="e.g. Memo, Circular"
+                                                wire:keydown.enter.prevent="addDocTypeSubRow"
+                                            >
+                                            @error('docTypeSubRows.'.$i.'.name') <div class="field-error">{{ $message }}</div> @enderror
+                                        </div>
+                                        <button
+                                            type="button"
+                                            class="icon-btn icon-btn-danger"
+                                            title="Remove row"
+                                            wire:click="removeDocTypeSubRow({{ $i }})"
+                                            @disabled(count($docTypeSubRows) <= 1)
+                                        >
+                                            <i class="fa-solid fa-trash"></i>
+                                        </button>
+                                    </div>
+                                @endforeach
+                            </div>
+                            <button type="button" class="st-add-row-btn" wire:click="addDocTypeSubRow">
+                                <i class="fa-solid fa-plus"></i> Add another sub-type
+                            </button>
+                            @error('docTypeSubRows') <div class="field-error">{{ $message }}</div> @enderror
+                        </div>
+                    @endif
                 @elseif($modalKind === 'originator')
                     <div class="st-field">
                         <label class="st-label">Originator Name</label>
@@ -3912,29 +4036,68 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                 @elseif($modalKind === 'faculty')
                     <div class="st-field">
-                        <label class="st-label">Faculty Name</label>
-                        <input type="text" class="st-input @error('facultyName') error @enderror" wire:model="facultyName">
+                        <label class="st-label" for="stFacultyName">Faculty name</label>
+                        <input
+                            id="stFacultyName"
+                            type="text"
+                            class="st-input @error('facultyName') error @enderror"
+                            wire:model="facultyName"
+                            placeholder="e.g. Juan Dela Cruz"
+                            autocomplete="name"
+                        >
                         @error('facultyName') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
-                    <div class="st-field">
-                        <label class="st-label">Colleges</label>
+                    <div class="st-field st-field-colleges" x-data="{ q: '' }">
+                        <div class="st-label-row">
+                            <label class="st-label" style="margin-bottom:0;">Colleges</label>
+                            @if($colleges->isNotEmpty())
+                                <span class="st-faculty-count">{{ count($facultyCollegeIds) }} selected</span>
+                            @endif
+                        </div>
+                        @if($colleges->isNotEmpty())
+                            <div class="st-faculty-search">
+                                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                <input
+                                    type="search"
+                                    class="st-input"
+                                    placeholder="Filter colleges…"
+                                    x-model="q"
+                                    @keydown.enter.prevent
+                                    aria-label="Filter colleges"
+                                >
+                            </div>
+                        @endif
                         <div class="st-faculty-picks @error('facultyCollegeIds') error @enderror" role="group" aria-label="Colleges">
                             @forelse($colleges as $college)
-                                <label class="st-faculty-pick">
+                                @php
+                                    $collegeLabel = trim((string) $college->college_name);
+                                    $collegeCode = trim((string) ($college->college_code ?? ''));
+                                    $filterKey = mb_strtolower(trim($collegeLabel.' '.$collegeCode));
+                                @endphp
+                                <label
+                                    class="st-faculty-pick"
+                                    data-label="{{ $filterKey }}"
+                                    x-show="!q.trim() || ($el.dataset.label || '').includes(q.trim().toLowerCase())"
+                                >
                                     <input
                                         type="checkbox"
                                         value="{{ $college->id }}"
-                                        wire:model="facultyCollegeIds"
+                                        wire:model.live="facultyCollegeIds"
                                     >
-                                    <span>{{ $college->college_name }}{{ $college->college_code ? ' (' . $college->college_code . ')' : '' }}</span>
+                                    <span class="st-faculty-pick-body">
+                                        <span class="st-faculty-pick-name">{{ $collegeLabel !== '' ? $collegeLabel : 'Untitled college' }}</span>
+                                        @if($collegeCode !== '')
+                                            <span class="st-faculty-pick-code">{{ $collegeCode }}</span>
+                                        @endif
+                                    </span>
                                 </label>
                             @empty
-                                <p class="st-faculty-hint" style="margin:0;">Add colleges first.</p>
+                                <p class="st-faculty-empty">Add colleges first, then assign this instructor.</p>
                             @endforelse
                         </div>
                         @error('facultyCollegeIds') <div class="field-error">{{ $message }}</div> @enderror
                         @error('facultyCollegeIds.*') <div class="field-error">{{ $message }}</div> @enderror
-                        <p class="st-faculty-hint">Select every college where this instructor teaches (e.g. CAS for GE and CCS for a major course).</p>
+                        <p class="st-faculty-hint">Select every college where this instructor teaches (for example CAS for GE and CCS for a major course).</p>
                     </div>
                 @elseif($modalKind === 'college')
                     <div class="st-field">

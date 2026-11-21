@@ -987,8 +987,21 @@ body {
     width: min(640px, 96vw);
 }
 
+.modal.modal--faculty {
+    width: min(620px, 96vw);
+}
+
+.modal.modal--doc-type {
+    width: min(560px, 96vw);
+}
+
 .modal.modal--courses {
     width: min(780px, 96vw);
+}
+
+.st-doc-type-sub-rows .st-doc-type-sub-row,
+.st-doc-type-sub-rows .st-doc-type-sub-head {
+    grid-template-columns: minmax(0, 1fr) 36px;
 }
 
 .modal.modal--courses-bulk {
@@ -1083,8 +1096,17 @@ body {
 .st-modal-top {
     display: flex;
     justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.st-modal-heading {
+    display: flex;
     align-items: center;
-    margin-bottom: 16px;
+    gap: 12px;
+    min-width: 0;
+    flex: 1;
 }
 
 .st-modal-icon {
@@ -1113,6 +1135,7 @@ body {
     justify-content: center;
     font-size: 0.85rem;
     transition: all 0.15s ease;
+    flex-shrink: 0;
 }
 
 .st-modal-close:hover {
@@ -1121,11 +1144,20 @@ body {
 }
 
 .st-modal-title {
-    font-size: 1.1rem;
+    font-size: 1.15rem;
     font-weight: 700;
     color: var(--set-text);
-    margin-bottom: 20px;
+    margin: 0 0 20px;
     letter-spacing: -0.01em;
+    line-height: 1.25;
+}
+
+.st-modal-heading .st-modal-title {
+    margin: 0;
+}
+
+.st-modal--faculty .st-field-colleges {
+    margin-bottom: 8px;
 }
 
 /* ── Form Fields ── */
@@ -1135,12 +1167,20 @@ body {
 
 .st-label {
     display: block;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    color: var(--set-text-muted);
+    color: #475569;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     margin-bottom: 6px;
+}
+
+.st-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
 }
 
 .st-input,
@@ -1173,9 +1213,47 @@ body {
 }
 
 .st-faculty-hint {
+    margin: 8px 0 0;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    color: #64748b;
+}
+
+.st-faculty-count {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--set-accent);
+    white-space: nowrap;
+}
+
+.st-faculty-search {
+    position: relative;
+    margin-bottom: 8px;
+}
+
+.st-faculty-search > i {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 0.8rem;
+    pointer-events: none;
+}
+
+.st-faculty-search .st-input {
+    padding-left: 36px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    font-size: 0.9rem;
+}
+
+.st-faculty-empty {
     margin: 0;
-    font-size: 0.82rem;
-    color: var(--set-text-muted);
+    padding: 14px 8px;
+    text-align: center;
+    font-size: 0.85rem;
+    color: #64748b;
 }
 
 .st-course-rows {
@@ -1235,25 +1313,96 @@ body {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    max-height: 180px;
+    max-height: min(42vh, 280px);
     overflow-y: auto;
-    padding: 8px 10px;
+    padding: 8px;
     border: 1.5px solid var(--set-border);
-    border-radius: 10px;
-    background: var(--set-surface);
+    border-radius: 12px;
+    background: #f8fafc;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+}
+
+.st-faculty-picks::-webkit-scrollbar { width: 6px; }
+.st-faculty-picks::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+}
+
+.st-faculty-picks.error {
+    border-color: #f87171;
+    box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.12);
 }
 
 .st-faculty-pick {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.88rem;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: #fff;
+    font-size: 0.9rem;
     color: var(--set-text);
     cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.st-faculty-pick:hover {
+    border-color: #cbd5e1;
+}
+
+.st-faculty-pick:has(input:checked) {
+    border-color: color-mix(in srgb, var(--set-accent) 35%, #e2e8f0);
+    background: color-mix(in srgb, var(--set-accent-subtle) 70%, #fff);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--set-accent) 12%, transparent);
 }
 
 .st-faculty-pick input {
+    margin-top: 2px;
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
     accent-color: var(--set-accent);
+}
+
+.st-faculty-pick-body {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+
+.st-faculty-pick-name {
+    font-weight: 600;
+    line-height: 1.35;
+    color: #0f172a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.st-faculty-pick-code {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.st-faculty-pick:has(input:checked) .st-faculty-pick-code {
+    background: color-mix(in srgb, var(--set-accent) 14%, #fff);
+    color: var(--set-accent);
 }
 
 /* Kill yellow autofill */

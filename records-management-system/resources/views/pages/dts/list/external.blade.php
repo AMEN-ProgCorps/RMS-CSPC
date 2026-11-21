@@ -2850,10 +2850,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                 </select>
             </div>
             <div style="display: flex; gap: 16px; align-items: center;">
+                @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                 <label class="rms-select-all-label">
                     <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                     Select All
                 </label>
+                @endif
                 <button type="button" wire:click="toggleLayout" class="rms-select" style="background-image: none; padding-right: 12px; display: inline-flex; align-items: center; gap: 6px;">
                     @if ($layoutMode === 'table')
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
@@ -2933,9 +2935,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             <table class="rms-table">
                 <thead>
                     <tr>
+                        @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                         <th style="width: 40px; text-align: center;">
                             <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                         </th>
+                        @endif
                         <th style="width: 60px;">Item No.</th>
                         <th>Control No.</th>
                         <th>QR Code</th>
@@ -2955,9 +2959,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                             $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false) || (strtolower($t->status ?? '') === 'completed');
                         @endphp
                         <tr style="background-color: {{ $isChecked ? '#f0f6ff' : '' }};">
+                            @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                             <td style="text-align: center;">
                                 <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                             </td>
+                            @endif
                             <td style="text-align: center;">{{ $this->transactions->firstItem() + $index }}</td>
                             <td style="font-weight: 600; color: {{ $canSeeCtrlNo ? '#1e40af' : '#94a3b8' }};">
                                 {{ $canSeeCtrlNo ? $t->control_number : '—' }}
@@ -3118,7 +3124,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="11" class="rms-no-data">No transactions found.</td></tr>
+                        <tr><td colspan="{{ \App\Helpers\DtsExportHelper::isExportEnabled() ? 11 : 10 }}" class="rms-no-data">No transactions found.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -3133,10 +3139,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                 @endphp
                 <div class="dts-box-card {{ $isChecked ? 'selected' : '' }}">
                     
+                    @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                     <!-- Left side Checkbox -->
                     <div style="display: flex; align-items: center; justify-content: center; height: 20px;">
                         <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 18px; height: 18px; cursor: pointer; accent-color: #1e40af;">
                     </div>
+                    @endif
 
                     <!-- Right side Info Contents -->
                     <div class="dts-box-card-content">

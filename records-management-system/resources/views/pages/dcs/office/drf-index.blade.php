@@ -55,7 +55,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <p>Review DRF submissions from offices. Open a form to view the official print template.</p>
                 @else
                     <h1>My Document Request Forms</h1>
-                    <p>Create a DRF and save it. Print stays locked until RFIO confirms the form and notifies you to print and sign.</p>
+                    <p>Create a DRF and save it. Print stays locked until RFIU confirms the form and notifies you to print and sign.</p>
                 @endif
             </div>
             @unless($isReviewer ?? false)
@@ -93,7 +93,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <i class="fa-regular fa-file-lines" aria-hidden="true"></i>
                     <strong>{{ ($isReviewer ?? false) ? 'No office DRF submissions yet' : 'No Document Request Forms yet' }}</strong>
                     @unless($isReviewer ?? false)
-                        <p>Create a DRF for RFIO, or continue from a saved DCN that still needs its request form.</p>
+                        <p>Create a DRF for RFIU, or continue from a saved DCN that still needs its request form.</p>
                         <div class="ofi-empty-actions">
                             <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary">
                                 <i class="fa-solid fa-plus"></i> New Document Request Form
@@ -152,7 +152,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                 <i class="fa-solid fa-print"></i><span>Print</span>
                                             </a>
                                         @else
-                                            <span class="ofi-print-locked ofi-icon-action is-locked" data-print-locked data-intake-type="drf" data-intake-id="{{ $row->id }}" data-print-url="{{ route('dcs.office.drf.print', $row->id, false) }}" title="Print stays locked until RFIO notifies you to print and sign.">
+                                            <span class="ofi-print-locked ofi-icon-action is-locked" data-print-locked data-intake-type="drf" data-intake-id="{{ $row->id }}" data-print-url="{{ route('dcs.office.drf.print', $row->id, false) }}" title="Print stays locked until RFIU notifies you to print and sign.">
                                                 <i class="fa-solid fa-print"></i><span>Locked</span>
                                             </span>
                                         @endif

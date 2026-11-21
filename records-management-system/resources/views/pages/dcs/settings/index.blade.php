@@ -3946,7 +3946,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @endforeach
                         </select>
                         @error('officeId') <div class="field-error">{{ $message }}</div> @enderror
-                        <p class="st-faculty-hint">Leave this blank for offices that are not colleges (Cashier, ICTU, RFIO, and similar). Pick an office only for college units such as CCS or CEA.</p>
+                        <p class="st-faculty-hint">Leave this blank for offices that are not colleges (Cashier, ICTU, RFIU, and similar). Pick an office only for college units such as CCS or CEA.</p>
                     </div>
                     <div class="st-field">
                         <label class="st-label">College Name</label>

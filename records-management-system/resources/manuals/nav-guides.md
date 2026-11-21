@@ -59,7 +59,7 @@ Read-only received controlled documents for your office (receive/appraise on Inc
 Register new/revised documents, save drafts, then Save and Appraise into RDP
 
 # Request
-RFIO queue to notify print/sign, receive signed forms, unlock edits, and proceed to registration
+RFIU queue to notify print/sign, receive signed forms, unlock edits, and proceed to registration
 
 # Generate Report
 Export Document Masterlist, OPCR Targets, or General Report packs

@@ -382,7 +382,7 @@
                 ];
             }
         }
-        // 2. Document Registration (+ Request for RFIO)
+        // 2. Document Registration (+ Request for RFIU)
         elseif (request()->routeIs('dcs.register.*') || request()->routeIs('dcs.requests.*')) {
             $sectionTitle = 'Document Registration';
             $tabs = [

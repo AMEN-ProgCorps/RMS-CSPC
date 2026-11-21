@@ -12,7 +12,7 @@ DCS file: Modal shell for starting or reviewing an office intake from another DC
     <div class="ofi-intake-modal ofi-intake-modal--review" @click.stop>
         <div class="ofi-intake-modal-header">
             <div class="ofi-intake-modal-heading">
-                <span class="ofi-intake-modal-kicker" data-ofi-modal-kicker>RFIO review</span>
+                <span class="ofi-intake-modal-kicker" data-ofi-modal-kicker>RFIU review</span>
                 <h2 id="ofi-intake-modal-title" data-ofi-modal-title>Office submission</h2>
                 <p class="ofi-intake-modal-subtitle" data-ofi-modal-subtitle></p>
             </div>

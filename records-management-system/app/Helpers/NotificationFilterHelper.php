@@ -132,8 +132,10 @@ class NotificationFilterHelper
             || str_contains($text, 'clearance')
             || str_contains($text, 'document change notice')
             || str_contains($text, 'document request form')
+            || str_contains($text, 'ready for rfiu')
             || str_contains($text, 'ready for rfio')
             || str_contains($text, 'print and sign')
+            || str_contains($text, 'after rfiu correction')
             || str_contains($text, 'after rfio correction')
         ) {
             return 'dcs_workflow';

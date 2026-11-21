@@ -64,14 +64,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <a href="{{ route('dcs.office.dcn.show', $dcn->id, absolute: false) }}" class="reg-btn reg-btn-cancel">
                 <i class="fa-solid fa-arrow-left"></i> Back
             </a>
-            <p class="ofi-toolbar-hint">Correct the Document Change Notice, then save to resubmit to RFIO. The document will lock again after save.</p>
+            <p class="ofi-toolbar-hint">Correct the Document Change Notice, then save to resubmit to RFIU. The document will lock again after save.</p>
         </div>
 
         @if($editReason !== '')
             <div class="ofi-alert err ofi-correction-alert" role="status">
                 <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                 <div class="ofi-alert-body">
-                    <strong>RFIO asked for corrections</strong>
+                    <strong>RFIU asked for corrections</strong>
                     <span>{{ $editReason }}</span>
                 </div>
             </div>
@@ -227,7 +227,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <i class="fa-solid fa-eye" aria-hidden="true"></i> Preview form
                 </button>
                 <button type="submit" id="ofiDcnSaveBtn" class="reg-btn reg-btn-save" disabled>
-                    <i class="fa-solid fa-paper-plane"></i> Save &amp; resubmit to RFIO
+                    <i class="fa-solid fa-paper-plane"></i> Save &amp; resubmit to RFIU
                 </button>
             </div>
         </form>

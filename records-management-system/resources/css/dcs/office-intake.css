@@ -1252,7 +1252,7 @@ body.ofi-docno-use-open {
     border-bottom: 1px solid #e2e8f0;
 }
 
-/* ── Request module (RFIO) ── */
+/* ── Request module (RFIU) ── */
 .ofi-request-page.upd-container .ofi-request-stats {
     margin-top: 0;
 }
@@ -2484,7 +2484,7 @@ body.ofi-docno-use-open {
     }
 }
 
-/* Office intake RFIO review modal — distinct from office user form view */
+/* Office intake RFIU review modal — distinct from office user form view */
 body.ofi-modal-open {
     overflow: hidden;
 }
@@ -3023,7 +3023,7 @@ body.ofi-modal-open {
     font-weight: 500;
 }
 
-/* RFIO review content (inside modal) */
+/* RFIU review content (inside modal) */
 .ofi-review {
     padding: 20px 22px 24px;
 }

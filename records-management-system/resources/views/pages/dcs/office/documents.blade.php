@@ -36,7 +36,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
             session()->flash(
                 'info',
-                'Office masterlists are available to each office. RFIO can browse the full inventory in Database and Reports.'
+                'Office masterlists are available to each office. RFIU can browse the full inventory in Database and Reports.'
             );
 
             $this->redirect(route('dcs', absolute: false));

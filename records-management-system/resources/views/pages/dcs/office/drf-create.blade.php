@@ -181,9 +181,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 @if(($fromDcnId ?? 0) > 0)
                     Prefilled from Document Change Notice #{{ $fromDcnId }}. Document type follows the document being revised. Distribution starts with that document’s offices — add any extra offices before saving.
                 @elseif($isRecurring ?? false)
-                    Recurring Document Request Form. Find the registered document first (same match as DCN / admin Recur). RFIO will register this as Recurring.
+                    Recurring Document Request Form. Find the registered document first (same match as DCN / admin Recur). RFIU will register this as Recurring.
                 @else
-                    Fill in the form and save it. Print stays locked until RFIO confirms the form and notifies you to print and sign. Scanned DRF uploads are handled by RFIO during document registration.
+                    Fill in the form and save it. Print stays locked until RFIU confirms the form and notifies you to print and sign. Scanned DRF uploads are handled by RFIU during document registration.
                 @endif
             </p>
         </div>
@@ -202,7 +202,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="ofi-alert ok ofi-from-dcn-banner" role="status">
                 <div class="ofi-from-dcn-banner-body">
                     <strong>Continuing from DCN #{{ $fromDcnId }}.</strong>
-                    Title and originator are prefilled. Confirm document type and distribution offices, then save this DRF so RFIO receives one combined DCN + DRF notice.
+                    Title and originator are prefilled. Confirm document type and distribution offices, then save this DRF so RFIU receives one combined DCN + DRF notice.
                 </div>
                 <a href="{{ route('dcs.office.dcn.show', $fromDcnId, absolute: false) }}" class="ofi-dash-link ofi-from-dcn-banner-link">Open saved DCN <i class="fa-solid fa-arrow-right"></i></a>
             </div>
@@ -284,7 +284,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @if(!empty($prefill['docTypeLabel']))
                                 <p class="ofi-hint">Document type: {{ $prefill['docTypeLabel'] }}</p>
                             @endif
-                            <p class="ofi-hint">This follows the document being revised and cannot be changed. RFIO will register with this type.</p>
+                            <p class="ofi-hint">This follows the document being revised and cannot be changed. RFIU will register with this type.</p>
                         @else
                             <div class="ofi-radio-row" style="margin-top:6px;">
                                 <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked($docTypeKind === 'internal')> Internal</label>

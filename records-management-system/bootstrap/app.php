@@ -20,7 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'api/session/*',
             'api/cluster/*',
-            'api/errors/*',
+            // clear-page-guard is GET (no CSRF). auto-capture already sends X-CSRF-TOKEN from rms-error.js.
             'rdp/api/*',
             'rdp/intake/*',
         ]);

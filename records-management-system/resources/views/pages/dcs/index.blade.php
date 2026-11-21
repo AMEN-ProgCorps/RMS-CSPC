@@ -240,7 +240,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         'correction' => 'Needs correction',
         'print_ready' => 'Ready to print',
         'printed' => 'Printed',
-        'submitted' => 'Awaiting RFIO',
+        'submitted' => 'Awaiting RFIU',
     ];
 @endphp
 <div
@@ -264,7 +264,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="ofi-dash-hero-copy">
                 <p class="ofi-dash-kicker">{{ $officeName }}</p>
                 <h1>Welcome{{ $userDisplayName !== '' ? ', ' . explode(' ', $userDisplayName)[0] : '' }}</h1>
-                <p>Create and print DRF/DCN forms for RFIO, and browse controlled documents for your office.</p>
+                <p>Create and print DRF/DCN forms for RFIU, and browse controlled documents for your office.</p>
             </div>
             <div class="ofi-dash-hero-meta" aria-live="polite">
                 <div class="ofi-dash-date">
@@ -414,7 +414,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <div class="ofi-dash-empty is-drf">
                         <div class="ofi-dash-empty-icon" aria-hidden="true"><i class="fa-regular fa-file-lines"></i></div>
                         <strong>No Document Request Forms yet</strong>
-                        <p>Create a DRF to start a request for RFIO.</p>
+                        <p>Create a DRF to start a request for RFIU.</p>
                         <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DRF</a>
                     </div>
                 @else
@@ -501,7 +501,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="ofi-dash-panel-head">
                 <div>
                     <h2>How intake works</h2>
-                    <p>Three stages from draft to RFIO registration.</p>
+                    <p>Three stages from draft to RFIU registration.</p>
                 </div>
             </div>
             <ol class="ofi-dash-step-list">
@@ -509,20 +509,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <span class="ofi-dash-step-num">1</span>
                     <div>
                         <strong>Create the form</strong>
-                        <p>Fill out a new DRF or DCN for your office and submit it to RFIO for review.</p>
+                        <p>Fill out a new DRF or DCN for your office and submit it to RFIU for review.</p>
                     </div>
                 </li>
                 <li>
                     <span class="ofi-dash-step-num">2</span>
                     <div>
                         <strong>Print and sign</strong>
-                        <p>Print stays locked until RFIO confirms the form. Then print and have it signed.</p>
+                        <p>Print stays locked until RFIU confirms the form. Then print and have it signed.</p>
                     </div>
                 </li>
                 <li>
                     <span class="ofi-dash-step-num">3</span>
                     <div>
-                        <strong>Submit to RFIO</strong>
+                        <strong>Submit to RFIU</strong>
                         <p>Bring the signed hard copy to Records for registration on the masterlist.</p>
                     </div>
                 </li>

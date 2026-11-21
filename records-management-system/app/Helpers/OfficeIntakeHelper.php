@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Office Intake (non-RFIO DRF / DCN) — create once, then view / print / register handoff.
+ * Office Intake (non-RFIU DRF / DCN) — create once, then view / print / register handoff.
  *
  * LOCATION: app/Helpers/OfficeIntakeHelper.php (Composer-autoloaded). Do not move under resources/views.
  * UI callers: resources/views/pages/dcs/office-intake/* and Admin Request review pages.
@@ -21,7 +21,7 @@ use Illuminate\Validation\ValidationException;
  * Permission gate: RegisterQueryHelper::canAccessOfficeIntake() / canBrowseAllOfficeIntake().
  *
  * FLOW (happy path):
- *   storeDrf|storeDcn → RFIO listPendingOfficeRequests → beginRegister → RegisterPersistHelper::persist
+ *   storeDrf|storeDcn → RFIU listPendingOfficeRequests → beginRegister → RegisterPersistHelper::persist
  *   → markIntakeRegistered / notifyReadyForPrintSign → officeMayPrintIntake.
  *
  * DEBUG MAP (symptom → start here):
@@ -86,13 +86,13 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Allows print/view for office creators and RFIO reviewers of an intake form.
+     * Allows print/view for office creators and RFIU reviewers of an intake form.
      *
      * DEBUG: print/view 403 → officeMayPrintIntake() and ownership asserts.
      */
     /**
      * Stops with 403 when print is still locked (CSS/JS alone is not enough).
-     * RFIO/reviewers (canBrowseAllOfficeIntake) always pass via officeMayPrintIntake.
+     * RFIU/reviewers (canBrowseAllOfficeIntake) always pass via officeMayPrintIntake.
      */
     public static function assertOfficeIntakePrintAllowed(?object $record = null, bool $viewerMode = false): void
     {
@@ -104,14 +104,14 @@ class OfficeIntakeHelper
         abort_unless(
             self::officeMayPrintIntake($record),
             403,
-            'Print unlocks after RFIO confirms this form and notifies you to print and sign.'
+            'Print unlocks after RFIU confirms this form and notifies you to print and sign.'
         );
     }
 
     /**
-     * Tells whether an office user may print this form (only after RFIO unlocks print).
+     * Tells whether an office user may print this form (only after RFIU unlocks print).
      *
-     * DEBUG: Print button locked after RFIO notice → rfio_print_notified_at + this method.
+     * DEBUG: Print button locked after RFIU notice → rfio_print_notified_at + this method.
      */
     public static function officeMayPrintIntake(?object $record): bool
     {
@@ -767,7 +767,7 @@ class OfficeIntakeHelper
         $userId = (int) auth()->id();
         $printedAt = $record->office_printed_at ?? null;
 
-        // RFIO review print must not clear the office dashboard action item.
+        // RFIU review print must not clear the office dashboard action item.
         if (RegisterQueryHelper::canBrowseAllOfficeIntake() && ! RegisterQueryHelper::isLimitedDcsUser()) {
             return [
                 'ok' => true,
@@ -901,8 +901,8 @@ class OfficeIntakeHelper
                     'kind' => 'correction',
                     'type' => 'drf',
                     'title' => $row->doc_title ?: ($row->drf_no ?: 'Untitled DRF'),
-                    'meta' => $reason !== '' ? $reason : 'RFIO asked for corrections. Open the form, fix the noted items, then resubmit.',
-                    'meta_label' => $reason !== '' ? 'RFIO correction message' : 'What to do',
+                    'meta' => $reason !== '' ? $reason : 'RFIU asked for corrections. Open the form, fix the noted items, then resubmit.',
+                    'meta_label' => $reason !== '' ? 'RFIU correction message' : 'What to do',
                     'href' => route('dcs.office.drf.edit', $row->id, absolute: false),
                     'sort' => strtotime((string) ($row->edit_unlocked_at ?? $row->created_at ?? 'now')) ?: 0,
                 ]);
@@ -911,7 +911,7 @@ class OfficeIntakeHelper
                     'kind' => 'print_ready',
                     'type' => 'drf',
                     'title' => $row->doc_title ?: ($row->drf_no ?: 'Untitled DRF'),
-                    'meta' => 'Print is unlocked — print, sign, then submit to RFIO',
+                    'meta' => 'Print is unlocked — print, sign, then submit to RFIU',
                     'meta_label' => null,
                     'href' => route('dcs.office.drf.show', $row->id, absolute: false),
                     'sort' => strtotime((string) ($row->rfio_print_notified_at ?? $row->created_at ?? 'now')) ?: 0,
@@ -927,8 +927,8 @@ class OfficeIntakeHelper
                     'title' => $row->document_title
                         ?? $row->originator_name
                         ?? ($row->dcn_no ?: 'Untitled DCN'),
-                    'meta' => $reason !== '' ? $reason : 'RFIO asked for corrections. Open the form, fix the noted items, then resubmit.',
-                    'meta_label' => $reason !== '' ? 'RFIO correction message' : 'What to do',
+                    'meta' => $reason !== '' ? $reason : 'RFIU asked for corrections. Open the form, fix the noted items, then resubmit.',
+                    'meta_label' => $reason !== '' ? 'RFIU correction message' : 'What to do',
                     'href' => route('dcs.office.dcn.edit', $row->id, absolute: false),
                     'sort' => strtotime((string) ($row->edit_unlocked_at ?? $row->created_at ?? 'now')) ?: 0,
                 ]);
@@ -939,7 +939,7 @@ class OfficeIntakeHelper
                     'title' => $row->document_title
                         ?? $row->originator_name
                         ?? ($row->dcn_no ?: 'Untitled DCN'),
-                    'meta' => 'Print is unlocked — print, sign, then submit to RFIO',
+                    'meta' => 'Print is unlocked — print, sign, then submit to RFIU',
                     'meta_label' => null,
                     'href' => route('dcs.office.dcn.show', $row->id, absolute: false),
                     'sort' => strtotime((string) ($row->rfio_print_notified_at ?? $row->created_at ?? 'now')) ?: 0,
@@ -988,11 +988,11 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Lists office intakes waiting in the Admin Request queue for RFIO.
+     * Lists office intakes waiting in the Admin Request queue for RFIU.
      * @return \Illuminate\Support\Collection<int, object>
      */
     // =====================================================================
-    // SECTION: RFIO REQUEST QUEUE — pending office forms awaiting registration
+    // SECTION: RFIU REQUEST QUEUE — pending office forms awaiting registration
     // =====================================================================
     
     public static function listPendingOfficeRequests(?string $typeFilter = null)
@@ -1249,7 +1249,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Tells whether RFIO started registration but has not finished yet.
+     * Tells whether RFIU started registration but has not finished yet.
      *
      * DEBUG: unexpected allow/deny → check this predicate.
      */
@@ -1271,7 +1271,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Where RFIO should land when opening an intake from a notification / deep link.
+     * Where RFIU should land when opening an intake from a notification / deep link.
      * Claimed-but-not-registered → continue Register (Proceed already ran).
      * Otherwise → Request review page.
      */
@@ -1314,7 +1314,7 @@ class OfficeIntakeHelper
             }
         }
 
-        // Prefer explicit RFIO registration stamp. Draft-linked request ids alone
+        // Prefer explicit RFIU registration stamp. Draft-linked request ids alone
         // never reach here; non-draft linked rows stay registered for legacy data.
         if (empty($registeredAt) && $registeredRequestId < 1) {
             return $empty;
@@ -2495,7 +2495,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Another office DCN for this registered document that RFIO has not registered yet.
+     * Another office DCN for this registered document that RFIU has not registered yet.
      *
      * DEBUG: duplicate blocked or slipped through → check here.
      * @param  list<string>  $originators
@@ -3605,8 +3605,8 @@ class OfficeIntakeHelper
             ['drf_id' => $id, 'title' => (string) ($data['drfTitle'] ?? '')]
         );
 
-        // Always notify Document Controllers / RFIO review queue.
-        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIO/RFOIU.
+        // Always notify Document Controllers / RFIU review queue.
+        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIU/RFOIU.
         DcsNotificationService::notifyOfficeIntakeResubmitted(
             RegisterQueryHelper::rfioNotificationOfficeCode(),
             RegisterQueryHelper::currentUserDisplayName(),
@@ -3617,7 +3617,7 @@ class OfficeIntakeHelper
 
         return redirect()
             ->route('dcs.office.drf.show', $id)
-            ->with('success', 'Document Request Form updated and resubmitted to RFIO. This document is locked again.')
+            ->with('success', 'Document Request Form updated and resubmitted to RFIU. This document is locked again.')
             ->with('locked', true);
     }
 
@@ -3735,8 +3735,8 @@ class OfficeIntakeHelper
 
         DcsNotificationService::dismissOfficeIntakeNotifications('dcn', $id);
 
-        // Always notify Document Controllers / RFIO review queue.
-        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIO/RFOIU.
+        // Always notify Document Controllers / RFIU review queue.
+        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIU/RFOIU.
         RegisterPersistHelper::logAdminChange(
             'Updated office DCN #' . $id
             . ($docNo !== '' ? ' for ' . $docNo : '')
@@ -3761,7 +3761,7 @@ class OfficeIntakeHelper
 
         return redirect()
             ->route('dcs.office.dcn.show', $id)
-            ->with('success', 'Document Change Notice updated and resubmitted to RFIO. This document is locked again.')
+            ->with('success', 'Document Change Notice updated and resubmitted to RFIU. This document is locked again.')
             ->with('locked', true);
     }
 
@@ -4944,7 +4944,7 @@ class OfficeIntakeHelper
      * School years reserved by another *open* office DRF for the same course + sub-type.
      *
      * Registered syllabi packs are NOT treated as taken — a second faculty can still
-     * submit a DRF for that course/S/Y; RFIO Proceed opens the existing registration
+     * submit a DRF for that course/S/Y; RFIU Proceed opens the existing registration
      * (edit + intake stamp) instead of creating a new pack.
      *
      * Key: "{college_id}:{program_id}:{semester_id}:{course_id}:{sub_type_id}" → list of school_year_id.
@@ -6166,7 +6166,7 @@ class OfficeIntakeHelper
         }
 
         if (preg_match('#/dcs/(?:requests|register/requests|office)/(drf|dcn)/(\d+)(/edit)?(?:/|$|\?)#', (string) $path, $matches)) {
-            // Success notices use ?registered=1 — not an open RFIO review item.
+            // Success notices use ?registered=1 — not an open RFIU review item.
             if (! empty($params['registered'])) {
                 return null;
             }
@@ -6286,7 +6286,7 @@ class OfficeIntakeHelper
 
     /**
      * Find a controlled masterlist request that matches this office intake title
-     * (created at/after the intake), used to close orphaned RFIO review items.
+     * (created at/after the intake), used to close orphaned RFIU review items.
      */
     private static function findMatchingControlledRequestId(string $type, object $record): int
     {
@@ -6365,7 +6365,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Starts RFIO “Proceed to Register”: claims the intake and returns the Register URL.
+     * Starts RFIU “Proceed to Register”: claims the intake and returns the Register URL.
      *
      * DEBUG: Proceed disabled / wrong register URL → isIntakeClaimedPending + registerContinueUrl.
      */
@@ -6558,7 +6558,7 @@ class OfficeIntakeHelper
     /**
      * A claimed office form stays "Submitted" when the registration save did not
      * carry the intake id. Link it once a controlled copy of that document
-     * exists from the moment RFIO started registration.
+     * exists from the moment RFIU started registration.
      */
     public static function reconcileClaimedIntakesWithRegistrations(): void
     {
@@ -6908,7 +6908,7 @@ class OfficeIntakeHelper
 
     /**
      * Link office intake → draft/registration request without notifying the office.
-     * Used when RFIO saves a draft from Proceed to Registration.
+     * Used when RFIU saves a draft from Proceed to Registration.
      */
     public static function linkIntakeToRegistrationRequest(string $type, int $intakeId, int $requestId): void
     {
@@ -7182,7 +7182,7 @@ class OfficeIntakeHelper
             }
         }
 
-        // Include RFIO/RFOIU when the submitter belongs there (limited intake staff).
+        // Include RFIU/RFOIU when the submitter belongs there (limited intake staff).
         // Other offices are unaffected — this list is only the creator's office.
         return collect($codes)
             ->map(fn ($c) => strtoupper(trim((string) $c)))
@@ -7260,7 +7260,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * RFIO returns an incorrect office intake so the submitting office can edit it.
+     * RFIU returns an incorrect office intake so the submitting office can edit it.
      * @return array<string, mixed>
      */
     public static function unlockForEdit(string $type, int $id, string $reason): array
@@ -7301,7 +7301,7 @@ class OfficeIntakeHelper
         $formLabel = $type === 'dcn' ? 'Document Change Notice' : 'Document Request Form';
         $title = trim((string) ($type === 'dcn' ? ($record->document_title ?? '') : ($record->doc_title ?? '')));
         $titlePart = $title !== '' ? " \"{$title}\"" : '';
-        $message = "RFIO returned your {$formLabel}{$titlePart} for correction: {$reason}. You can edit and resubmit it now.";
+        $message = "RFIU returned your {$formLabel}{$titlePart} for correction: {$reason}. You can edit and resubmit it now.";
         $url = '/dcs/office/' . $type . '/' . $id . '/edit';
 
         foreach (self::intakeOfficeCodes($type, $id, $record) as $officeCode) {
@@ -7367,7 +7367,7 @@ class OfficeIntakeHelper
         $peer = self::linkedIntakePeer($type, $id);
         $peerAlsoNotified = false;
 
-        // Linked DCN+DRF: one RFIO confirm marks both forms ready and sends a single pair notice.
+        // Linked DCN+DRF: one RFIU confirm marks both forms ready and sends a single pair notice.
         // Hold only when the peer is still unlocked for correction.
         if ($peer !== null && empty($peer['record']->rfio_print_notified_at ?? null)) {
             if (! empty($peer['record']->edit_unlocked_at)) {
@@ -7546,7 +7546,7 @@ class OfficeIntakeHelper
         }
         $rfioCodes = array_values(array_unique($rfioCodes));
 
-        // Prefer non-RFIO client offices. If the submitter is in RFIO/RFOIU (same office
+        // Prefer non-RFIU client offices. If the submitter is in RFIU/RFOIU (same office
         // as Document Controllers), still notify that office — limited-DCS staff see it;
         // full Document Controllers have client notices filtered from their bell.
         $withoutRfio = $codes
@@ -7809,8 +7809,8 @@ class OfficeIntakeHelper
             'id' => $id,
             'title' => 'Office DCN Submission',
             'subtitle' => $registered
-                ? 'Already registered / controlled — this RFIO review item is closed.'
-                : 'Review only — submitted by another office for RFIO processing.',
+                ? 'Already registered / controlled — this RFIU review item is closed.'
+                : 'Review only — submitted by another office for RFIU processing.',
             'html' => view('pages.dcs.office.partials.review-submission-dcn', [
                 'dcn' => $dcn,
                 'docNo' => $docNo,
@@ -7850,8 +7850,8 @@ class OfficeIntakeHelper
             'id' => $id,
             'title' => 'Office DRF Submission',
             'subtitle' => $registered
-                ? 'Already registered / controlled — this RFIO review item is closed.'
-                : 'Review only — submitted by another office for RFIO processing.',
+                ? 'Already registered / controlled — this RFIU review item is closed.'
+                : 'Review only — submitted by another office for RFIU processing.',
             'html' => view('pages.dcs.office.partials.review-submission-drf', [
                 'drf' => $drf,
                 'distributeOffices' => self::drfDistributeOffices($drf),
@@ -7985,7 +7985,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Undo "I have received the signed printed form…" so RFIO can return it for correction instead.
+     * Undo "I have received the signed printed form…" so RFIU can return it for correction instead.
      * @return array<string, mixed>
      */
     public static function clearReceived(string $type, int $id): array
@@ -9674,7 +9674,7 @@ class OfficeIntakeHelper
             }
 
             // Do not office-broadcast "marked as received" to distribution / intake offices.
-            // Creating offices must not see peer receive notices — RFIO / Document Controllers only.
+            // Creating offices must not see peer receive notices — RFIU / Document Controllers only.
         }
 
         DcsNotificationService::notifyAdminOfficeReceivedDocument(

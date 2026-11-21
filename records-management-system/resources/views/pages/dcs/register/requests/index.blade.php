@@ -1,5 +1,5 @@
 {{--
-  DCS PAGE: RFIO office-intake request queue
+  DCS PAGE: RFIU office-intake request queue
   FILE: resources/views/pages/dcs/register/requests/index.blade.php
   DEBUG: OfficeIntakeHelper::listPendingOfficeRequests
 --}}

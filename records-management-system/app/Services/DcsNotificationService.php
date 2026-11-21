@@ -274,7 +274,7 @@ class DcsNotificationService
     }
 
     /**
-     * Tell Document Controllers / RFIO that a distribution office received a controlled document.
+     * Tell Document Controllers / RFIU that a distribution office received a controlled document.
      *
      * DEBUG: missing/wrong bell notice → check here.
      */
@@ -329,7 +329,7 @@ class DcsNotificationService
         $name = static::displayName($submitterName);
         $number = trim($drfNo) !== '' ? ' ' . trim($drfNo) : '';
         $label = trim($title) !== '' ? ": {$title}" : '';
-        $message = "New Document Request Form{$number}{$label} was submitted by {$name} and is ready for RFIO processing.";
+        $message = "New Document Request Form{$number}{$label} was submitted by {$name} and is ready for RFIU processing.";
         $url = '/dcs/register/requests/drf/' . $drfId;
 
         static::createNotification($targetOfficeCode, $message, $url);
@@ -350,7 +350,7 @@ class DcsNotificationService
         $name = static::displayName($submitterName);
         $number = trim($dcnNo) !== '' ? ' ' . trim($dcnNo) : '';
         $docLabel = trim($docNo) !== '' ? " for document {$docNo}" : '';
-        $message = "New Document Change Notice{$number}{$docLabel} was submitted by {$name} and is ready for RFIO processing.";
+        $message = "New Document Change Notice{$number}{$docLabel} was submitted by {$name} and is ready for RFIU processing.";
         $url = '/dcs/register/requests/dcn/' . $dcnId;
 
         static::createNotification($targetOfficeCode, $message, $url);
@@ -372,7 +372,7 @@ class DcsNotificationService
         $name = static::displayName($submitterName);
         $docLabel = trim($docNo) !== '' ? ' for document ' . trim($docNo) : '';
         $titleLabel = trim($title) !== '' ? ': ' . trim($title) : '';
-        $message = "New Document Change Notice and Document Request Form{$docLabel}{$titleLabel} was submitted by {$name} and is ready for RFIO processing.";
+        $message = "New Document Change Notice and Document Request Form{$docLabel}{$titleLabel} was submitted by {$name} and is ready for RFIU processing.";
         $url = '/dcs/register/requests/dcn/' . $dcnId;
 
         static::createNotification($targetOfficeCode, $message, $url);
@@ -394,14 +394,14 @@ class DcsNotificationService
         $type = strtolower($type);
         $formLabel = $type === 'dcn' ? 'Document Change Notice' : 'Document Request Form';
         $label = trim($title) !== '' ? ": {$title}" : '';
-        $message = "Updated {$formLabel}{$label} was resubmitted by {$name} after RFIO correction and is ready for review.";
+        $message = "Updated {$formLabel}{$label} was resubmitted by {$name} after RFIU correction and is ready for review.";
         $url = '/dcs/register/requests/' . ($type === 'dcn' ? 'dcn' : 'drf') . '/' . $intakeId;
 
         static::createNotification($targetOfficeCode, $message, $url);
     }
 
     /**
-     * RFIO approved the electronic submission — tell the office to print, sign, and bring the hard copy.
+     * RFIU approved the electronic submission — tell the office to print, sign, and bring the hard copy.
      *
      * DEBUG: print locked/unlocked wrongly → check rfio_print_notified_at logic here.
      */
@@ -443,7 +443,7 @@ class DcsNotificationService
     }
 
     /**
-     * Remove RFIO office-intake submit notifications for a DRF/DCN once it is registered
+     * Remove RFIU office-intake submit notifications for a DRF/DCN once it is registered
      * or returned/resubmitted. Keeps ?registered=1 success notices.
      *
      * DEBUG: register handoff / claim / intake link issues → check here.
@@ -487,7 +487,8 @@ class DcsNotificationService
 
                 $content = (string) ($row->content ?? '');
                 if (
-                    str_contains($content, 'ready for RFIO processing')
+                    str_contains($content, 'ready for RFIU processing')
+                    || str_contains($content, 'ready for RFIO processing')
                     && (
                         str_contains($url, '/dcs/office/' . $type . '/' . $id)
                         || str_contains($url, '/dcs/requests/' . $type . '/' . $id)

@@ -18,9 +18,9 @@ Create form CSPC-F-DCC-01 to revise an existing controlled document.
 
 ## Save options
 - Confirm checkbox: I am confirming all the inputted data are correct.
-- Also create a Document Request Form (DRF) for this change after save: Optional. When checked, save continues to a prefilled New DRF; RFIO is notified once both forms are submitted.
+- Also create a Document Request Form (DRF) for this change after save: Optional. When checked, save continues to a prefilled New DRF; RFIU is notified once both forms are submitted.
 - Preview form: Opens the printable preview (Enter in fields does not trigger it).
 - Save button label: Save (cannot edit later), or Save DCN, then continue to DRF when the Also-DRF checkbox is on.
 
 > [!NOTE]
-> You cannot edit after save unless RFIO unlocks the notice for correction.
+> You cannot edit after save unless RFIU unlocks the notice for correction.

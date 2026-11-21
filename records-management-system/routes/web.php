@@ -1146,7 +1146,7 @@ Route::middleware(['auth'])
                 $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
                 $sourceOffices = OfficeIntakeHelper::drfSourceOffices($id);
                 $allowPrint = OfficeIntakeHelper::officeMayPrintIntake($drf);
-                $printLockMessage = 'Print unlocks after RFIO confirms this form and notifies you to print and sign.';
+                $printLockMessage = 'Print unlocks after RFIU confirms this form and notifies you to print and sign.';
 
                 return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage'));
             })->name('office.drf.print');
@@ -1173,7 +1173,7 @@ Route::middleware(['auth'])
                 $revisions = OfficeIntakeHelper::dcnRevisions($id);
                 $sourceOffices = OfficeIntakeHelper::dcnSourceOffices($id);
                 $allowPrint = OfficeIntakeHelper::officeMayPrintIntake($dcn);
-                $printLockMessage = 'Print unlocks after RFIO confirms this form and notifies you to print and sign.';
+                $printLockMessage = 'Print unlocks after RFIU confirms this form and notifies you to print and sign.';
 
                 return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage'));
             })->name('office.dcn.print');
@@ -1324,7 +1324,7 @@ Route::middleware(['auth'])
                 });
 
                 // Request queue lives under /register/requests (Document Registration nav)
-                // but is not gated by dcs.module:register — RFIO review clearance is enough.
+                // but is not gated by dcs.module:register — RFIU review clearance is enough.
                 Volt::route('/register/requests', 'pages.dcs.register.requests.index')->name('requests.index');
                 Volt::route('/register/requests/{type}/{id}', 'pages.dcs.register.requests.show')
                     ->whereIn('type', ['drf', 'dcn'])

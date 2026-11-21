@@ -3,7 +3,7 @@ Create form CSPC-F-DCC-06 for a new controlled document request.
 
 ## Entry modes
 - New DRF: Normal create form (toolbar: Back to list).
-- Recurring DRF: Opened with `mode=recurring`. Complete **Find the document to recur** first (registered document no., current title, originator → Find document). Only the latest revision can be recurred. RFIO will register this as Recurring.
+- Recurring DRF: Opened with `mode=recurring`. Complete **Find the document to recur** first (registered document no., current title, originator → Find document). Only the latest revision can be recurred. RFIU will register this as Recurring.
 - From DCN: Continues after a change notice when linked. Title/originator are prefilled; document type follows the document being revised and stays locked.
 
 ## Fields you fill
@@ -21,7 +21,7 @@ Create form CSPC-F-DCC-06 for a new controlled document request.
 ## Buttons
 - Confirm checkbox: I am confirming all the inputted data are correct.
 - Preview form: Opens printable preview in a new tab. Use the button; Enter in fields does not open it or submit.
-- Save (cannot edit later): Enabled only after the confirm checkbox. No file upload on this page — RFIO handles scans during registration.
+- Save (cannot edit later): Enabled only after the confirm checkbox. No file upload on this page — RFIU handles scans during registration.
 
 > [!NOTE]
-> You cannot edit after save unless RFIO unlocks the form for correction. After print/sign, bring the hard copy to Records.
+> You cannot edit after save unless RFIU unlocks the form for correction. After print/sign, bring the hard copy to Records.

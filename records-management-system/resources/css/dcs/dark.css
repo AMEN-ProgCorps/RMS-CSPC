@@ -2652,7 +2652,7 @@
     color: #94a3b8;
 }
 
-/* Office intake RFIO review modal */
+/* Office intake RFIU review modal */
 [data-theme="dark"] .ofi-intake-modal-overlay {
     background: rgba(2, 6, 23, 0.78) !important;
 }
@@ -3305,7 +3305,7 @@
     color: #ddd6fe !important;
 }
 
-/* ── Request (RFIO) + office intake shell ── */
+/* ── Request (RFIU) + office intake shell ── */
 [data-theme="dark"] .ofi-request-page.upd-container,
 [data-theme="dark"] .ofi-request-review-page {
     background: #0b0f19 !important;

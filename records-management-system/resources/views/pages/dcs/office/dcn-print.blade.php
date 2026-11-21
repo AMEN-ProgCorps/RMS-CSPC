@@ -709,7 +709,7 @@ window.print = function () {};
 @endif
 <div class="print-toolbar">
     @if($viewerMode)
-        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
+        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIU review</span>
     @elseif(! $allowPrint)
         <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">{{ $printLockMessage }}</span>
         <button type="button" class="btn-close" onclick="window.close()">Close</button>

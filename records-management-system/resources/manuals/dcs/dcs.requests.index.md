@@ -1,5 +1,5 @@
 # Request Queue
-RFIO queue of office **DRF** and **DCN** submissions waiting for review.
+RFIU queue of office **DRF** and **DCN** submissions waiting for review.
 
 > [!NOTE]
 > Office Intake users do not use this page—they use **My DRF / My DCN**. Access requires browse-all office intake clearance.

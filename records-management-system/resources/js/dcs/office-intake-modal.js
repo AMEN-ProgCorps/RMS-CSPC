@@ -441,7 +441,7 @@
         body.innerHTML = '<div class="ofi-modal-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading submission…</div>';
 
         if (titleEl) titleEl.textContent = type === 'dcn' ? 'Office DCN Submission' : 'Office DRF Submission';
-        if (subtitleEl) subtitleEl.textContent = 'Review only — submitted by another office for RFIO processing.';
+        if (subtitleEl) subtitleEl.textContent = 'Review only — submitted by another office for RFIU processing.';
 
         try {
             const response = await fetch('/dcs/api/office-intake/' + encodeURIComponent(type) + '/' + encodeURIComponent(id), {

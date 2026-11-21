@@ -55,7 +55,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <p>Review DCN submissions from offices. Open a form to view the official print template.</p>
                 @else
                     <h1>My Document Change Notices</h1>
-                    <p>Create a DCN and save it. Print stays locked until RFIO confirms the form and notifies you to print and sign.</p>
+                    <p>Create a DCN and save it. Print stays locked until RFIU confirms the form and notifies you to print and sign.</p>
                 @endif
             </div>
             @unless($isReviewer ?? false)
@@ -158,7 +158,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                 <i class="fa-solid fa-print"></i><span>Print</span>
                                             </a>
                                         @else
-                                            <span class="ofi-print-locked ofi-icon-action is-locked" data-print-locked data-intake-type="dcn" data-intake-id="{{ $row->id }}" data-print-url="{{ route('dcs.office.dcn.print', $row->id, false) }}" title="Print stays locked until RFIO notifies you to print and sign.">
+                                            <span class="ofi-print-locked ofi-icon-action is-locked" data-print-locked data-intake-type="dcn" data-intake-id="{{ $row->id }}" data-print-url="{{ route('dcs.office.dcn.print', $row->id, false) }}" title="Print stays locked until RFIU notifies you to print and sign.">
                                                 <i class="fa-solid fa-print"></i><span>Locked</span>
                                             </span>
                                         @endif

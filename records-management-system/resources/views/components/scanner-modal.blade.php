@@ -1453,8 +1453,8 @@ new class extends Component {
                     right: 24px;
                     width: 1040px;
                     max-width: calc(100vw - 32px);
-                    height: 520px;
-                    max-height: calc(100vh - 105px);
+                    height: 480px;
+                    max-height: calc(100vh - 110px);
                     border-radius: 16px;
                     background: #ffffff;
                     box-shadow: 0 24px 50px -10px rgba(15, 23, 42, 0.32), 0 0 0 1px rgba(148, 163, 184, 0.25);
@@ -1467,12 +1467,12 @@ new class extends Component {
                     font-family: 'Inter', system-ui, -apple-system, sans-serif;
                 }
                 .dts-scanner-widget-card.is-maximized {
-                    bottom: 16px;
+                    bottom: 88px;
                     right: 16px;
                     width: calc(100vw - 32px);
                     max-width: calc(100vw - 32px);
-                    height: calc(100vh - 32px);
-                    max-height: calc(100vh - 32px);
+                    height: calc(100vh - 120px);
+                    max-height: calc(100vh - 120px);
                     border-radius: 14px;
                     box-shadow: 0 25px 60px -10px rgba(15, 23, 42, 0.5), 0 0 0 1px rgba(148, 163, 184, 0.3);
                 }
@@ -1737,8 +1737,8 @@ new class extends Component {
                 @media (max-width: 860px) {
                     .dts-scanner-widget-card {
                         width: calc(100vw - 20px) !important;
-                        height: calc(100vh - 90px) !important;
-                        bottom: 75px !important;
+                        height: calc(100vh - 105px) !important;
+                        bottom: 80px !important;
                         right: 10px !important;
                     }
                     .dts-scanner-widget-body {
@@ -1942,27 +1942,31 @@ new class extends Component {
                     border-color: #334155 !important;
                 }
                 [data-theme="dark"] .dts-hub-inner-pane {
-                    background: #0f172a !important;
+                    background: rgba(0, 0, 0, 0.6) !important;
                 }
-                [data-theme="dark"] .dts-hub-inner-pane [style*="background: #ffffff"],
-                [data-theme="dark"] .dts-hub-inner-pane [style*="background:#ffffff"],
-                [data-theme="dark"] .dts-hub-inner-pane [style*="background: #f8fafc"],
-                [data-theme="dark"] .dts-hub-inner-pane [style*="background:#f8fafc"] {
-                    background: #111827 !important;
+                [data-theme="dark"] .dts-hub-card {
+                    background: #0f172a !important;
+                    border-color: #334155 !important;
+                }
+                [data-theme="dark"] .dts-hub-card [style*="background: #ffffff"],
+                [data-theme="dark"] .dts-hub-card [style*="background:#ffffff"],
+                [data-theme="dark"] .dts-hub-card [style*="background: #f8fafc"],
+                [data-theme="dark"] .dts-hub-card [style*="background:#f8fafc"] {
+                    background: #1e293b !important;
                     border-color: #334155 !important;
                     color: #e2e8f0 !important;
                 }
-                [data-theme="dark"] .dts-hub-inner-pane .ia-modal-title {
+                [data-theme="dark"] .dts-hub-card .ia-modal-title {
                     color: #f8fafc !important;
                 }
-                [data-theme="dark"] .dts-hub-inner-pane .ia-collective-name {
+                [data-theme="dark"] .dts-hub-card .ia-collective-name {
                     color: #e2e8f0 !important;
                 }
-                [data-theme="dark"] .dts-hub-inner-pane .ia-collective-code-badge {
+                [data-theme="dark"] .dts-hub-card .ia-collective-code-badge {
                     background: #334155 !important;
                     color: #f8fafc !important;
                 }
-                [data-theme="dark"] .dts-hub-inner-pane input[type="text"] {
+                [data-theme="dark"] .dts-hub-card input[type="text"] {
                     background: #0f172a !important;
                     color: #f8fafc !important;
                     border-color: #475569 !important;

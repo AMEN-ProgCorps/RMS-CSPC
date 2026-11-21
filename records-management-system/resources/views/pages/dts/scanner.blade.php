@@ -1301,7 +1301,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     </script>
 
     {{-- Header Banner & Mode Switches --}}
-    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;">
+    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 14px 20px; margin-bottom: 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;">
         <div style="display: flex; align-items: center; gap: 16px;">
             <div style="width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); display: flex; align-items: center; justify-content: center; color: #ffffff; box-shadow: 0 4px 10px rgba(2, 132, 199, 0.3);">
                 <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none">
@@ -1448,7 +1448,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 </div>
 
                 {{-- Viewport Container --}}
-                <div class="scanner-viewport-box" style="position: relative; width: 100%; height: 320px; background: #0f172a; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                <div class="scanner-viewport-box" style="position: relative; width: 100%; height: 250px; background: #0f172a; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
                     <div id="console-qr-reader" style="width: 100%; height: 100%;"></div>
 
                     {{-- Laser Scan Overlay Animation --}}
@@ -1786,7 +1786,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             border-radius: 14px;
             overflow: hidden;
             position: relative;
-            min-height: 320px;
+            min-height: 250px;
             width: 100%;
             display: flex;
             align-items: center;
@@ -1803,7 +1803,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             object-fit: cover !important;
             background: #0f172a;
             border-radius: 12px;
-            max-height: 360px;
+            max-height: 270px;
         }
         #console-qr-reader__scan_region {
             border: 3.5px dashed #0284c7 !important;

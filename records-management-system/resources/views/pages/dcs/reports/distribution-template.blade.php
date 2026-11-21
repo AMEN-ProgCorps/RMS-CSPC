@@ -12,7 +12,24 @@ DCS file: Print layout for a distribution and retrieval sheet.
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ empty($embed) ? (($title ?? 'DISTRIBUTION AND RETRIEVAL') . ' — ' . ($letterNumber ?? 'CSPC-F-DCC-05')) : '' }}</title>
+    @php
+        $ths = is_array($tableHeaderStyle ?? null) ? $tableHeaderStyle : [];
+        $hdrBg = (string) ($ths['header_row_bg'] ?? '#ffffff');
+        $hdrFg = (string) ($ths['header_row_color'] ?? '#000000');
+        $hdrFf = (string) ($ths['header_font_family'] ?? 'Arial');
+        $hdrFs = (float) ($ths['header_font_size_pt'] ?? 11);
+        $hdrFw = (int) ($ths['header_font_weight'] ?? 700);
+        $hdrFi = (string) ($ths['header_font_style'] ?? 'normal');
+    @endphp
     <style>
+        :root {
+            --dcs-thead-bg: {{ $hdrBg }};
+            --dcs-thead-fg: {{ $hdrFg }};
+            --dcs-thead-ff: {{ $hdrFf }}, Helvetica, sans-serif;
+            --dcs-thead-fs: {{ $hdrFs }}pt;
+            --dcs-thead-fw: {{ $hdrFw }};
+            --dcs-thead-fi: {{ $hdrFi }};
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { min-height: 100%; }
         body {
@@ -297,15 +314,19 @@ DCS file: Print layout for a distribution and retrieval sheet.
             overflow-wrap: break-word;
         }
         .data-table thead tr.group-header th {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 11pt;
-            font-weight: 700;
-            background: #fff;
+            font-family: var(--dcs-thead-ff, Arial, Helvetica, sans-serif);
+            font-size: var(--dcs-thead-fs, 11pt);
+            font-weight: var(--dcs-thead-fw, 700);
+            font-style: var(--dcs-thead-fi, normal);
+            color: var(--dcs-thead-fg, #000);
+            background: var(--dcs-thead-bg, #fff);
             height: 0.65in;
             padding: 4px;
             white-space: nowrap;
             text-align: center;
             vertical-align: middle;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
         /* Sub-header = 3 × 11pt: top space + 11pt text + bottom space */
         .data-table thead tr.sub-header {
@@ -514,8 +535,16 @@ DCS file: Print layout for a distribution and retrieval sheet.
 
         $totalPages = max(1, count($pageChunks));
         $documentTitle = trim((string) ($documentTitle ?? ''));
-        $footerEffectivityFixed = 'August 2019';
-        $footerRevFixed = '2';
+        $footerEffectivityFixed = trim((string) ($footerEffectivity ?? '')) !== ''
+            ? (string) $footerEffectivity
+            : 'August 2019';
+        $footerRevFixed = trim((string) ($footerRev ?? '')) !== ''
+            ? (string) $footerRev
+            : '2';
+
+        $tplCols = is_array($templateColumns['columns'] ?? null) ? $templateColumns['columns'] : [];
+        $visibleTplCols = array_values(array_filter($tplCols, fn ($c) => is_array($c) && ! empty($c['visible'])));
+        $useTplCols = count($visibleTplCols) >= 2;
 
         $colgroup = '
             <colgroup>
@@ -526,6 +555,16 @@ DCS file: Print layout for a distribution and retrieval sheet.
                 <col class="col-by">
                 <col class="col-ret-date">
             </colgroup>';
+        if ($useTplCols) {
+            $colgroup = '<colgroup>';
+            foreach ($visibleTplCols as $c) {
+                $w = htmlspecialchars((string) ($c['width'] ?? ''), ENT_QUOTES, 'UTF-8');
+                $colgroup .= $w !== ''
+                    ? '<col style="width:' . $w . '">'
+                    : '<col>';
+            }
+            $colgroup .= '</colgroup>';
+        }
     @endphp
 
     @foreach($pageChunks as $pageIndex => $pageRows)
@@ -569,29 +608,62 @@ DCS file: Print layout for a distribution and retrieval sheet.
                         {!! $colgroup !!}
                         @if($pageIndex === 0)
                             <thead>
-                                <tr class="group-header">
-                                    <th colspan="4">DISTRIBUTION</th>
-                                    <th colspan="2">RETRIEVAL</th>
-                                </tr>
-                                <tr class="sub-header" style="height:calc(11pt * 3);max-height:calc(11pt * 3)">
-                                    <th class="col-dept" style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle"><div class="sub-h">Department</div></th>
-                                    <th style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle"><div class="sub-h">Signature</div></th>
-                                    <th style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle"><div class="sub-h">Date</div></th>
-                                    <th class="col-copies" style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle"><div class="sub-h">Copies</div></th>
-                                    <th style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle"><div class="sub-h">By</div></th>
-                                    <th style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle"><div class="sub-h">Date</div></th>
-                                </tr>
+                                @if($useTplCols)
+                                    @php
+                                        $groups = is_array($templateColumns['group_headers'] ?? null) ? $templateColumns['group_headers'] : [];
+                                    @endphp
+                                    @if(count($groups) > 0)
+                                        <tr class="group-header">
+                                            @foreach($groups as $g)
+                                                <th colspan="{{ (int) ($g['span'] ?? 1) }}">{{ $g['label'] ?? '' }}</th>
+                                            @endforeach
+                                        </tr>
+                                    @endif
+                                    <tr class="sub-header" style="height:calc(11pt * 3);max-height:calc(11pt * 3)">
+                                        @foreach($visibleTplCols as $c)
+                                            <th style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle">
+                                                <div class="sub-h">{!! $c['label'] !!}</div>
+                                            </th>
+                                        @endforeach
+                                    </tr>
+                                @else
+                                    <tr class="group-header">
+                                        <th colspan="4">DISTRIBUTION</th>
+                                        <th colspan="2">RETRIEVAL</th>
+                                    </tr>
+                                    <tr class="sub-header" style="height:calc(11pt * 3);max-height:calc(11pt * 3)">
+                                        <th class="col-dept" style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle"><div class="sub-h">Department</div></th>
+                                        <th style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle"><div class="sub-h">Signature</div></th>
+                                        <th style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle"><div class="sub-h">Date</div></th>
+                                        <th class="col-copies" style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle"><div class="sub-h">Copies</div></th>
+                                        <th style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle"><div class="sub-h">By</div></th>
+                                        <th style="height:calc(11pt * 3);max-height:calc(11pt * 3);padding:0;font-size:11pt;line-height:calc(11pt * 3);text-align:center;vertical-align:middle"><div class="sub-h">Date</div></th>
+                                    </tr>
+                                @endif
                             </thead>
                         @endif
                         <tbody>
                             @foreach($pageRows as $office)
                                 <tr>
-                                    <td class="col-dept">{{ $office['name'] }}</td>
-                                    <td></td>
-                                    <td></td>
-                                    <td>{{ $office['copies'] !== '' && $office['copies'] !== null ? $office['copies'] : '' }}</td>
-                                    <td></td>
-                                    <td></td>
+                                    @if($useTplCols)
+                                        @foreach($visibleTplCols as $c)
+                                            @php $ck = (string) ($c['key'] ?? ''); @endphp
+                                            <td class="{{ $ck === 'department' ? 'col-dept' : '' }}">
+                                                @if($ck === 'department')
+                                                    {{ $office['name'] }}
+                                                @elseif($ck === 'copies')
+                                                    {{ $office['copies'] !== '' && $office['copies'] !== null ? $office['copies'] : '' }}
+                                                @endif
+                                            </td>
+                                        @endforeach
+                                    @else
+                                        <td class="col-dept">{{ $office['name'] }}</td>
+                                        <td></td>
+                                        <td></td>
+                                        <td>{{ $office['copies'] !== '' && $office['copies'] !== null ? $office['copies'] : '' }}</td>
+                                        <td></td>
+                                        <td></td>
+                                    @endif
                                 </tr>
                             @endforeach
                         </tbody>
@@ -602,8 +674,18 @@ DCS file: Print layout for a distribution and retrieval sheet.
                     <div class="sheet-footer-line"></div>
                     <div class="sheet-footer-inner">
                         <table class="ft-table"><tr>
-                            <td class="ft-l">Effectivity Date: <strong>{{ $footerEffectivityFixed }}</strong></td>
-                            <td class="ft-c">Rev. <strong>{{ $footerRevFixed }}</strong></td>
+                            @php
+                                $ftLeft = trim((string) ($footerLeft ?? 'Effectivity Date:'));
+                                if ($ftLeft === '') {
+                                    $ftLeft = 'Effectivity Date:';
+                                }
+                                $ftCenter = trim((string) ($footerCenter ?? 'Rev.'));
+                                if ($ftCenter === '') {
+                                    $ftCenter = 'Rev.';
+                                }
+                            @endphp
+                            <td class="ft-l">{{ $ftLeft }} <strong>{{ $footerEffectivityFixed }}</strong></td>
+                            <td class="ft-c">{{ $ftCenter }} <strong>{{ $footerRevFixed }}</strong></td>
                             <td class="ft-r">Page {{ $pageNo }} of {{ $totalPages }}</td>
                         </tr></table>
                     </div>

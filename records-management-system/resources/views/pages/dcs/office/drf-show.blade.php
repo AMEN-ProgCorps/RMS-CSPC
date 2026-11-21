@@ -198,7 +198,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <section class="reg-card ofi-show-card">
             <div class="reg-card-header">
                 <span>Document Request Form</span>
-                <span class="ofi-form-code-badge">CSPC-F-DCC-06</span>
+                <span class="ofi-form-code-badge">{{ \App\Helpers\DcsPrintTemplateHelper::get('office_drf')->form_code ?? 'CSPC-F-DCC-06' }}</span>
             </div>
             <div class="reg-card-body ofi-drf-form ofi-show-form">
                 <div class="reg-field">

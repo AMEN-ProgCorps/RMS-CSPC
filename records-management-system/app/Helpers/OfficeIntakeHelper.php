@@ -2,6 +2,7 @@
 
 namespace App\Helpers;
 
+use App\Helpers\DcsPrintTemplateHelper;
 use App\Services\DocumentStorageService;
 use App\Services\DcsNotificationService;
 use Illuminate\Http\RedirectResponse;
@@ -3183,6 +3184,7 @@ class OfficeIntakeHelper
     {
         self::assertCanAccessIntake();
         $ids = array_values(array_filter(array_map('intval', (array) $request->input('distributeToOffice', []))));
+        $distributeOffices = self::officesForPreview($ids);
         $drf = (object) [
             'id' => 0,
             'doc_title' => trim((string) $request->input('drfTitle', '')),
@@ -3196,14 +3198,50 @@ class OfficeIntakeHelper
             'reviewed_by_designation' => trim((string) $request->input('reviewedByDesignation', '')),
             'approved_by_name' => trim((string) $request->input('approvedByName', '')),
             'approved_by_designation' => trim((string) $request->input('approvedByDesignation', '')),
-            'preview_distribute_offices' => self::officesForPreview($ids),
+            'preview_distribute_offices' => $distributeOffices,
         ];
         $logoSrc = self::printLogoSrc();
         $sourceOffices = collect();
         $viewerMode = false;
         $allowPrint = false;
 
-        return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices', 'viewerMode', 'allowPrint'));
+        // Editable Form Templates layout drives office DRF print/preview.
+        $tpl = DcsPrintTemplateHelper::get('office_drf');
+        $identity = DcsPrintTemplateHelper::identityVars($tpl);
+        if (($identity['logoSrc'] ?? '') !== '') {
+            $logoSrc = $identity['logoSrc'];
+        }
+        $blocks = DcsPrintTemplateHelper::layoutBlocks($tpl);
+        if ($blocks === []) {
+            return response()->view('pages.dcs.office.drf-print', [
+                'drf' => $drf,
+                'logoSrc' => $logoSrc,
+                'sourceOffices' => $sourceOffices,
+                'viewerMode' => $viewerMode,
+                'allowPrint' => $allowPrint,
+                'printFormCode' => $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-06',
+                'printFormTitle' => $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Request Form',
+                'printRepublic' => $identity['republic'],
+                'printInstitution' => $identity['institutionName'],
+                'printAddress' => $identity['institutionAddress'],
+                'printFooterLeft' => $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:',
+                'printFooterCenter' => $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.',
+                'printFooterEffectivity' => $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018',
+                'printFooterRev' => $identity['footerRev'] !== '' ? $identity['footerRev'] : '0',
+            ]);
+        }
+
+        return response()->view('pages.dcs.reports.print-layout-renderer', [
+            'tpl' => $tpl,
+            'values' => DcsPrintTemplateHelper::drfLayoutValues($drf, $distributeOffices, $sourceOffices),
+            'logoSrcOverride' => $logoSrc,
+            'preview' => true,
+            'hideToolbar' => false,
+            'embed' => false,
+            'viewerMode' => $viewerMode,
+            'allowPrint' => false,
+            'printLockMessage' => 'Preview only — this is not a printable copy yet.',
+        ]);
     }
 
     /**
@@ -3254,7 +3292,44 @@ class OfficeIntakeHelper
         $viewerMode = false;
         $allowPrint = false;
 
-        return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint'));
+        // Editable Form Templates layout drives office DCN print/preview.
+        $tpl = DcsPrintTemplateHelper::get('office_dcn');
+        $identity = DcsPrintTemplateHelper::identityVars($tpl);
+        if (($identity['logoSrc'] ?? '') !== '') {
+            $logoSrc = $identity['logoSrc'];
+        }
+        $blocks = DcsPrintTemplateHelper::layoutBlocks($tpl);
+        if ($blocks === []) {
+            return response()->view('pages.dcs.office.dcn-print', [
+                'dcn' => $dcn,
+                'logoSrc' => $logoSrc,
+                'revisions' => $revisions,
+                'sourceOffices' => $sourceOffices,
+                'viewerMode' => $viewerMode,
+                'allowPrint' => $allowPrint,
+                'printFormCode' => $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-01',
+                'printFormTitle' => $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Change Notice',
+                'printRepublic' => $identity['republic'],
+                'printInstitution' => $identity['institutionName'],
+                'printAddress' => $identity['institutionAddress'],
+                'printFooterLeft' => $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:',
+                'printFooterCenter' => $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.',
+                'printFooterEffectivity' => $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018',
+                'printFooterRev' => $identity['footerRev'] !== '' ? $identity['footerRev'] : '0',
+            ]);
+        }
+
+        return response()->view('pages.dcs.reports.print-layout-renderer', [
+            'tpl' => $tpl,
+            'values' => DcsPrintTemplateHelper::dcnLayoutValues($dcn, $sourceOffices),
+            'logoSrcOverride' => $logoSrc,
+            'preview' => true,
+            'hideToolbar' => false,
+            'embed' => false,
+            'viewerMode' => $viewerMode,
+            'allowPrint' => false,
+            'printLockMessage' => 'Preview only — this is not a printable copy yet.',
+        ]);
     }
 
     /**

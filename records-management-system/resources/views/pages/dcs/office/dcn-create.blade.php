@@ -51,7 +51,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="reg-btn reg-btn-cancel">
                 <i class="fa-solid fa-arrow-left"></i> Back to list
             </a>
-            <p class="ofi-toolbar-hint">Fill in the Document Change Notice (CSPC-F-DCC-01) and save it. Print stays locked until RFIU confirms the form and notifies you to print and sign.</p>
+            <p class="ofi-toolbar-hint">Fill in the Document Change Notice ({{ \App\Helpers\DcsPrintTemplateHelper::get('office_dcn')->form_code ?? 'CSPC-F-DCC-01' }}) and save it. Print stays locked until RFIU confirms the form and notifies you to print and sign.</p>
         </div>
 
         @if($errors->any())
@@ -70,7 +70,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <section class="reg-card ofi-dcn-card">
                 <div class="reg-card-header">
                     <span>Document Change Notice</span>
-                    <span class="ofi-form-code-badge">CSPC-F-DCC-01</span>
+                    <span class="ofi-form-code-badge">{{ \App\Helpers\DcsPrintTemplateHelper::get('office_dcn')->form_code ?? 'CSPC-F-DCC-01' }}</span>
                 </div>
                 <div class="reg-card-body ofi-dcn-form">
                     <div class="ofi-dcn-box">

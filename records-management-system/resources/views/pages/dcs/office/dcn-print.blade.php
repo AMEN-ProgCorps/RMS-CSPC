@@ -12,7 +12,7 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title></title>
+    <title>{{ !empty($embed) || !($allowPrint ?? true) ? ((trim((string) ($printFormTitle ?? '')) !== '' ? trim((string) $printFormTitle) : 'Document Change Notice') . ' Preview') : ((trim((string) ($printFormTitle ?? '')) !== '' ? trim((string) $printFormTitle) : 'Document Change Notice') . ' — ' . ($printFormCode ?? 'CSPC-F-DCC-01')) }}</title>
     <style>
         /*
          * CSPC-F-DCC-01 Document Change Notice — short bond 8.5 × 11in
@@ -30,10 +30,14 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
             font-size: 11pt;
             line-height: 1;
             color: #000;
-            background: #e2e8f0;
+            background: {{ !empty($embed) ? '#fff' : '#e2e8f0' }};
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
         }
+        @if(!empty($hideToolbar) || !empty($embed))
+        .print-toolbar { display: none !important; }
+        .sheet { margin: 0 !important; box-shadow: none !important; }
+        @endif
         .print-toolbar {
             display: flex;
             background: #f8fafc;
@@ -554,15 +558,19 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
             height: 0;
         }
         .footer {
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
             align-items: center;
+            column-gap: 8px;
             margin: 4px 0.69in 0;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 9pt;
             font-weight: 400;
             line-height: 1;
         }
+        .footer > :nth-child(1) { text-align: left; }
+        .footer > :nth-child(2) { text-align: center; }
+        .footer > :nth-child(3) { text-align: right; }
 
         @media print {
             html, body {
@@ -784,17 +792,17 @@ function ofiPrintClean() {
             @endif
         </div>
         <div class="hdr-text-cell">
-            <div class="hdr-republic">Republic of the Philippines</div>
-            <div class="hdr-name">Camarines Sur Polytechnic Colleges</div>
-            <div class="hdr-location">Nabua, Camarines Sur</div>
+            <div class="hdr-republic">{{ $printRepublic ?? 'Republic of the Philippines' }}</div>
+            <div class="hdr-name">{{ $printInstitution ?? 'Camarines Sur Polytechnic Colleges' }}</div>
+            <div class="hdr-location">{{ $printAddress ?? 'Nabua, Camarines Sur' }}</div>
         </div>
         <div class="hdr-rule">
             <div class="hdr-rule-line"></div>
-            <span class="hdr-rule-code">CSPC-F-DCC-01</span>
+            <span class="hdr-rule-code">{{ $printFormCode ?? 'CSPC-F-DCC-01' }}</span>
         </div>
     </header>
 
-    <div class="form-title">Document Change Notice</div>
+    <div class="form-title">{{ $printFormTitle ?? 'Document Change Notice' }}</div>
 
     <div class="dcn-no-row">
         <span class="lbl">DCN #</span>
@@ -1008,8 +1016,8 @@ function ofiPrintClean() {
     <div class="footer-wrap">
         <div class="footer-rule"></div>
         <div class="footer">
-            <span>Effectivity Date: January 2018</span>
-            <span>Rev. 1</span>
+            <span>{{ trim((string) ($printFooterLeft ?? 'Effectivity Date:')) !== '' ? trim((string) ($printFooterLeft ?? 'Effectivity Date:')) : 'Effectivity Date:' }} {{ $printFooterEffectivity ?? 'January 2018' }}</span>
+            <span>{{ trim((string) ($printFooterCenter ?? 'Rev.')) !== '' ? trim((string) ($printFooterCenter ?? 'Rev.')) : 'Rev.' }} {{ $printFooterRev ?? '0' }}</span>
             <span>Page: 1 of 1</span>
         </div>
     </div>

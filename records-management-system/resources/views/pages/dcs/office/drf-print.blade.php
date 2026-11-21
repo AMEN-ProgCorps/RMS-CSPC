@@ -12,7 +12,7 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title></title>
+    <title>{{ !empty($embed) || !($allowPrint ?? true) ? ((trim((string) ($printFormTitle ?? '')) !== '' ? trim((string) $printFormTitle) : 'Document Request Form') . ' Preview') : ((trim((string) ($printFormTitle ?? '')) !== '' ? trim((string) $printFormTitle) : 'Document Request Form') . ' — ' . ($printFormCode ?? 'CSPC-F-DCC-06')) }}</title>
     <style>
         /*
          * CSPC-F-DCC-06 Document Request Form — forced print geometry
@@ -42,10 +42,14 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
             font-size: 11pt !important;
             line-height: 1 !important;
             color: #000 !important;
-            background: #e2e8f0;
+            background: {{ !empty($embed) ? '#fff' : '#e2e8f0' }};
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
         }
+        @if(!empty($hideToolbar) || !empty($embed))
+        .print-toolbar { display: none !important; }
+        .sheet { margin: 0 !important; box-shadow: none !important; }
+        @endif
         .print-toolbar {
             display: flex;
             flex-wrap: wrap;
@@ -561,9 +565,10 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
             background: #0070C0 !important;
         }
         .footer {
-            display: flex !important;
-            justify-content: space-between !important;
+            display: grid !important;
+            grid-template-columns: 1fr 1fr 1fr !important;
             align-items: center !important;
+            column-gap: 8px !important;
             margin-top: 4px !important;
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 7pt !important;
@@ -580,6 +585,9 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
             background: transparent !important;
             color: #000 !important;
         }
+        .footer > :nth-child(1) { text-align: left !important; }
+        .footer > :nth-child(2) { text-align: center !important; }
+        .footer > :nth-child(3) { text-align: right !important; }
 
         .attach-title {
             font-family: Arial, Helvetica, sans-serif !important;
@@ -977,18 +985,18 @@ window.print = function () {};
             @endif
         </div>
         <div class="hdr-text-cell">
-            <div class="hdr-republic">Republic of the Philippines</div>
-            <div class="hdr-name">Camarines Sur Polytechnic Colleges</div>
-            <div class="hdr-location">Nabua, Camarines Sur</div>
+            <div class="hdr-republic">{{ $printRepublic ?? 'Republic of the Philippines' }}</div>
+            <div class="hdr-name">{{ $printInstitution ?? 'Camarines Sur Polytechnic Colleges' }}</div>
+            <div class="hdr-location">{{ $printAddress ?? 'Nabua, Camarines Sur' }}</div>
         </div>
         <div class="hdr-rule">
             <div class="hdr-rule-line"></div>
-            <span class="hdr-rule-code">CSPC-F-DCC-06</span>
+            <span class="hdr-rule-code">{{ $printFormCode ?? 'CSPC-F-DCC-06' }}</span>
         </div>
     </header>
 
     <div class="body">
-        <div class="form-title">Document Request Form</div>
+        <div class="form-title">{{ $printFormTitle ?? 'Document Request Form' }}</div>
 
         <div class="row">
             <span class="lbl">Request # :</span>
@@ -1095,8 +1103,8 @@ window.print = function () {};
 
         <div class="footer-rule"></div>
         <div class="footer">
-            <span>Effectivity Date: January 2018</span>
-            <span>Rev. 0</span>
+            <span>{{ trim((string) ($printFooterLeft ?? 'Effectivity Date:')) !== '' ? trim((string) ($printFooterLeft ?? 'Effectivity Date:')) : 'Effectivity Date:' }} {{ $printFooterEffectivity ?? 'January 2018' }}</span>
+            <span>{{ trim((string) ($printFooterCenter ?? 'Rev.')) !== '' ? trim((string) ($printFooterCenter ?? 'Rev.')) : 'Rev.' }} {{ $printFooterRev ?? '0' }}</span>
             <span>Page: 1 of 1</span>
         </div>
     </div>

@@ -100,6 +100,7 @@
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     @vite(['resources/css/dashboard.css', 'resources/css/notifications.css', 'resources/js/dashboard.js'])
+    @livewireStyles
     <title>CSPC - Admin Console</title>
     @stack('styles')
 </head>
@@ -165,5 +166,6 @@
     @endauth
     <x-rms-error />
     @stack('scripts')
+    @livewireScripts
 </body>
 </html>

@@ -739,6 +739,17 @@
                 ],
             ];
         }
+        // 8b. Document Control System Section
+        elseif (request()->routeIs('admin.dcs.*')) {
+            $sectionTitle = 'Document Control System';
+            $tabs = [
+                [
+                    'label' => 'Form Templates',
+                    'url' => route('admin.dcs.form-templates'),
+                    'active' => request()->routeIs('admin.dcs.form-templates'),
+                ],
+            ];
+        }
         // 9. Server Settings Section
         elseif (request()->routeIs('admin.server-settings.*')) {
             $sectionTitle = 'Server Settings';

@@ -685,6 +685,65 @@ Route::middleware(['auth'])
         Volt::route('/admin/rdp/brackets', 'pages.admin.rdp.brackets')->name('admin.rdp.brackets');
         Volt::route('/admin/rdp/remark-key-triggers', 'pages.admin.rdp.remark-key-triggers')->name('admin.rdp.remark-key-triggers');
 
+        Route::redirect('/admin/dcs', '/admin/dcs/form-templates')->name('admin.dcs.index');
+        Volt::route('/admin/dcs/form-templates', 'pages.admin.dcs.form-templates')->name('admin.dcs.form-templates');
+        Route::get('/admin/dcs/form-templates/live-preview', function () {
+            $perms = auth()->user()?->permissions;
+            if (! $perms || (! $perms->is_sadm && ! ($perms->can_access_dcs_admin ?? false))) {
+                abort(403);
+            }
+            $html = session('dcs_print_tpl_live_preview_html');
+            if (! is_string($html) || trim($html) === '') {
+                return response(
+                    '<!DOCTYPE html><html><body style="font-family:Arial;padding:24px;color:#64748b">No preview yet. Open the Preview tab again.</body></html>',
+                    200,
+                    ['Content-Type' => 'text/html; charset=UTF-8']
+                );
+            }
+
+            return response($html, 200, [
+                'Content-Type' => 'text/html; charset=UTF-8',
+                'Cache-Control' => 'no-store, no-cache, must-revalidate',
+            ]);
+        })->name('admin.dcs.form-templates.live-preview');
+
+        Route::get('/admin/dcs/form-templates/{key}/preview', function (string $key) {
+            $perms = auth()->user()?->permissions;
+            if (! $perms || (! $perms->is_sadm && ! ($perms->can_access_dcs_admin ?? false))) {
+                abort(403);
+            }
+            $tpl = \App\Helpers\DcsPrintTemplateHelper::get($key);
+            $sample = [
+                'request_no' => 'SAMPLE-001',
+                'drf_date' => now()->format('F d, Y'),
+                'originator' => 'Sample Office',
+                'doc_title' => 'Sample Document Title',
+                'doc_type' => 'Internal',
+                'description' => 'Sample description for preview.',
+                'distribute_to' => 'RFIO, Registrar',
+                'prepared_by_name' => 'Juan Dela Cruz',
+                'reviewed_by_name' => 'Maria Santos',
+                'approved_by_name' => 'Pedro Reyes',
+                'dcn_no' => 'DCN-2026-001',
+                'document_no' => 'CSPC-INT-001',
+                'document_title' => 'Sample Document Title',
+                'change_from' => 'Old clause text',
+                'change_to' => 'New clause text',
+                'justification' => 'Sample justification',
+                'department' => 'RFIO',
+                'reviewed_by' => 'Maria Santos',
+                'approved_by' => 'Pedro Reyes',
+            ];
+
+            return response()->view('pages.dcs.reports.print-layout-renderer', [
+                'tpl' => $tpl,
+                'values' => $sample,
+                'preview' => true,
+                'hideToolbar' => true,
+                'embed' => true,
+            ]);
+        })->where('key', '^(?!live-preview$).+')->name('admin.dcs.form-templates.preview');
+
         Volt::route('/admin/subsystems/add', 'pages.admin.subsystems.add')->name('admin.subsystems.add');
         Volt::route('/admin/subsystems/activate', 'pages.admin.subsystems.activate')->name('admin.subsystems.activate');
         Volt::route('/admin/subsystems/deactivate', 'pages.admin.subsystems.deactivate')->name('admin.subsystems.deactivate');
@@ -1142,13 +1201,48 @@ Route::middleware(['auth'])
                 OfficeIntakeHelper::assertOwnsDrf($drf);
                 $viewerMode = request()->boolean('view');
                 OfficeIntakeHelper::assertOfficeIntakePrintAllowed($drf, $viewerMode);
-                $logoPath = public_path('images/logo.png');
-                $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
+                $tpl = \App\Helpers\DcsPrintTemplateHelper::get('office_drf');
+                $identity = \App\Helpers\DcsPrintTemplateHelper::identityVars($tpl);
+                $logoSrc = $identity['logoSrc'] !== ''
+                    ? $identity['logoSrc']
+                    : (file_exists(public_path('images/logo.png'))
+                        ? ('data:image/png;base64,' . base64_encode(file_get_contents(public_path('images/logo.png'))))
+                        : '');
                 $sourceOffices = OfficeIntakeHelper::drfSourceOffices($id);
                 $allowPrint = OfficeIntakeHelper::officeMayPrintIntake($drf);
                 $printLockMessage = 'Print unlocks after RFIU confirms this form and notifies you to print and sign.';
+                $blocks = \App\Helpers\DcsPrintTemplateHelper::layoutBlocks($tpl);
+                $distributeOffices = OfficeIntakeHelper::drfDistributeOffices($drf);
 
-                return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage'));
+                if ($blocks === []) {
+                    $printFormCode = $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-06';
+                    $printFormTitle = $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Request Form';
+                    $printRepublic = $identity['republic'];
+                    $printInstitution = $identity['institutionName'];
+                    $printAddress = $identity['institutionAddress'];
+                    $printFooterLeft = $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:';
+                    $printFooterCenter = $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.';
+                    $printFooterEffectivity = $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018';
+                    $printFooterRev = $identity['footerRev'] !== '' ? $identity['footerRev'] : '0';
+
+                    return response()->view('pages.dcs.office.drf-print', compact(
+                        'drf', 'logoSrc', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage',
+                        'printFormCode', 'printFormTitle', 'printRepublic', 'printInstitution', 'printAddress',
+                        'printFooterLeft', 'printFooterCenter', 'printFooterEffectivity', 'printFooterRev'
+                    ));
+                }
+
+                return response()->view('pages.dcs.reports.print-layout-renderer', [
+                    'tpl' => $tpl,
+                    'values' => \App\Helpers\DcsPrintTemplateHelper::drfLayoutValues($drf, $distributeOffices, $sourceOffices),
+                    'logoSrcOverride' => $logoSrc,
+                    'preview' => false,
+                    'hideToolbar' => false,
+                    'embed' => false,
+                    'viewerMode' => $viewerMode,
+                    'allowPrint' => $allowPrint,
+                    'printLockMessage' => $printLockMessage,
+                ]);
             })->name('office.drf.print');
             Route::match(['put', 'patch', 'post'], '/office/drf/{id}', function (Request $request, int $id) {
                 return OfficeIntakeHelper::updateDrf($request, $id);
@@ -1168,14 +1262,48 @@ Route::middleware(['auth'])
                 OfficeIntakeHelper::assertOwnsDcn($dcn);
                 $viewerMode = request()->boolean('view');
                 OfficeIntakeHelper::assertOfficeIntakePrintAllowed($dcn, $viewerMode);
-                $logoPath = public_path('images/logo.png');
-                $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
+                $tpl = \App\Helpers\DcsPrintTemplateHelper::get('office_dcn');
+                $identity = \App\Helpers\DcsPrintTemplateHelper::identityVars($tpl);
+                $logoSrc = $identity['logoSrc'] !== ''
+                    ? $identity['logoSrc']
+                    : (file_exists(public_path('images/logo.png'))
+                        ? ('data:image/png;base64,' . base64_encode(file_get_contents(public_path('images/logo.png'))))
+                        : '');
                 $revisions = OfficeIntakeHelper::dcnRevisions($id);
                 $sourceOffices = OfficeIntakeHelper::dcnSourceOffices($id);
                 $allowPrint = OfficeIntakeHelper::officeMayPrintIntake($dcn);
                 $printLockMessage = 'Print unlocks after RFIU confirms this form and notifies you to print and sign.';
+                $blocks = \App\Helpers\DcsPrintTemplateHelper::layoutBlocks($tpl);
 
-                return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage'));
+                if ($blocks === []) {
+                    $printFormCode = $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-01';
+                    $printFormTitle = $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Change Notice';
+                    $printRepublic = $identity['republic'];
+                    $printInstitution = $identity['institutionName'];
+                    $printAddress = $identity['institutionAddress'];
+                    $printFooterLeft = $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:';
+                    $printFooterCenter = $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.';
+                    $printFooterEffectivity = $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018';
+                    $printFooterRev = $identity['footerRev'] !== '' ? $identity['footerRev'] : '0';
+
+                    return response()->view('pages.dcs.office.dcn-print', compact(
+                        'dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage',
+                        'printFormCode', 'printFormTitle', 'printRepublic', 'printInstitution', 'printAddress',
+                        'printFooterLeft', 'printFooterCenter', 'printFooterEffectivity', 'printFooterRev'
+                    ));
+                }
+
+                return response()->view('pages.dcs.reports.print-layout-renderer', [
+                    'tpl' => $tpl,
+                    'values' => \App\Helpers\DcsPrintTemplateHelper::dcnLayoutValues($dcn, $sourceOffices),
+                    'logoSrcOverride' => $logoSrc,
+                    'preview' => false,
+                    'hideToolbar' => false,
+                    'embed' => false,
+                    'viewerMode' => $viewerMode,
+                    'allowPrint' => $allowPrint,
+                    'printLockMessage' => $printLockMessage,
+                ]);
             })->name('office.dcn.print');
             Route::match(['put', 'patch', 'post'], '/office/dcn/{id}', function (Request $request, int $id) {
                 return OfficeIntakeHelper::updateDcn($request, $id);

@@ -12,11 +12,28 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ !empty($autoPrint) || !empty($embed) ? '' : 'Document Masterlist' }}</title>
+    @php
+        $ths = is_array($tableHeaderStyle ?? null) ? $tableHeaderStyle : [];
+        $hdrBg = (string) ($ths['header_row_bg'] ?? '#8db3e2');
+        $hdrFg = (string) ($ths['header_row_color'] ?? '#000000');
+        $hdrFf = (string) ($ths['header_font_family'] ?? 'Arial');
+        $hdrFs = (float) ($ths['header_font_size_pt'] ?? 10);
+        $hdrFw = (int) ($ths['header_font_weight'] ?? 700);
+        $hdrFi = (string) ($ths['header_font_style'] ?? 'normal');
+    @endphp
     <style>
         /*
          * CSPC-F-DCC-03 Document Masterlist (Internal) — short bond 8.5 × 11
          * Line spacing 1.0. Print dialog: Margins → None.
          */
+        :root {
+            --dcs-thead-bg: {{ $hdrBg }};
+            --dcs-thead-fg: {{ $hdrFg }};
+            --dcs-thead-ff: {{ $hdrFf }}, Helvetica, sans-serif;
+            --dcs-thead-fs: {{ $hdrFs }}pt;
+            --dcs-thead-fw: {{ $hdrFw }};
+            --dcs-thead-fi: {{ $hdrFi }};
+        }
         @page {
             size: 8.5in 11in;
             margin: 0 !important;
@@ -333,17 +350,21 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         }
         .ml-thead th {
             height: 0.49in;
-            background: #8db3e2;
+            background: var(--dcs-thead-bg, #8db3e2);
+            color: var(--dcs-thead-fg, #000);
             border: 0 !important;
             border-right: 0.5pt solid #000 !important;
             border-bottom: 0.5pt solid #000 !important;
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 10pt;
-            font-weight: 700;
+            font-family: var(--dcs-thead-ff, Arial, Helvetica, sans-serif);
+            font-size: var(--dcs-thead-fs, 10pt);
+            font-weight: var(--dcs-thead-fw, 700);
+            font-style: var(--dcs-thead-fi, normal);
             line-height: 1;
             text-align: center;
             vertical-align: middle;
             padding: 0 2px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
         .ml-thead th:last-child { border-right: 0 !important; }
         .ml-thead tr:last-child th { border-bottom: 0 !important; }
@@ -362,7 +383,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         .ml-table td:last-child { border-right: 0 !important; }
         .ml-table tr:last-child td { border-bottom: 0 !important; }
         .ml-table tr.series-sep td {
-            background: #8db3e2 !important;
+            background: var(--dcs-thead-bg, #8db3e2) !important;
             border-right: 0 !important;
             border-bottom: 0.5pt solid #000 !important;
             font-family: Arial, Helvetica, sans-serif !important;
@@ -652,12 +673,15 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             overflow: hidden;
         }
         body.is-pdf .pdf-table th {
-            background: #8db3e2;
+            background: var(--dcs-thead-bg, #8db3e2);
+            color: var(--dcs-thead-fg, #000);
             border: 0;
             border-right: 0.5pt solid #000;
             border-bottom: 0.5pt solid #000;
-            font-size: 10pt;
-            font-weight: 700;
+            font-family: var(--dcs-thead-ff, Arial, Helvetica, sans-serif);
+            font-size: var(--dcs-thead-fs, 10pt);
+            font-weight: var(--dcs-thead-fw, 700);
+            font-style: var(--dcs-thead-fi, normal);
             text-align: center;
             vertical-align: middle;
             height: 0.49in;
@@ -690,7 +714,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         body.is-pdf .pdf-table td.is-doc-no,
         body.is-pdf .pdf-table td.is-doc-no b { font-weight: 700; }
         body.is-pdf .pdf-table tr.series-sep td {
-            background: #8db3e2 !important;
+            background: var(--dcs-thead-bg, #8db3e2) !important;
             border-right: 0 !important;
             border-bottom: 0.5pt solid #000 !important;
             font-family: Arial, Helvetica, sans-serif !important;

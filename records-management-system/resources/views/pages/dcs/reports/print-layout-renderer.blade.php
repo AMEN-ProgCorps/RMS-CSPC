@@ -1,0 +1,540 @@
+{{--
+  DCS print layout renderer — absolute-positioned blocks from layout_json.
+  Renders Header → Body → Footer. Expects: $tpl, $values, optional $preview
+--}}
+@php
+    use App\Helpers\DcsPrintTemplateHelper;
+
+    $tpl = $tpl ?? DcsPrintTemplateHelper::get('office_drf');
+    $values = is_array($values ?? null) ? $values : [];
+    $identity = DcsPrintTemplateHelper::identityVars($tpl);
+    if (! empty($logoSrcOverride)) {
+        $identity['logoSrc'] = (string) $logoSrcOverride;
+    }
+    $values = array_merge([
+        'form_code' => $identity['letterNumber'],
+        'form_title' => $identity['formTitle'],
+    ], $values);
+    $page = DcsPrintTemplateHelper::pageSpec($tpl);
+    if (! empty($pageOverride) && is_array($pageOverride)) {
+        $page = array_merge($page, $pageOverride);
+    }
+    $blocks = (! empty($blocksOverride) && is_array($blocksOverride))
+        ? array_values($blocksOverride)
+        : DcsPrintTemplateHelper::layoutBlocks($tpl);
+    if (! empty($identityOverride) && is_array($identityOverride)) {
+        $identity = array_merge($identity, $identityOverride);
+    }
+    $widthIn = (float) ($page['width_in'] ?? 0) ?: 8.5;
+    $heightIn = (float) ($page['height_in'] ?? 0) ?: 11.0;
+    $isPreview = ! empty($preview);
+    $tplKey = (string) ($tpl->key ?? '');
+    $isDrfTheme = $tplKey === 'office_drf';
+    $sections = ['header' => [], 'body' => [], 'footer' => []];
+    foreach ($blocks as $block) {
+        $sec = DcsPrintTemplateHelper::normalizeSection($block['section'] ?? null, (float) ($block['y'] ?? 0));
+        $sections[$sec][] = $block;
+    }
+@endphp
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    @php
+        $previewTitle = trim((string) ($identity['formTitle'] ?? '')) !== ''
+            ? (trim((string) $identity['formTitle']) . ' Preview')
+            : 'Document Request Form Preview';
+        $docTitle = $isPreview
+            ? $previewTitle
+            : (trim((string) ($identity['formTitle'] ?? 'Document')) . ' — ' . ($identity['letterNumber'] ?? ''));
+    @endphp
+    <title>{{ $docTitle }}</title>
+    @if($isDrfTheme)
+        @include('pages.dcs.partials.drf-form-styles')
+    @endif
+    <style>
+        @page {
+            size: {{ $widthIn }}in {{ $heightIn }}in;
+            margin: 0;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            background: {{ !empty($embed) ? '#fff' : ($isPreview ? '#e2e8f0' : '#fff') }};
+            color: #000;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+        .print-toolbar {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            padding: 10px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            position: sticky;
+            top: 0;
+            z-index: 20;
+        }
+        .print-toolbar button {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .print-toolbar .btn-print { background: #0d2a7a; color: #fff; border-color: #0d2a7a; }
+        @media print {
+            .print-toolbar { display: none !important; }
+            body { background: #fff; }
+        }
+        .sheet {
+            position: relative;
+            width: {{ $widthIn }}in;
+            height: {{ $heightIn }}in;
+            margin: {{ $isPreview && empty($embed) ? '16px auto' : '0' }};
+            background: #fff;
+            overflow: hidden;
+            box-shadow: {{ $isPreview && empty($embed) ? '0 4px 20px rgba(15,23,42,.12)' : 'none' }};
+            {{ $isDrfTheme ? 'font-family: Arial, Helvetica, sans-serif; font-size: 11pt; line-height: 1;' : '' }}
+        }
+        .block {
+            position: absolute;
+            overflow: hidden;
+            line-height: 1.15;
+        }
+        .block-line-inner {
+            width: 100%;
+            height: 100%;
+            min-height: 1px;
+        }
+        .block-logo img {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .block-field {
+            display: flex;
+            flex-direction: row;
+            align-items: baseline;
+            gap: 0.12in;
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+        }
+        .block-field .lbl {
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
+        .block-field .val {
+            flex: 1 1 auto;
+            min-width: 0.4in;
+            min-height: 1em;
+        }
+        .block-signature {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+        }
+        .block-signature .lbl {
+            display: block;
+            margin-bottom: 2px;
+            flex: 0 0 auto;
+        }
+        .block-signature .val {
+            flex: 1 1 auto;
+            min-height: 1em;
+        }
+        .block-field.is-underline .val,
+        .block-signature.is-underline .val {
+            border-bottom: 1px solid currentColor;
+            padding-bottom: 1px;
+        }
+        .block-table {
+            border-collapse: collapse;
+            width: 100%;
+            height: 100%;
+        }
+        .block-table th,
+        .block-table td {
+            border: 1px solid #000;
+            padding: 2px 4px;
+            font-size: inherit;
+        }
+        .block-checkboxes {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.18in 0.35in;
+            width: 100%;
+            height: 100%;
+        }
+        .block-checkboxes .lbl { flex: 0 0 auto; white-space: nowrap; }
+        .block-checkboxes .opt {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.06in;
+            white-space: nowrap;
+        }
+        .block-checkboxes .cb {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 0.16in;
+            height: 0.16in;
+            border: 1px solid #000;
+            font-size: 8pt;
+            line-height: 1;
+        }
+        .block-ruled {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100%;
+            gap: 0.02in;
+        }
+        .block-ruled .lbl { flex: 0 0 auto; margin-bottom: 0.04in; }
+        .block-ruled .ruled-line {
+            flex: 1 1 auto;
+            min-height: 0.18in;
+            border-bottom: 1px solid #000;
+            position: relative;
+        }
+        .block-ruled .ruled-line .txt {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 1px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: clip;
+        }
+        .block-dist {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100%;
+        }
+        .block-dist .lbl { margin-bottom: 0.06in; }
+        .block-dist .grid {
+            flex: 1 1 auto;
+            display: grid;
+            gap: 0.08in 0.16in;
+            min-height: 0;
+        }
+        .block-dist .cell {
+            border-bottom: 1px solid #000;
+            min-height: 0.2in;
+            font-size: 9pt;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+@php
+    $canPrint = ! empty($allowPrint);
+    $lockMsg = trim((string) ($printLockMessage ?? ''));
+    if ($lockMsg === '') {
+        $lockMsg = 'Preview only — this is not a printable copy yet.';
+    }
+@endphp
+@if(! $canPrint)
+<style id="ofi-print-block-style">
+    @media print {
+        body * { display: none !important; }
+        body::after {
+            display: block !important;
+            content: "{{ $lockMsg }}";
+            font: 14pt Arial, sans-serif;
+            color: #000;
+            padding: 1in;
+        }
+    }
+</style>
+<script>
+window.print = function () {};
+document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+}, true);
+</script>
+@endif
+@if(empty($embed) && empty($hideToolbar))
+<div class="print-toolbar">
+    @if($canPrint)
+        <button type="button" class="btn-print" onclick="window.print()">Print</button>
+        <button type="button" onclick="window.close()">Close</button>
+    @else
+        <span style="align-self:center;font-size:12px;color:#64748b;font-weight:600">{{ $lockMsg }}</span>
+        <button type="button" onclick="window.close()">Close</button>
+    @endif
+</div>
+@endif
+
+<div class="sheet {{ $isDrfTheme ? 'drf-theme' : '' }}">
+    @foreach(['header', 'body', 'footer'] as $sectionName)
+        @foreach($sections[$sectionName] as $block)
+            @php
+                $type = (string) ($block['type'] ?? 'text');
+                $x = (float) ($block['x'] ?? 0);
+                $y = (float) ($block['y'] ?? 0);
+                $w = (float) ($block['w'] ?? 1);
+                $h = (float) ($block['h'] ?? 0.3);
+                $label = (string) ($block['label'] ?? '');
+                $bind = (string) ($block['bind'] ?? '');
+                $style = DcsPrintTemplateHelper::normalizeBlockStyle(is_array($block['style'] ?? null) ? $block['style'] : []);
+                $fontFamily = $isDrfTheme ? 'Arial' : $style['fontFamily'];
+                $fontSize = $isDrfTheme ? (float) ($style['fontSizePt'] ?: 11) : $style['fontSizePt'];
+                $fontWeight = $style['fontWeight'];
+                $fontStyle = $style['fontStyle'];
+                $align = $style['align'];
+                $verticalAlign = $style['verticalAlign'] ?? 'top';
+                $underline = $style['underline'];
+                $color = $isDrfTheme ? '#000' : $style['color'];
+                $bg = $isDrfTheme && $type === 'table' ? '' : $style['backgroundColor'];
+                $lineColor = $isDrfTheme ? '#0070C0' : $style['lineColor'];
+                $objectFit = $style['objectFit'];
+                $bound = DcsPrintTemplateHelper::resolveBind($values, $bind);
+                if ($bind === 'form_code' && $bound === '') {
+                    $bound = $identity['letterNumber'];
+                }
+                if ($bind === 'form_title' && $bound === '') {
+                    $bound = $identity['formTitle'];
+                }
+                if ($bind === 'republic' && $bound === '') {
+                    $bound = $identity['republic'];
+                }
+                if ($bind === 'institution_name' && $bound === '') {
+                    $bound = $identity['institutionName'];
+                }
+                if ($bind === 'institution_address' && $bound === '') {
+                    $bound = $identity['institutionAddress'];
+                }
+                if ($bind === 'footer_effectivity_line') {
+                    $left = trim((string) ($identity['footerLeft'] ?? 'Effectivity Date:'));
+                    $eff = trim((string) ($identity['footerEffectivity'] ?? ''));
+                    if ($eff === '') {
+                        $eff = trim((string) ($values['default_effectivity'] ?? 'January 2018'));
+                    }
+                    $bound = trim($left . ' ' . $eff);
+                }
+                if ($bind === 'footer_rev_line') {
+                    $center = trim((string) ($identity['footerCenter'] ?? 'Rev.'));
+                    $rev = trim((string) ($identity['footerRev'] ?? ''));
+                    if ($rev === '') {
+                        $rev = trim((string) ($values['default_rev'] ?? '0'));
+                    }
+                    $bound = trim($center . ' ' . $rev);
+                }
+                $displayText = $type === 'text'
+                    ? ($bound !== '' ? $bound : $label)
+                    : $bound;
+                $extraClass = '';
+                if ($isDrfTheme && $type === 'text') {
+                    if ($bind === 'form_code' || str_contains(mb_strtolower($label), 'cspc-f-')) {
+                        $extraClass = 'drf-form-code';
+                    } elseif (str_contains(mb_strtoupper($label), 'DOCUMENT REQUEST')) {
+                        $extraClass = 'drf-title';
+                    } elseif ($fontWeight >= 700 && $sectionName === 'header') {
+                        $extraClass = 'drf-hdr-text is-name';
+                    } elseif ($sectionName === 'header') {
+                        $extraClass = 'drf-hdr-text';
+                    } elseif ($sectionName === 'footer') {
+                        $extraClass = 'drf-footer';
+                    }
+                }
+                $vAlignCss = '';
+                if ($type === 'field') {
+                    $vAlignCss = 'align-items:flex-end;';
+                } elseif ($type !== 'logo' && $type !== 'line' && $type !== 'table') {
+                    $vAlignCss = match ($verticalAlign) {
+                        'middle' => 'display:flex; flex-direction:column; justify-content:center;',
+                        'bottom' => 'display:flex; flex-direction:column; justify-content:flex-end;',
+                        default => '',
+                    };
+                }
+                $css = "left: {$x}in; top: {$y}in; width: {$w}in; height: {$h}in;"
+                    . " font-family: {$fontFamily}, Helvetica, sans-serif;"
+                    . " font-size: {$fontSize}pt; font-weight: {$fontWeight}; font-style: {$fontStyle};"
+                    . " text-align: {$align}; color: {$color}; vertical-align: {$verticalAlign};"
+                    . $vAlignCss
+                    . ($bg !== '' ? " background-color: {$bg};" : '');
+            @endphp
+            <div class="block block-{{ $type }} {{ $underline ? 'is-underline' : '' }} {{ $extraClass }} section-{{ $sectionName }}"
+                 data-section="{{ $sectionName }}"
+                 style="{{ $css }}">
+                @if($type === 'logo')
+                    @if($identity['logoSrc'] !== '')
+                        <div style="width:100%;height:100%;overflow:hidden;line-height:0;">
+                            <img src="{{ $identity['logoSrc'] }}" alt="">
+                        </div>
+                    @endif
+                @elseif($type === 'line')
+                    <div class="block-line-inner" style="background: {{ $lineColor !== '' ? $lineColor : '#0070C0' }};"></div>
+                @elseif($type === 'spacer')
+                    &nbsp;
+                @elseif($type === 'field')
+                    <div class="{{ $isDrfTheme ? 'drf-field' : 'block-field' }} {{ $underline || $isDrfTheme ? 'is-underline' : '' }}">
+                        @if($label !== '')
+                            <span class="lbl">{{ $label }}</span>
+                        @endif
+                        @if($isDrfTheme)
+                            <span class="fline">
+                                <span class="fline-val">{{ $displayText !== '' ? $displayText : "\u{00A0}" }}</span>
+                                <span class="fline-rule"></span>
+                            </span>
+                        @else
+                            <span class="val">{{ $displayText !== '' ? $displayText : "\u{00A0}" }}</span>
+                        @endif
+                    </div>
+                @elseif($type === 'checkboxes')
+                    @php
+                        $options = is_array($block['options'] ?? null) ? $block['options'] : ['Internal', 'External'];
+                        $selected = mb_strtolower(trim($displayText));
+                    @endphp
+                    <div class="{{ $isDrfTheme ? 'drf-checks' : 'block-checkboxes' }}">
+                        @if($label !== '')
+                            <span class="lbl">{{ $label }}</span>
+                        @endif
+                        @foreach($options as $oi => $opt)
+                            @php
+                                $optLabel = is_array($opt) ? (string) ($opt['label'] ?? $opt['value'] ?? '') : (string) $opt;
+                                $checked = $selected !== '' && (mb_strtolower($optLabel) === $selected || str_contains($selected, mb_strtolower($optLabel)));
+                            @endphp
+                            <span class="opt {{ $oi === 0 ? 'is-first' : '' }}"><span class="cb">{{ $checked ? '✓' : '' }}</span> {{ $optLabel }}</span>
+                        @endforeach
+                    </div>
+                @elseif($type === 'ruled_lines')
+                    @php
+                        $lineCount = max(1, min(12, (int) ($block['line_count'] ?? ($isDrfTheme ? 4 : 5))));
+                        $chunks = [];
+                        if ($displayText !== '') {
+                            $words = preg_split('/\s+/', $displayText) ?: [];
+                            $line = '';
+                            foreach ($words as $word) {
+                                $next = $line === '' ? $word : ($line . ' ' . $word);
+                                if (mb_strlen($next) > 95 && $line !== '') {
+                                    $chunks[] = $line;
+                                    $line = $word;
+                                } else {
+                                    $line = $next;
+                                }
+                            }
+                            if ($line !== '') {
+                                $chunks[] = $line;
+                            }
+                        }
+                        while (count($chunks) < $lineCount) {
+                            $chunks[] = '';
+                        }
+                        $chunks = array_slice($chunks, 0, $lineCount);
+                    @endphp
+                    <div class="{{ $isDrfTheme ? 'drf-ruled' : 'block-ruled' }}">
+                        @if($label !== '')
+                            <div class="lbl">{{ $label }}</div>
+                        @endif
+                        @foreach($chunks as $chunk)
+                            <div class="ruled-line"><span class="txt">{{ $chunk }}</span></div>
+                        @endforeach
+                    </div>
+                @elseif($type === 'dist_grid')
+                    @php
+                        $gCols = max(1, min(6, (int) ($block['grid_cols'] ?? 4)));
+                        $gRows = max(1, min(10, (int) ($block['grid_rows'] ?? ($isDrfTheme ? 6 : 5))));
+                        $cells = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $displayText) ?: [])));
+                        $total = $gCols * $gRows;
+                    @endphp
+                    <div class="{{ $isDrfTheme ? 'drf-dist' : 'block-dist' }}">
+                        @if($label !== '')
+                            <div class="lbl">{{ $label }}</div>
+                        @endif
+                        <div class="grid" style="grid-template-columns: repeat({{ $gCols }}, minmax(0, 1fr));">
+                            @for($i = 0; $i < $total; $i++)
+                                <div class="cell">{{ $cells[$i] ?? '' }}</div>
+                            @endfor
+                        </div>
+                    </div>
+                @elseif($type === 'signature')
+                    @if($label !== '')
+                        <span class="lbl">{{ $label }}</span>
+                    @endif
+                    <div class="val">{{ $displayText !== '' ? $displayText : "\u{00A0}" }}</div>
+                @elseif($type === 'table')
+                    @php
+                        $tableStyle = DcsPrintTemplateHelper::columnsPayload($tpl)['style'];
+                        $hdrBg = $isDrfTheme ? 'transparent' : ($bg !== '' ? $bg : ($tableStyle['header_row_bg'] ?? '#8db3e2'));
+                        $hdrFg = $isDrfTheme ? '#000' : ($tableStyle['header_row_color'] ?? '#000');
+                        $cols = max(1, min(8, (int) ($block['table_cols'] ?? 4)));
+                        $rows = max(1, min(8, (int) ($block['table_rows'] ?? 4)));
+                        $headers = is_array($block['table_headers'] ?? null) ? $block['table_headers'] : [];
+                        $rowLabels = is_array($block['table_row_labels'] ?? null) ? $block['table_row_labels'] : [];
+                        $cellBinds = is_array($block['table_cell_binds'] ?? null) ? $block['table_cell_binds'] : [];
+                        if ($headers === []) {
+                            $headers = match ($cols) {
+                                4 => ['', 'Prepared by:', 'Reviewed by:', 'Approved by:'],
+                                3 => ['', 'Prepared by:', 'Approved by:'],
+                                default => array_pad([''], $cols, ''),
+                            };
+                        }
+                        if ($rowLabels === []) {
+                            $defaults = ['Signature', 'Name', 'Designation', 'Date'];
+                            $rowLabels = array_slice(array_pad($defaults, $rows, ''), 0, $rows);
+                        }
+                        while (count($headers) < $cols) {
+                            $headers[] = '';
+                        }
+                        while (count($rowLabels) < $rows) {
+                            $rowLabels[] = '';
+                        }
+                    @endphp
+                    <table class="{{ $isDrfTheme ? 'drf-sig' : 'block-table' }}">
+                        @if($isDrfTheme && $cols === 4)
+                            <colgroup>
+                                <col style="width:1.01in">
+                                <col style="width:1.87in">
+                                <col style="width:2.50in">
+                                <col style="width:2.19in">
+                            </colgroup>
+                        @endif
+                        <thead>
+                            <tr>
+                                @for($c = 0; $c < $cols; $c++)
+                                    <th style="background: {{ $hdrBg }}; color: {{ $hdrFg }}; text-align: center;">{{ $headers[$c] ?? '' }}</th>
+                                @endfor
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for($r = 0; $r < $rows; $r++)
+                                <tr>
+                                    @for($c = 0; $c < $cols; $c++)
+                                        @if($c === 0)
+                                            <td class="row-label">{{ $rowLabels[$r] ?? '' }}</td>
+                                        @else
+                                            @php
+                                                $bindKey = (string) ($cellBinds[(string) $r][(string) $c] ?? $cellBinds[$r][$c] ?? '');
+                                                $cellVal = $bindKey !== '' ? DcsPrintTemplateHelper::resolveBind($values, $bindKey) : '';
+                                                $isNameRow = mb_strtolower((string) ($rowLabels[$r] ?? '')) === 'name';
+                                            @endphp
+                                            <td class="{{ $isNameRow && $cellVal !== '' ? 'name-bold' : '' }}" style="text-align:center;">{{ $cellVal !== '' ? $cellVal : "\u{00A0}" }}</td>
+                                        @endif
+                                    @endfor
+                                </tr>
+                            @endfor
+                        </tbody>
+                    </table>
+                @else
+                    {{ $displayText }}
+                @endif
+            </div>
+        @endforeach
+    @endforeach
+</div>
+</body>
+</html>

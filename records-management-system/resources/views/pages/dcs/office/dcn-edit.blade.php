@@ -94,7 +94,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <section class="reg-card ofi-dcn-card">
                 <div class="reg-card-header">
                     <span>Document Change Notice</span>
-                    <span class="ofi-form-code-badge">CSPC-F-DCC-01</span>
+                    <span class="ofi-form-code-badge">{{ \App\Helpers\DcsPrintTemplateHelper::get('office_dcn')->form_code ?? 'CSPC-F-DCC-01' }}</span>
                 </div>
                 <div class="reg-card-body ofi-dcn-form">
                     <div class="ofi-dcn-box">

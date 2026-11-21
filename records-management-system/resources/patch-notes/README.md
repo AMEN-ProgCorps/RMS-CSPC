@@ -2,10 +2,9 @@
 
 All notable updates, fixes, improvements, and changes across the Records Management System (RMS) are documented here.
 
-## [v2.4.2] - 2026-11-21
+## [DTS v2.4.2] - 2026-11-21
 ### Added
 - **Interactive Patch Notes Console**: Integrated floating release notes widget accessible across the university portal and subsystem sidebars.
-- **Dedicated Subsystem Patch Notes Manager**: Admin Console module under Subsystems for authoring, publishing, and previewing release notes.
 - **Urgent Notification Animations**: Smooth spring pop-in entrance animation and real-time alert banners for high-priority incoming transactions.
 
 ### Fixed
@@ -18,8 +17,9 @@ All notable updates, fixes, improvements, and changes across the Records Managem
 
 ---
 
-## [v2.4.1] - 2026-11-20
+## [Admin v1.5.0] - 2026-11-20
 ### Added
+- **Dedicated Subsystem Patch Notes Manager**: Admin Console module under Subsystems for authoring, publishing, and previewing release notes.
 - **Real-Time Delivery Auditing**: Instant timeline status updates upon physical receipt and forwarding of documents.
 - **Prewarming Enhancements**: Background link prefetching for high-frequency admin and DTS navigation targets.
 
@@ -27,12 +27,9 @@ All notable updates, fixes, improvements, and changes across the Records Managem
 - **Transaction Details Popout Gap**: Corrected flexbox overflow and vertical spacing in transaction history views.
 - **Database Sequence Sync**: Ensured automated foreign key validation on custom flow steps.
 
-### Changed
-- **Office Classification Selectors**: Grouped campus administrative units and academic departments for faster search indexing.
-
 ---
 
-## [v2.4.0] - 2026-11-15
+## [RDP v1.1.0] - 2026-11-15
 ### Added
 - **Interactive Page Manual System**: Context-aware floating guide manuals mapped per route and modal across DTS, RDP, and Admin.
 - **Subsystem Version Logs**: Audit logging for module activation, deactivation, and semantic version increments.

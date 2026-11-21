@@ -6,6 +6,7 @@ use Livewire\Volt\Component;
 new class extends Component {
     public bool $open = false;
     public string $selectedVersion = '';
+    public string $subsystemFilter = 'ALL';
 
     public function mount(): void
     {
@@ -18,9 +19,21 @@ new class extends Component {
         $this->selectedVersion = $version;
     }
 
+    public function setSubsystem(string $code): void
+    {
+        $code = strtoupper(trim($code));
+        $this->subsystemFilter = $code;
+        $releases = PatchNoteService::getReleases($code === 'ALL' ? null : $code);
+        if (!empty($releases)) {
+            $this->selectedVersion = $releases[0]['version'];
+        } else {
+            $this->selectedVersion = '';
+        }
+    }
+
     public function with(): array
     {
-        $releases = PatchNoteService::getReleases();
+        $releases = PatchNoteService::getReleases($this->subsystemFilter === 'ALL' ? null : $this->subsystemFilter);
         $selected = null;
 
         if ($this->selectedVersion !== '') {
@@ -68,8 +81,18 @@ new class extends Component {
             return hay.indexOf(q) !== -1;
         }
     }"
-    x-on:open-patch-logs.window="isOpen = true"
-    x-on:rms-open-patch-logs.window="isOpen = true"
+    x-on:open-patch-logs.window="
+        isOpen = true;
+        if ($event.detail && $event.detail.subsystem) {
+            $wire.setSubsystem($event.detail.subsystem);
+        }
+    "
+    x-on:rms-open-patch-logs.window="
+        isOpen = true;
+        if ($event.detail && $event.detail.subsystem) {
+            $wire.setSubsystem($event.detail.subsystem);
+        }
+    "
     x-on:rms-widget-opened.window="if ($event.detail && ($event.detail.widget || (Array.isArray($event.detail) ? $event.detail[0]?.widget : null)) !== 'patch-logs' && isOpen) { isOpen = false; }"
     x-on:scanner-modal-opened.window="if (isOpen) { isOpen = false; }"
 >
@@ -106,21 +129,34 @@ new class extends Component {
             </div>
         </div>
 
+        <!-- Subsystems Filter Row -->
+        <div class="rms-patch-sub-tabs">
+            <button type="button" class="rms-patch-sub-tab {{ $subsystemFilter === 'ALL' ? 'active' : '' }}" wire:click="setSubsystem('ALL')">All</button>
+            <button type="button" class="rms-patch-sub-tab {{ $subsystemFilter === 'DTS' ? 'active' : '' }}" wire:click="setSubsystem('DTS')">DTS</button>
+            <button type="button" class="rms-patch-sub-tab {{ $subsystemFilter === 'RDP' ? 'active' : '' }}" wire:click="setSubsystem('RDP')">RDP</button>
+            <button type="button" class="rms-patch-sub-tab {{ $subsystemFilter === 'ADMIN' ? 'active' : '' }}" wire:click="setSubsystem('ADMIN')">Admin</button>
+        </div>
+
         <!-- Versions Bar -->
         <div class="rms-patch-versions-bar">
             <div class="rms-patch-versions-scroll">
-                @foreach($releases as $rel)
+                @forelse($releases as $rel)
                     <button
                         type="button"
                         class="rms-patch-ver-pill {{ $selectedVersion === $rel['version'] ? 'active' : '' }}"
                         wire:click="selectVersion('{{ $rel['version'] }}')"
                     >
+                        @if($subsystemFilter === 'ALL')
+                            <span style="font-size: 0.65rem; font-weight: 700; opacity: 0.75;">{{ $rel['subsystem_code'] }}</span>
+                        @endif
                         <span>{{ $rel['version'] }}</span>
                         @if($rel['is_latest'])
                             <span class="rms-patch-pill-badge">Latest</span>
                         @endif
                     </button>
-                @endforeach
+                @empty
+                    <span style="font-size: 0.78rem; color: #94a3b8; padding: 4px 8px;">No updates found for this subsystem.</span>
+                @endforelse
             </div>
         </div>
 
@@ -148,9 +184,14 @@ new class extends Component {
             @if($selectedRelease)
                 <div class="rms-patch-rel-meta">
                     <div style="display: flex; align-items: center; justify-content: space-between;">
-                        <span style="font-size: 1.1rem; font-weight: 800; color: #0f172a; font-family: monospace;">
-                            {{ $selectedRelease['version'] }}
-                        </span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 0.72rem; font-weight: 700; background: {{ $selectedRelease['subsystem_code'] === 'DTS' ? '#e0e7ff; color: #3730a3;' : ($selectedRelease['subsystem_code'] === 'RDP' ? '#e0f2fe; color: #0369a1;' : ($selectedRelease['subsystem_code'] === 'ADMIN' ? '#f1f5f9; color: #334155;' : '#ecfdf5; color: #065f46;')) }}; padding: 2px 7px; border-radius: 4px; text-transform: uppercase;">
+                                {{ $selectedRelease['subsystem_name'] }}
+                            </span>
+                            <span style="font-size: 1.1rem; font-weight: 800; color: #0f172a; font-family: monospace;">
+                                {{ $selectedRelease['version'] }}
+                            </span>
+                        </div>
                         <span style="font-size: 0.8rem; color: #64748b; display: flex; align-items: center; gap: 5px;">
                             <i class="fa-regular fa-calendar"></i>
                             {{ $selectedRelease['date'] ?: 'Current Version' }}
@@ -291,6 +332,40 @@ new class extends Component {
     .rms-patch-hdr-btn:hover {
         color: #f8fafc;
         background: rgba(255, 255, 255, 0.1);
+    }
+
+    .rms-patch-sub-tabs {
+        background: #1e293b;
+        padding: 6px 14px;
+        display: flex;
+        gap: 6px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        flex-shrink: 0;
+    }
+
+    .rms-patch-sub-tab {
+        background: transparent;
+        border: 1px solid transparent;
+        color: #94a3b8;
+        font-size: 0.72rem;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .rms-patch-sub-tab:hover {
+        color: #f8fafc;
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .rms-patch-sub-tab.active {
+        background: #003699;
+        color: #ffffff;
+        border-color: #3b82f6;
     }
 
     .rms-patch-versions-bar {

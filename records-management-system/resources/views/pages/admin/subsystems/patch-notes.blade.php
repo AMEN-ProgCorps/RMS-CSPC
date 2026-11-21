@@ -14,9 +14,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Patch Notes')]
     public string $viewMode = 'releases'; // 'releases' | 'editor'
     public string $markdownContent = '';
     public string $search = '';
+    public string $subsystemFilter = 'ALL';
 
     // Quick New Release Modal
     public bool $showNewReleaseModal = false;
+    public string $newSubsystem = 'DTS';
+    public bool $syncDatabase = true;
     public string $newVersion = '';
     public string $newDate = '';
     public string $newSummary = '';
@@ -55,6 +58,67 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Patch Notes')]
         }
     }
 
+    public function setSubsystemFilter(string $sub): void
+    {
+        $this->subsystemFilter = strtoupper(trim($sub));
+    }
+
+    public function openNewReleaseModal(): void
+    {
+        $this->clearMessages();
+        $this->newSubsystem = 'DTS';
+        $this->syncDatabase = true;
+        $this->suggestVersionForSubsystem('DTS');
+        $this->newDate = now()->format('Y-m-d');
+        $this->newSummary = '';
+        $this->newAdded = '';
+        $this->newFixed = '';
+        $this->newChanged = '';
+        $this->showNewReleaseModal = true;
+    }
+
+    public function closeNewReleaseModal(): void
+    {
+        $this->showNewReleaseModal = false;
+    }
+
+    public function updatedNewSubsystem(string $code): void
+    {
+        $this->suggestVersionForSubsystem($code);
+    }
+
+    protected function suggestVersionForSubsystem(string $code): void
+    {
+        $code = strtoupper(trim($code));
+        $latest = PatchNoteService::getLatestRelease($code === 'ALL' ? null : $code);
+        if ($latest) {
+            $this->newVersion = $this->incrementMinorVersion($latest['clean_version']);
+            return;
+        }
+
+        $map = PatchNoteService::getSubsystemsMap();
+        $info = $map[strtolower($code)] ?? null;
+        if ($info) {
+            $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+            $dbVer = \DB::table($subsystemsTbl)->where('subsystem_name', $info['name'])->value('subsystem_version');
+            if ($dbVer) {
+                $this->newVersion = $this->incrementMinorVersion($dbVer);
+                return;
+            }
+        }
+        $this->newVersion = '1.0.1';
+    }
+
+    protected function incrementMinorVersion(string $ver): string
+    {
+        $parts = explode('.', $ver);
+        if (count($parts) >= 3) {
+            $parts[2] = (int)$parts[2] + 1;
+            return implode('.', $parts);
+        }
+        return $ver . '.1';
+    }
+
     public function saveMarkdown(): void
     {
         $this->clearMessages();
@@ -79,40 +143,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Patch Notes')]
         }
     }
 
-    public function openNewReleaseModal(): void
-    {
-        $this->clearMessages();
-        $latest = PatchNoteService::getLatestRelease();
-        $this->newVersion = $latest ? $this->incrementMinorVersion($latest['clean_version'] ?? '2.4.2') : '2.4.3';
-        $this->newDate = now()->format('Y-m-d');
-        $this->newSummary = '';
-        $this->newAdded = '';
-        $this->newFixed = '';
-        $this->newChanged = '';
-        $this->showNewReleaseModal = true;
-    }
-
-    public function closeNewReleaseModal(): void
-    {
-        $this->showNewReleaseModal = false;
-    }
-
-    protected function incrementMinorVersion(string $ver): string
-    {
-        $parts = explode('.', $ver);
-        if (count($parts) >= 3) {
-            $parts[2] = (int)$parts[2] + 1;
-            return implode('.', $parts);
-        }
-        return $ver . '.1';
-    }
-
     public function publishRelease(): void
     {
         $this->clearMessages();
         $this->validate([
             'newVersion' => ['required', 'string', 'regex:/^v?\d+\.\d+\.\d+(?:-[a-zA-Z0-9\.]+)?$/'],
             'newDate' => ['required', 'date_format:Y-m-d'],
+            'newSubsystem' => ['required', 'string'],
         ], [
             'newVersion.regex' => 'Version must follow semantic versioning (e.g. 2.4.3 or v2.4.3).',
         ]);
@@ -149,18 +186,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Patch Notes')]
                 $this->newVersion,
                 $this->newDate,
                 $itemsByCategory,
-                $this->newSummary
+                $this->newSummary,
+                $this->newSubsystem,
+                $this->syncDatabase
             );
 
             if ($ok) {
                 $this->markdownContent = PatchNoteService::getRawContent();
                 $this->showNewReleaseModal = false;
-                $this->successMessage = "Release {$this->newVersion} successfully published to patch notes!";
+                $subLabel = $this->newSubsystem !== 'ALL' ? " for {$this->newSubsystem}" : '';
+                $this->successMessage = "Release {$this->newVersion}{$subLabel} successfully published to patch notes!";
 
                 // Audit log
                 $adminLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
                 \DB::table($adminLogsTbl)->insert([
-                    'changes' => "Published patch notes release {$this->newVersion} ({$this->newDate})",
+                    'changes' => "Published patch notes release {$this->newVersion} ({$this->newSubsystem}, {$this->newDate})",
                     'admin_id' => auth()->id(),
                     'what_system' => 3, // Admin Console
                     'when_changes' => now(),
@@ -175,12 +215,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Patch Notes')]
 
     public function with(): array
     {
-        $releases = PatchNoteService::getReleases();
+        $releases = PatchNoteService::getReleases($this->subsystemFilter);
 
         if ($this->search !== '') {
             $q = strtolower(trim($this->search));
             $releases = array_filter($releases, function($r) use ($q) {
                 if (str_contains(strtolower($r['version']), $q)) return true;
+                if (str_contains(strtolower($r['subsystem_code']), $q)) return true;
+                if (str_contains(strtolower($r['subsystem_name']), $q)) return true;
                 if (str_contains(strtolower($r['date']), $q)) return true;
                 if (!empty($r['summary']) && str_contains(strtolower($r['summary']), $q)) return true;
                 foreach ($r['categories'] as $cat) {
@@ -197,7 +239,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Patch Notes')]
 
         return [
             'releases' => $releases,
-            'latest' => PatchNoteService::getLatestRelease(),
+            'latest' => PatchNoteService::getLatestRelease($this->subsystemFilter === 'ALL' ? null : $this->subsystemFilter),
+            'subsystemsMap' => PatchNoteService::getSubsystemsMap(),
         ];
     }
 };
@@ -276,6 +319,29 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Patch Notes')]
             align-items: center;
             gap: 12px;
             flex-wrap: wrap;
+        }
+
+        .pne-filter-pill {
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #475569;
+            font-size: 0.78rem;
+            font-weight: 600;
+            padding: 5px 12px;
+            border-radius: 99px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .pne-filter-pill:hover {
+            background: #f1f5f9;
+            border-color: #94a3b8;
+        }
+
+        .pne-filter-pill.active {
+            background: #003699;
+            color: #ffffff;
+            border-color: #003699;
         }
 
         .pne-search-box {
@@ -672,6 +738,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Patch Notes')]
     @if($viewMode === 'releases')
         <!-- Search & Info Bar -->
         <div class="pne-actions-bar">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="pne-filter-pill {{ $subsystemFilter === 'ALL' ? 'active' : '' }}" wire:click="setSubsystemFilter('ALL')">
+                    <i class="fa-solid fa-layer-group" style="margin-right: 4px;"></i> All Subsystems
+                </button>
+                <button type="button" class="pne-filter-pill {{ $subsystemFilter === 'DTS' ? 'active' : '' }}" wire:click="setSubsystemFilter('DTS')">
+                    <i class="fa-solid fa-folder-open" style="margin-right: 4px; color: #003699;"></i> DTS
+                </button>
+                <button type="button" class="pne-filter-pill {{ $subsystemFilter === 'RDP' ? 'active' : '' }}" wire:click="setSubsystemFilter('RDP')">
+                    <i class="fa-solid fa-box-archive" style="margin-right: 4px; color: #0284c7;"></i> RDP
+                </button>
+                <button type="button" class="pne-filter-pill {{ $subsystemFilter === 'ADMIN' ? 'active' : '' }}" wire:click="setSubsystemFilter('ADMIN')">
+                    <i class="fa-solid fa-shield-halved" style="margin-right: 4px; color: #475569;"></i> Admin
+                </button>
+            </div>
+
             <div class="pne-search-box">
                 <i class="fa-solid fa-magnifying-glass pne-search-icon"></i>
                 <input
@@ -684,7 +765,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Patch Notes')]
             <div style="font-size: 0.85rem; color: #64748b;">
                 <span>Total Versions: <strong>{{ count($releases) }}</strong></span>
                 @if($latest)
-                    <span style="margin-left: 12px;">Active Release: <strong style="color: #10b981;">{{ $latest['version'] }}</strong></span>
+                    <span style="margin-left: 12px;">Active Release: <strong style="color: #10b981;">[{{ $latest['subsystem_code'] }} {{ $latest['version'] }}]</strong></span>
                 @endif
             </div>
         </div>
@@ -695,6 +776,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Patch Notes')]
                 <div class="pne-release-card">
                     <div class="pne-release-header">
                         <div class="pne-ver-group">
+                            <span style="background: {{ $rel['subsystem_code'] === 'DTS' ? '#e0e7ff; color: #3730a3;' : ($rel['subsystem_code'] === 'RDP' ? '#e0f2fe; color: #0369a1;' : ($rel['subsystem_code'] === 'ADMIN' ? '#f1f5f9; color: #334155;' : '#ecfdf5; color: #065f46;')) }}; font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.04em;">
+                                {{ $rel['subsystem_code'] }}
+                            </span>
                             <span class="pne-ver-tag">{{ $rel['version'] }}</span>
                             @if($rel['is_latest'])
                                 <span class="pne-latest-badge">Latest</span>
@@ -801,6 +885,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Patch Notes')]
                 </div>
 
                 <div class="pne-modal-body">
+                    <div class="pne-field">
+                        <label>Target Subsystem *</label>
+                        <select wire:model.live="newSubsystem" style="padding: 9px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 0.88rem; color: #0f172a; background: #ffffff; outline: none; font-weight: 600;">
+                            <option value="DTS">Document Tracking System (DTS)</option>
+                            <option value="RDP">Records Disposition Program (RDP)</option>
+                            <option value="ADMIN">Admin Console</option>
+                            <option value="PROFILE">Profile Manager</option>
+                            <option value="ALL">All Subsystems / Core Platform</option>
+                        </select>
+                        <small>Associates this release notes entry with the selected subsystem</small>
+                    </div>
+
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
                         <div class="pne-field">
                             <label>Version Number *</label>
@@ -811,6 +907,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Patch Notes')]
                             <label>Release Date *</label>
                             <input type="date" wire:model="newDate">
                         </div>
+                    </div>
+
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="syncDatabase" wire:model="syncDatabase" style="width: 16px; height: 16px; accent-color: #003699; cursor: pointer;">
+                        <label for="syncDatabase" style="font-size: 0.82rem; font-weight: 600; color: #1e293b; margin: 0; cursor: pointer; text-transform: none; letter-spacing: 0;">
+                            Sync version to subsystem database & bust sidebar cache instantly
+                        </label>
                     </div>
 
                     <div class="pne-field">

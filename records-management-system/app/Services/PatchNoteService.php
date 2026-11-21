@@ -2,11 +2,53 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class PatchNoteService
 {
+    /**
+     * Known subsystems registry with their database names and cache keys.
+     */
+    public static function getSubsystemsMap(): array
+    {
+        return [
+            'dts' => [
+                'code' => 'DTS',
+                'name' => 'Document Tracking System',
+                'cache' => 'subsystem_ver_dts',
+                'color' => '#003699',
+            ],
+            'rdp' => [
+                'code' => 'RDP',
+                'name' => 'Records Disposition Program',
+                'cache' => 'subsystem_ver_rdp',
+                'color' => '#0284c7',
+            ],
+            'admin' => [
+                'code' => 'ADMIN',
+                'name' => 'Admin Console',
+                'cache' => 'subsystem_ver_admin_console',
+                'color' => '#475569',
+            ],
+            'profile' => [
+                'code' => 'PROFILE',
+                'name' => 'Profile Manager',
+                'cache' => 'subsystem_ver_profile',
+                'color' => '#64748b',
+            ],
+            'all' => [
+                'code' => 'ALL',
+                'name' => 'All Subsystems',
+                'cache' => null,
+                'color' => '#10b981',
+            ],
+        ];
+    }
+
     /**
      * Path to the master patch notes markdown file.
      */
@@ -57,6 +99,8 @@ class PatchNoteService
      * @return array<int, array{
      *     version: string,
      *     clean_version: string,
+     *     subsystem_code: string,
+     *     subsystem_name: string,
      *     date: string,
      *     is_latest: bool,
      *     summary: ?string,
@@ -64,7 +108,7 @@ class PatchNoteService
      *     raw: string
      * }>
      */
-    public static function getReleases(): array
+    public static function getReleases(?string $subsystemFilter = null): array
     {
         $content = self::getRawContent();
         if (trim($content) === '') {
@@ -76,12 +120,14 @@ class PatchNoteService
         $currentRelease = null;
         $currentCategory = null;
         $summaryLines = [];
+        $subMap = self::getSubsystemsMap();
 
         foreach ($lines as $line) {
             $trimmed = trim($line);
 
-            // Version Heading: e.g. ## [v2.4.2] - 2026-11-21 or ## v2.4.2 or ## [2.4.2]
-            if (preg_match('/^##\s+\[?(v?[\d\.]+(?:-[a-zA-Z0-9\.]+)?)\]?(?:\s*-\s*([0-9]{4}-[0-9]{2}-[0-9]{2}))?/i', $trimmed, $m)) {
+            // Version Heading:
+            // Matches: ## [DTS v2.4.2] - 2026-11-21 or ## [v2.4.2] - 2026-11-21 (DTS) or ## [v2.4.2] - 2026-11-21
+            if (preg_match('/^##\s+\[?(?:([a-zA-Z0-9_\-]+)\s+)?(v?[\d\.]+(?:-[a-zA-Z0-9\.]+)?)\]?(?:\s*-\s*([0-9]{4}-[0-9]{2}-[0-9]{2}))?(?:\s*\(([^)]+)\))?/i', $trimmed, $m)) {
                 if ($currentRelease !== null) {
                     if ($currentCategory !== null) {
                         $currentRelease['categories'][] = $currentCategory;
@@ -94,13 +140,20 @@ class PatchNoteService
                     $releases[] = $currentRelease;
                 }
 
-                $version = trim($m[1]);
+                $prefixSub = !empty($m[1]) ? trim($m[1]) : (!empty($m[4]) ? trim($m[4]) : 'ALL');
+                $subKey = strtolower($prefixSub);
+                $subCode = $subMap[$subKey]['code'] ?? strtoupper($prefixSub);
+                $subName = $subMap[$subKey]['name'] ?? ($subCode === 'ALL' ? 'All Subsystems' : $subCode);
+
+                $version = trim($m[2]);
                 $cleanVer = ltrim($version, 'vV');
-                $date = isset($m[2]) ? trim($m[2]) : '';
+                $date = isset($m[3]) ? trim($m[3]) : '';
 
                 $currentRelease = [
                     'version' => str_starts_with(strtolower($version), 'v') ? $version : 'v' . $version,
                     'clean_version' => $cleanVer,
+                    'subsystem_code' => $subCode,
+                    'subsystem_name' => $subName,
                     'date' => $date,
                     'is_latest' => false,
                     'summary' => null,
@@ -112,7 +165,6 @@ class PatchNoteService
             }
 
             if ($currentRelease === null) {
-                // Header preamble before the first release
                 continue;
             }
 
@@ -174,7 +226,6 @@ class PatchNoteService
                 if ($currentCategory !== null) {
                     $currentCategory['items'][] = $item;
                 } else {
-                    // Item outside explicit category heading
                     if ($currentCategory === null) {
                         $currentCategory = [
                             'name' => 'General',
@@ -207,26 +258,33 @@ class PatchNoteService
             $releases[0]['is_latest'] = true;
         }
 
+        if (!empty($subsystemFilter) && strtoupper($subsystemFilter) !== 'ALL') {
+            $sf = strtoupper(trim($subsystemFilter));
+            return array_values(array_filter($releases, fn($r) => $r['subsystem_code'] === $sf || $r['subsystem_code'] === 'ALL'));
+        }
+
         return $releases;
     }
 
     /**
-     * Get the newest / latest release metadata.
+     * Get the latest release (optionally filtered by subsystem).
      */
-    public static function getLatestRelease(): ?array
+    public static function getLatestRelease(?string $subsystem = null): ?array
     {
-        $releases = self::getReleases();
+        $releases = self::getReleases($subsystem);
         return $releases[0] ?? null;
     }
 
     /**
-     * Insert a new release entry into the markdown file.
+     * Insert a new release entry into the markdown file and automatically sync database & cache.
      */
     public static function createRelease(
         string $version,
         string $date,
         array $itemsByCategory,
-        ?string $summary = null
+        ?string $summary = null,
+        string $subsystemCode = 'ALL',
+        bool $syncDatabase = true
     ): bool {
         $content = self::getRawContent();
         $version = trim($version);
@@ -234,8 +292,11 @@ class PatchNoteService
             $version = 'v' . $version;
         }
         $date = trim($date) ?: now()->format('Y-m-d');
+        $subsystemCode = strtoupper(trim($subsystemCode));
 
-        $newBlock = "\n## [{$version}] - {$date}\n";
+        $headerTag = ($subsystemCode !== 'ALL' && $subsystemCode !== '') ? "[{$subsystemCode} {$version}]" : "[{$version}]";
+        $newBlock = "\n## {$headerTag} - {$date}\n";
+        
         if (!empty($summary)) {
             $newBlock .= trim($summary) . "\n\n";
         }
@@ -265,6 +326,62 @@ class PatchNoteService
             $finalContent = "# System Release Notes & Patch Updates\n\n" . trim($newBlock) . "\n\n" . $content;
         }
 
-        return self::saveRawContent($finalContent);
+        $saved = self::saveRawContent($finalContent);
+
+        // Sync Subsystem database table & invalidate cache
+        if ($saved && $syncDatabase && $subsystemCode !== 'ALL') {
+            self::syncSubsystemVersion($subsystemCode, $version);
+        }
+
+        return $saved;
+    }
+
+    /**
+     * Synchronize a specific subsystem's version in the sys_subsystems table and bust its cache.
+     */
+    public static function syncSubsystemVersion(string $subsystemCode, string $version): bool
+    {
+        $map = self::getSubsystemsMap();
+        $key = strtolower(trim($subsystemCode));
+        if (!isset($map[$key]) || empty($map[$key]['cache'])) {
+            return false;
+        }
+
+        $info = $map[$key];
+        $cleanVer = ltrim(trim($version), 'vV');
+        $subsystemsTbl = Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $versionsLogTbl = Schema::hasTable('sys_subsystem_versions_log') ? 'sys_subsystem_versions_log' : 'subsystem_versions_log';
+
+        try {
+            $subsystem = DB::table($subsystemsTbl)->where('subsystem_name', $info['name'])->first();
+            if ($subsystem) {
+                DB::table($subsystemsTbl)->where('subsystem_id', $subsystem->subsystem_id)->update([
+                    'subsystem_version' => $cleanVer,
+                    'update_at' => now(),
+                ]);
+
+                DB::table($versionsLogTbl)->insert([
+                    'subsystem_key' => $subsystem->subsystem_id,
+                    'version_change' => $cleanVer,
+                    'changes_on' => now(),
+                ]);
+            }
+
+            Cache::forget($info['cache']);
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Clear all subsystem version caches across all layouts.
+     */
+    public static function clearAllSubsystemVersionCaches(): void
+    {
+        Cache::forget('subsystem_ver_dts');
+        Cache::forget('subsystem_ver_rdp');
+        Cache::forget('subsystem_ver_admin_console');
+        Cache::forget('subsystem_ver_profile');
     }
 }

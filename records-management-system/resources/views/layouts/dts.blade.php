@@ -138,7 +138,7 @@
                     </div>
                     <div id="nav-contexts" class="subsystem-indicator">
                         <div class="subsystem-name">Document Tracking System</div>
-                        <div class="subsystem-version" title="View Update Logs & Release Notes" onclick="window.dispatchEvent(new CustomEvent('open-patch-logs'))" style="cursor: pointer;">Version: {{ \Illuminate\Support\Facades\Cache::remember('subsystem_ver_dts', 3600, fn() => \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')->where('subsystem_name', 'Document Tracking System')->value('subsystem_version') ?? 'N/A') }}</div>
+                        <div class="subsystem-version" title="View Update Logs & Release Notes" onclick="window.dispatchEvent(new CustomEvent('open-patch-logs', { detail: { subsystem: 'DTS' } }))" style="cursor: pointer;">Version: {{ \Illuminate\Support\Facades\Cache::remember('subsystem_ver_dts', 3600, fn() => \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')->where('subsystem_name', 'Document Tracking System')->value('subsystem_version') ?? 'N/A') }}</div>
                     </div>
                 </div>
                 <hr>

@@ -690,38 +690,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $this->dispatch('rms-settings-changed', type: 'site_settings', message: $this->successMessage);
     }
 
-    /**
-     * Persist DTS List of Transactions export toggle immediately.
-     */
-    public function updatedDtsEnableTransactionExport(bool $value): void
-    {
-        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings')
-            ? 'sys_system_settings'
-            : 'system_settings';
-
-        \DB::table($sysTable)->updateOrInsert(
-            ['key' => 'dts_enable_transaction_export'],
-            [
-                'value' => $value ? 'true' : 'false',
-                'updated_at' => now(),
-            ]
-        );
-
-        \App\Helpers\DtsExportHelper::clearExportCache();
-
-        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
-            'changes' => 'DTS List of Transactions Export ' . ($value ? 'enabled' : 'disabled') . ' (Admin Settings)',
-            'admin_id' => auth()->id(),
-            'what_system' => 3,
-            'when_changes' => now(),
-        ]);
-
-        $this->successMessage = $value
-            ? 'DTS List of Transactions Export enabled successfully.'
-            : 'DTS List of Transactions Export disabled successfully.';
-        $this->dispatch('rms-settings-changed', type: 'site_settings', message: $this->successMessage);
-    }
-
     public function toggleDcsDbGroup(string $groupKey): void
     {
         if (! in_array($groupKey, \App\Helpers\DcsDatabaseColumns::GROUP_KEYS, true)) {
@@ -2203,18 +2171,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     <!-- Setting: Enable/Disable Export in List of Transactions -->
                     <div class="setting-item">
                         <div class="setting-details">
-                            <span class="setting-title" style="display: flex; align-items: center; gap: 8px;">
-                                <span>Enable Export in List of Transactions</span>
-                                @if($dtsEnableTransactionExport)
-                                    <span style="font-size: 11px; font-weight: 700; background: #ecfdf5; color: #059669; padding: 2px 7px; border-radius: 5px; border: 1px solid #a7f3d0; text-transform: uppercase;">Enabled</span>
-                                @else
-                                    <span style="font-size: 11px; font-weight: 700; background: #fef2f2; color: #b91c1c; padding: 2px 7px; border-radius: 5px; border: 1px solid #fecaca; text-transform: uppercase;">Disabled</span>
-                                @endif
-                            </span>
+                            <span class="setting-title">Enable Export in List of Transactions</span>
                             <span class="setting-desc">When enabled (default), users can export records to Excel and generate printable PDF transaction logs across all List of Transactions pages (Internal, External, Application Letters, and Issuances). When disabled, the Export button and modal are deactivated across all List of Transactions pages and direct export endpoints are restricted.</span>
                         </div>
                         <label class="switch">
-                            <input type="checkbox" wire:model.live="dtsEnableTransactionExport">
+                            <input type="checkbox" wire:model="dtsEnableTransactionExport">
                             <span class="slider"></span>
                         </label>
                     </div>

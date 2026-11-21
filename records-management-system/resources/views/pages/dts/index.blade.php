@@ -2699,6 +2699,90 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 /* ═══════════════════════════════════════════════════════════════
            DTS ISSUANCE OVERHAULED MODAL (Unique Registry Dossier)
            ═══════════════════════════════════════════════════════════════ */
+                /* ═══════════════════════════════════════════════════════════════
+           DTS TIMELINE VIEW (Flowchart & Hover Tooltips)
+           ═══════════════════════════════════════════════════════════════ */
+        .dts-timeline-node-wrapper {
+            position: relative;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+        }
+        .dts-timeline-node-wrapper .dts-node-tooltip {
+            position: absolute;
+            bottom: 42px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 220px;
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 8px 11px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            border: 1px solid #334155;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.15s ease, visibility 0.15s ease;
+            z-index: 9999;
+            text-align: left;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+        .dts-timeline-node-wrapper .dts-node-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 6px;
+            border-style: solid;
+            border-color: #0f172a transparent transparent transparent;
+        }
+        .dts-timeline-node-wrapper:first-child .dts-node-tooltip {
+            left: -10px;
+            right: auto;
+            transform: none;
+        }
+        .dts-timeline-node-wrapper:first-child .dts-node-tooltip::after {
+            left: 26px;
+            right: auto;
+            transform: none;
+        }
+        .dts-timeline-node-wrapper:last-child .dts-node-tooltip {
+            left: auto;
+            right: -10px;
+            transform: none;
+        }
+        .dts-timeline-node-wrapper:last-child .dts-node-tooltip::after {
+            left: auto;
+            right: 26px;
+            transform: none;
+        }
+        .dts-timeline-node-wrapper:only-child .dts-node-tooltip,
+        .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip {
+            left: 50%;
+            right: auto;
+            transform: translateX(-50%);
+        }
+        .dts-timeline-node-wrapper:only-child .dts-node-tooltip::after,
+        .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip::after {
+            left: 50%;
+            right: auto;
+            transform: translateX(-50%);
+        }
+        .dts-timeline-node-wrapper:hover .dts-node-tooltip {
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+        .dts-timeline-node-dot {
+            transition: all 0.2s ease;
+        }
+        .dts-timeline-node-wrapper:hover .dts-timeline-node-dot {
+            transform: scale(1.15) !important;
+        }
+
         .dts-im-backdrop {
             position: fixed;
             inset: 0;
@@ -5122,7 +5206,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                         <!-- View 2: Timeline View -->
                         @elseif ($pathViewMode === 'timeline')
-                            <div style="width: 100%; overflow-x: auto; padding: 140px 40px 20px 40px; box-sizing: border-box; background: #ffffff; border-radius: 10px; border: 1px solid #e2e8f0; position: relative;">
+                            <div style="width: 100%; overflow-x: auto; padding: 75px 35px 25px 35px; box-sizing: border-box; background: #ffffff; border-radius: 10px; border: 1px solid #e2e8f0; position: relative;">
                                 <div style="display: flex; align-items: center; justify-content: {{ count($this->visiblePath) <= 1 ? 'center' : 'space-between' }}; width: 100%; min-width: max-content; padding: 0; position: relative;">
                                     @forelse ($this->visiblePath as $index => $step)
                                         @php

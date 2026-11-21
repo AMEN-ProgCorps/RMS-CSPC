@@ -1941,6 +1941,32 @@ new class extends Component {
                 [data-theme="dark"] .dts-available-inner-pane [style*="border: 1px solid #e2e8f0"] {
                     border-color: #334155 !important;
                 }
+                [data-theme="dark"] .dts-hub-inner-pane {
+                    background: #0f172a !important;
+                }
+                [data-theme="dark"] .dts-hub-inner-pane [style*="background: #ffffff"],
+                [data-theme="dark"] .dts-hub-inner-pane [style*="background:#ffffff"],
+                [data-theme="dark"] .dts-hub-inner-pane [style*="background: #f8fafc"],
+                [data-theme="dark"] .dts-hub-inner-pane [style*="background:#f8fafc"] {
+                    background: #111827 !important;
+                    border-color: #334155 !important;
+                    color: #e2e8f0 !important;
+                }
+                [data-theme="dark"] .dts-hub-inner-pane .ia-modal-title {
+                    color: #f8fafc !important;
+                }
+                [data-theme="dark"] .dts-hub-inner-pane .ia-collective-name {
+                    color: #e2e8f0 !important;
+                }
+                [data-theme="dark"] .dts-hub-inner-pane .ia-collective-code-badge {
+                    background: #334155 !important;
+                    color: #f8fafc !important;
+                }
+                [data-theme="dark"] .dts-hub-inner-pane input[type="text"] {
+                    background: #0f172a !important;
+                    color: #f8fafc !important;
+                    border-color: #475569 !important;
+                }
                 [data-theme="dark"] #modal-camera-select {
                     background: #0f172a !important;
                     border-color: #334155 !important;
@@ -2430,6 +2456,21 @@ new class extends Component {
                     </div>
                 </div>
             @endif
+
+            <!-- Office Hub Collective Inner Pane (Contained 100% Inside Widget Card) -->
+            <x-dts.hub-collective-modal 
+                :show="$showForwardHubModal" 
+                :search="$forwardHubSearch" 
+                :selected="$forwardHubTempSelected" 
+                :offices="$this->availableTargetOffices"
+                :contained="true"
+                wireClose="closeForwardHubModal"
+                wireToggle="toggleForwardHubOffice"
+                wireSelectAll="selectAllForwardHubOffices"
+                wireClear="clearForwardHubOffices"
+                wireApply="applyForwardHubModal"
+                wireSearch="forwardHubSearch"
+            />
         </div>
     @endif
 
@@ -3428,18 +3469,4 @@ new class extends Component {
         });
     })();
     </script>
-
-    <!-- Office Hub Collective Modal for Forwarding -->
-    <x-dts.hub-collective-modal 
-        :show="$showForwardHubModal" 
-        :search="$forwardHubSearch" 
-        :selected="$forwardHubTempSelected" 
-        :offices="$this->availableTargetOffices"
-        wireClose="closeForwardHubModal"
-        wireToggle="toggleForwardHubOffice"
-        wireSelectAll="selectAllForwardHubOffices"
-        wireClear="clearForwardHubOffices"
-        wireApply="applyForwardHubModal"
-        wireSearch="forwardHubSearch"
-    />
 </div>

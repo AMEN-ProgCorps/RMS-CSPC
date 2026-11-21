@@ -54,6 +54,25 @@
 </div>
 @endif
 
+{{-- 2c. Page Manuals --}}
+@if($isSadm || $perms?->can_access_settings)
+<div id="admin-manuals-id" class="button-section-container">
+    <div class="button-container {{ request()->routeIs('admin.manuals.*') ? 'force-active' : '' }}" onclick="proccedto('{{ \Illuminate\Support\Facades\Route::has('admin.manuals.index') ? route('admin.manuals.index') : url('/admin/manuals') }}')">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4F4F4F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+                <path d="M6 6h10"/>
+                <path d="M6 10h10"/>
+                <path d="M6 14h6"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Page Manuals</span>
+        </div>
+    </div>
+</div>
+@endif
+
 {{-- 2d. NAS Storage --}}
 @if($isSadm || $perms?->can_access_settings)
 <div id="admin-nas-id" class="button-section-container">
@@ -147,8 +166,8 @@
 
 {{-- 4. Subsystems Section --}}
 @if($isSadm || $perms?->can_access_subsystems)
-<div id="admin-subsystems-id" class="button-section-container {{ ((request()->routeIs('admin.subsystems.*') || request()->routeIs('admin.manuals.*')) && !$enableTopTabs) ? 'show' : '' }}">
-    <div class="button-container {{ (request()->routeIs('admin.subsystems.*') || request()->routeIs('admin.manuals.*')) ? 'force-active' : '' }}" 
+<div id="admin-subsystems-id" class="button-section-container {{ (request()->routeIs('admin.subsystems.*') && !$enableTopTabs) ? 'show' : '' }}">
+    <div class="button-container {{ request()->routeIs('admin.subsystems.*') ? 'force-active' : '' }}" 
          onclick="{{ $enableTopTabs ? "proccedto('{$defaultSubsystemsRoute}')" : "showButtonSection('admin-subsystems-id')" }}">
         <div class="button-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 29 29" fill="none">
@@ -171,7 +190,7 @@
         <div class="function-button {{ request()->routeIs('admin.subsystems.activate') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.subsystems.activate') }}')">Activate</div>
         <div class="function-button {{ request()->routeIs('admin.subsystems.deactivate') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.subsystems.deactivate') }}')">Deactivate</div>
         <div class="function-button {{ request()->routeIs('admin.subsystems.changes-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.subsystems.changes-logs') }}')">Changes Logs</div>
-        <div class="function-button {{ (request()->routeIs('admin.subsystems.manuals') || request()->routeIs('admin.manuals.*')) ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.subsystems.manuals') }}')">Editor</div>
+        <div class="function-button {{ request()->routeIs('admin.subsystems.patch-notes') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.subsystems.patch-notes') }}')">Patch Notes</div>
     </div>
 </div>
 @endif

@@ -169,6 +169,7 @@
                     $prewarmUrls[] = '/admin/subsystems/activate';
                     $prewarmUrls[] = '/admin/subsystems/deactivate';
                     $prewarmUrls[] = '/admin/subsystems/changes-logs';
+                    $prewarmUrls[] = '/admin/subsystems/patch-notes';
                     $prewarmUrls[] = '/admin/subsystems/manuals';
                 }
             }

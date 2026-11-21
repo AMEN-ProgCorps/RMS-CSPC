@@ -192,6 +192,7 @@
         </div>
         <div class="guide-container">
             <livewire:components.page-manual />
+            <livewire:components.patch-logs />
         </div>
         <div class="notification-container">
             <livewire:components.notification.notifications />
@@ -247,7 +248,7 @@
                     </div>
                     <div id="nav-contexts" class="subsystem-indicator">
                         <div class="subsystem-name">{{ $subsystem }}</div>
-                        <div class="subsystem-version">Version: {{ $subsystem }}</div>
+                        <div class="subsystem-version" title="View Update Logs & Release Notes" onclick="window.dispatchEvent(new CustomEvent('open-patch-logs'))" style="cursor: pointer;">Version: {{ $subsystem }}</div>
                     </div>
                 </div>
                 <hr>

@@ -654,6 +654,7 @@ Route::middleware(['auth'])
         Volt::route('/admin/subsystems/activate', 'pages.admin.subsystems.activate')->name('admin.subsystems.activate');
         Volt::route('/admin/subsystems/deactivate', 'pages.admin.subsystems.deactivate')->name('admin.subsystems.deactivate');
         Volt::route('/admin/subsystems/changes-logs', 'pages.admin.subsystems.changes-logs')->name('admin.subsystems.changes-logs');
+        Volt::route('/admin/subsystems/patch-notes', 'pages.admin.subsystems.patch-notes')->name('admin.subsystems.patch-notes');
         Volt::route('/admin/subsystems/manuals', 'pages.admin.manuals.index')->name('admin.subsystems.manuals');
         Volt::route('/admin/settings', 'pages.admin.settings.index')->name('admin.settings.index');
         Volt::route('/admin/backup', 'pages.admin.backup.index')->name('admin.backup.index');

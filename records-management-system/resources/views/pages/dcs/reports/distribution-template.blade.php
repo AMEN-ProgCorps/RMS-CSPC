@@ -421,6 +421,30 @@ DCS file: Print layout for a distribution and retrieval sheet.
             box-shadow: none;
         }
 
+        /* Form Templates preview: true 1.0 line spacing + room for rows above footer */
+        body.is-preview-pad .data-table {
+            line-height: 1 !important;
+        }
+        body.is-preview-pad .data-table th,
+        body.is-preview-pad .data-table td {
+            line-height: 1 !important;
+        }
+        body.is-preview-pad .data-table tbody td {
+            height: 1em;
+            min-height: 0;
+            padding: 0 3px;
+            line-height: 1 !important;
+            vertical-align: middle;
+        }
+        body.is-preview-pad .data-table tbody tr {
+            height: 1em;
+            line-height: 1;
+        }
+        body.is-preview-pad .data-table tbody td.col-dept {
+            padding-left: 6px;
+            padding-right: 4px;
+        }
+
         @media print {
             @page {
                 size: letter portrait;
@@ -502,7 +526,10 @@ DCS file: Print layout for a distribution and retrieval sheet.
         }
     </style>
 </head>
-<body class="{{ !empty($embed) ? 'is-embed' : '' }}">
+<body class="{{ trim(implode(' ', array_filter([
+        ! empty($embed) ? 'is-embed' : null,
+        ! empty($previewPadRows) ? 'is-preview-pad' : null,
+    ]))) }}">
     @if(empty($embed))
     <div class="print-toolbar" id="toolbar">
         <button class="btn-print" type="button" id="btnPrint">Print</button>
@@ -520,7 +547,8 @@ DCS file: Print layout for a distribution and retrieval sheet.
 
         // Page 1: header band + titles + group(0.65) + sub(3×11pt) + footer; ~0.28in/row.
         // JS reflow packs to leave ~1 row before the footer; keep chunks generous.
-        $page1Capacity = 26;
+        // Form Templates previewPadRows: seed a large single chunk; JS pads/splits to the footer.
+        $page1Capacity = ! empty($previewPadRows) ? max(40, $rows->count()) : 26;
         $contCapacity = 32;
 
         $pageChunks = [];
@@ -530,8 +558,8 @@ DCS file: Print layout for a distribution and retrieval sheet.
             $pageChunks[] = array_splice($remaining, 0, $contCapacity);
         }
 
-        // Do not pad empty rows — blank space under a short last page is fine;
-        // padding was leaving large empty table areas / forcing early page breaks.
+        // Live reports: do not pad empty rows (short last page is fine).
+        // Form Templates preview: JS padPreviewRowsToFooter() fills to ~1 row above footer.
 
         $totalPages = max(1, count($pageChunks));
         $documentTitle = trim((string) ($documentTitle ?? ''));
@@ -896,6 +924,40 @@ DCS file: Print layout for a distribution and retrieval sheet.
         }
 
         /**
+         * Form Templates preview: append empty rows until ~1 row remains before the footer.
+         */
+        function padPreviewRowsToFooter() {
+            if (!document.body.classList.contains('is-preview-pad')) return;
+
+            const sheets = [...document.querySelectorAll('.sheet')];
+            sheets.forEach((sheet) => {
+                const main = sheet.querySelector('.sheet-main');
+                const table = sheet.querySelector('.data-table');
+                const tbody = table?.querySelector('tbody');
+                if (!main || !table || !tbody) return;
+
+                const colCount = (() => {
+                    const sample = tbody.querySelector('tr');
+                    if (sample) return sample.children.length;
+                    const cols = table.querySelectorAll('colgroup col');
+                    return cols.length > 0 ? cols.length : 6;
+                })();
+
+                let guard = 0;
+                while (canFitAnotherRow(main, table) && guard < 80) {
+                    const tr = document.createElement('tr');
+                    for (let c = 0; c < colCount; c++) {
+                        const td = document.createElement('td');
+                        if (c === 0) td.className = 'col-dept';
+                        tr.appendChild(td);
+                    }
+                    tbody.appendChild(tr);
+                    guard++;
+                }
+            });
+        }
+
+        /**
          * Reflows distribution sheets.
          */
         function reflowDistributionSheets() {
@@ -905,6 +967,10 @@ DCS file: Print layout for a distribution and retrieval sheet.
             packRowsBackward();
             // 3) Only then avoid a 1-row last page if previous is full
             avoidOrphanLastPage(4);
+            moveOverflowForward();
+            packRowsBackward();
+            // 4) Form Templates: grow empty rows to the footer on every sheet
+            padPreviewRowsToFooter();
             moveOverflowForward();
             packRowsBackward();
             dropEmptyTrailingSheets();

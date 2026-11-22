@@ -1926,9 +1926,9 @@ class OfficeIntakeHelper
             }
         } else {
             $open = self::findOpenDuplicateDcn($docNo, $docTitle, '', [$originLabel], $exceptId);
-            if ($open) {
+        if ($open) {
                 $payload['open_request_type'] = 'dcn';
-                $payload['open_request_message'] = self::duplicateDcnMessage($open);
+            $payload['open_request_message'] = self::duplicateDcnMessage($open);
                 if (self::userCanAccessOfficeIntakeRecord($open, 'dcn')) {
                     $payload['open_request_id'] = (int) $open->id;
                     $payload['open_dcn_id'] = (int) $open->id;

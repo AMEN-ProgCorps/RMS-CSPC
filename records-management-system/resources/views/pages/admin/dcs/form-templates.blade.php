@@ -99,6 +99,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         $this->clearBlockSelection();
         $this->editorTab = 'identity';
         $this->loadTemplate($key);
+        // Force iframe remount so Distribution / reports never show a previous template's HTML.
+        $this->touchLivePreview();
     }
 
     public function setEditorTab(string $tab): void
@@ -1235,8 +1237,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         $html = $this->renderLivePreviewHtml($isFormLayout);
         // Strip Livewire morph markers that can appear when rendering Blade during a Livewire request.
         $html = preg_replace('/<!--\[if\s+(?:END)?BLOCK\]>.*?<!\[endif\]-->/s', '', $html) ?? $html;
-        // Include bump so every edit forces a fresh iframe load even if HTML briefly matches.
-        $key = md5($html . '|' . $this->previewBump);
+        // Include template key + bump so switching templates never reuses another form's preview.
+        $key = md5($this->selectedKey . '|' . $html . '|' . $this->previewBump);
         session([
             'dcs_print_tpl_live_preview_html' => $html,
             'dcs_print_tpl_live_preview_key' => $key,
@@ -1320,93 +1322,63 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
      */
     private function sampleBindValues(): array
     {
+        // Blank preview only — layout/grid still render empty lines/cells.
         return [
-            'request_no' => 'SAMPLE-001',
-            'drf_date' => now()->format('F d, Y'),
-            'originator' => 'Sample Office / Originator',
-            'doc_title' => 'Sample Document Title for Preview',
-            'previous_document_no' => 'CSPC-INT-000',
-            'doc_type' => 'Internal',
+            'request_no' => '',
+            'drf_date' => '',
+            'originator' => '',
+            'doc_title' => '',
+            'previous_document_no' => '',
+            'doc_type' => '',
             'description' => '',
-            'distribute_to' => 'RFIO, REG, BUD',
-            'prepared_by_name' => 'Juan Dela Cruz',
-            'prepared_by_designation' => 'Staff',
-            'reviewed_by_name' => 'Maria Santos',
-            'reviewed_by_designation' => 'Supervisor',
-            'approved_by_name' => 'Pedro Reyes',
-            'approved_by_designation' => 'Director',
-            'dcn_no' => 'DCN-2026-001',
-            'document_no' => 'CSPC-INT-001',
-            'document_title' => 'Sample Document Title for Preview',
-            'change_from' => 'Old clause text for preview',
-            'change_to' => 'New clause text for preview',
-            'justification' => 'Sample justification of change',
-            'department' => 'RFIO / ' . now()->format('M d, Y'),
-            'reviewed_by' => 'Maria Santos',
-            'approved_by' => 'Pedro Reyes',
+            'distribute_to' => '',
+            'prepared_by_name' => '',
+            'prepared_by_designation' => '',
+            'reviewed_by_name' => '',
+            'reviewed_by_designation' => '',
+            'approved_by_name' => '',
+            'approved_by_designation' => '',
+            'dcn_no' => '',
+            'document_no' => '',
+            'document_title' => '',
+            'change_from' => '',
+            'change_to' => '',
+            'justification' => '',
+            'department' => '',
+            'reviewed_by' => '',
+            'approved_by' => '',
             'form_code' => $this->formCode,
             'form_title' => $this->formTitle,
         ];
     }
 
     /**
+     * Empty masterlist rows for Form Templates preview only (fills one short-bond page).
+     *
      * @return list<array<string, string>>
      */
     private function sampleReportRows(): array
     {
-        return [
-            [
-                'item_no' => '1',
-                'doc_no' => 'CSPC-INT-001',
-                'rev_no' => '0',
-                'doc_title' => 'Quality Manual',
-                'effectivity_date' => 'Jan 2025',
-                'originator' => 'RFIO',
-                'no_pages' => '12',
-                'pdf_path' => 'Yes.pdf',
-                'department' => 'RFIO',
-                'signature' => '',
-                'dist_date' => '',
-                'copies' => '2',
-                'retrieved_by' => '',
-                'ret_date' => '',
-                'document_title' => 'Quality Manual',
-            ],
-            [
-                'item_no' => '2',
-                'doc_no' => 'CSPC-INT-002',
-                'rev_no' => '1',
-                'doc_title' => 'Procedure for Document Control',
-                'effectivity_date' => 'Aug 2021',
-                'originator' => 'Registrar',
-                'no_pages' => '8',
-                'pdf_path' => 'Yes.pdf',
-                'department' => 'Registrar',
-                'signature' => '',
-                'dist_date' => '',
-                'copies' => '1',
-                'retrieved_by' => '',
-                'ret_date' => '',
-                'document_title' => 'Procedure for Document Control',
-            ],
-            [
-                'item_no' => '3',
-                'doc_no' => 'CSPC-EXT-010',
-                'rev_no' => '0',
-                'doc_title' => 'External Reference Form',
-                'effectivity_date' => 'Mar 2024',
-                'originator' => 'Budget',
-                'no_pages' => '4',
-                'pdf_path' => 'Yes.pdf',
-                'department' => 'Budget',
-                'signature' => '',
-                'dist_date' => '',
-                'copies' => '3',
-                'retrieved_by' => '',
-                'ret_date' => '',
-                'document_title' => 'External Reference Form',
-            ],
+        $blank = [
+            'item_no' => '',
+            'doc_no' => '',
+            'rev_no' => '',
+            'doc_title' => '',
+            'effectivity_date' => '',
+            'originator' => '',
+            'no_pages' => '',
+            'pdf_path' => '',
+            'department' => '',
+            'signature' => '',
+            'dist_date' => '',
+            'copies' => '',
+            'retrieved_by' => '',
+            'ret_date' => '',
+            'document_title' => '',
         ];
+
+        // Seed a few empties; masterlist JS (previewPadRows) pads to the footer.
+        return array_fill(0, 12, $blank);
     }
 
     private function renderLivePreviewHtml(bool $isFormLayout): string
@@ -1524,16 +1496,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             ];
         }
 
-        $offices = [
-            ['name' => 'Extension and Community Services Office', 'copies' => '1'],
-            ['name' => 'Graduate School', 'copies' => '1'],
-            ['name' => 'RMS Development Team', 'copies' => '1'],
-        ];
+        // Seed a few empties; blade JS (previewPadRows) pads to ~1 row above the footer.
+        $offices = array_fill(0, 12, ['name' => '', 'copies' => '']);
 
         return view('pages.dcs.reports.distribution-template', [
             'offices' => $offices,
             'date' => now('Asia/Manila')->toDateString(),
-            'documentTitle' => 'Sample Document Title',
+            'documentTitle' => '',
             'logoSrc' => $logoSrc,
             'republic' => trim($this->republic) !== '' ? trim($this->republic) : 'Republic of the Philippines',
             'institutionName' => trim($this->institutionName) !== '' ? trim($this->institutionName) : 'Camarines Sur Polytechnic Colleges',
@@ -1547,6 +1516,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             'templateColumns' => $payload,
             'tableHeaderStyle' => $payload['style'],
             'embed' => true,
+            'previewPadRows' => true,
             'autoprint' => false,
         ])->render();
     }
@@ -1579,10 +1549,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             'totalCount' => $rows->count(),
             'dateFrom' => null,
             'dateTo' => null,
-            'asOf' => now()->toDateString(),
+            'asOf' => null,
             'period' => 'all',
             'periodLabel' => 'All records',
             'embed' => true,
+            'previewPadRows' => true,
             'selectedSubTypeNames' => [],
             'activeSub' => str_replace('masterlist_', '', $this->selectedKey),
             'activeCategory' => 'masterlist',
@@ -1590,7 +1561,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             'saveAsPdf' => false,
             'plainTable' => false,
             'isMlInternal' => true,
-            'checkedType' => null,
+            // Empty string (not null) — null was coalescing to "internal" and drawing a check.
+            'checkedType' => '',
             'republic' => trim($this->republic) !== '' ? trim($this->republic) : 'Republic of the Philippines',
             'institutionName' => trim($this->institutionName) !== '' ? trim($this->institutionName) : 'Camarines Sur Polytechnic Colleges',
             'institutionAddress' => trim($this->institutionAddress) !== '' ? trim($this->institutionAddress) : 'Nabua, Camarines Sur',
@@ -1613,25 +1585,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
     {
         $drf = (object) [
             'id' => 0,
-            'doc_title' => 'Sample Document Title for Preview',
-            'drf_date' => now()->toDateString(),
-            'originator_name' => 'Sample Office / Originator',
-            'doc_type_kind' => 'internal',
+            'doc_title' => '',
+            'drf_date' => null,
+            'originator_name' => '',
+            'doc_type_kind' => '',
             'description_reason' => '',
-            'prepared_by_name' => 'Juan Dela Cruz',
-            'prepared_by_designation' => 'Staff',
-            'reviewed_by_name' => 'Maria Santos',
-            'reviewed_by_designation' => 'Supervisor',
-            'approved_by_name' => 'Pedro Reyes',
-            'approved_by_designation' => 'Director',
+            'prepared_by_name' => '',
+            'prepared_by_designation' => '',
+            'reviewed_by_name' => '',
+            'reviewed_by_designation' => '',
+            'approved_by_name' => '',
+            'approved_by_designation' => '',
             'previous_document_no' => '',
             'previous_document_title' => '',
             'previous_originator' => '',
-            'preview_distribute_offices' => [
-                ['office_id' => 1, 'code' => 'RFIO', 'name' => 'RFIO'],
-                ['office_id' => 2, 'code' => 'REG', 'name' => 'Registrar'],
-                ['office_id' => 3, 'code' => 'BUD', 'name' => 'Budget'],
-            ],
+            // Empty list keeps the distribute-to grid lines; no sample offices.
+            'preview_distribute_offices' => [],
         ];
 
         return view('pages.dcs.office.drf-print', [
@@ -1662,20 +1631,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
     {
         $dcn = (object) [
             'id' => 0,
-            'dcn_no' => 'DCN-2026-001',
-            'document_no' => 'CSPC-INT-001',
-            'document_title' => 'Sample Document Title for Preview',
-            'change_from' => 'Old clause text for preview',
-            'change_to' => 'New clause text for preview',
-            'brief_purpose' => 'Sample justification of change',
-            'originator_name' => 'Sample Office / Originator',
-            'department_on' => now()->toDateString(),
-            'preview_department_code' => 'RFIO',
-            'preview_department' => 'RFIO',
-            'preview_reviewers' => [
-                ['name' => 'Maria Santos', 'date' => now()->toDateString(), 'label' => 'Maria Santos'],
-            ],
-            'approved_by_name' => 'Pedro Reyes',
+            'dcn_no' => '',
+            'document_no' => '',
+            'document_title' => '',
+            'change_from' => '',
+            'change_to' => '',
+            'brief_purpose' => '',
+            'originator_name' => '',
+            'department_on' => null,
+            'preview_department_code' => '',
+            'preview_department' => '',
+            'preview_reviewers' => [],
+            'approved_by_name' => '',
         ];
 
         return view('pages.dcs.office.dcn-print', [
@@ -1840,8 +1807,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                                 <iframe
                                     class="layout-live-frame"
                                     title="Identity preview"
-                                    src="{{ $livePreviewUrl }}?t={{ $previewKey }}&b={{ $previewBump }}"
-                                    style="width: {{ $pageWidth * $canvasScale }}px; height: {{ $pageHeight * $canvasScale }}px;"
+                                    src="{{ $livePreviewUrl }}?t={{ $previewKey }}&b={{ $previewBump }}&k={{ urlencode($selectedKey) }}"
+                                    style="width: {{ $pageWidth * 96 }}px; height: {{ $pageHeight * 96 }}px;"
                                     onload="this.parentElement.scrollTop = 0"
                                 ></iframe>
                             </div>
@@ -2245,8 +2212,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                             <iframe
                                 class="layout-live-frame"
                                 title="Layout canvas live preview"
-                                src="{{ $livePreviewUrl }}?t={{ $previewKey }}&b={{ $previewBump }}"
-                                style="width: {{ $pageWidth * $canvasScale }}px; height: {{ $pageHeight * $canvasScale }}px;"
+                                src="{{ $livePreviewUrl }}?t={{ $previewKey }}&b={{ $previewBump }}&k={{ urlencode($selectedKey) }}"
+                                style="width: {{ $pageWidth * 96 }}px; height: {{ $pageHeight * 96 }}px;"
                                 onload="this.parentElement.scrollTop = 0"
                             ></iframe>
                         </div>
@@ -2386,8 +2353,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                                 <iframe
                                     class="layout-live-frame"
                                     title="Columns live preview"
-                                    src="{{ $livePreviewUrl }}?t={{ $previewKey }}&b={{ $previewBump }}"
-                                    style="width: {{ $pageWidth * $canvasScale }}px; height: {{ $pageHeight * $canvasScale }}px;"
+                                    src="{{ $livePreviewUrl }}?t={{ $previewKey }}&b={{ $previewBump }}&k={{ urlencode($selectedKey) }}"
+                                    style="width: {{ $pageWidth * 96 }}px; height: {{ $pageHeight * 96 }}px;"
                                 ></iframe>
                             </div>
                         </aside>
@@ -2408,7 +2375,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                         <iframe
                             class="preview-frame true-page-frame"
                             title="{{ trim($formTitle) !== '' ? trim($formTitle) . ' Preview' : 'Document Request Form Preview' }}"
-                            src="{{ $livePreviewUrl }}?t={{ $previewKey }}&b={{ $previewBump }}"
+                            src="{{ $livePreviewUrl }}?t={{ $previewKey }}&b={{ $previewBump }}&k={{ urlencode($selectedKey) }}"
                             style="width: {{ $pageWidth }}in; height: {{ $pageHeight }}in;"
                         ></iframe>
                     </div>

@@ -713,26 +713,27 @@ Route::middleware(['auth'])
                 abort(403);
             }
             $tpl = \App\Helpers\DcsPrintTemplateHelper::get($key);
+            // Blank preview only — distribute grid / ruled lines still render empty cells.
             $sample = [
-                'request_no' => 'SAMPLE-001',
-                'drf_date' => now()->format('F d, Y'),
-                'originator' => 'Sample Office',
-                'doc_title' => 'Sample Document Title',
-                'doc_type' => 'Internal',
-                'description' => 'Sample description for preview.',
-                'distribute_to' => 'RFIO, Registrar',
-                'prepared_by_name' => 'Juan Dela Cruz',
-                'reviewed_by_name' => 'Maria Santos',
-                'approved_by_name' => 'Pedro Reyes',
-                'dcn_no' => 'DCN-2026-001',
-                'document_no' => 'CSPC-INT-001',
-                'document_title' => 'Sample Document Title',
-                'change_from' => 'Old clause text',
-                'change_to' => 'New clause text',
-                'justification' => 'Sample justification',
-                'department' => 'RFIO',
-                'reviewed_by' => 'Maria Santos',
-                'approved_by' => 'Pedro Reyes',
+                'request_no' => '',
+                'drf_date' => '',
+                'originator' => '',
+                'doc_title' => '',
+                'doc_type' => '',
+                'description' => '',
+                'distribute_to' => '',
+                'prepared_by_name' => '',
+                'reviewed_by_name' => '',
+                'approved_by_name' => '',
+                'dcn_no' => '',
+                'document_no' => '',
+                'document_title' => '',
+                'change_from' => '',
+                'change_to' => '',
+                'justification' => '',
+                'department' => '',
+                'reviewed_by' => '',
+                'approved_by' => '',
             ];
 
             return response()->view('pages.dcs.reports.print-layout-renderer', [

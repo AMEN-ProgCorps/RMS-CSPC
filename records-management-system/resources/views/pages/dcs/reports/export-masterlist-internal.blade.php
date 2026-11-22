@@ -416,6 +416,25 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         }
         .ml-empty { text-align: center; font-style: italic; padding: 0.2in; }
 
+        /* Form Templates preview: 1.0 line spacing; JS pads rows to the footer */
+        body.is-preview-pad .ml-table {
+            line-height: 1 !important;
+        }
+        body.is-preview-pad .ml-table td {
+            line-height: 1 !important;
+            padding: 0 0.04in !important;
+            height: 1em;
+            vertical-align: middle;
+        }
+        body.is-preview-pad .ml-table tr {
+            height: 1em;
+            line-height: 1;
+        }
+        body.is-embed .ml-sheet {
+            margin: 0 auto 12px;
+            box-shadow: none;
+        }
+
         /* Footer band — same geometry for on-screen preview and PDF export. */
         .ml-footer {
             position: absolute;
@@ -956,7 +975,13 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
         }
     </style>
 </head>
-<body class="{{ !empty($isPdf) ? 'is-pdf' : '' }}{{ !empty($forcePrintLayout) ? ' is-print-export' : '' }}{{ !empty($isDompdf) ? ' is-dompdf' : '' }}">
+<body class="{{ trim(implode(' ', array_filter([
+        ! empty($isPdf) ? 'is-pdf' : null,
+        ! empty($forcePrintLayout) ? 'is-print-export' : null,
+        ! empty($isDompdf) ? 'is-dompdf' : null,
+        ! empty($embed) ? 'is-embed' : null,
+        ! empty($previewPadRows) ? 'is-preview-pad' : null,
+    ]))) }}">
     @if(empty($embed))
     <div class="print-toolbar" id="toolbar">
         <button class="btn-pdf" type="button" id="btnPdf" title="Opens the print dialog — choose Save as PDF for a file identical to this preview">Save as PDF</button>
@@ -968,19 +993,25 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
     @php
         $logoPath = public_path('images/logo.png');
         $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
-        $asOfLabel = !empty($asOf)
-            ? \Carbon\Carbon::parse($asOf)->format('F j, Y')
-            : now('Asia/Manila')->format('F j, Y');
+        $isPreviewPad = ! empty($previewPadRows);
+        $asOfLabel = $isPreviewPad
+            ? '________'
+            : (! empty($asOf)
+                ? \Carbon\Carbon::parse($asOf)->format('F j, Y')
+                : now('Asia/Manila')->format('F j, Y'));
         $footerEffectivity = $footerEffectivity ?? 'January 2025';
         $footerRev = $footerRev ?? '4';
         $letterNumber = $letterNumber ?? 'CSPC-F-DCC-03';
-        $checkedType = $checkedType ?? 'internal';
+        // Form Templates preview: no type check. Live reports still default to internal.
+        $checkedType = $isPreviewPad ? '' : ($checkedType ?? 'internal');
         $activeSub = $activeSub ?? '';
         $showAsOf = ! in_array($activeSub, ['internal_forms', 'external_docs', 'forms', 'logbooks'], true);
         $showFilterRule = in_array($activeSub, ['internal_forms', 'external_docs'], true);
         $showFilterBox = in_array($activeSub, ['forms', 'logbooks'], true);
         $allRows = collect($rows ?? [])->values()->all();
-        $pageChunks = $allRows === [] ? [[]] : array_chunk($allRows, 18);
+        // Form Templates preview: keep one sheet so JS can pad empty rows to the footer.
+        $chunkSize = ! empty($previewPadRows) ? max(40, count($allRows) ?: 1) : 18;
+        $pageChunks = $allRows === [] ? [[]] : array_chunk($allRows, $chunkSize);
         $totalPages = max(1, count($pageChunks));
         $colgroup = '<colgroup><col class="c1"><col class="c2"><col class="c3"><col class="c4"><col class="c5"><col class="c6"><col class="c7"></colgroup>';
         $startNo = 0;
@@ -1086,7 +1117,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                                 <td class="is-center">{{ is_array($row) ? ($row['effectivity_date'] ?? '—') : ($row->effectivity_date ?? '—') }}</td>
                                 @unless($origSkip)
                                     <td class="is-originator {{ $origSpan > 1 ? 'is-span' : '' }}" @if($origSpan > 1) rowspan="{{ $origSpan }}" @endif>
-                                        <x-dcs.originator-lines :name="$origName" />
+                                        <x-dcs.originator-lines :name="$origName" :empty="!empty($previewPadRows) ? '' : '—'" />
                                     </td>
                                 @endunless
                                 <td>{{ is_array($row) ? ($row['no_pages'] ?? '—') : ($row->no_pages ?? '—') }}</td>
@@ -1184,7 +1215,7 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
                                 <td class="is-center">{{ is_array($row) ? ($row['effectivity_date'] ?? '—') : ($row->effectivity_date ?? '—') }}</td>
                                 @unless($origSkip)
                                     <td class="is-originator {{ $origSpan > 1 ? 'is-span' : '' }}" @if($origSpan > 1) rowspan="{{ $origSpan }}" @endif>
-                                        <x-dcs.originator-lines :name="$origName" />
+                                        <x-dcs.originator-lines :name="$origName" :empty="!empty($previewPadRows) ? '' : '—'" />
                                     </td>
                                 @endunless
                                 <td>{{ is_array($row) ? ($row['no_pages'] ?? '—') : ($row->no_pages ?? '—') }}</td>
@@ -1249,7 +1280,59 @@ DCS file: Masterlist print table. Document number, revision, title, and effectiv
             if (params.get('autoPrint') === '1' && params.get('format') !== 'pdf' && !params.get('saveAsPdf')) {
                 setTimeout(function() { window.print(); }, 300);
             }
+
+            padMasterlistPreviewRows();
         });
+
+        /**
+         * Form Templates preview: fill empty rows until ~1 row above the footer.
+         */
+        function padMasterlistPreviewRows() {
+            if (!document.body.classList.contains('is-preview-pad')) return;
+
+            document.querySelectorAll('.ml-sheet').forEach(function (sheet) {
+                var footer = sheet.querySelector('.ml-footer');
+                var tables = sheet.querySelectorAll('.ml-table:not(.ml-thead)');
+                var table = tables[tables.length - 1] || null;
+                var tbody = table ? table.querySelector('tbody') : null;
+                if (!footer || !table || !tbody) return;
+
+                // Drop the "No records" placeholder so we can pad real empty cells.
+                var emptyMsg = tbody.querySelector('tr td.ml-empty');
+                if (emptyMsg && emptyMsg.parentElement) {
+                    emptyMsg.parentElement.remove();
+                }
+
+                var sample = tbody.querySelector('tr');
+                var colCount = sample ? sample.children.length : 7;
+                var guard = 0;
+
+                function rowH() {
+                    var row = tbody.querySelector('tr');
+                    if (!row) return 16;
+                    var h = row.getBoundingClientRect().height;
+                    return h > 0 ? h : 16;
+                }
+
+                while (guard < 80) {
+                    var free = footer.getBoundingClientRect().top - table.getBoundingClientRect().bottom;
+                    var rh = rowH();
+                    if (free < (rh * 1.5)) break;
+
+                    var tr = document.createElement('tr');
+                    for (var c = 0; c < colCount; c++) {
+                        var td = document.createElement('td');
+                        if (c === 1 || c === 2 || c === 3 || c === 4) td.className = 'is-center';
+                        if (c === 1) td.className = 'is-doc-no is-center';
+                        if (c === 3) td.className = 'is-title is-center';
+                        if (c === 5) td.className = 'is-originator';
+                        tr.appendChild(td);
+                    }
+                    tbody.appendChild(tr);
+                    guard++;
+                }
+            });
+        }
     </script>
 </body>
 </html>

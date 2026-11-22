@@ -177,12 +177,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
     {
         if (!$user || !$perms) return false;
 
-        return (bool)($perms->is_sadm ?? false)
-            || (bool)($perms->is_admin ?? false)
-            || (int)($user->account_role ?? 0) === 1
-            || (bool)($perms->can_access_rdp_admin ?? false)
-            || (bool)($perms->can_rdp_generate_reports ?? true)
-            || (bool)($perms->can_access_rdp ?? true);
+        if ((bool)($perms->is_sadm ?? false)) {
+            return true;
+        }
+
+        return (bool)($perms->can_rdp_access_reports ?? true);
     }
 
     /**
@@ -552,6 +551,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
      */
     public function exportCsv(): StreamedResponse
     {
+        $perms = Auth::user()?->permissions;
+        if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true)) {
+            abort(403, 'You do not have clearance to export reports.');
+        }
+
         $data = $this->with();
         $hierarchyTree = $data['hierarchyTree'] ?? [];
         $filename = 'generalized_records_' . date('Y-m-d_His') . '.csv';

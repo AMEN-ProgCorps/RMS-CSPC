@@ -28,6 +28,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Cockpit File
     public ?string $previewDocId = null;
 
     /**
+     * Initializes component state and authorization gates.
+     * @return void
+     */
+    public function mount(): void
+    {
+        $perms = Auth::user()?->permissions;
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && (!(bool)($perms->can_access_rdp ?? true) || !(bool)($perms->can_rdp_access_manage_files ?? true)))) {
+            $this->redirectRoute('rdp');
+            return;
+        }
+    }
+
+    /**
      * Displays the metadata modal.
      *
      * @param ?string $docId

@@ -37,8 +37,8 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
-        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_access_rdp ?? true))) {
-            redirect()->route('rdp')->send();
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && (!(bool)($perms->can_access_rdp ?? true) || !(bool)($perms->can_rdp_access_received_docs ?? true)))) {
+            $this->redirectRoute('rdp');
             return;
         }
     }

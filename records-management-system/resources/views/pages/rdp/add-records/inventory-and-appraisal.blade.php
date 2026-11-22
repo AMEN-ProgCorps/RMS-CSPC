@@ -2128,6 +2128,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
      */
     public function mount(): void
     {
+        $perms = Auth::user()?->permissions;
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && (!(bool)($perms->can_access_rdp ?? true) || !(bool)($perms->can_rdp_access_add_records ?? true)))) {
+            $this->redirectRoute('rdp');
+            return;
+        }
+
         $this->showValidationErrors = false;
         $this->time_value = $this->is_permanent ? 'P' : 'T';
 
@@ -3388,11 +3394,20 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
      *
      * @return void
      */
-    public function updatedSubsections($value, $key): void
+    public function updatedSubsections($value = null, $key = null): void
     {
         $this->seriesModalError = null;
-        $index = (int)$key;
-        $trimmed = trim((string)$value);
+        if (is_array($value)) {
+            if ($key !== null && isset($value[$key])) {
+                $index = (int)$key;
+                $trimmed = trim((string)$value[$key]);
+            } else {
+                return;
+            }
+        } else {
+            $index = (int)$key;
+            $trimmed = trim((string)$value);
+        }
         if (empty($trimmed)) return;
 
         $parentRecordId = null;

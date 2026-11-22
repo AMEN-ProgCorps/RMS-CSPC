@@ -28,6 +28,19 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
     public ?int $activeSubDropdownIndex = null;
 
     /**
+     * Initializes component state and authorization gates.
+     * @return void
+     */
+    public function mount(): void
+    {
+        $perms = Auth::user()?->permissions;
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && (!(bool)($perms->can_access_rdp ?? true) || !(bool)($perms->can_rdp_access_add_records ?? true)))) {
+            $this->redirectRoute('rdp');
+            return;
+        }
+    }
+
+    /**
      * Resolves the target leaf record based on the current series_title and subsections.
      * Returns an array with:
      * - 'exists': bool, true if record exists in the database

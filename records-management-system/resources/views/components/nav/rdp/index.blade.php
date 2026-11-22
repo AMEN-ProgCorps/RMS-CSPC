@@ -4,12 +4,24 @@
         ->orderBy('id', 'asc')
         ->get();
 
+    $perms = auth()->user()?->permissions;
+    $isSadm = (bool)($perms->is_sadm ?? false);
+
+    $canReceivedDocs = $isSadm || (bool)($perms->can_rdp_access_received_docs ?? true);
+    $canAddRecords   = $isSadm || (bool)($perms->can_rdp_access_add_records ?? true);
+    $canDrafts       = $isSadm || (bool)($perms->can_rdp_access_drafts ?? true);
+    $canPendingList  = $isSadm || (bool)($perms->can_rdp_access_pending ?? true);
+    $canForApproval  = $isSadm || (bool)($perms->can_rdp_access_for_approval ?? false);
+    $canReferences   = $isSadm || (bool)($perms->can_rdp_access_references ?? true);
+    $canReports      = $isSadm || (bool)($perms->can_rdp_access_reports ?? true);
+    $canManageFiles  = $isSadm || (bool)($perms->can_rdp_access_manage_files ?? true);
+
     $enableTopTabs = auth()->user()?->enableTopTabs() ?? true;
 
     $defaultReceivedDocsRoute = route('rdp.received-documents.dts');
     $defaultAddRecordsRoute = route('rdp.add-records.inventory-and-appraisal');
     $defaultDraftRoute = route('rdp.draft.inventory-and-appraisal');
-    $defaultPendingRoute = route('rdp.pending.list');
+    $defaultPendingRoute = $canPendingList ? route('rdp.pending.list') : ($canForApproval ? route('rdp.pending.for-approval') : route('rdp'));
     $defaultRefRoute = $refTypes->first() ? route('rdp.references.show', ['type' => strtolower($refTypes->first()->shorted_type)]) : route('rdp');
     $defaultReportsRoute = route('rdp.reports.nap-form-1');
 
@@ -31,6 +43,7 @@
     </div>
 </div>
 
+@if($canReceivedDocs)
 <div id="rdp-received-documents-id" class="button-section-container {{ (request()->routeIs('rdp.received-documents.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.received-documents.*') ? 'force-active' : '' }}" 
          data-nav-guide="{{ $navGuides['Received Documents'] ?? 'View incoming archived files transferred from DTS, DCS, and record requests' }}"
@@ -61,7 +74,9 @@
         <div class="function-button {{ request()->routeIs('rdp.received-documents.record-requests') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.received-documents.record-requests') }}')">Record Requests</div>
     </div>
 </div>
+@endif
 
+@if($canAddRecords)
 <div id="rdp-add-records-id" class="button-section-container {{ (request()->routeIs('rdp.add-records.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.add-records.*') ? 'force-active' : '' }}" 
          data-nav-guide="{{ $navGuides['Add Records'] ?? 'Appraise and encode record items for official NAP disposition schedules' }}"
@@ -91,7 +106,9 @@
         <div class="function-button {{ request()->routeIs('rdp.add-records.records-and-disposition-schedule') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.add-records.records-and-disposition-schedule') }}')">Records and Disposition Schedule</div>
     </div>
 </div>
+@endif
 
+@if($canDrafts)
 <div id="rdp-draft-id" class="button-section-container {{ (request()->routeIs('rdp.draft.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.draft.*') ? 'force-active' : '' }}" 
          data-nav-guide="{{ $navGuides['Draft'] ?? 'View and resume unsubmitted record inventory appraisal drafts' }}"
@@ -121,7 +138,9 @@
         <div class="function-button {{ request()->routeIs('rdp.draft.records-and-disposition-schedule') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.draft.records-and-disposition-schedule') }}')">Records and Disposition Schedule</div>
     </div>
 </div>
+@endif
 
+@if($canPendingList || $canForApproval)
 <div id="rdp-pending-id" class="button-section-container {{ (request()->routeIs('rdp.pending.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.pending.*') ? 'force-active' : '' }}" 
          data-nav-guide="{{ $navGuides['Pending'] ?? 'Track and review records currently submitted for approval and verification' }}"
@@ -147,13 +166,17 @@
         @endif
     </div>
     <div class="functions-container">
+        @if($canPendingList)
         <div class="function-button {{ request()->routeIs('rdp.pending.list') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.pending.list') }}')">List</div>
-        @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_rdp_access_for_approval)
+        @endif
+        @if($canForApproval)
         <div class="function-button {{ request()->routeIs('rdp.pending.for-approval') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.pending.for-approval') }}')">For Approval</div>
         @endif
     </div>
 </div>
+@endif
 
+@if($canReferences)
 <div id="rdp-references-id" class="button-section-container {{ (request()->routeIs('rdp.references.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.references.*') ? 'force-active' : '' }}" 
          data-nav-guide="Browse National Archives classification references and retention periods"
@@ -189,7 +212,9 @@
         @endforeach
     </div>
 </div>
+@endif
 
+@if($canReports)
 <div id="rdp-reports-id" class="button-section-container {{ (request()->routeIs('rdp.reports.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('rdp.reports.*') ? 'force-active' : '' }}" 
          data-nav-guide="{{ $navGuides['Reports'] ?? 'Generate and export official NAP Form 1, Form 2, and Form 3 disposition documents' }}"
@@ -221,7 +246,9 @@
         <div class="function-button {{ request()->routeIs('rdp.reports.nap-form-3') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.reports.nap-form-3') }}')">NAP Form 3</div>
     </div>
 </div>
+@endif
 
+@if($canManageFiles)
 <div id="rdp-manage-files-id" class="button-section-container">
     <div class="button-container {{ request()->routeIs('rdp.manage-files') ? 'force-active' : '' }}" 
          data-nav-guide="{{ $navGuides['Manage Files'] ?? 'Organize, browse, and manage archived files and attached transaction records' }}"
@@ -236,6 +263,7 @@
         </div>
     </div>
 </div>
+@endif
 
 <style>
     .button-container {

@@ -255,8 +255,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
-        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_access_rdp ?? true))) {
-            redirect()->route('rdp')->send();
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && (!(bool)($perms->can_access_rdp ?? true) || !(bool)($perms->can_rdp_access_pending ?? true)))) {
+            $this->redirectRoute('rdp');
             return;
         }
 
@@ -1862,8 +1862,31 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             $clustersCollection = $clustersCollection->concat($qRec->get());
         }
 
-        // Sort by main_id descending
-        $sortedClusters = $clustersCollection->sortByDesc('main_id')->values();
+        // Sort order:
+        // 1. Pending first (unprinted and undownloaded with status_id = 1)
+        // 2. Other status next (Submitted for Approval, Completed, Rejected, etc.)
+        // 3. Latest date first (newest created_at first)
+        // 4. Oldest date last
+        $sortedClusters = $clustersCollection->sort(function ($a, $b) {
+            $isPendingA = (!(bool)($a->is_printed ?? false) && !(bool)($a->is_downloaded ?? false) && (int)($a->status_id ?? 1) === 1);
+            $isPendingB = (!(bool)($b->is_printed ?? false) && !(bool)($b->is_downloaded ?? false) && (int)($b->status_id ?? 1) === 1);
+
+            $groupA = $isPendingA ? 0 : 1;
+            $groupB = $isPendingB ? 0 : 1;
+
+            if ($groupA !== $groupB) {
+                return $groupA <=> $groupB;
+            }
+
+            $timeA = !empty($a->created_at) ? strtotime((string)$a->created_at) : 0;
+            $timeB = !empty($b->created_at) ? strtotime((string)$b->created_at) : 0;
+
+            if ($timeA !== $timeB) {
+                return $timeB <=> $timeA;
+            }
+
+            return ($b->main_id ?? 0) <=> ($a->main_id ?? 0);
+        })->values();
 
         return [
             'clusters'    => $sortedClusters,

@@ -1242,6 +1242,7 @@ Route::middleware(['auth'])
                 return response()->view('pages.dcs.reports.print-layout-renderer', [
                     'tpl' => $tpl,
                     'values' => \App\Helpers\DcsPrintTemplateHelper::drfLayoutValues($drf, $distributeOffices, $sourceOffices),
+                    'distributeOffices' => $distributeOffices,
                     'logoSrcOverride' => $logoSrc,
                     'preview' => false,
                     'hideToolbar' => false,
@@ -1280,37 +1281,25 @@ Route::middleware(['auth'])
                 $sourceOffices = OfficeIntakeHelper::dcnSourceOffices($id);
                 $allowPrint = OfficeIntakeHelper::officeMayPrintIntake($dcn);
                 $printLockMessage = 'Print unlocks after RFIU confirms this form and notifies you to print and sign.';
-                $blocks = \App\Helpers\DcsPrintTemplateHelper::layoutBlocks($tpl);
+                // Official live DCN form — branding + canvas overrides from Form Templates live_json.
+                $printFormCode = $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-01';
+                $printFormTitle = $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Change Notice';
+                $printRepublic = $identity['republic'];
+                $printInstitution = $identity['institutionName'];
+                $printAddress = $identity['institutionAddress'];
+                $printFooterLeft = $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:';
+                $printFooterCenter = $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.';
+                $printFooterEffectivity = $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018';
+                $printFooterRev = $identity['footerRev'] !== '' ? $identity['footerRev'] : '1';
+                // Official CSPC-F-DCC-01 blade + live canvas overrides (labels, moves, freeform tables).
+                $layoutOverrides = \App\Helpers\DcsPrintTemplateHelper::dcnLiveLayoutOverrides();
 
-                if ($blocks === []) {
-                    $printFormCode = $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-01';
-                    $printFormTitle = $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Change Notice';
-                    $printRepublic = $identity['republic'];
-                    $printInstitution = $identity['institutionName'];
-                    $printAddress = $identity['institutionAddress'];
-                    $printFooterLeft = $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:';
-                    $printFooterCenter = $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.';
-                    $printFooterEffectivity = $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018';
-                    $printFooterRev = $identity['footerRev'] !== '' ? $identity['footerRev'] : '0';
-
-                    return response()->view('pages.dcs.office.dcn-print', compact(
-                        'dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage',
-                        'printFormCode', 'printFormTitle', 'printRepublic', 'printInstitution', 'printAddress',
-                        'printFooterLeft', 'printFooterCenter', 'printFooterEffectivity', 'printFooterRev'
-                    ));
-                }
-
-                return response()->view('pages.dcs.reports.print-layout-renderer', [
-                    'tpl' => $tpl,
-                    'values' => \App\Helpers\DcsPrintTemplateHelper::dcnLayoutValues($dcn, $sourceOffices),
-                    'logoSrcOverride' => $logoSrc,
-                    'preview' => false,
-                    'hideToolbar' => false,
-                    'embed' => false,
-                    'viewerMode' => $viewerMode,
-                    'allowPrint' => $allowPrint,
-                    'printLockMessage' => $printLockMessage,
-                ]);
+                return response()->view('pages.dcs.office.dcn-print', compact(
+                    'dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage',
+                    'printFormCode', 'printFormTitle', 'printRepublic', 'printInstitution', 'printAddress',
+                    'printFooterLeft', 'printFooterCenter', 'printFooterEffectivity', 'printFooterRev',
+                    'layoutOverrides'
+                ));
             })->name('office.dcn.print');
             Route::match(['put', 'patch', 'post'], '/office/dcn/{id}', function (Request $request, int $id) {
                 return OfficeIntakeHelper::updateDcn($request, $id);

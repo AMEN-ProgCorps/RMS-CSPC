@@ -30,11 +30,56 @@
     $isPreview = ! empty($preview);
     $tplKey = (string) ($tpl->key ?? '');
     $isDrfTheme = $tplKey === 'office_drf';
+    $isDcnTheme = $tplKey === 'office_dcn';
+    $isOfficialFormTheme = $isDrfTheme || $isDcnTheme;
     $sections = ['header' => [], 'body' => [], 'footer' => []];
     foreach ($blocks as $block) {
         $sec = DcsPrintTemplateHelper::normalizeSection($block['section'] ?? null, (float) ($block['y'] ?? 0));
         $sections[$sec][] = $block;
     }
+
+    // Overflow distribute-to offices (> grid capacity) → attach continuation pages.
+    $attachOfficeRows = [];
+    $distCapacity = 24;
+    foreach ($blocks as $block) {
+        if ((string) ($block['type'] ?? '') !== 'dist_grid') {
+            continue;
+        }
+        $distCapacity = max(1, (int) ($block['grid_cols'] ?? 4)) * max(1, (int) ($block['grid_rows'] ?? 6));
+        break;
+    }
+    $rawDistribute = is_array($distributeOffices ?? null) ? $distributeOffices : [];
+    if ($rawDistribute !== []) {
+        foreach ($rawDistribute as $office) {
+            if (! is_array($office)) {
+                continue;
+            }
+            $name = trim((string) ($office['name'] ?? ''));
+            $code = trim((string) ($office['code'] ?? ''));
+            $label = $name !== '' ? $name : $code;
+            if ($label !== '') {
+                $attachOfficeRows[] = $label;
+            }
+        }
+    }
+    if ($attachOfficeRows === []) {
+        $attachOfficeRows = array_values(array_filter(array_map(
+            'trim',
+            preg_split('/\s*,\s*/', (string) ($values['distribute_to'] ?? '')) ?: []
+        ), fn ($v) => $v !== ''));
+    }
+    $distributeOverflow = count($attachOfficeRows) > $distCapacity;
+    /*
+     * Attach list: 11pt @ line-height 1.0. Pack the first sheet full, then spill.
+     * Keep PHP row math in sync with .sheet-attach CSS below.
+     */
+    $attachPadTopIn = 0.50;
+    $attachPadBottomIn = 0.28;
+    $attachMetaIn = 0.50; // Document Title + dist label + table thead
+    $attachRowPt = 11.0;  // strict 1.0: 11pt text @ line-height 1
+    $attachUsableIn = max(3.0, $heightIn - $attachPadTopIn - $attachPadBottomIn - $attachMetaIn);
+    $attachPerPage = max(20, (int) floor($attachUsableIn / ($attachRowPt / 72)));
+    $attachPages = $distributeOverflow ? array_chunk($attachOfficeRows, $attachPerPage) : [];
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -52,6 +97,9 @@
     <title>{{ $docTitle }}</title>
     @if($isDrfTheme)
         @include('pages.dcs.partials.drf-form-styles')
+    @endif
+    @if($isDcnTheme)
+        @include('pages.dcs.partials.dcn-form-styles')
     @endif
     <style>
         @page {
@@ -154,16 +202,32 @@
             border-bottom: 1px solid currentColor;
             padding-bottom: 1px;
         }
+        .block-text.is-underline {
+            text-decoration: underline;
+            text-underline-offset: 3px;
+            text-decoration-thickness: 1px;
+        }
         .block-table {
             border-collapse: collapse;
+            border-spacing: 0;
             width: 100%;
             height: 100%;
+            table-layout: fixed;
         }
         .block-table th,
         .block-table td {
             border: 1px solid #000;
             padding: 2px 4px;
             font-size: inherit;
+        }
+        .block-table.no-borders,
+        .block-table.no-borders th,
+        .block-table.no-borders td,
+        .drf-sig.no-borders,
+        .drf-sig.no-borders th,
+        .drf-sig.no-borders td {
+            border: none !important;
+            border-color: transparent !important;
         }
         .block-checkboxes {
             display: flex;
@@ -226,12 +290,110 @@
             gap: 0.08in 0.16in;
             min-height: 0;
         }
+        .block-dist .dist-col {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
         .block-dist .cell {
             border-bottom: 1px solid #000;
             min-height: 0.2in;
             font-size: 9pt;
             overflow: hidden;
             white-space: nowrap;
+        }
+        .sheet-attach {
+            position: relative;
+            width: {{ $widthIn }}in;
+            height: {{ $heightIn }}in;
+            margin: {{ $isPreview && empty($embed) ? '16px auto' : '0' }};
+            background: #fff;
+            overflow: hidden;
+            box-shadow: {{ $isPreview && empty($embed) ? '0 4px 20px rgba(15,23,42,.12)' : 'none' }};
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11pt;
+            line-height: 1;
+            page-break-before: always;
+            break-before: page;
+        }
+        .sheet-attach .body {
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+            height: 100%;
+            min-height: 100%;
+            max-height: 100%;
+            padding: {{ $attachPadTopIn }}in 0.5in {{ $attachPadBottomIn }}in;
+        }
+        .sheet-attach .attach-doc-title {
+            display: flex;
+            align-items: flex-end;
+            gap: 4px;
+            margin: 0 0 2pt;
+            min-height: 11pt;
+            line-height: 1;
+            flex: 0 0 auto;
+        }
+        .sheet-attach .attach-doc-title .lbl { white-space: nowrap; font-weight: 400; line-height: 1; }
+        .sheet-attach .attach-doc-title .fline {
+            flex: 1 1 auto;
+            min-width: 0;
+            border-bottom: 1px solid #000;
+            padding: 0 1px;
+            white-space: nowrap;
+            overflow: hidden;
+            line-height: 1;
+        }
+        .sheet-attach .attach-dist-label {
+            margin: 1pt 0 2pt;
+            font-size: 11pt;
+            font-weight: 700;
+            line-height: 1;
+            color: #000;
+            flex: 0 0 auto;
+        }
+        .sheet-attach .attach-table {
+            width: 100%;
+            border-collapse: collapse;
+            border-spacing: 0;
+            table-layout: fixed;
+            margin: 0;
+            flex: 0 0 auto;
+            font-size: 11pt;
+            line-height: 1;
+        }
+        .sheet-attach .attach-table th,
+        .sheet-attach .attach-table td {
+            border: 0.5pt solid #000;
+            padding: 0 3px !important;
+            margin: 0 !important;
+            font-size: 11pt !important;
+            line-height: 1 !important;
+            height: {{ $attachRowPt }}pt !important;
+            min-height: {{ $attachRowPt }}pt !important;
+            max-height: {{ $attachRowPt }}pt !important;
+            vertical-align: middle;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .sheet-attach .attach-table th {
+            text-align: center;
+            font-weight: 700;
+            height: {{ $attachRowPt }}pt !important;
+            min-height: {{ $attachRowPt }}pt !important;
+            max-height: {{ $attachRowPt }}pt !important;
+            line-height: 1 !important;
+            padding: 0 3px !important;
+        }
+        .sheet-attach .attach-table col.c-no { width: 0.55in; }
+        @media print {
+            .sheet-attach {
+                page-break-before: always !important;
+                break-before: page !important;
+                box-shadow: none !important;
+                margin: 0 !important;
+            }
         }
     </style>
 </head>
@@ -278,7 +440,7 @@ document.addEventListener('keydown', function (e) {
 </div>
 @endif
 
-<div class="sheet {{ $isDrfTheme ? 'drf-theme' : '' }}">
+<div class="sheet {{ $isDrfTheme ? 'drf-theme' : '' }} {{ $isDcnTheme ? 'dcn-theme' : '' }}">
     @foreach(['header', 'body', 'footer'] as $sectionName)
         @foreach($sections[$sectionName] as $block)
             @php
@@ -290,16 +452,26 @@ document.addEventListener('keydown', function (e) {
                 $label = (string) ($block['label'] ?? '');
                 $bind = (string) ($block['bind'] ?? '');
                 $style = DcsPrintTemplateHelper::normalizeBlockStyle(is_array($block['style'] ?? null) ? $block['style'] : []);
-                $fontFamily = $isDrfTheme ? 'Arial' : $style['fontFamily'];
-                $fontSize = $isDrfTheme ? (float) ($style['fontSizePt'] ?: 11) : $style['fontSizePt'];
+                // Always honor canvas Typography (Size / Color / Weight / Family).
+                $fontFamily = trim((string) ($style['fontFamily'] ?? '')) !== '' ? (string) $style['fontFamily'] : 'Arial';
+                $fontSize = (float) ($style['fontSizePt'] ?: ($isOfficialFormTheme ? 11 : 11));
                 $fontWeight = $style['fontWeight'];
                 $fontStyle = $style['fontStyle'];
                 $align = $style['align'];
                 $verticalAlign = $style['verticalAlign'] ?? 'top';
                 $underline = $style['underline'];
-                $color = $isDrfTheme ? '#000' : $style['color'];
-                $bg = $isDrfTheme && $type === 'table' ? '' : $style['backgroundColor'];
-                $lineColor = $isDrfTheme ? '#0070C0' : $style['lineColor'];
+                // Official DCN title is always underlined (paper form CSPC-F-DCC-01).
+                if ($isDcnTheme && ($bind === 'form_title' || str_contains(mb_strtolower($label), 'document change notice'))) {
+                    $underline = true;
+                }
+                $color = trim((string) ($style['color'] ?? '')) !== '' ? (string) $style['color'] : '#000';
+                // Honor canvas Fill for all block types (including tables).
+                $bg = trim((string) ($style['backgroundColor'] ?? ''));
+                // Honor canvas Line color; fall back to official theme blues.
+                $lineColor = trim((string) ($style['lineColor'] ?? ''));
+                if ($lineColor === '') {
+                    $lineColor = $isDrfTheme ? '#0070C0' : ($isDcnTheme ? '#0071BC' : '#0d2a7a');
+                }
                 $objectFit = $style['objectFit'];
                 $bound = DcsPrintTemplateHelper::resolveBind($values, $bind);
                 if ($bind === 'form_code' && $bound === '') {
@@ -318,24 +490,41 @@ document.addEventListener('keydown', function (e) {
                     $bound = $identity['institutionAddress'];
                 }
                 if ($bind === 'footer_effectivity_line') {
-                    $left = trim((string) ($identity['footerLeft'] ?? 'Effectivity Date:'));
-                    $eff = trim((string) ($identity['footerEffectivity'] ?? ''));
-                    if ($eff === '') {
-                        $eff = trim((string) ($values['default_effectivity'] ?? 'January 2018'));
+                    // Canvas label wins when the editor set an explicit line (keeps preview in sync).
+                    if (trim($label) !== '') {
+                        $bound = trim($label);
+                    } else {
+                        $left = trim((string) ($identity['footerLeft'] ?? 'Effectivity Date:'));
+                        $eff = trim((string) ($identity['footerEffectivity'] ?? ''));
+                        if ($eff === '') {
+                            $eff = trim((string) ($values['default_effectivity'] ?? 'January 2018'));
+                        }
+                        $bound = trim($left . ' ' . $eff);
                     }
-                    $bound = trim($left . ' ' . $eff);
                 }
                 if ($bind === 'footer_rev_line') {
-                    $center = trim((string) ($identity['footerCenter'] ?? 'Rev.'));
-                    $rev = trim((string) ($identity['footerRev'] ?? ''));
-                    if ($rev === '') {
-                        $rev = trim((string) ($values['default_rev'] ?? '0'));
+                    if (trim($label) !== '') {
+                        $bound = trim($label);
+                    } else {
+                        $center = trim((string) ($identity['footerCenter'] ?? 'Rev.'));
+                        $rev = trim((string) ($identity['footerRev'] ?? ''));
+                        if ($rev === '') {
+                            $rev = trim((string) ($values['default_rev'] ?? ($isDcnTheme ? '1' : '0')));
+                        }
+                        $bound = trim($center . ' ' . $rev);
                     }
-                    $bound = trim($center . ' ' . $rev);
                 }
+                // Text blocks: prefer canvas label when bind did not resolve (or for branding binds
+                // where the editor label is the intentional override).
                 $displayText = $type === 'text'
                     ? ($bound !== '' ? $bound : $label)
                     : $bound;
+                if ($type === 'text' && trim($label) !== '' && in_array($bind, [
+                    'republic', 'institution_name', 'institution_address', 'form_code', 'form_title',
+                    'footer_rev_line', 'footer_effectivity_line',
+                ], true)) {
+                    $displayText = trim($label);
+                }
                 $extraClass = '';
                 if ($isDrfTheme && $type === 'text') {
                     if ($bind === 'form_code' || str_contains(mb_strtolower($label), 'cspc-f-')) {
@@ -350,6 +539,19 @@ document.addEventListener('keydown', function (e) {
                         $extraClass = 'drf-footer';
                     }
                 }
+                if ($isDcnTheme && $type === 'text') {
+                    if ($bind === 'form_code' || str_contains(mb_strtolower($label), 'cspc-f-')) {
+                        $extraClass = 'dcn-form-code';
+                    } elseif ($bind === 'form_title' || str_contains(mb_strtolower($label), 'document change notice')) {
+                        $extraClass = 'dcn-title';
+                    } elseif ($fontWeight >= 700 && $sectionName === 'header') {
+                        $extraClass = 'dcn-hdr-text is-name';
+                    } elseif ($sectionName === 'header') {
+                        $extraClass = 'dcn-hdr-text';
+                    } elseif ($sectionName === 'footer') {
+                        $extraClass = 'dcn-footer';
+                    }
+                }
                 $vAlignCss = '';
                 if ($type === 'field') {
                     $vAlignCss = 'align-items:flex-end;';
@@ -361,11 +563,11 @@ document.addEventListener('keydown', function (e) {
                     };
                 }
                 $css = "left: {$x}in; top: {$y}in; width: {$w}in; height: {$h}in;"
-                    . " font-family: {$fontFamily}, Helvetica, sans-serif;"
-                    . " font-size: {$fontSize}pt; font-weight: {$fontWeight}; font-style: {$fontStyle};"
-                    . " text-align: {$align}; color: {$color}; vertical-align: {$verticalAlign};"
+                    . " font-family: {$fontFamily}, Helvetica, sans-serif !important;"
+                    . " font-size: {$fontSize}pt !important; font-weight: {$fontWeight} !important; font-style: {$fontStyle} !important;"
+                    . " text-align: {$align} !important; color: {$color} !important; vertical-align: {$verticalAlign};"
                     . $vAlignCss
-                    . ($bg !== '' ? " background-color: {$bg};" : '');
+                    . ($bg !== '' ? " background-color: {$bg} !important;" : '');
             @endphp
             <div class="block block-{{ $type }} {{ $underline ? 'is-underline' : '' }} {{ $extraClass }} section-{{ $sectionName }}"
                  data-section="{{ $sectionName }}"
@@ -381,11 +583,11 @@ document.addEventListener('keydown', function (e) {
                 @elseif($type === 'spacer')
                     &nbsp;
                 @elseif($type === 'field')
-                    <div class="{{ $isDrfTheme ? 'drf-field' : 'block-field' }} {{ $underline || $isDrfTheme ? 'is-underline' : '' }}">
+                    <div class="{{ $isDrfTheme ? 'drf-field' : ($isDcnTheme ? 'dcn-field' : 'block-field') }} {{ $underline || $isOfficialFormTheme ? 'is-underline' : '' }}">
                         @if($label !== '')
                             <span class="lbl">{{ $label }}</span>
                         @endif
-                        @if($isDrfTheme)
+                        @if($isOfficialFormTheme)
                             <span class="fline">
                                 <span class="fline-val">{{ $displayText !== '' ? $displayText : "\u{00A0}" }}</span>
                                 <span class="fline-rule"></span>
@@ -413,7 +615,7 @@ document.addEventListener('keydown', function (e) {
                     </div>
                 @elseif($type === 'ruled_lines')
                     @php
-                        $lineCount = max(1, min(12, (int) ($block['line_count'] ?? ($isDrfTheme ? 4 : 5))));
+                        $lineCount = max(1, min(12, (int) ($block['line_count'] ?? ($isOfficialFormTheme ? 4 : 5))));
                         $chunks = [];
                         if ($displayText !== '') {
                             $words = preg_split('/\s+/', $displayText) ?: [];
@@ -436,7 +638,7 @@ document.addEventListener('keydown', function (e) {
                         }
                         $chunks = array_slice($chunks, 0, $lineCount);
                     @endphp
-                    <div class="{{ $isDrfTheme ? 'drf-ruled' : 'block-ruled' }}">
+                    <div class="{{ $isDrfTheme ? 'drf-ruled' : ($isDcnTheme ? 'dcn-ruled' : 'block-ruled') }}">
                         @if($label !== '')
                             <div class="lbl">{{ $label }}</div>
                         @endif
@@ -450,14 +652,34 @@ document.addEventListener('keydown', function (e) {
                         $gRows = max(1, min(10, (int) ($block['grid_rows'] ?? ($isDrfTheme ? 6 : 5))));
                         $cells = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $displayText) ?: [])));
                         $total = $gCols * $gRows;
+                        // Prefer full office list (names) when provided; fall back to bind codes.
+                        if ($attachOfficeRows !== []) {
+                            $cells = $attachOfficeRows;
+                        }
+                        if (count($cells) > $total) {
+                            // Column-major indexes: [1]=2nd row col1, [2]=3rd row col1 (official DRF).
+                            $overflowCells = array_fill(0, $total, '');
+                            if ($gRows >= 2) {
+                                $overflowCells[1] = 'Please see attached';
+                            }
+                            if ($gRows >= 3) {
+                                $overflowCells[2] = 'distribution list';
+                            }
+                            $cells = $overflowCells;
+                        }
                     @endphp
                     <div class="{{ $isDrfTheme ? 'drf-dist' : 'block-dist' }}">
                         @if($label !== '')
                             <div class="lbl">{{ $label }}</div>
                         @endif
+                        {{-- Column-major fill (same as official drf-print) so row 2/3 are indexes 1/2. --}}
                         <div class="grid" style="grid-template-columns: repeat({{ $gCols }}, minmax(0, 1fr));">
-                            @for($i = 0; $i < $total; $i++)
-                                <div class="cell">{{ $cells[$i] ?? '' }}</div>
+                            @for($col = 0; $col < $gCols; $col++)
+                                <div class="dist-col">
+                                    @for($row = 0; $row < $gRows; $row++)
+                                        <div class="cell">{{ $cells[$col * $gRows + $row] ?? '' }}</div>
+                                    @endfor
+                                </div>
                             @endfor
                         </div>
                     </div>
@@ -469,32 +691,61 @@ document.addEventListener('keydown', function (e) {
                 @elseif($type === 'table')
                     @php
                         $tableStyle = DcsPrintTemplateHelper::columnsPayload($tpl)['style'];
-                        $hdrBg = $isDrfTheme ? 'transparent' : ($bg !== '' ? $bg : ($tableStyle['header_row_bg'] ?? '#8db3e2'));
-                        $hdrFg = $isDrfTheme ? '#000' : ($tableStyle['header_row_color'] ?? '#000');
-                        $cols = max(1, min(8, (int) ($block['table_cols'] ?? 4)));
-                        $rows = max(1, min(8, (int) ($block['table_rows'] ?? 4)));
+                        $hdrBg = $isOfficialFormTheme ? 'transparent' : ($bg !== '' ? $bg : ($tableStyle['header_row_bg'] ?? '#8db3e2'));
+                        $hdrFg = $color !== '' ? $color : ($isOfficialFormTheme ? '#000' : ($tableStyle['header_row_color'] ?? '#000'));
+                        $cols = max(1, min(12, (int) ($block['table_cols'] ?? 4)));
+                        $rows = max(1, min(12, (int) ($block['table_rows'] ?? 4)));
+                        $showBorders = DcsPrintTemplateHelper::tableBordersVisible($block);
+                        $borderCls = $showBorders ? '' : 'no-borders';
+                        $freeCells = array_key_exists('table_cells', $block)
+                            ? DcsPrintTemplateHelper::padTableCells($block['table_cells'], $rows, $cols)
+                            : null;
                         $headers = is_array($block['table_headers'] ?? null) ? $block['table_headers'] : [];
                         $rowLabels = is_array($block['table_row_labels'] ?? null) ? $block['table_row_labels'] : [];
                         $cellBinds = is_array($block['table_cell_binds'] ?? null) ? $block['table_cell_binds'] : [];
-                        if ($headers === []) {
-                            $headers = match ($cols) {
-                                4 => ['', 'Prepared by:', 'Reviewed by:', 'Approved by:'],
-                                3 => ['', 'Prepared by:', 'Approved by:'],
-                                default => array_pad([''], $cols, ''),
-                            };
-                        }
-                        if ($rowLabels === []) {
-                            $defaults = ['Signature', 'Name', 'Designation', 'Date'];
-                            $rowLabels = array_slice(array_pad($defaults, $rows, ''), 0, $rows);
-                        }
-                        while (count($headers) < $cols) {
-                            $headers[] = '';
-                        }
-                        while (count($rowLabels) < $rows) {
-                            $rowLabels[] = '';
+                        $useFreeTable = is_array($freeCells);
+                        if (! $useFreeTable) {
+                            if ($headers === []) {
+                                $headers = match ($cols) {
+                                    4 => ['', 'Prepared by:', 'Reviewed by:', 'Approved by:'],
+                                    3 => ['', 'Prepared by:', 'Approved by:'],
+                                    default => array_pad([''], $cols, ''),
+                                };
+                            }
+                            if ($rowLabels === []) {
+                                $defaults = ['Signature', 'Name', 'Designation', 'Date'];
+                                $rowLabels = array_slice(array_pad($defaults, $rows, ''), 0, $rows);
+                            }
+                            while (count($headers) < $cols) {
+                                $headers[] = '';
+                            }
+                            while (count($rowLabels) < $rows) {
+                                $rowLabels[] = '';
+                            }
                         }
                     @endphp
-                    <table class="{{ $isDrfTheme ? 'drf-sig' : 'block-table' }}">
+                    @if($useFreeTable)
+                        <table class="{{ $isDrfTheme ? 'drf-sig' : 'block-table' }} {{ $borderCls }}">
+                            <tbody>
+                                @for($r = 0; $r < $rows; $r++)
+                                    <tr>
+                                        @for($c = 0; $c < $cols; $c++)
+                                            @php
+                                                $text = (string) ($freeCells[$r][$c] ?? '');
+                                                $bindKey = (string) ($cellBinds[(string) $r][(string) $c] ?? $cellBinds[$r][$c] ?? '');
+                                                if ($text === '' && $bindKey !== '') {
+                                                    $text = DcsPrintTemplateHelper::resolveBind($values, $bindKey);
+                                                }
+                                                $cellBorder = $showBorders ? '1px solid #000' : 'none';
+                                            @endphp
+                                            <td style="border: {{ $cellBorder }}; text-align: {{ $align }}; color: {{ $color }};">{{ $text !== '' ? $text : "\u{00A0}" }}</td>
+                                        @endfor
+                                    </tr>
+                                @endfor
+                            </tbody>
+                        </table>
+                    @else
+                    <table class="{{ $isDrfTheme ? 'drf-sig' : 'block-table' }} {{ $borderCls }}">
                         @if($isDrfTheme && $cols === 4)
                             <colgroup>
                                 <col style="width:1.01in">
@@ -506,7 +757,7 @@ document.addEventListener('keydown', function (e) {
                         <thead>
                             <tr>
                                 @for($c = 0; $c < $cols; $c++)
-                                    <th style="background: {{ $hdrBg }}; color: {{ $hdrFg }}; text-align: center;">{{ $headers[$c] ?? '' }}</th>
+                                    <th style="background: {{ $hdrBg }}; color: {{ $hdrFg }}; text-align: center; {{ $showBorders ? '' : 'border:none;' }}">{{ $headers[$c] ?? '' }}</th>
                                 @endfor
                             </tr>
                         </thead>
@@ -515,26 +766,70 @@ document.addEventListener('keydown', function (e) {
                                 <tr>
                                     @for($c = 0; $c < $cols; $c++)
                                         @if($c === 0)
-                                            <td class="row-label">{{ $rowLabels[$r] ?? '' }}</td>
+                                            <td class="row-label" style="{{ $showBorders ? '' : 'border:none;' }}">{{ $rowLabels[$r] ?? '' }}</td>
                                         @else
                                             @php
                                                 $bindKey = (string) ($cellBinds[(string) $r][(string) $c] ?? $cellBinds[$r][$c] ?? '');
                                                 $cellVal = $bindKey !== '' ? DcsPrintTemplateHelper::resolveBind($values, $bindKey) : '';
                                                 $isNameRow = mb_strtolower((string) ($rowLabels[$r] ?? '')) === 'name';
                                             @endphp
-                                            <td class="{{ $isNameRow && $cellVal !== '' ? 'name-bold' : '' }}" style="text-align:center;">{{ $cellVal !== '' ? $cellVal : "\u{00A0}" }}</td>
+                                            <td class="{{ $isNameRow && $cellVal !== '' ? 'name-bold' : '' }}" style="text-align:center; {{ $showBorders ? '' : 'border:none;' }}">{{ $cellVal !== '' ? $cellVal : "\u{00A0}" }}</td>
                                         @endif
                                     @endfor
                                 </tr>
                             @endfor
                         </tbody>
                     </table>
+                    @endif
                 @else
-                    {{ $displayText }}
+                    @if($isDcnTheme && $extraClass === 'dcn-title')
+                        <span class="dcn-title-text">{{ $displayText !== '' ? $displayText : 'Document Change Notice' }}</span>
+                    @else
+                        {{ $displayText }}
+                    @endif
                 @endif
             </div>
         @endforeach
     @endforeach
 </div>
+
+@if($distributeOverflow)
+@foreach($attachPages as $pageIndex => $pageOffices)
+@php
+    $rowOffset = $pageIndex * $attachPerPage;
+    $attachDocTitle = trim((string) ($values['doc_title'] ?? ''));
+@endphp
+{{-- Attach list only — no DRF footer / page count (form stays Page: 1 of 1). --}}
+<div class="sheet sheet-attach {{ $isDrfTheme ? 'drf-theme' : '' }}">
+    <div class="body">
+        <div class="attach-doc-title">
+            <span class="lbl">Document Title :</span>
+            <div class="fline">{{ $attachDocTitle }}</div>
+        </div>
+        <div class="attach-dist-label">Distribute document to (department/position):</div>
+        <table class="attach-table">
+            <colgroup>
+                <col class="c-no">
+                <col class="c-name">
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>No.</th>
+                    <th>Name of Offices</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($pageOffices as $index => $officeLabel)
+                    <tr>
+                        <td style="text-align: center;">{{ $rowOffset + $index + 1 }}</td>
+                        <td>{{ $officeLabel }}</td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+</div>
+@endforeach
+@endif
 </body>
 </html>

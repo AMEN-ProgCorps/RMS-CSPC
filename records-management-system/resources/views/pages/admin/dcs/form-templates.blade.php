@@ -63,8 +63,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
     /** @var list<string> JSON snapshots of layoutBlocks for redo */
     public array $redoStack = [];
 
+    /** @var list<string> JSON snapshots of columns editor (Distribution / Generate Report) */
+    public array $columnsUndoStack = [];
+
+    /** @var list<string> JSON snapshots of columns editor redo */
+    public array $columnsRedoStack = [];
+
     /** Optional name for the History snapshot created on Save */
     public string $revisionName = '';
+
+    /** Saved History revision selected for Enable live (null = button hidden) */
+    public ?int $selectedLiveRevisionId = null;
 
     /** Table first-row (thead) style for report/distribution templates */
     public string $tableHeaderBg = '#8db3e2';
@@ -84,6 +93,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         }
 
         $this->loadTemplate($this->selectedKey);
+        $this->syncEditorFromLiveIfPublished();
     }
 
     public function clearMessages(): void
@@ -99,17 +109,80 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         $this->clearBlockSelection();
         $this->editorTab = 'identity';
         $this->loadTemplate($key);
+        $this->syncEditorFromLiveIfPublished();
         // Force iframe remount so Distribution / reports never show a previous template's HTML.
         $this->touchLivePreview();
     }
 
     public function setEditorTab(string $tab): void
     {
-        if (in_array($tab, ['identity', 'layout', 'columns', 'preview'], true)) {
-            $this->editorTab = $tab;
+        if (! in_array($tab, ['identity', 'layout', 'columns', 'preview'], true)) {
+            return;
         }
-        // Layout uses canvas HTML; Identity/Preview use official blades — always rebuild.
+        $this->editorTab = $tab;
+        // Don't keep stale success banners when switching Identity / Layout / Preview.
+        $this->successMessage = '';
+        // Layout/Columns hydrate from live when opened (Identity keeps current editor draft
+        // so branding edits there still preview against the same canvas state).
+        if (in_array($tab, ['layout', 'columns'], true)) {
+            $this->syncEditorFromLiveIfPublished();
+        }
         $this->touchLivePreview();
+    }
+
+    /**
+     * Load the active live_json into the editor (same source as office intake)
+     * and select that version in History.
+     */
+    private function syncEditorFromLiveIfPublished(): void
+    {
+        $status = DcsPrintTemplateHelper::liveStatus($this->selectedKey);
+        if (empty($status['has_live'])) {
+            return;
+        }
+
+        // Always hydrate from live_json — History revision can be stale vs the published snapshot.
+        $live = DcsPrintTemplateHelper::getLive($this->selectedKey);
+        $this->label = (string) ($live->label ?? $this->label);
+        $this->formCode = (string) ($live->form_code ?? $this->formCode);
+        $this->formTitle = (string) ($live->form_title ?? $this->formTitle);
+        $this->republic = (string) ($live->republic ?? $this->republic);
+        $this->institutionName = (string) ($live->institution_name ?? $this->institutionName);
+        $this->institutionAddress = (string) ($live->institution_address ?? $this->institutionAddress);
+        $this->footerLeft = (string) ($live->footer_left ?? $this->footerLeft);
+        $this->footerCenter = (string) ($live->footer_center ?? $this->footerCenter);
+        $this->defaultEffectivity = (string) ($live->default_effectivity ?? $this->defaultEffectivity);
+        $this->defaultRev = (string) ($live->default_rev ?? $this->defaultRev);
+        $this->logoPath = $live->logo_path ?? $this->logoPath;
+
+        if (in_array($this->selectedKey, ['office_drf', 'office_dcn'], true)) {
+            $this->layoutBlocks = DcsPrintTemplateHelper::layoutBlocks($live);
+            $this->clearBlockSelection();
+            $this->undoStack = [];
+            $this->redoStack = [];
+        } else {
+            $payload = DcsPrintTemplateHelper::columnsPayload($live);
+            $this->columns = $payload['columns'];
+            $this->groupHeaders = $payload['group_headers'];
+            $tStyle = $payload['style'] ?? DcsPrintTemplateHelper::normalizeTableStyle([]);
+            $this->tableHeaderBg = (string) ($tStyle['header_row_bg'] ?? $this->tableHeaderBg);
+            $this->tableHeaderColor = (string) ($tStyle['header_row_color'] ?? $this->tableHeaderColor);
+            $this->tableHeaderFontFamily = (string) ($tStyle['header_font_family'] ?? $this->tableHeaderFontFamily);
+            $this->tableHeaderFontSize = (float) ($tStyle['header_font_size_pt'] ?? $this->tableHeaderFontSize);
+            $this->tableHeaderFontWeight = (int) ($tStyle['header_font_weight'] ?? $this->tableHeaderFontWeight);
+            $this->tableHeaderFontStyle = (string) ($tStyle['header_font_style'] ?? $this->tableHeaderFontStyle);
+            $this->columnsUndoStack = [];
+            $this->columnsRedoStack = [];
+        }
+
+        $page = DcsPrintTemplateHelper::pageSpec($live);
+        $this->pageSize = $page['size'];
+        $this->pageWidth = $page['width_in'];
+        $this->pageHeight = $page['height_in'];
+
+        $liveRevId = DcsPrintTemplateHelper::ensureLiveRevisionTracked($this->selectedKey)
+            ?: (int) ($status['live_revision_id'] ?? 0);
+        $this->selectedLiveRevisionId = $liveRevId > 0 ? $liveRevId : null;
     }
 
     public function refreshPreview(): void
@@ -134,6 +207,35 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
     /**
      * Any branding / column edit should refresh the official live preview iframe.
      */
+    public function updating(string $name, mixed $value): void
+    {
+        if ($name === 'logoUpload') {
+            if ($this->editorTab === 'columns') {
+                $this->pushColumnsHistory();
+            } elseif ($this->editorTab === 'layout') {
+                $this->pushLayoutHistory();
+            }
+
+            return;
+        }
+        if ($this->editorTab !== 'columns') {
+            return;
+        }
+        $track = [
+            'formCode', 'formTitle', 'republic', 'institutionName', 'institutionAddress',
+            'footerLeft', 'footerCenter', 'defaultEffectivity', 'defaultRev',
+            'tableHeaderBg', 'tableHeaderColor', 'tableHeaderFontFamily', 'tableHeaderFontSize',
+            'tableHeaderFontWeight', 'tableHeaderFontStyle', 'columns', 'groupHeaders', 'logoPath',
+        ];
+        foreach ($track as $key) {
+            if ($name === $key || str_starts_with($name, $key . '.')) {
+                $this->pushColumnsHistory();
+
+                return;
+            }
+        }
+    }
+
     public function updated(string $name, mixed $value): void
     {
         $identityProps = [
@@ -168,8 +270,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             'institutionName' => 'institution_name',
             'institutionAddress' => 'institution_address',
         ];
+        if ($this->layoutBlocks === []) {
+            return;
+        }
+
+        // Footer identity fields rebuild the bound footer line labels.
+        if (in_array($prop, ['defaultRev', 'footerCenter', 'defaultEffectivity', 'footerLeft'], true)) {
+            $revLine = trim(($this->footerCenter !== '' ? $this->footerCenter : 'Rev.') . ' ' . $this->defaultRev);
+            $effLine = trim(($this->footerLeft !== '' ? $this->footerLeft : 'Effectivity Date:') . ' ' . $this->defaultEffectivity);
+            foreach ($this->layoutBlocks as $i => $block) {
+                $bind = (string) ($block['bind'] ?? '');
+                if ($bind === 'footer_rev_line') {
+                    $this->layoutBlocks[$i]['label'] = $revLine;
+                } elseif ($bind === 'footer_effectivity_line') {
+                    $this->layoutBlocks[$i]['label'] = $effLine;
+                }
+            }
+
+            return;
+        }
+
         $bind = $bindMap[$prop] ?? null;
-        if ($bind === null || $this->layoutBlocks === []) {
+        if ($bind === null) {
             return;
         }
         foreach ($this->layoutBlocks as $i => $block) {
@@ -197,8 +319,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             return;
         }
 
+        // Footer binds: canvas label is the source of truth for preview + identity.
+        if ($bind === 'footer_rev_line') {
+            $this->applyFooterRevLabelToIdentity($newLabel);
+
+            return;
+        }
+        if ($bind === 'footer_effectivity_line') {
+            $this->applyFooterEffectivityLabelToIdentity($newLabel);
+
+            return;
+        }
+
         // Unbound legacy blocks: match previous label to an identity field.
         $old = trim($oldLabel);
+        $new = trim($newLabel);
         if ($old === '') {
             return;
         }
@@ -216,6 +351,45 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                 return;
             }
         }
+
+        // Unbound "Rev. 0" → "Rev. 1" footer text.
+        $oldRevDisplay = trim(($this->footerCenter !== '' ? $this->footerCenter : 'Rev.') . ' ' . $this->defaultRev);
+        if (strcasecmp($old, $oldRevDisplay) === 0 || preg_match('/^Rev\.?\s*\S+/iu', $old)) {
+            if (preg_match('/^Rev\.?\s*/iu', $new) || strcasecmp($old, $oldRevDisplay) === 0) {
+                $this->applyFooterRevLabelToIdentity($newLabel);
+            }
+        }
+    }
+
+    private function applyFooterRevLabelToIdentity(string $label): void
+    {
+        $label = trim($label);
+        if ($label === '') {
+            return;
+        }
+        if (preg_match('/^(Rev\.?)\s*(.*)$/iu', $label, $m)) {
+            $this->footerCenter = 'Rev.';
+            $this->defaultRev = trim((string) ($m[2] ?? ''));
+
+            return;
+        }
+        $this->footerCenter = 'Rev.';
+        $this->defaultRev = $label;
+    }
+
+    private function applyFooterEffectivityLabelToIdentity(string $label): void
+    {
+        $label = trim($label);
+        if ($label === '') {
+            return;
+        }
+        if (preg_match('/^(Effectivity Date:?)\s*(.*)$/iu', $label, $m)) {
+            $this->footerLeft = 'Effectivity Date:';
+            $this->defaultEffectivity = trim((string) ($m[2] ?? ''));
+
+            return;
+        }
+        $this->defaultEffectivity = $label;
     }
 
     private function touchLivePreview(): void
@@ -226,9 +400,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         }
     }
 
-    public function loadTemplate(string $key): void
+    /**
+     * @param  bool  $preferLive  When true (opening a template), hydrate from published live_json.
+     *                            When false (after Save / reset), reload the draft row.
+     */
+    public function loadTemplate(string $key, bool $preferLive = true): void
     {
-        $tpl = DcsPrintTemplateHelper::get($key);
+        $status = DcsPrintTemplateHelper::liveStatus($key);
+        $useLive = $preferLive && ! empty($status['has_live']);
+        $tpl = $useLive
+            ? DcsPrintTemplateHelper::getLive($key)
+            : DcsPrintTemplateHelper::getDraft($key);
         $this->label = (string) ($tpl->label ?? $key);
         $this->formCode = (string) ($tpl->form_code ?? '');
         $this->formTitle = (string) ($tpl->form_title ?? '');
@@ -247,8 +429,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         $this->pageHeight = $page['height_in'];
 
         $this->layoutBlocks = DcsPrintTemplateHelper::layoutBlocks($tpl);
+        // DCN: replace legacy simplified canvas with official dcn-print geometry.
+        if ($key === 'office_dcn' && DcsPrintTemplateHelper::isLegacySimplifiedDcnLayout(['blocks' => $this->layoutBlocks])) {
+            $official = DcsPrintTemplateHelper::officialDcnLayoutBlocks();
+            if ($official !== []) {
+                $this->layoutBlocks = $official;
+            }
+        }
         $this->undoStack = [];
         $this->redoStack = [];
+        $this->columnsUndoStack = [];
+        $this->columnsRedoStack = [];
+        $this->selectedLiveRevisionId = null;
         $this->clearBlockSelection();
         $payload = DcsPrintTemplateHelper::columnsPayload($tpl);
         $this->columns = $payload['columns'];
@@ -276,6 +468,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             }
         }
         $this->tableHeaderFontStyle = (string) ($tStyle['header_font_style'] ?? 'normal');
+
+        if ($useLive) {
+            $liveRevId = DcsPrintTemplateHelper::ensureLiveRevisionTracked($key)
+                ?: (int) ($status['live_revision_id'] ?? 0);
+            $this->selectedLiveRevisionId = $liveRevId > 0 ? $liveRevId : null;
+        }
     }
 
     public function saveIdentity(): void
@@ -290,10 +488,100 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         $this->persistCurrent(includeLayout: true, includeColumns: false);
     }
 
+    /**
+     * Copy the current canvas into a new Saved versions draft (does not change live).
+     */
+    public function saveLayoutAsNew(): void
+    {
+        $this->clearMessages();
+        $this->persistCurrent(includeLayout: true, includeColumns: false, recordRevision: true, forceNewRevision: true);
+    }
+
+    /**
+     * Prefer restoring the previous published live template (before last Update live).
+     * If no previous snapshot exists, discard unsaved edits and reload the selected / live version.
+     */
+    public function resetSelectedVersion(): void
+    {
+        $this->clearMessages();
+
+        // Primary: undo the last Update live / Enable live publish.
+        if (DcsPrintTemplateHelper::hasPreviousLive($this->selectedKey)) {
+            $result = DcsPrintTemplateHelper::restorePreviousLive($this->selectedKey);
+            if (! $result['ok']) {
+                $this->errorMessage = $result['message'];
+
+                return;
+            }
+            $revId = (int) ($result['revision_id'] ?? 0);
+            $this->loadTemplate($this->selectedKey, preferLive: true);
+            if ($revId > 0) {
+                $this->selectedLiveRevisionId = $revId;
+            }
+            $this->undoStack = [];
+            $this->redoStack = [];
+            $this->columnsUndoStack = [];
+            $this->columnsRedoStack = [];
+            $this->clearBlockSelection();
+            $this->successMessage = $result['message'];
+            $this->touchLivePreview();
+
+            return;
+        }
+
+        // Fallback: discard unsaved canvas edits only.
+        $status = DcsPrintTemplateHelper::liveStatus($this->selectedKey);
+        $liveRevId = (int) ($status['live_revision_id'] ?? 0);
+        $selectedId = (int) ($this->selectedLiveRevisionId ?? 0);
+        $isLiveSelected = $selectedId > 0 && $liveRevId > 0 && $selectedId === $liveRevId;
+
+        if ($isLiveSelected || ($selectedId < 1 && ! empty($status['has_live']))) {
+            $this->syncEditorFromLiveIfPublished();
+            if ($selectedId < 1 && $liveRevId > 0) {
+                $this->selectedLiveRevisionId = $liveRevId;
+            }
+            $this->undoStack = [];
+            $this->redoStack = [];
+            $this->columnsUndoStack = [];
+            $this->columnsRedoStack = [];
+            $this->clearBlockSelection();
+            $this->successMessage = 'No earlier live publish to restore. Reloaded the current live template (unsaved edits discarded).';
+            $this->touchLivePreview();
+
+            return;
+        }
+
+        if ($selectedId > 0) {
+            if (! $this->applyRevisionToEditor($selectedId, announce: false, recordHistory: false)) {
+                return;
+            }
+            $this->undoStack = [];
+            $this->redoStack = [];
+            $this->columnsUndoStack = [];
+            $this->columnsRedoStack = [];
+            $this->selectedLiveRevisionId = $selectedId;
+            $this->successMessage = 'No earlier live publish to restore. Reloaded the selected saved version (unsaved edits discarded).';
+            $this->touchLivePreview();
+
+            return;
+        }
+
+        $this->errorMessage = 'Select a saved version first, then Reset.';
+    }
+
     public function saveColumns(): void
     {
         $this->clearMessages();
         $this->persistCurrent(includeLayout: false, includeColumns: true);
+    }
+
+    /**
+     * Copy the current columns into a new Saved versions draft (does not change live).
+     */
+    public function saveColumnsAsNew(): void
+    {
+        $this->clearMessages();
+        $this->persistCurrent(includeLayout: false, includeColumns: true, recordRevision: true, forceNewRevision: true);
     }
 
     public function saveAll(): void
@@ -303,43 +591,51 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
     }
 
     /**
-     * Replace editor blocks with the official (legacy-matching) seed layout without saving yet.
+     * Pick a History save — loads it into the editor and reveals Enable live.
      */
-    public function loadOfficialLayout(): void
+    public function selectSavedRevision(mixed $revisionId): void
     {
-        $this->clearMessages();
-        $seeds = DcsPrintTemplateHelper::defaultSeeds();
-        $seed = $seeds[$this->selectedKey] ?? null;
-        if (! is_array($seed) || ! is_array($seed['layout_json']['blocks'] ?? null)) {
-            $this->errorMessage = 'No official layout seed for this template.';
+        $id = (int) $revisionId;
+        if ($id < 1) {
+            $this->selectedLiveRevisionId = null;
+            $this->clearMessages();
 
             return;
         }
-        $this->pushLayoutHistory();
-        $this->layoutBlocks = array_values($seed['layout_json']['blocks']);
-        $this->republic = (string) ($seed['republic'] ?? $this->republic);
-        $this->institutionName = (string) ($seed['institution_name'] ?? $this->institutionName);
-        $this->institutionAddress = (string) ($seed['institution_address'] ?? $this->institutionAddress);
-        $this->formCode = (string) ($seed['form_code'] ?? $this->formCode);
-        $this->formTitle = (string) ($seed['form_title'] ?? $this->formTitle);
-        $this->footerLeft = (string) ($seed['footer_left'] ?? $this->footerLeft);
-        $this->footerCenter = (string) ($seed['footer_center'] ?? $this->footerCenter);
-        $this->defaultEffectivity = (string) ($seed['default_effectivity'] ?? $this->defaultEffectivity);
-        $this->defaultRev = (string) ($seed['default_rev'] ?? $this->defaultRev);
-        $this->clearBlockSelection();
-        $this->editorTab = 'layout';
-        $this->touchLivePreview();
-        $this->successMessage = 'Official DRF spacing loaded into the canvas and preview (identical to office print). Save layout to apply it to intake.';
+        $this->restoreRevision($id);
     }
 
     public function restoreRevision(int $revisionId): void
     {
         $this->clearMessages();
+        if (! $this->applyRevisionToEditor($revisionId, announce: true)) {
+            return;
+        }
+        $this->editorTab = in_array($this->selectedKey, ['office_drf', 'office_dcn'], true) ? 'layout' : 'columns';
+    }
+
+    /**
+     * Load a History revision into the editor and mark it as the Enable-live candidate.
+     */
+    private function applyRevisionToEditor(int $revisionId, bool $announce = true, bool $recordHistory = true): bool
+    {
         $rev = DcsPrintTemplateHelper::findRevision($revisionId);
         if (! $rev || (string) ($rev->template_key ?? '') !== $this->selectedKey) {
             $this->errorMessage = 'Revision not found.';
+            $this->selectedLiveRevisionId = null;
 
-            return;
+            return false;
+        }
+
+        // Block reverting to Official stock after a customized version is already live.
+        if ((string) ($rev->source ?? '') === 'official') {
+            $status = DcsPrintTemplateHelper::liveStatus($this->selectedKey);
+            $liveRevId = (int) ($status['live_revision_id'] ?? 0);
+            if ($liveRevId > 0 && $liveRevId !== $revisionId) {
+                $this->errorMessage = 'Official (stock) is locked — a customized version is already live. Use Save as new or edit the live version.';
+
+                return false;
+            }
         }
 
         $layout = is_array($rev->layout_json ?? null) ? $rev->layout_json : [];
@@ -347,12 +643,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         $kind = (string) ($rev->kind ?? 'layout');
 
         if (in_array($kind, ['layout', 'full'], true) || ($columns === null && is_array($layout['blocks'] ?? null))) {
-            $this->pushLayoutHistory();
+            if ($recordHistory) {
+                $this->pushLayoutHistory();
+            }
             $this->layoutBlocks = array_values(is_array($layout['blocks'] ?? null) ? $layout['blocks'] : []);
             $this->clearBlockSelection();
         }
 
         if ($columns !== null && in_array($kind, ['columns', 'full'], true)) {
+            if ($recordHistory) {
+                $this->pushColumnsHistory();
+            }
             $this->columns = array_values(is_array($columns['columns'] ?? null) ? $columns['columns'] : []);
             $this->groupHeaders = array_values(is_array($columns['group_headers'] ?? null) ? $columns['group_headers'] : []);
             $style = DcsPrintTemplateHelper::normalizeTableStyle(is_array($columns['style'] ?? null) ? $columns['style'] : []);
@@ -362,6 +663,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             $this->tableHeaderFontSize = (float) ($style['header_font_size_pt'] ?? 10);
             $this->tableHeaderFontWeight = (int) ($style['header_font_weight'] ?? 700);
             $this->tableHeaderFontStyle = (string) ($style['header_font_style'] ?? 'normal');
+            if (! $recordHistory) {
+                $this->columnsUndoStack = [];
+                $this->columnsRedoStack = [];
+            }
         }
 
         if (is_array($rev->page_json ?? null)) {
@@ -375,42 +680,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             $this->pageHeight = $page['height_in'];
         }
 
-        $this->editorTab = in_array($this->selectedKey, ['office_drf', 'office_dcn'], true) ? 'layout' : 'columns';
+        $this->selectedLiveRevisionId = $revisionId;
         $this->touchLivePreview();
-        $this->successMessage = 'Saved version loaded into the editor. Click Save layout again to make it the live office form.';
+        // Selection feedback stays beside Enable live — no top success banner.
+        if ($announce) {
+            $this->successMessage = '';
+        }
+
+        return true;
     }
 
-    public function restorePreviousLayout(): void
-    {
-        $this->clearMessages();
-        if (! Schema::hasTable(DcsPrintTemplateHelper::TABLE) || ! Schema::hasColumn(DcsPrintTemplateHelper::TABLE, 'layout_json_previous')) {
-            $this->errorMessage = 'No previous layout snapshot available. Run migrations.';
-
-            return;
-        }
-        $row = DB::table(DcsPrintTemplateHelper::TABLE)->where('key', $this->selectedKey)->first();
-        if (! $row || empty($row->layout_json_previous)) {
-            $this->errorMessage = 'No previous layout saved yet. Save a layout first to create a restorable snapshot.';
-
-            return;
-        }
-        $prev = is_string($row->layout_json_previous)
-            ? json_decode($row->layout_json_previous, true)
-            : $row->layout_json_previous;
-        if (! is_array($prev['blocks'] ?? null)) {
-            $this->errorMessage = 'Previous layout snapshot is empty.';
-
-            return;
-        }
-        $this->pushLayoutHistory();
-        $this->layoutBlocks = array_values($prev['blocks']);
-        $this->clearBlockSelection();
-        $this->editorTab = 'layout';
-        $this->touchLivePreview();
-        $this->successMessage = 'Previous layout loaded into the editor. Save layout to apply it to prints.';
-    }
-
-    private function persistCurrent(bool $includeLayout, bool $includeColumns): void
+    /**
+     * @param  bool  $recordRevision     When false (Enable live), update draft only — do not add a Saved versions row.
+     * @param  bool  $forceNewRevision   When true (Save as new), always create a Saved versions row even if live is selected.
+     */
+    private function persistCurrent(
+        bool $includeLayout,
+        bool $includeColumns,
+        bool $recordRevision = true,
+        bool $forceNewRevision = false
+    ): void
     {
         if (! Schema::hasTable(DcsPrintTemplateHelper::TABLE)) {
             $this->errorMessage = 'Run migrations to create dcs_print_form_templates.';
@@ -462,17 +751,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                 'columns' => array_values($this->columns),
             ];
 
-            // Keep previous layout for "Restore previous" (not shown in History).
-            if ($row && $includeLayout && Schema::hasColumn(DcsPrintTemplateHelper::TABLE, 'layout_json_previous')) {
-                $oldLayout = is_string($row->layout_json ?? null)
-                    ? json_decode((string) $row->layout_json, true)
-                    : ($row->layout_json ?? null);
-                $payload['layout_json_previous'] = json_encode(is_array($oldLayout) ? $oldLayout : ['blocks' => []]);
-                if (Schema::hasColumn(DcsPrintTemplateHelper::TABLE, 'layout_previous_at')) {
-                    $payload['layout_previous_at'] = now();
-                }
-            }
-
             if ($includeLayout) {
                 $payload['layout_json'] = json_encode($newLayout);
             }
@@ -494,40 +772,164 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                 DB::table(DcsPrintTemplateHelper::TABLE)->insert($payload);
             }
 
-            // History = this saved version (so it matches the live form after Save).
-            if ($includeLayout || $includeColumns) {
+            // Selected Saved versions row: update in place (unless Save as new / Official).
+            $liveStatusBefore = DcsPrintTemplateHelper::liveStatus($this->selectedKey);
+            $liveRevId = (int) ($liveStatusBefore['live_revision_id'] ?? 0);
+            $selectedRevId = (int) ($this->selectedLiveRevisionId ?? 0);
+            $selectedRev = ($recordRevision && ! $forceNewRevision && $selectedRevId > 0)
+                ? DcsPrintTemplateHelper::findRevision($selectedRevId)
+                : null;
+            $selectedIsOfficial = $selectedRev && (string) ($selectedRev->source ?? '') === 'official';
+            $editingLiveVersion = $selectedRev
+                && $liveRevId > 0
+                && $selectedRevId === $liveRevId;
+            // Update the selected save in place when it is a normal (non-official) version.
+            $updateSelectedInPlace = $selectedRev && ! $selectedIsOfficial;
+
+            $publishedLive = false;
+            $updatedExisting = false;
+            if ($recordRevision && ($includeLayout || $includeColumns)) {
                 $kind = $includeLayout && $includeColumns ? 'full' : ($includeLayout ? 'layout' : 'columns');
-                $revLabel = trim($this->revisionName);
-                if ($revLabel === '') {
-                    $revLabel = 'Saved ' . now()->format('M j, g:i A');
+
+                if ($updateSelectedInPlace) {
+                    DcsPrintTemplateHelper::updateRevision(
+                        $selectedRevId,
+                        $includeLayout ? $newLayout : ['blocks' => []],
+                        $includeColumns ? $newColumns : null,
+                        $pagePayload,
+                        $kind
+                    );
+                    $this->selectedLiveRevisionId = $selectedRevId;
+                    $updatedExisting = true;
+                    // Live selected → also publish to office intake.
+                    if ($editingLiveVersion && Schema::hasColumn(DcsPrintTemplateHelper::TABLE, 'live_json')) {
+                        $publishedLive = DcsPrintTemplateHelper::publishLive($this->selectedKey, $selectedRevId);
+                    }
+                } elseif ($editingLiveVersion && $selectedIsOfficial) {
+                    // Official is live: publish live_json only — never mutate the Official stock row.
+                    $this->selectedLiveRevisionId = $selectedRevId;
+                    if (Schema::hasColumn(DcsPrintTemplateHelper::TABLE, 'live_json')) {
+                        $publishedLive = DcsPrintTemplateHelper::publishLive($this->selectedKey, $selectedRevId);
+                    }
+                } else {
+                    // No selection, Official selected, or Save as new → create a new Saved versions row.
+                    $revLabel = trim($this->revisionName);
+                    if ($revLabel === '') {
+                        $revLabel = 'Saved ' . now()->format('M j, g:i A');
+                    }
+                    $newRevId = DcsPrintTemplateHelper::pushRevision(
+                        $this->selectedKey,
+                        $includeLayout ? $newLayout : ['blocks' => []],
+                        $includeColumns ? $newColumns : null,
+                        $pagePayload,
+                        'save',
+                        $kind,
+                        $revLabel,
+                        $forceNewRevision
+                    );
+                    $this->revisionName = '';
+                    if ($newRevId) {
+                        $this->selectedLiveRevisionId = $newRevId;
+                    }
                 }
-                DcsPrintTemplateHelper::pushRevision(
-                    $this->selectedKey,
-                    $includeLayout ? $newLayout : ['blocks' => []],
-                    $includeColumns ? $newColumns : null,
-                    $pagePayload,
-                    'save',
-                    $kind,
-                    $revLabel
-                );
-                $this->revisionName = '';
             }
 
             DcsPrintTemplateHelper::flushCache();
             $this->logoUpload = null;
-            if ($includeLayout && in_array($this->selectedKey, ['office_drf', 'office_dcn'], true)) {
-                $this->successMessage = 'Layout saved — this is now the live office DRF/DCN form. Open office intake print/preview to see it. Named version is in History.';
+            $keepLiveRev = $this->selectedLiveRevisionId;
+            if (! $recordRevision) {
+                // Enable live path: quiet persist; caller sets the success message.
+                $this->successMessage = '';
+            } elseif ($publishedLive) {
+                $this->successMessage = 'Live template updated (no new Saved versions row).';
+            } elseif ($updatedExisting) {
+                $this->successMessage = 'Saved version updated. Click Enable live to publish it to office intake.';
+            } elseif ($forceNewRevision) {
+                $this->successMessage = $keepLiveRev
+                    ? 'New version created from the canvas. Edit it, then Enable live when ready.'
+                    : 'New version created. Select it under Saved versions to Enable live.';
+            } elseif ($includeLayout && in_array($this->selectedKey, ['office_drf', 'office_dcn'], true)) {
+                $this->successMessage = $keepLiveRev
+                    ? 'Layout saved and selected. Click Enable live to publish this version.'
+                    : 'Layout saved. Select that version under Saved versions to reveal Enable live.';
             } elseif ($includeColumns) {
-                $this->successMessage = 'Columns saved — report/distribution exports now use this template. Version is in History.';
+                $this->successMessage = $keepLiveRev
+                    ? 'Columns saved and selected. Click Enable live to publish this version.'
+                    : 'Columns saved. Select that version under Saved versions to reveal Enable live.';
             } elseif (! $includeLayout && ! $includeColumns) {
-                $this->successMessage = 'Identity saved — office DRF/DCN prints and report headers now use this branding.';
+                $this->successMessage = 'Identity saved as draft. Save layout/columns, then Enable live on that saved version.';
             } else {
-                $this->successMessage = 'Template saved and now live.';
+                $this->successMessage = $keepLiveRev
+                    ? 'Template saved and selected. Click Enable live to publish.'
+                    : 'Template saved. Select that version under Saved versions to reveal Enable live.';
             }
-            $this->loadTemplate($this->selectedKey);
+            // Reload draft (just-saved), not live — keep the selected Saved versions row.
+            $this->loadTemplate($this->selectedKey, preferLive: false);
+            if ($keepLiveRev) {
+                $this->selectedLiveRevisionId = $keepLiveRev;
+            }
+            if ($publishedLive) {
+                $this->syncEditorFromLiveIfPublished();
+                $this->touchLivePreview();
+            }
         } catch (\Throwable $e) {
             $this->errorMessage = 'Save failed: ' . $e->getMessage();
         }
+    }
+
+    public function enableLive(): void
+    {
+        $this->clearMessages();
+        if (! $this->selectedLiveRevisionId) {
+            $this->errorMessage = 'Select a saved version first, then Enable live.';
+
+            return;
+        }
+        if (! Schema::hasTable(DcsPrintTemplateHelper::TABLE)) {
+            $this->errorMessage = 'Run migrations to create dcs_print_form_templates.';
+
+            return;
+        }
+        if (! Schema::hasColumn(DcsPrintTemplateHelper::TABLE, 'live_json')) {
+            $this->errorMessage = 'Run migrations to add live_json (Enable live support).';
+
+            return;
+        }
+
+        $status = DcsPrintTemplateHelper::liveStatus($this->selectedKey);
+        $revId = (int) $this->selectedLiveRevisionId;
+        if (! empty($status['live_revision_id']) && (int) $status['live_revision_id'] === $revId) {
+            $this->successMessage = '';
+            $this->editorTab = in_array($this->selectedKey, ['office_drf', 'office_dcn'], true) ? 'layout' : 'columns';
+            $this->syncEditorFromLiveIfPublished();
+            $this->touchLivePreview();
+
+            return;
+        }
+
+        // Re-load the selected save so live matches History, not unsaved editor tweaks.
+        if (! $this->applyRevisionToEditor($revId, announce: false)) {
+            return;
+        }
+
+        $isForm = in_array($this->selectedKey, ['office_drf', 'office_dcn'], true);
+        // Update draft from the selected version, but do not create another Saved versions row.
+        $this->persistCurrent(includeLayout: $isForm, includeColumns: ! $isForm, recordRevision: false);
+        if ($this->errorMessage !== '') {
+            return;
+        }
+        if (! DcsPrintTemplateHelper::publishLive($this->selectedKey, $revId)) {
+            $this->errorMessage = 'Could not publish live template. Save a draft first, then try again.';
+
+            return;
+        }
+
+        // Keep selection — button becomes "Already live"; editor shows the new live version.
+        $this->selectedLiveRevisionId = $revId;
+        $this->editorTab = $isForm ? 'layout' : 'columns';
+        $this->syncEditorFromLiveIfPublished();
+        $this->successMessage = 'Live template replaced — office intake / exports now use this saved version. Layout shows the live template.';
+        $this->touchLivePreview();
     }
 
     public function resetToDefault(): void
@@ -582,10 +984,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         }
 
         DcsPrintTemplateHelper::flushCache();
-        $this->loadTemplate($this->selectedKey);
+        $this->loadTemplate($this->selectedKey, preferLive: false);
         $this->editorTab = in_array($this->selectedKey, ['office_drf', 'office_dcn'], true) ? 'layout' : 'identity';
         $this->touchLivePreview();
-        $this->successMessage = 'Official system design applied as the live template. Use Restore previous if you need the last saved canvas.';
+        $this->successMessage = 'Official system design applied as draft. Save, select that version under Saved versions, then Enable live.';
     }
 
     public function setLayoutSection(string $section): void
@@ -595,12 +997,92 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         }
     }
 
-    private function pushLayoutHistory(): void
+    /**
+     * Snapshot layout + identity so Undo restores labels and branding together.
+     */
+    private function layoutHistorySnapshot(): string
     {
-        $snap = json_encode(array_values($this->layoutBlocks));
-        if ($snap === false) {
+        $encoded = json_encode([
+            'v' => 2,
+            'blocks' => array_values($this->layoutBlocks),
+            'identity' => [
+                'republic' => $this->republic,
+                'institutionName' => $this->institutionName,
+                'institutionAddress' => $this->institutionAddress,
+                'formCode' => $this->formCode,
+                'formTitle' => $this->formTitle,
+                'footerLeft' => $this->footerLeft,
+                'footerCenter' => $this->footerCenter,
+                'defaultEffectivity' => $this->defaultEffectivity,
+                'defaultRev' => $this->defaultRev,
+            ],
+        ]);
+
+        return $encoded !== false ? $encoded : '{"v":2,"blocks":[],"identity":{}}';
+    }
+
+    private function applyLayoutHistorySnapshot(string $json): void
+    {
+        $decoded = json_decode($json, true);
+        if (! is_array($decoded)) {
+            $this->layoutBlocks = [];
+
             return;
         }
+
+        // Legacy snapshots were a bare blocks array.
+        if (! isset($decoded['v']) && array_is_list($decoded)) {
+            $this->layoutBlocks = array_values($decoded);
+            $this->resyncIdentityFromLayoutBlocks();
+
+            return;
+        }
+
+        $blocks = $decoded['blocks'] ?? [];
+        $this->layoutBlocks = is_array($blocks) ? array_values($blocks) : [];
+        $identity = is_array($decoded['identity'] ?? null) ? $decoded['identity'] : [];
+        foreach ([
+            'republic' => 'republic',
+            'institutionName' => 'institutionName',
+            'institutionAddress' => 'institutionAddress',
+            'formCode' => 'formCode',
+            'formTitle' => 'formTitle',
+            'footerLeft' => 'footerLeft',
+            'footerCenter' => 'footerCenter',
+            'defaultEffectivity' => 'defaultEffectivity',
+            'defaultRev' => 'defaultRev',
+        ] as $key => $prop) {
+            if (array_key_exists($key, $identity)) {
+                $this->{$prop} = (string) $identity[$key];
+            }
+        }
+    }
+
+    /** Re-bind Identity fields from canvas labels after a legacy undo snapshot. */
+    private function resyncIdentityFromLayoutBlocks(): void
+    {
+        $map = [
+            'form_code' => 'formCode',
+            'form_title' => 'formTitle',
+            'republic' => 'republic',
+            'institution_name' => 'institutionName',
+            'institution_address' => 'institutionAddress',
+        ];
+        foreach ($this->layoutBlocks as $block) {
+            if (! is_array($block)) {
+                continue;
+            }
+            $bind = (string) ($block['bind'] ?? '');
+            if (! isset($map[$bind])) {
+                continue;
+            }
+            $this->{$map[$bind]} = (string) ($block['label'] ?? '');
+        }
+    }
+
+    private function pushLayoutHistory(): void
+    {
+        $snap = $this->layoutHistorySnapshot();
         $last = $this->undoStack !== [] ? $this->undoStack[count($this->undoStack) - 1] : null;
         if ($last === $snap) {
             return;
@@ -617,11 +1099,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         if ($this->undoStack === []) {
             return;
         }
-        $this->redoStack[] = json_encode(array_values($this->layoutBlocks));
+        $keepId = $this->selectedBlockId;
+        $this->redoStack[] = $this->layoutHistorySnapshot();
         $prev = array_pop($this->undoStack);
-        $decoded = json_decode((string) $prev, true);
-        $this->layoutBlocks = is_array($decoded) ? array_values($decoded) : [];
-        $this->clearBlockSelection();
+        $this->applyLayoutHistorySnapshot((string) $prev);
+        if ($keepId && $this->blockExists((string) $keepId)) {
+            $this->setBlockSelection((string) $keepId, [(string) $keepId]);
+        } else {
+            $this->clearBlockSelection();
+        }
         $this->editorTab = 'layout';
         $this->touchLivePreview();
     }
@@ -631,13 +1117,158 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         if ($this->redoStack === []) {
             return;
         }
-        $this->undoStack[] = json_encode(array_values($this->layoutBlocks));
+        $keepId = $this->selectedBlockId;
+        $this->undoStack[] = $this->layoutHistorySnapshot();
         $next = array_pop($this->redoStack);
-        $decoded = json_decode((string) $next, true);
-        $this->layoutBlocks = is_array($decoded) ? array_values($decoded) : [];
-        $this->clearBlockSelection();
+        $this->applyLayoutHistorySnapshot((string) $next);
+        if ($keepId && $this->blockExists((string) $keepId)) {
+            $this->setBlockSelection((string) $keepId, [(string) $keepId]);
+        } else {
+            $this->clearBlockSelection();
+        }
         $this->editorTab = 'layout';
         $this->touchLivePreview();
+    }
+
+    /**
+     * Snapshot columns + branding for Distribution / Generate Report undo.
+     */
+    private function columnsHistorySnapshot(): string
+    {
+        $encoded = json_encode([
+            'v' => 1,
+            'columns' => array_values($this->columns),
+            'groupHeaders' => array_values($this->groupHeaders),
+            'style' => [
+                'tableHeaderBg' => $this->tableHeaderBg,
+                'tableHeaderColor' => $this->tableHeaderColor,
+                'tableHeaderFontFamily' => $this->tableHeaderFontFamily,
+                'tableHeaderFontSize' => $this->tableHeaderFontSize,
+                'tableHeaderFontWeight' => $this->tableHeaderFontWeight,
+                'tableHeaderFontStyle' => $this->tableHeaderFontStyle,
+            ],
+            'identity' => [
+                'republic' => $this->republic,
+                'institutionName' => $this->institutionName,
+                'institutionAddress' => $this->institutionAddress,
+                'formCode' => $this->formCode,
+                'formTitle' => $this->formTitle,
+                'footerLeft' => $this->footerLeft,
+                'footerCenter' => $this->footerCenter,
+                'defaultEffectivity' => $this->defaultEffectivity,
+                'defaultRev' => $this->defaultRev,
+                'logoPath' => $this->logoPath,
+            ],
+        ]);
+
+        return $encoded !== false ? $encoded : '{"v":1,"columns":[],"groupHeaders":[],"style":{},"identity":{}}';
+    }
+
+    private function applyColumnsHistorySnapshot(string $json): void
+    {
+        $decoded = json_decode($json, true);
+        if (! is_array($decoded)) {
+            return;
+        }
+        $this->columns = array_values(is_array($decoded['columns'] ?? null) ? $decoded['columns'] : []);
+        $this->groupHeaders = array_values(is_array($decoded['groupHeaders'] ?? null) ? $decoded['groupHeaders'] : []);
+        $style = is_array($decoded['style'] ?? null) ? $decoded['style'] : [];
+        if (array_key_exists('tableHeaderBg', $style)) {
+            $this->tableHeaderBg = (string) $style['tableHeaderBg'];
+        }
+        if (array_key_exists('tableHeaderColor', $style)) {
+            $this->tableHeaderColor = (string) $style['tableHeaderColor'];
+        }
+        if (array_key_exists('tableHeaderFontFamily', $style)) {
+            $this->tableHeaderFontFamily = (string) $style['tableHeaderFontFamily'];
+        }
+        if (array_key_exists('tableHeaderFontSize', $style)) {
+            $this->tableHeaderFontSize = (float) $style['tableHeaderFontSize'];
+        }
+        if (array_key_exists('tableHeaderFontWeight', $style)) {
+            $this->tableHeaderFontWeight = (int) $style['tableHeaderFontWeight'];
+        }
+        if (array_key_exists('tableHeaderFontStyle', $style)) {
+            $this->tableHeaderFontStyle = (string) $style['tableHeaderFontStyle'];
+        }
+        $identity = is_array($decoded['identity'] ?? null) ? $decoded['identity'] : [];
+        foreach ([
+            'republic' => 'republic',
+            'institutionName' => 'institutionName',
+            'institutionAddress' => 'institutionAddress',
+            'formCode' => 'formCode',
+            'formTitle' => 'formTitle',
+            'footerLeft' => 'footerLeft',
+            'footerCenter' => 'footerCenter',
+            'defaultEffectivity' => 'defaultEffectivity',
+            'defaultRev' => 'defaultRev',
+        ] as $key => $prop) {
+            if (array_key_exists($key, $identity)) {
+                $this->{$prop} = (string) $identity[$key];
+            }
+        }
+        if (array_key_exists('logoPath', $identity)) {
+            $this->logoPath = $identity['logoPath'] !== null && $identity['logoPath'] !== ''
+                ? (string) $identity['logoPath']
+                : null;
+            $this->logoUpload = null;
+        }
+    }
+
+    private function pushColumnsHistory(): void
+    {
+        $snap = $this->columnsHistorySnapshot();
+        $last = $this->columnsUndoStack !== [] ? $this->columnsUndoStack[count($this->columnsUndoStack) - 1] : null;
+        if ($last === $snap) {
+            return;
+        }
+        $this->columnsUndoStack[] = $snap;
+        if (count($this->columnsUndoStack) > 50) {
+            array_shift($this->columnsUndoStack);
+        }
+        $this->columnsRedoStack = [];
+    }
+
+    public function undoColumns(): void
+    {
+        if ($this->columnsUndoStack === []) {
+            return;
+        }
+        $this->columnsRedoStack[] = $this->columnsHistorySnapshot();
+        $prev = array_pop($this->columnsUndoStack);
+        $this->applyColumnsHistorySnapshot((string) $prev);
+        $this->editorTab = 'columns';
+        $this->touchLivePreview();
+    }
+
+    public function redoColumns(): void
+    {
+        if ($this->columnsRedoStack === []) {
+            return;
+        }
+        $this->columnsUndoStack[] = $this->columnsHistorySnapshot();
+        $next = array_pop($this->columnsRedoStack);
+        $this->applyColumnsHistorySnapshot((string) $next);
+        $this->editorTab = 'columns';
+        $this->touchLivePreview();
+    }
+
+    public function clearCustomLogo(): void
+    {
+        if ($this->editorTab === 'columns') {
+            $this->pushColumnsHistory();
+        } elseif ($this->editorTab === 'layout') {
+            $this->pushLayoutHistory();
+        }
+        $this->logoUpload = null;
+        $this->logoPath = null;
+        $this->touchLivePreview();
+    }
+
+    public function addLogoBlock(): void
+    {
+        $this->layoutSection = 'header';
+        $this->addBlock('logo');
     }
 
     public function clearBlockSelection(): void
@@ -690,18 +1321,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         } elseif ($type === 'table') {
             $w = 7.5;
             $h = 1.6;
-            $blockLabel = 'Signature table';
             $blockBind = '';
-            $extra = [
-                'table_cols' => 4,
-                'table_rows' => 4,
-                'table_headers' => ['', 'Prepared by:', 'Reviewed by:', 'Approved by:'],
-                'table_row_labels' => ['Signature', 'Name', 'Designation', 'Date'],
-                'table_cell_binds' => [
-                    '1' => ['1' => 'prepared_by_name', '2' => 'reviewed_by_name', '3' => 'approved_by_name'],
-                    '2' => ['1' => 'prepared_by_designation', '2' => 'reviewed_by_designation', '3' => 'approved_by_designation'],
-                ],
-            ];
+            // DCN (and new tables): Word-like freeform grid. DRF keeps signature defaults.
+            if ($this->selectedKey === 'office_dcn') {
+                $blockLabel = 'Table';
+                $extra = [
+                    'table_cols' => 3,
+                    'table_rows' => 3,
+                    'table_borders' => true,
+                    'table_cells' => DcsPrintTemplateHelper::padTableCells([], 3, 3),
+                    'table_headers' => [],
+                    'table_row_labels' => [],
+                    'table_cell_binds' => [],
+                ];
+            } else {
+                $blockLabel = 'Signature table';
+                $extra = [
+                    'table_cols' => 4,
+                    'table_rows' => 4,
+                    'table_borders' => true,
+                    'table_headers' => ['', 'Prepared by:', 'Reviewed by:', 'Approved by:'],
+                    'table_row_labels' => ['Signature', 'Name', 'Designation', 'Date'],
+                    'table_cell_binds' => [
+                        '1' => ['1' => 'prepared_by_name', '2' => 'reviewed_by_name', '3' => 'approved_by_name'],
+                        '2' => ['1' => 'prepared_by_designation', '2' => 'reviewed_by_designation', '3' => 'approved_by_designation'],
+                    ],
+                ];
+            }
         } elseif ($type === 'checkboxes') {
             $w = 7.5;
             $h = 0.32;
@@ -906,9 +1552,73 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
     {
         return [
             'fontSizePt', 'fontWeight', 'fontFamily', 'fontStyle', 'align', 'verticalAlign',
-            'color', 'backgroundColor', 'lineColor', 'objectFit', 'underline',
+            'color', 'backgroundColor', 'lineColor', 'objectFit', 'underline', 'table_borders',
             'w', 'h', 'section', 'label',
         ];
+    }
+
+    public function updateTableCell(int $row, int $col, $value): void
+    {
+        $id = (string) ($this->selectedBlockId ?? '');
+        if ($id === '') {
+            return;
+        }
+        foreach ($this->layoutBlocks as $i => $block) {
+            if ((string) ($block['id'] ?? '') !== $id) {
+                continue;
+            }
+            if ((string) ($block['type'] ?? '') !== 'table') {
+                return;
+            }
+            $cols = max(1, min(12, (int) ($block['table_cols'] ?? 3)));
+            $rows = max(1, min(12, (int) ($block['table_rows'] ?? 3)));
+            $cells = DcsPrintTemplateHelper::padTableCells($block['table_cells'] ?? [], $rows, $cols);
+            $r = max(0, min($rows - 1, $row));
+            $c = max(0, min($cols - 1, $col));
+            $next = trim((string) $value);
+            if (($cells[$r][$c] ?? '') === $next) {
+                return;
+            }
+            $this->pushLayoutHistory();
+            $cells[$r][$c] = $next;
+            $this->layoutBlocks[$i]['table_cells'] = $cells;
+            $this->touchLivePreview();
+
+            return;
+        }
+    }
+
+    public function updateTableHeader(int $col, $value): void
+    {
+        $id = (string) ($this->selectedBlockId ?? '');
+        if ($id === '') {
+            return;
+        }
+        foreach ($this->layoutBlocks as $i => $block) {
+            if ((string) ($block['id'] ?? '') !== $id) {
+                continue;
+            }
+            if ((string) ($block['type'] ?? '') !== 'table') {
+                return;
+            }
+            $cols = max(1, min(12, (int) ($block['table_cols'] ?? 3)));
+            $headers = is_array($block['table_headers'] ?? null) ? array_values($block['table_headers']) : [];
+            while (count($headers) < $cols) {
+                $headers[] = '';
+            }
+            $headers = array_slice($headers, 0, $cols);
+            $c = max(0, min($cols - 1, $col));
+            $next = trim((string) $value);
+            if ((string) ($headers[$c] ?? '') === $next) {
+                return;
+            }
+            $this->pushLayoutHistory();
+            $headers[$c] = $next;
+            $this->layoutBlocks[$i]['table_headers'] = $headers;
+            $this->touchLivePreview();
+
+            return;
+        }
     }
 
     public function updateBlockField(string $field, $value): void
@@ -926,10 +1636,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             $ids = $this->selectedBlockId ? [(string) $this->selectedBlockId] : array_slice($ids, -1);
         }
 
+        // Skip no-ops (e.g. label keyup.debounce + change firing the same value) so Undo is not a dead step.
+        if (! $this->blockFieldWouldChange($ids, $field, $value)) {
+            return;
+        }
+
         $this->pushLayoutHistory();
 
         // Multi-select Align / Vertical also lines up block positions (not only text style).
-        if (count($this->targetBlockIds()) > 1) {
+        if (count($ids) > 1) {
             if ($field === 'align') {
                 $this->alignSelectedBlocksSpatially((string) $value);
             } elseif ($field === 'verticalAlign') {
@@ -953,6 +1668,57 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         $this->touchLivePreview();
     }
 
+    /**
+     * @param  list<string>  $ids
+     */
+    private function blockFieldWouldChange(array $ids, string $field, mixed $value): bool
+    {
+        foreach ($this->layoutBlocks as $block) {
+            if (! is_array($block) || ! in_array((string) ($block['id'] ?? ''), $ids, true)) {
+                continue;
+            }
+            $style = is_array($block['style'] ?? null) ? $block['style'] : [];
+            $current = match (true) {
+                in_array($field, ['x', 'y', 'w', 'h'], true) => (float) ($block[$field] ?? 0),
+                in_array($field, ['table_cols', 'table_rows'], true) => (int) ($block[$field] ?? 0),
+                $field === 'underline' => ! empty($style['underline']),
+                $field === 'table_borders' => DcsPrintTemplateHelper::tableBordersVisible($block),
+                in_array($field, ['fontSizePt', 'fontWeight'], true) => $style[$field] ?? null,
+                in_array($field, ['fontFamily', 'fontStyle', 'align', 'verticalAlign', 'color', 'backgroundColor', 'lineColor', 'objectFit'], true) => (string) ($style[$field] ?? ''),
+                default => $block[$field] ?? null,
+            };
+
+            if (in_array($field, ['x', 'y', 'w', 'h', 'fontSizePt'], true)) {
+                if (abs((float) $current - (float) $value) > 0.0001) {
+                    return true;
+                }
+                continue;
+            }
+            if ($field === 'underline' || $field === 'table_borders') {
+                if ((bool) $current !== filter_var($value, FILTER_VALIDATE_BOOLEAN)) {
+                    return true;
+                }
+                continue;
+            }
+            if ($field === 'fontWeight') {
+                if ((int) $current !== (int) $value) {
+                    return true;
+                }
+                continue;
+            }
+            if ((string) $current !== (string) $value) {
+                return true;
+            }
+        }
+
+        // Align / verticalAlign with multi-select can still move geometry even if style matches.
+        if (count($ids) > 1 && in_array($field, ['align', 'verticalAlign'], true)) {
+            return true;
+        }
+
+        return false;
+    }
+
     private function applyFieldToBlockIndex(int $i, string $field, mixed $value): void
     {
         $block = $this->layoutBlocks[$i];
@@ -962,7 +1728,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         if (in_array($field, ['x', 'y', 'w', 'h'], true)) {
             $this->layoutBlocks[$i][$field] = (float) $value;
         } elseif (in_array($field, ['table_cols', 'table_rows'], true)) {
-            $this->layoutBlocks[$i][$field] = max(1, min(8, (int) $value));
+            $this->layoutBlocks[$i][$field] = max(1, min(12, (int) $value));
+            $cols = max(1, min(12, (int) ($this->layoutBlocks[$i]['table_cols'] ?? 3)));
+            $rows = max(1, min(12, (int) ($this->layoutBlocks[$i]['table_rows'] ?? 3)));
+            // Keep freeform cell matrix in sync only when already freeform.
+            if (array_key_exists('table_cells', $this->layoutBlocks[$i])) {
+                $this->layoutBlocks[$i]['table_cells'] = DcsPrintTemplateHelper::padTableCells(
+                    $this->layoutBlocks[$i]['table_cells'] ?? [],
+                    $rows,
+                    $cols
+                );
+            }
+            // Always keep column header labels sized to column count (DCN Approvals, etc.).
+            $headers = is_array($this->layoutBlocks[$i]['table_headers'] ?? null)
+                ? array_values($this->layoutBlocks[$i]['table_headers'])
+                : [];
+            while (count($headers) < $cols) {
+                $headers[] = '';
+            }
+            $this->layoutBlocks[$i]['table_headers'] = array_slice($headers, 0, $cols);
+        } elseif ($field === 'table_borders') {
+            $this->layoutBlocks[$i]['table_borders'] = filter_var($value, FILTER_VALIDATE_BOOLEAN);
         } elseif ($field === 'section') {
             $this->layoutBlocks[$i]['section'] = DcsPrintTemplateHelper::normalizeSection($value, (float) ($block['y'] ?? 0));
         } elseif (in_array($field, ['fontSizePt', 'fontWeight'], true)) {
@@ -979,14 +1765,36 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             if ($newType === 'table') {
                 $this->layoutBlocks[$i]['w'] = max((float) ($this->layoutBlocks[$i]['w'] ?? 1), 7.0);
                 $this->layoutBlocks[$i]['h'] = max((float) ($this->layoutBlocks[$i]['h'] ?? 0.3), 1.4);
-                $this->layoutBlocks[$i]['label'] = ($this->layoutBlocks[$i]['label'] ?? '') !== '' ? $this->layoutBlocks[$i]['label'] : 'Signature table';
-                $this->layoutBlocks[$i]['table_cols'] = (int) ($this->layoutBlocks[$i]['table_cols'] ?? 4);
-                $this->layoutBlocks[$i]['table_rows'] = (int) ($this->layoutBlocks[$i]['table_rows'] ?? 4);
-                if (! is_array($this->layoutBlocks[$i]['table_headers'] ?? null)) {
-                    $this->layoutBlocks[$i]['table_headers'] = ['', 'Prepared by:', 'Reviewed by:', 'Approved by:'];
+                $isDcn = $this->selectedKey === 'office_dcn';
+                $this->layoutBlocks[$i]['label'] = ($this->layoutBlocks[$i]['label'] ?? '') !== ''
+                    ? $this->layoutBlocks[$i]['label']
+                    : ($isDcn ? 'Table' : 'Signature table');
+                $cols = (int) ($this->layoutBlocks[$i]['table_cols'] ?? ($isDcn ? 3 : 4));
+                $rows = (int) ($this->layoutBlocks[$i]['table_rows'] ?? ($isDcn ? 3 : 4));
+                $this->layoutBlocks[$i]['table_cols'] = max(1, min(12, $cols));
+                $this->layoutBlocks[$i]['table_rows'] = max(1, min(12, $rows));
+                if (! array_key_exists('table_borders', $this->layoutBlocks[$i])) {
+                    $this->layoutBlocks[$i]['table_borders'] = true;
                 }
-                if (! is_array($this->layoutBlocks[$i]['table_row_labels'] ?? null)) {
-                    $this->layoutBlocks[$i]['table_row_labels'] = ['Signature', 'Name', 'Designation', 'Date'];
+                if ($isDcn) {
+                    $this->layoutBlocks[$i]['table_cells'] = DcsPrintTemplateHelper::padTableCells(
+                        $this->layoutBlocks[$i]['table_cells'] ?? [],
+                        (int) $this->layoutBlocks[$i]['table_rows'],
+                        (int) $this->layoutBlocks[$i]['table_cols']
+                    );
+                    if (! is_array($this->layoutBlocks[$i]['table_headers'] ?? null)) {
+                        $this->layoutBlocks[$i]['table_headers'] = [];
+                    }
+                    if (! is_array($this->layoutBlocks[$i]['table_row_labels'] ?? null)) {
+                        $this->layoutBlocks[$i]['table_row_labels'] = [];
+                    }
+                } else {
+                    if (! is_array($this->layoutBlocks[$i]['table_headers'] ?? null)) {
+                        $this->layoutBlocks[$i]['table_headers'] = ['', 'Prepared by:', 'Reviewed by:', 'Approved by:'];
+                    }
+                    if (! is_array($this->layoutBlocks[$i]['table_row_labels'] ?? null)) {
+                        $this->layoutBlocks[$i]['table_row_labels'] = ['Signature', 'Name', 'Designation', 'Date'];
+                    }
                 }
             } elseif ($newType === 'line') {
                 $this->layoutBlocks[$i]['h'] = min((float) ($this->layoutBlocks[$i]['h'] ?? 0.3), 0.06);
@@ -1103,10 +1911,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         if (! isset($this->columns[$index], $this->columns[$swap])) {
             return;
         }
+        $this->pushColumnsHistory();
         $tmp = $this->columns[$index];
         $this->columns[$index] = $this->columns[$swap];
         $this->columns[$swap] = $tmp;
         $this->columns = array_values($this->columns);
+        $this->touchLivePreview();
     }
 
     public function toggleColumnVisible(int $index): void
@@ -1114,7 +1924,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         if (! isset($this->columns[$index])) {
             return;
         }
+        $this->pushColumnsHistory();
         $this->columns[$index]['visible'] = empty($this->columns[$index]['visible']);
+        $this->touchLivePreview();
     }
 
     public function addColumn(): void
@@ -1131,6 +1943,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         if (! $pick) {
             $pick = $catalog[0] ?? ['key' => 'custom', 'label' => 'Custom'];
         }
+        $this->pushColumnsHistory();
         $this->columns[] = [
             'key' => $pick['key'],
             'label' => $pick['label'],
@@ -1138,30 +1951,43 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             'visible' => true,
             'group' => null,
         ];
+        $this->touchLivePreview();
     }
 
     public function removeColumn(int $index): void
     {
+        if (! isset($this->columns[$index])) {
+            return;
+        }
+        $this->pushColumnsHistory();
         unset($this->columns[$index]);
         $this->columns = array_values($this->columns);
+        $this->touchLivePreview();
     }
 
     public function addGroupHeader(): void
     {
+        $this->pushColumnsHistory();
         $this->groupHeaders[] = ['label' => 'Group', 'span' => 1];
+        $this->touchLivePreview();
     }
 
     public function removeGroupHeader(int $index): void
     {
+        if (! isset($this->groupHeaders[$index])) {
+            return;
+        }
+        $this->pushColumnsHistory();
         unset($this->groupHeaders[$index]);
         $this->groupHeaders = array_values($this->groupHeaders);
+        $this->touchLivePreview();
     }
 
     public function with(): array
     {
         $list = [];
         foreach (DcsPrintTemplateHelper::defaultSeeds() as $key => $seed) {
-            $tpl = DcsPrintTemplateHelper::get($key);
+            $tpl = DcsPrintTemplateHelper::getDraft($key);
             $list[] = [
                 'key' => $key,
                 'label' => (string) ($tpl->label ?? $seed['label']),
@@ -1170,6 +1996,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                 'has_columns' => DcsPrintTemplateHelper::columnsPayload($tpl)['columns'] !== [],
             ];
         }
+
+        $liveStatus = DcsPrintTemplateHelper::liveStatus($this->selectedKey);
 
         $selectedBlock = null;
         foreach ($this->layoutBlocks as $block) {
@@ -1192,11 +2020,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             $previewKey = $this->pushLivePreviewToSession();
         }
 
-        $hasPreviousLayout = false;
-        if (Schema::hasTable(DcsPrintTemplateHelper::TABLE) && Schema::hasColumn(DcsPrintTemplateHelper::TABLE, 'layout_json_previous')) {
-            $prev = DB::table(DcsPrintTemplateHelper::TABLE)->where('key', $this->selectedKey)->value('layout_json_previous');
-            $hasPreviousLayout = ! empty($prev);
+        $liveRevisionId = isset($liveStatus['live_revision_id']) ? (int) $liveStatus['live_revision_id'] : 0;
+        $layoutRevisions = DcsPrintTemplateHelper::listRevisions(
+            $this->selectedKey,
+            15,
+            $this->editorTab === 'columns' ? 'columns' : 'layout'
+        );
+        $liveIsOfficial = false;
+        foreach ($layoutRevisions as &$revRow) {
+            $revRow['is_live'] = $liveRevisionId > 0 && (int) ($revRow['id'] ?? 0) === $liveRevisionId;
+            if (! empty($revRow['is_live']) && ! empty($revRow['is_official'])) {
+                $liveIsOfficial = true;
+            }
         }
+        unset($revRow);
+
+        // Once a customized (non-Official) version is live, hide Official so users
+        // cannot revert office intake back to stock from Saved versions.
+        if ($liveRevisionId > 0 && ! $liveIsOfficial) {
+            $layoutRevisions = array_values(array_filter(
+                $layoutRevisions,
+                static fn ($rev) => empty($rev['is_official'])
+            ));
+        }
+
+        $selectedIsAlreadyLive = $this->selectedLiveRevisionId
+            && $liveRevisionId > 0
+            && (int) $this->selectedLiveRevisionId === $liveRevisionId;
 
         return [
             'templates' => $list,
@@ -1205,18 +2055,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             'blocksBySection' => $blocksBySection,
             'isFormLayout' => $isFormLayout,
             'isColumnTemplate' => ! $isFormLayout,
+            'liveStatus' => $liveStatus,
             'previewKey' => $previewKey !== '' ? $previewKey : (string) session('dcs_print_tpl_live_preview_key', ''),
             'livePreviewUrl' => route('admin.dcs.form-templates.live-preview'),
             'tableReady' => $this->tableIsReady(),
             'fontFamilies' => ['Arial', 'Times New Roman', 'Calibri', 'Georgia', 'Helvetica', 'Courier New', 'Verdana'],
             'pageSizes' => DcsPrintTemplateHelper::pageSizes(),
             'canvasScale' => 72,
-            'layoutRevisions' => DcsPrintTemplateHelper::listRevisions(
-                $this->selectedKey,
-                15,
-                $this->editorTab === 'columns' ? 'columns' : 'layout'
-            ),
-            'hasPreviousLayout' => $hasPreviousLayout,
+            'layoutRevisions' => $layoutRevisions,
+            'selectedIsAlreadyLive' => $selectedIsAlreadyLive,
+            'hasPreviousLive' => DcsPrintTemplateHelper::hasPreviousLive($this->selectedKey),
             'identityLogoSrc' => $this->liveLogoSrc(),
             'selectedTemplateMeta' => collect($list)->firstWhere('key', $this->selectedKey) ?? [
                 'key' => $this->selectedKey,
@@ -1386,15 +2234,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
         $logoSrc = $this->liveLogoSrc();
 
         try {
-            // Layout tab: canvas WYSIWYG (moving logo/blocks updates here).
-            // Identity / Preview: official office print (clean branding preview).
-            if ($isFormLayout && $this->editorTab === 'layout') {
+            // Identity / Layout / Preview share one editable canvas preview for DRF + DCN
+            // (hydrated from live on open) so the live template look is editable everywhere.
+            if ($isFormLayout && in_array($this->editorTab, ['identity', 'layout', 'preview'], true)) {
                 return $this->renderLayoutCanvasPreviewHtml($logoSrc);
             }
 
             return match ($this->selectedKey) {
                 'office_drf' => $this->renderOfficialDrfPreviewHtml($logoSrc),
-                'office_dcn' => $this->renderOfficialDcnPreviewHtml($logoSrc),
+                'office_dcn' => $this->renderOfficialDcnPreviewHtml($logoSrc, false),
                 'distribution' => $this->renderOfficialDistributionPreviewHtml($logoSrc),
                 default => $this->renderOfficialMasterlistPreviewHtml($logoSrc),
             };
@@ -1405,10 +2253,81 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
     }
 
     /**
+     * Exact published live_json preview — same source as office intake DRF/DCN print.
+     */
+    private function renderPublishedLivePreviewHtml(string $logoSrc): string
+    {
+        $tpl = DcsPrintTemplateHelper::getLive($this->selectedKey);
+        $blocks = DcsPrintTemplateHelper::layoutBlocks($tpl);
+        $identity = DcsPrintTemplateHelper::identityVars($tpl);
+        if (($identity['logoSrc'] ?? '') !== '') {
+            $logoSrc = $identity['logoSrc'];
+        }
+
+        // DRF / DCN: same canvas renderer as Layout so Identity live preview matches Layout.
+        if ($blocks === []) {
+            return match ($this->selectedKey) {
+                'office_dcn' => $this->renderOfficialDcnPreviewHtml($logoSrc, false),
+                default => $this->renderOfficialDrfPreviewHtml($logoSrc),
+            };
+        }
+
+        $page = DcsPrintTemplateHelper::pageSpec($tpl);
+        $values = array_merge($this->sampleBindValues(), [
+            'republic' => $identity['republic'] ?? '',
+            'institution_name' => $identity['institutionName'] ?? '',
+            'institution_address' => $identity['institutionAddress'] ?? '',
+            'form_code' => $identity['letterNumber'] ?? '',
+            'form_title' => $identity['formTitle'] ?? '',
+            'default_effectivity' => $identity['footerEffectivity'] ?? '',
+            'default_rev' => $identity['footerRev'] ?? '',
+        ]);
+
+        return view('pages.dcs.reports.print-layout-renderer', [
+            'tpl' => $tpl,
+            'values' => $values,
+            'blocksOverride' => $blocks,
+            'logoSrcOverride' => $logoSrc,
+            'identityOverride' => [
+                'republic' => $identity['republic'] ?? 'Republic of the Philippines',
+                'institutionName' => $identity['institutionName'] ?? 'Camarines Sur Polytechnic Colleges',
+                'institutionAddress' => $identity['institutionAddress'] ?? 'Nabua, Camarines Sur',
+                'letterNumber' => $identity['letterNumber'] ?? '',
+                'formTitle' => $identity['formTitle'] ?? '',
+                'footerLeft' => $identity['footerLeft'] ?? '',
+                'footerCenter' => $identity['footerCenter'] ?? '',
+                'footerEffectivity' => $identity['footerEffectivity'] ?? '',
+                'footerRev' => $identity['footerRev'] ?? '',
+                'logoSrc' => $logoSrc,
+            ],
+            'pageOverride' => [
+                'size' => $page['size'],
+                'width_in' => $page['width_in'],
+                'height_in' => $page['height_in'],
+                'margin_in' => 0,
+            ],
+            'preview' => true,
+            'hideToolbar' => true,
+            'embed' => true,
+        ])->render();
+    }
+
+    /**
      * Editable form preview driven by current canvas blocks + identity.
+     * DCN uses the official CSPC-F-DCC-01 blade (same look as Identity) with live canvas overrides.
+     * DRF uses the canvas layout renderer.
      */
     private function renderLayoutCanvasPreviewHtml(string $logoSrc): string
     {
+        // DCN: always the real Document Change Notice form — canvas edits flow in via overrides.
+        if ($this->selectedKey === 'office_dcn') {
+            return $this->renderOfficialDcnPreviewHtml($logoSrc, true);
+        }
+
+        if ($this->layoutBlocks === []) {
+            return $this->renderOfficialDrfPreviewHtml($logoSrc);
+        }
+
         $values = array_merge($this->sampleBindValues(), [
             'republic' => $this->republic,
             'institution_name' => $this->institutionName,
@@ -1472,28 +2391,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             is_array($seedCols['style'] ?? null) ? $seedCols['style'] : ['header_row_bg' => '#ffffff']
         );
 
-        // Identity / Preview: match the live CSPC-F-DCC-05 form. Columns tab: editor payload.
-        if ($this->editorTab === 'columns') {
-            $payload = $this->liveColumnsPayload();
-            // Keep official white header look unless the editor explicitly changed it.
-            if (strtolower((string) ($payload['style']['header_row_bg'] ?? '')) === '#8db3e2') {
-                $payload['style'] = $officialStyle;
-            }
-            if (($payload['group_headers'] ?? []) === [] && is_array($seedCols['group_headers'] ?? null)) {
-                $payload['group_headers'] = $seedCols['group_headers'];
-            }
-            if (count($payload['columns'] ?? []) < 6 && is_array($seedCols['columns'] ?? null)) {
-                $payload['columns'] = $seedCols['columns'];
-            }
-        } else {
-            $payload = [
-                'style' => $officialStyle,
-                'group_headers' => is_array($seedCols['group_headers'] ?? null) ? $seedCols['group_headers'] : [
-                    ['label' => 'DISTRIBUTION', 'span' => 4],
-                    ['label' => 'RETRIEVAL', 'span' => 2],
-                ],
-                'columns' => is_array($seedCols['columns'] ?? null) ? $seedCols['columns'] : [],
-            ];
+        // Identity + Columns + Preview share one draft: header/footer + table stay in sync.
+        $payload = $this->liveColumnsPayload();
+        if (strtolower((string) ($payload['style']['header_row_bg'] ?? '')) === '#8db3e2') {
+            $payload['style'] = $officialStyle;
+        }
+        if (($payload['group_headers'] ?? []) === [] && is_array($seedCols['group_headers'] ?? null)) {
+            $payload['group_headers'] = $seedCols['group_headers'];
+        }
+        if (count($payload['columns'] ?? []) < 6 && is_array($seedCols['columns'] ?? null)) {
+            $payload['columns'] = $seedCols['columns'];
         }
 
         // Seed a few empties; blade JS (previewPadRows) pads to ~1 row above the footer.
@@ -1626,8 +2533,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
 
     /**
      * Exact office DCN print blade (CSPC-F-DCC-01) for Form Templates live preview.
+     * When $fromLayoutEditor, apply canvas header geometry so Layout moves update the preview.
      */
-    private function renderOfficialDcnPreviewHtml(string $logoSrc): string
+    private function renderOfficialDcnPreviewHtml(string $logoSrc, bool $fromLayoutEditor = false): string
     {
         $dcn = (object) [
             'id' => 0,
@@ -1644,6 +2552,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             'preview_reviewers' => [],
             'approved_by_name' => '',
         ];
+
+        $layoutOverrides = $fromLayoutEditor
+            ? DcsPrintTemplateHelper::dcnLayoutOverridesFromBlocks($this->layoutBlocks)
+            : [];
 
         return view('pages.dcs.office.dcn-print', [
             'dcn' => $dcn,
@@ -1663,9 +2575,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             'printFooterLeft' => trim($this->footerLeft) !== '' ? trim($this->footerLeft) : 'Effectivity Date:',
             'printFooterCenter' => trim($this->footerCenter) !== '' ? trim($this->footerCenter) : 'Rev.',
             'printFooterEffectivity' => trim($this->defaultEffectivity) !== '' ? trim($this->defaultEffectivity) : 'January 2018',
-            'printFooterRev' => trim($this->defaultRev) !== '' ? trim($this->defaultRev) : '0',
+            'printFooterRev' => trim($this->defaultRev) !== '' ? trim($this->defaultRev) : '1',
+            'layoutOverrides' => $layoutOverrides,
         ])->render();
     }
+
 }; ?>
 
 
@@ -1703,6 +2617,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             <span class="tpl-code">{{ $selectedTemplateMeta['form_code'] ?: '—' }}</span>
             @if(! empty($selectedTemplateMeta['has_layout']))<span class="tag">Layout</span>@endif
             @if(! empty($selectedTemplateMeta['has_columns']))<span class="tag">Columns</span>@endif
+            @if(! empty($liveStatus['has_live']))
+                <span class="tag tag-live" title="Published to office intake / exports">Live{{ ! empty($liveStatus['live_at']) ? ' · '.\Illuminate\Support\Carbon::parse($liveStatus['live_at'])->timezone('Asia/Manila')->format('M j, g:i A') : '' }}</span>
+            @else
+                <span class="tag tag-draft" title="Exports use official seed until you Enable live">Not live</span>
+            @endif
+            @if(! empty($liveStatus['draft_differs']))
+                <span class="tag tag-diff">Draft differs</span>
+            @endif
             <span class="list-count">{{ count($templates) }} templates</span>
         </div>
     </div>
@@ -1730,74 +2652,75 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             @if($editorTab === 'identity')
                 <div class="panel layout-panel">
                     <div class="help-callout">
-                        <strong>Identity (read-only)</strong>
                         @if($isFormLayout)
-                            <span>Branding is fixed here. Edit header, logo, and footer (including centered <em>Rev.</em>) on the <em>Layout</em> tab, then <em>Save layout</em>.</span>
+                            <strong>Identity</strong>
+                            <span>Edit branding here — the live preview on the right matches <em>Layout</em>. Open <em>Layout</em> to move blocks, edit labels, and add tables. Save / Update live when ready.</span>
                         @else
-                            <span>Branding is fixed here to match the live printed form. Adjust table columns and header style on the <em>Columns</em> tab, then <em>Save columns</em>.</span>
+                            <strong>Identity</strong>
+                            <span>Edit header, form code, footer, and logo here. Table structure is on <em>Columns</em>. After <em>Save columns</em>, select that version under <em>Saved versions</em> to reveal <em>Enable live</em>.</span>
                         @endif
                     </div>
                     <div class="layout-workspace">
                         <div class="layout-edit columns-edit">
-                            <div class="card-grid identity-card-grid">
-                                <div class="prop-card identity-card">
-                                    <div class="prop-card-h"><i class="fa-solid fa-file-signature"></i> Form identity</div>
-                                    <dl class="identity-readonly">
-                                        <div><dt>Label</dt><dd>{{ $label !== '' ? $label : '—' }}</dd></div>
-                                        <div><dt>Form code</dt><dd>{{ $formCode !== '' ? $formCode : '—' }}</dd></div>
-                                        <div class="span-2"><dt>Form title</dt><dd>{{ $formTitle !== '' ? $formTitle : '—' }}</dd></div>
-                                    </dl>
-                                </div>
-                                <div class="prop-card identity-card">
-                                    <div class="prop-card-h"><i class="fa-solid fa-building-columns"></i> Institution header</div>
-                                    <dl class="identity-readonly">
-                                        <div class="span-2"><dt>Republic</dt><dd>{{ $republic !== '' ? $republic : '—' }}</dd></div>
-                                        <div class="span-2"><dt>Institution</dt><dd>{{ $institutionName !== '' ? $institutionName : '—' }}</dd></div>
-                                        <div class="span-2"><dt>Address</dt><dd>{{ $institutionAddress !== '' ? $institutionAddress : '—' }}</dd></div>
-                                    </dl>
-                                </div>
-                                <div class="prop-card identity-card">
-                                    <div class="prop-card-h"><i class="fa-solid fa-shoe-prints"></i> Footer</div>
-                                    <dl class="identity-readonly">
-                                        <div><dt>Footer left</dt><dd>{{ $footerLeft !== '' ? $footerLeft : 'Effectivity Date:' }} {{ $defaultEffectivity !== '' ? $defaultEffectivity : '—' }}</dd></div>
-                                        <div><dt>Footer center</dt><dd>{{ $footerCenter !== '' ? $footerCenter : 'Rev.' }} {{ $defaultRev !== '' ? $defaultRev : '0' }}</dd></div>
-                                    </dl>
-                                </div>
-                                <div class="prop-card identity-card">
-                                    <div class="prop-card-h"><i class="fa-solid fa-image"></i> Page &amp; logo</div>
-                                    <dl class="identity-readonly identity-readonly--page">
-                                        <div class="span-2"><dt>Page size</dt><dd class="nowrap">{{ $pageSizes[$pageSize]['label'] ?? ($pageWidth . ' × ' . $pageHeight . ' in') }}</dd></div>
-                                        <div class="span-2">
-                                            <dt>Logo</dt>
-                                            <dd class="identity-logo-dd">
-                                                @if($identityLogoSrc !== '')
-                                                    <img src="{{ $identityLogoSrc }}" alt="Form logo" class="identity-logo-thumb">
-                                                    <span class="mono">{{ $logoPath !== '' && $logoPath !== null ? $logoPath : 'Default system logo' }}</span>
-                                                @else
-                                                    <span class="mono">No logo</span>
-                                                @endif
-                                            </dd>
-                                        </div>
-                                    </dl>
-                                </div>
-                            </div>
-                            <div class="panel-actions sticky-actions" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                            <div class="sticky-actions" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                                <button type="button" class="btn-primary" wire:click="saveIdentity">
+                                    <i class="fa-solid fa-floppy-disk"></i> Save identity
+                                </button>
                                 @if($isFormLayout)
-                                    <button type="button" class="btn-primary" wire:click="setEditorTab('layout')">
+                                    <button type="button" class="btn-secondary" wire:click="setEditorTab('layout')">
                                         <i class="fa-solid fa-layer-group"></i> Edit on Layout
                                     </button>
                                 @else
-                                    <button type="button" class="btn-primary" wire:click="setEditorTab('columns')">
+                                    <button type="button" class="btn-secondary" wire:click="setEditorTab('columns')">
                                         <i class="fa-solid fa-table-columns"></i> Edit on Columns
                                     </button>
                                 @endif
+                            </div>
+                            <div class="card-grid identity-card-grid">
+                                <div class="prop-card identity-card">
+                                    <div class="prop-card-h"><i class="fa-solid fa-file-signature"></i> Form identity</div>
+                                    <div class="field"><label>Label</label><input type="text" wire:model.live="label"></div>
+                                    <div class="field"><label>Form code</label><input type="text" wire:model.live="formCode" placeholder="CSPC-F-DCC-03"></div>
+                                    <div class="field span-2"><label>Form title</label><input type="text" wire:model.live="formTitle"></div>
+                                </div>
+                                <div class="prop-card identity-card">
+                                    <div class="prop-card-h"><i class="fa-solid fa-building-columns"></i> Institution header</div>
+                                    <div class="field span-2"><label>Republic</label><input type="text" wire:model.live="republic"></div>
+                                    <div class="field span-2"><label>Institution</label><input type="text" wire:model.live="institutionName"></div>
+                                    <div class="field span-2"><label>Address</label><input type="text" wire:model.live="institutionAddress"></div>
+                                </div>
+                                <div class="prop-card identity-card">
+                                    <div class="prop-card-h"><i class="fa-solid fa-shoe-prints"></i> Footer</div>
+                                    <div class="field"><label>Footer left label</label><input type="text" wire:model.live="footerLeft" placeholder="Effectivity Date:"></div>
+                                    <div class="field"><label>Effectivity</label><input type="text" wire:model.live="defaultEffectivity"></div>
+                                    <div class="field"><label>Footer center label</label><input type="text" wire:model.live="footerCenter" placeholder="Rev."></div>
+                                    <div class="field"><label>Rev.</label><input type="text" wire:model.live="defaultRev"></div>
+                                </div>
+                                <div class="prop-card identity-card">
+                                    <div class="prop-card-h"><i class="fa-solid fa-file-lines"></i> Page</div>
+                                    <div class="field span-2">
+                                        <label>Page size</label>
+                                        <select wire:model.live="pageSize">
+                                            @foreach($pageSizes as $sizeKey => $sizeMeta)
+                                                <option value="{{ $sizeKey }}">{{ $sizeMeta['label'] }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <p class="hint span-2" style="margin:0">
+                                        @if($isFormLayout)
+                                            To change the logo, open <em>Layout</em>, select the logo block, and upload there.
+                                        @else
+                                            To change the logo, use <em>Columns → Branding</em>.
+                                        @endif
+                                    </p>
+                                </div>
                             </div>
                         </div>
                         <aside class="layout-live">
                             <div class="layout-live-head">
                                 <div>
-                                    <p class="eyebrow" style="margin:0">{{ trim($formTitle) !== '' ? trim($formTitle) . ' Preview' : 'Form Preview' }}</p>
-                                    <p class="hint" style="margin:2px 0 0">{{ $pageWidth }} × {{ $pageHeight }} in · live form reference</p>
+                                    <p class="eyebrow" style="margin:0">{{ trim($formTitle) !== '' ? trim($formTitle) . ' Preview' : 'Live template preview' }}</p>
+                                    <p class="hint" style="margin:2px 0 0">{{ $pageWidth }} × {{ $pageHeight }} in · {{ ! empty($liveStatus['has_live']) ? 'live template (editable)' : 'draft' }} · same as Layout</p>
                                 </div>
                                 <button type="button" class="tool-btn" wire:click="refreshPreview" title="Refresh preview">
                                     <i class="fa-solid fa-rotate"></i><span>Refresh</span>
@@ -1846,9 +2769,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                                 @endforeach
                             </div>
                             <div class="tool-group">
-                                <button type="button" class="tool-btn" wire:click="loadOfficialLayout" title="Load official/legacy form layout into the editor">
-                                    <i class="fa-solid fa-file-import"></i><span>Load official</span>
-                                </button>
                                 <button type="button" class="tool-btn" wire:click="undoLayout" @disabled(count($undoStack) === 0) title="Undo">
                                     <i class="fa-solid fa-rotate-left"></i><span>Undo</span>
                                 </button>
@@ -1858,22 +2778,94 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                                 <button type="button" class="tool-btn danger" wire:click="deleteSelectedBlock" @disabled(count($selectedBlockIds) === 0 && ! $selectedBlockId) title="Delete selected">
                                     <i class="fa-solid fa-trash"></i><span>Delete{{ count($selectedBlockIds) > 1 ? ' ('.count($selectedBlockIds).')' : '' }}</span>
                                 </button>
-                                <div x-data="{ confirmSave: false }" style="display:inline-flex;position:relative">
+                                @php
+                                    $selectedRevMeta = collect($layoutRevisions)->firstWhere('id', (int) $selectedLiveRevisionId);
+                                    $selectedIsNamedSave = $selectedLiveRevisionId
+                                        && empty($selectedIsAlreadyLive)
+                                        && empty($selectedRevMeta['is_official']);
+                                    $showSaveAsNew = ! empty($selectedIsAlreadyLive) || $selectedIsNamedSave;
+                                    $primarySaveLabel = ! empty($selectedIsAlreadyLive)
+                                        ? 'Update live'
+                                        : ($selectedIsNamedSave ? 'Save version' : 'Save layout');
+                                @endphp
+                                <div x-data="{ confirmSave: false, confirmNew: false, confirmReset: false }" style="display:inline-flex;gap:8px;position:relative;align-items:center">
+                                    <button type="button" class="tool-btn" @click="confirmReset = true" title="Discard unsaved edits and reload the selected / live version">
+                                        <i class="fa-solid fa-clock-rotate-left"></i><span>Reset</span>
+                                    </button>
+                                    @if($showSaveAsNew)
+                                        <button type="button" class="tool-btn" @click="confirmNew = true" title="Copy canvas into a new Saved versions draft">
+                                            <i class="fa-solid fa-copy"></i><span>Save as new</span>
+                                        </button>
+                                    @endif
                                     <button type="button" class="btn-primary" @click="confirmSave = true">
-                                        <i class="fa-solid fa-floppy-disk"></i> Save layout
+                                        <i class="fa-solid fa-floppy-disk"></i> {{ $primarySaveLabel }}
                                     </button>
                                     <template x-teleport="body">
                                         <div class="tpl-confirm-backdrop" x-show="confirmSave" x-cloak x-transition.opacity @keydown.escape.window="confirmSave = false">
                                             <div class="tpl-confirm-card" role="dialog" aria-modal="true" @click.outside="confirmSave = false">
-                                                <p class="tpl-confirm-title">Save layout?</p>
-                                                <p class="tpl-confirm-body">This becomes the live office DRF/DCN form immediately. Optional name is stored in History (saved layouts only).</p>
-                                                <label class="field" style="display:block;margin:0 0 14px">
-                                                    <span style="display:block;font-size:12px;font-weight:650;color:#475569;margin-bottom:4px">Version name</span>
-                                                    <input type="text" wire:model="revisionName" placeholder="e.g. My DRF layout v1" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px">
-                                                </label>
+                                                @if(! empty($selectedIsAlreadyLive))
+                                                    <p class="tpl-confirm-title">Update live layout?</p>
+                                                    <p class="tpl-confirm-body">Publishes your canvas edits to office intake. Does <strong>not</strong> create a new Saved versions row. Use <em>Save as new</em> if you want a draft first.</p>
+                                                    <div class="tpl-confirm-actions">
+                                                        <button type="button" class="btn-ghost" @click="confirmSave = false">Cancel</button>
+                                                        <button type="button" class="btn-primary" @click="confirmSave = false; $wire.saveLayout()">Update live</button>
+                                                    </div>
+                                                @elseif($selectedIsNamedSave)
+                                                    <p class="tpl-confirm-title">Save this version?</p>
+                                                    <p class="tpl-confirm-body">Updates the <strong>selected</strong> Saved versions entry (no new row). Then click <em>Enable live</em> to publish it.</p>
+                                                    <div class="tpl-confirm-actions">
+                                                        <button type="button" class="btn-ghost" @click="confirmSave = false">Cancel</button>
+                                                        <button type="button" class="btn-primary" @click="confirmSave = false; $wire.saveLayout()">Save version</button>
+                                                    </div>
+                                                @else
+                                                    <p class="tpl-confirm-title">Save layout draft?</p>
+                                                    <p class="tpl-confirm-body">Creates a <strong>new</strong> Saved versions draft. Select it to reveal Enable live. Optional name labels the entry.</p>
+                                                    <label class="field" style="display:block;margin:0 0 14px">
+                                                        <span style="display:block;font-size:12px;font-weight:650;color:#475569;margin-bottom:4px">Version name</span>
+                                                        <input type="text" wire:model="revisionName" placeholder="e.g. My DRF layout v1" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px">
+                                                    </label>
+                                                    <div class="tpl-confirm-actions">
+                                                        <button type="button" class="btn-ghost" @click="confirmSave = false">Cancel</button>
+                                                        <button type="button" class="btn-primary" @click="confirmSave = false; $wire.saveLayout()">OK</button>
+                                                    </div>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    </template>
+                                    @if($showSaveAsNew)
+                                        <template x-teleport="body">
+                                            <div class="tpl-confirm-backdrop" x-show="confirmNew" x-cloak x-transition.opacity @keydown.escape.window="confirmNew = false">
+                                                <div class="tpl-confirm-card" role="dialog" aria-modal="true" @click.outside="confirmNew = false">
+                                                    <p class="tpl-confirm-title">Save as new version?</p>
+                                                    <p class="tpl-confirm-body">Copies the current canvas into a <strong>new Saved versions</strong> draft. The previous version and live stay unchanged until you Enable live.</p>
+                                                    <label class="field" style="display:block;margin:0 0 14px">
+                                                        <span style="display:block;font-size:12px;font-weight:650;color:#475569;margin-bottom:4px">Version name</span>
+                                                        <input type="text" wire:model="revisionName" placeholder="e.g. DRF layout v2" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px">
+                                                    </label>
+                                                    <div class="tpl-confirm-actions">
+                                                        <button type="button" class="btn-ghost" @click="confirmNew = false">Cancel</button>
+                                                        <button type="button" class="btn-primary" @click="confirmNew = false; $wire.saveLayoutAsNew()">Save as new</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    @endif
+                                    <template x-teleport="body">
+                                        <div class="tpl-confirm-backdrop" x-show="confirmReset" x-cloak x-transition.opacity @keydown.escape.window="confirmReset = false">
+                                            <div class="tpl-confirm-card" role="dialog" aria-modal="true" @click.outside="confirmReset = false">
+                                                <p class="tpl-confirm-title">Reset to previous live?</p>
+                                                <p class="tpl-confirm-body">
+                                                    @if(! empty($hasPreviousLive))
+                                                        Restores the <strong>live template from before your last Update live / Enable live</strong>
+                                                        (block positions, labels, and branding). This also updates office intake.
+                                                    @else
+                                                        No earlier live publish is stored yet. This will only discard <strong>unsaved</strong> canvas edits
+                                                        and reload the current selected / live version.
+                                                    @endif
+                                                </p>
                                                 <div class="tpl-confirm-actions">
-                                                    <button type="button" class="btn-ghost" @click="confirmSave = false">Cancel</button>
-                                                    <button type="button" class="btn-primary" @click="confirmSave = false; $wire.saveLayout()">OK</button>
+                                                    <button type="button" class="btn-ghost" @click="confirmReset = false">Cancel</button>
+                                                    <button type="button" class="btn-primary" @click="confirmReset = false; $wire.resetSelectedVersion()">Reset</button>
                                                 </div>
                                             </div>
                                         </div>
@@ -1882,30 +2874,57 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                             </div>
                         </div>
                         <div class="layout-restore-bar">
-                            <button type="button" class="tool-btn" wire:click="restorePreviousLayout" @disabled(! $hasPreviousLayout) title="Restore the layout from before the last save">
-                                <i class="fa-solid fa-clock-rotate-left"></i><span>Restore previous</span>
-                            </button>
                             @if(count($layoutRevisions) > 0)
                                 <label class="revision-pick">
-                                    <span>History</span>
-                                    <select @change="if ($event.target.value) { $wire.restoreRevision(Number($event.target.value)); $event.target.value = ''; }">
-                                        <option value="">Restore a saved layout…</option>
+                                    <span>Saved versions</span>
+                                    <select wire:change="selectSavedRevision($event.target.value)">
+                                        <option value="0" disabled @selected(! $selectedLiveRevisionId)>Select a saved layout…</option>
                                         @foreach($layoutRevisions as $rev)
                                             @php
                                                 $revName = trim((string) ($rev['label'] ?? ''));
                                                 if ($revName === '') {
-                                                    $revName = 'Saved layout';
+                                                    $revName = ! empty($rev['is_official']) ? 'Official (stock)' : 'Saved layout';
+                                                }
+                                                if (! empty($rev['is_live'])) {
+                                                    $revName .= ' · Live';
+                                                } elseif (! empty($rev['is_official'])) {
+                                                    $revName .= ' · Original';
                                                 }
                                             @endphp
-                                            <option value="{{ $rev['id'] }}">
-                                                {{ $revName }} · {{ $rev['created_at'] }}
+                                            <option value="{{ $rev['id'] }}" @selected($selectedLiveRevisionId === (int) $rev['id'])>
+                                                {{ $revName }}@if(empty($rev['is_official']) && ! empty($rev['created_at'])) · {{ $rev['created_at'] }}@endif
                                             </option>
                                         @endforeach
                                     </select>
                                 </label>
                             @endif
+                            @if($selectedLiveRevisionId && $selectedIsAlreadyLive)
+                                <span class="tag tag-live" title="This saved version is already published">Already live</span>
+                                <span class="enable-live-hint"><em>Update live</em> publishes edits · <em>Save as new</em> creates a draft first</span>
+                            @elseif($selectedLiveRevisionId)
+                                <div class="enable-live-actions" x-data="{ confirmLive: false }">
+                                    <button type="button" class="btn-primary enable-live-btn" @click="confirmLive = true">
+                                        <i class="fa-solid fa-bolt"></i> Enable live
+                                    </button>
+                                    <span class="enable-live-hint">Publish this version (replaces current live)</span>
+                                    <template x-teleport="body">
+                                        <div class="tpl-confirm-backdrop" x-show="confirmLive" x-cloak x-transition.opacity @keydown.escape.window="confirmLive = false">
+                                            <div class="tpl-confirm-card" role="dialog" aria-modal="true" @click.outside="confirmLive = false">
+                                                <p class="tpl-confirm-title">Enable live?</p>
+                                                <p class="tpl-confirm-body">Publish the <strong>selected saved version</strong> to office intake. The previous live version is replaced.</p>
+                                                <div class="tpl-confirm-actions">
+                                                    <button type="button" class="btn-ghost" @click="confirmLive = false">Cancel</button>
+                                                    <button type="button" class="btn-primary" @click="confirmLive = false; $wire.enableLive()">
+                                                        <i class="fa-solid fa-bolt"></i> Enable live
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            @endif
                         </div>
-                        <p class="hint bar-hint warn-hint"><i class="fa-solid fa-circle-info"></i> <em>Save layout</em> makes this the live office DRF/DCN form right away. Use <em>Load official</em> for stock spacing, then save. History lists saved layouts only — one template at a time.</p>
+                        <p class="hint bar-hint warn-hint"><i class="fa-solid fa-circle-info"></i> Previous save: <em>Save version</em> updates it, then <em>Enable live</em>. On live: <em>Update live</em> or <em>Save as new</em>. @if($selectedKey === 'office_dcn')Right preview is the official CSPC-F-DCC-01 form — edit blocks here and it updates live.@endif</p>
                         <p class="hint bar-hint">Adding to <strong>{{ strtoupper($layoutSection) }}</strong> · click = select · <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+click = multi · drag to move · {{ $pageWidth }}×{{ $pageHeight }} in</p>
                     </div>
 
@@ -1952,9 +2971,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                                             <span class="canvas-line-bar" style="background: {{ $lineColor }};"></span>
                                             <span class="type">line</span>
                                         @elseif($bType === 'table')
+                                            @php
+                                                $cCols = max(1, min(12, (int) ($block['table_cols'] ?? 3)));
+                                                $cRows = max(1, min(12, (int) ($block['table_rows'] ?? 3)));
+                                                $cBorders = \App\Helpers\DcsPrintTemplateHelper::tableBordersVisible($block);
+                                                $cCells = \App\Helpers\DcsPrintTemplateHelper::padTableCells($block['table_cells'] ?? [], $cRows, $cCols);
+                                                $legacyHeaders = is_array($block['table_headers'] ?? null) ? $block['table_headers'] : [];
+                                                $legacyLabels = is_array($block['table_row_labels'] ?? null) ? $block['table_row_labels'] : [];
+                                            @endphp
                                             <span class="type">table</span>
-                                            <span class="lbl">{{ $block['label'] ?: 'Table' }}</span>
-                                            <span class="canvas-table-preview" aria-hidden="true"></span>
+                                            <table class="canvas-table-grid {{ $cBorders ? '' : 'no-borders' }}" aria-hidden="true">
+                                                @for($cr = 0; $cr < $cRows; $cr++)
+                                                    <tr>
+                                                        @for($cc = 0; $cc < $cCols; $cc++)
+                                                            @php
+                                                                $cellTxt = (string) ($cCells[$cr][$cc] ?? '');
+                                                                if ($cellTxt === '' && $cr === 0 && isset($legacyHeaders[$cc])) {
+                                                                    $cellTxt = (string) $legacyHeaders[$cc];
+                                                                }
+                                                                if ($cellTxt === '' && $cc === 0 && isset($legacyLabels[$cr])) {
+                                                                    $cellTxt = (string) $legacyLabels[$cr];
+                                                                }
+                                                            @endphp
+                                                            <td>{{ $cellTxt !== '' ? $cellTxt : '·' }}</td>
+                                                        @endfor
+                                                    </tr>
+                                                @endfor
+                                            </table>
                                         @elseif($bType === 'checkboxes')
                                             <span class="type">checks</span>
                                             <span class="lbl">{{ $block['label'] ?: 'Checkboxes' }}</span>
@@ -1979,7 +3022,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                         <aside class="block-props">
                             @if(count($layoutBlocks) > 0)
                                 <div class="prop-card block-picker">
-                                    <div class="prop-card-h">Blocks ({{ count($layoutBlocks) }})</div>
+                                    <div class="prop-card-h" title="Number of blocks on this template canvas">Canvas blocks ({{ count($layoutBlocks) }})</div>
                                     <div class="block-picker-list">
                                         @foreach($layoutBlocks as $pick)
                                             @php
@@ -2007,7 +3050,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                                     $tableRows = max(1, (int) ($selectedBlock['table_rows'] ?? 4));
                                     $multiCount = count($selectedBlockIds);
                                 @endphp
-                                <div class="props-stack" wire:key="block-props-{{ $selectedBlockId }}-{{ $multiCount }}">
+                                <div class="props-stack" wire:key="block-props-{{ $selectedBlockId }}-{{ $multiCount }}-{{ md5((string) ($selectedBlock['label'] ?? '').'|'.(string) ($selectedBlock['x'] ?? '').'|'.(string) ($selectedBlock['y'] ?? '')) }}">
                                 @if($multiCount > 1)
                                     <div class="multi-banner">
                                         <strong>{{ $multiCount }} blocks selected</strong>
@@ -2040,7 +3083,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                                             </select>
                                         </label>
                                         <label class="field span-2">Label
-                                            <input type="text" value="{{ $selectedBlock['label'] ?? '' }}" wire:keyup.debounce.250ms="updateBlockField('label', $event.target.value)" wire:change="updateBlockField('label', $event.target.value)">
+                                            <input type="text"
+                                                wire:key="block-label-{{ $selectedBlockId }}-{{ md5((string) ($selectedBlock['label'] ?? '')) }}"
+                                                value="{{ $selectedBlock['label'] ?? '' }}"
+                                                wire:keyup.debounce.400ms="updateBlockField('label', $event.target.value)">
                                         </label>
                                         @if(! in_array($blockType, ['line', 'table', 'logo', 'spacer'], true))
                                         <label class="field span-2">Bind field
@@ -2098,6 +3144,29 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                                     </div>
                                     <p class="hint mt-8">Or drag on the canvas · arrow keys nudge (Shift = larger)</p>
                                     @if($blockType === 'logo')
+                                        <div class="logo-actions mt-8">
+                                            <label class="field">
+                                                <span>Replace logo</span>
+                                                <input type="file" wire:model="logoUpload" accept="image/*">
+                                            </label>
+                                            <div class="logo-actions-row">
+                                                <button type="button" class="tool-btn" wire:click="addLogoBlock" title="Add another logo block on the canvas">
+                                                    <i class="fa-solid fa-plus"></i><span>Add new logo</span>
+                                                </button>
+                                                <button type="button" class="tool-btn" wire:click="clearCustomLogo" title="Use the default system seal">
+                                                    <i class="fa-solid fa-rotate-left"></i><span>Use default</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="identity-logo-dd mt-8">
+                                            @if($identityLogoSrc !== '')
+                                                <img src="{{ $identityLogoSrc }}" alt="Form logo" class="identity-logo-thumb">
+                                                <span class="mono">{{ $logoPath !== '' && $logoPath !== null ? $logoPath : 'Default system logo' }}</span>
+                                            @else
+                                                <span class="mono">No logo</span>
+                                            @endif
+                                        </div>
+                                        <p class="hint mt-8">Replace updates this seal. Add new logo places another logo block. Saves with Save / Update live.</p>
                                         <label class="field mt-8">Logo fit
                                             <select wire:change="updateBlockField('objectFit', $event.target.value)">
                                                 @foreach(['contain','cover','fill'] as $fit)
@@ -2112,15 +3181,71 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                                         </label>
                                     @endif
                                     @if($blockType === 'table')
+                                        @php
+                                            $tableBordersOn = \App\Helpers\DcsPrintTemplateHelper::tableBordersVisible($selectedBlock);
+                                            $tableLabelLower = mb_strtolower((string) ($selectedBlock['label'] ?? ''));
+                                            $isApprovalsTable = str_contains($tableLabelLower, 'approval');
+                                            $isFreeformTable = array_key_exists('table_cells', $selectedBlock) && ! $isApprovalsTable;
+                                            $tableHeaders = is_array($selectedBlock['table_headers'] ?? null)
+                                                ? array_values($selectedBlock['table_headers'])
+                                                : [];
+                                            while (count($tableHeaders) < $tableCols) {
+                                                $tableHeaders[] = '';
+                                            }
+                                            $tableHeaders = array_slice($tableHeaders, 0, $tableCols);
+                                            $tableCells = $isFreeformTable
+                                                ? \App\Helpers\DcsPrintTemplateHelper::padTableCells(
+                                                    $selectedBlock['table_cells'] ?? [],
+                                                    $tableRows,
+                                                    $tableCols
+                                                )
+                                                : [];
+                                            $headerPlaceholders = ['Position', 'Names', 'Signature', 'Date'];
+                                        @endphp
                                         <div class="metric-grid mt-8">
                                             <label class="field">Columns
-                                                <input type="number" min="1" max="8" value="{{ $tableCols }}" wire:change="updateBlockField('table_cols', $event.target.value)">
+                                                <input type="number" min="1" max="12" value="{{ $tableCols }}" wire:change="updateBlockField('table_cols', $event.target.value)">
                                             </label>
                                             <label class="field">Rows
-                                                <input type="number" min="1" max="8" value="{{ $tableRows }}" wire:change="updateBlockField('table_rows', $event.target.value)">
+                                                <input type="number" min="1" max="12" value="{{ $tableRows }}" wire:change="updateBlockField('table_rows', $event.target.value)">
                                             </label>
                                         </div>
-                                        <p class="hint mt-8">Default signature grid: blank corner + Prepared / Reviewed / Approved headers.</p>
+                                        <div class="seg-row mt-8">
+                                            <span class="seg-label">Borders</span>
+                                            <div class="seg">
+                                                <button type="button" class="{{ $tableBordersOn ? 'is-on' : '' }}" wire:click="updateBlockField('table_borders', true)">Show</button>
+                                                <button type="button" class="{{ ! $tableBordersOn ? 'is-on' : '' }}" wire:click="updateBlockField('table_borders', false)">Hide</button>
+                                            </div>
+                                        </div>
+                                        <div class="table-cell-editor mt-8">
+                                            <div class="prop-card-h" style="margin-bottom:6px">Column names</div>
+                                            <div class="table-cell-grid table-header-names" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+                                                @for($tc = 0; $tc < $tableCols; $tc++)
+                                                    <input type="text"
+                                                        value="{{ $tableHeaders[$tc] ?? '' }}"
+                                                        placeholder="{{ $headerPlaceholders[$tc] ?? ('Col '.($tc + 1)) }}"
+                                                        wire:change="updateTableHeader({{ $tc }}, $event.target.value)"
+                                                        title="Column {{ $tc + 1 }} name">
+                                                @endfor
+                                            </div>
+                                        </div>
+                                        @if($isFreeformTable)
+                                            <div class="table-cell-editor mt-8">
+                                                <div class="prop-card-h" style="margin-bottom:6px">Cell text</div>
+                                                <div class="table-cell-grid" style="grid-template-columns: repeat({{ $tableCols }}, minmax(0, 1fr));">
+                                                    @for($tr = 0; $tr < $tableRows; $tr++)
+                                                        @for($tc = 0; $tc < $tableCols; $tc++)
+                                                            <input type="text"
+                                                                value="{{ $tableCells[$tr][$tc] ?? '' }}"
+                                                                placeholder="R{{ $tr + 1 }}C{{ $tc + 1 }}"
+                                                                wire:change="updateTableCell({{ $tr }}, {{ $tc }}, $event.target.value)"
+                                                                title="Row {{ $tr + 1 }}, column {{ $tc + 1 }}">
+                                                        @endfor
+                                                    @endfor
+                                                </div>
+                                            </div>
+                                        @endif
+                                        <p class="hint mt-8">Edit column names above — they appear on the DCN Approvals header. Add a new Table for freeform cells.</p>
                                     @endif
                                 </div>
 
@@ -2201,8 +3326,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                     <aside class="layout-live">
                         <div class="layout-live-head">
                             <div>
-                                <p class="eyebrow" style="margin:0">{{ trim($formTitle) !== '' ? trim($formTitle) . ' Preview' : 'Document Request Form Preview' }}</p>
-                                <p class="hint" style="margin:2px 0 0">{{ $pageWidth }} × {{ $pageHeight }} in · moves update live</p>
+                                <p class="eyebrow" style="margin:0">{{ trim($formTitle) !== '' ? trim($formTitle) . ' Preview' : 'Document Change Notice Preview' }}</p>
+                                <p class="hint" style="margin:2px 0 0">
+                                    {{ $pageWidth }} × {{ $pageHeight }} in
+                                    · official form
+                                    · edits on canvas update this preview
+                                </p>
                             </div>
                             <button type="button" class="tool-btn" wire:click="refreshPreview" title="Refresh preview">
                                 <i class="fa-solid fa-rotate"></i><span>Refresh</span>
@@ -2223,7 +3352,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
             @endif
 
             @if($editorTab === 'columns' && $isColumnTemplate)
-                <div class="panel layout-panel">
+                <div class="panel layout-panel" x-data="{ confirmReset: false, confirmSave: false, confirmNew: false }">
                     <div class="layout-chrome">
                         <div class="layout-toolbar">
                             <div class="tool-group">
@@ -2231,130 +3360,369 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                                 <button type="button" class="tool-btn" wire:click="addGroupHeader"><i class="fa-solid fa-object-group"></i><span>Group</span></button>
                             </div>
                             <div class="tool-group">
-                                <button type="button"
-                                    class="btn-primary"
-                                    wire:click="saveColumns"
-                                    wire:confirm="Save columns? Report and distribution exports will use this template. A previous version will be kept for restore.">
-                                    <i class="fa-solid fa-floppy-disk"></i> Save columns
+                                <button type="button" class="tool-btn" wire:click="undoColumns" @disabled(count($columnsUndoStack) === 0) title="Undo">
+                                    <i class="fa-solid fa-rotate-left"></i><span>Undo</span>
                                 </button>
+                                <button type="button" class="tool-btn" wire:click="redoColumns" @disabled(count($columnsRedoStack) === 0) title="Redo">
+                                    <i class="fa-solid fa-rotate-right"></i><span>Redo</span>
+                                </button>
+                                <button type="button"
+                                    class="tool-btn"
+                                    @click="confirmReset = true"
+                                    title="Restore previous live (before last Update live)">
+                                    <i class="fa-solid fa-clock-rotate-left"></i><span>Reset</span>
+                                </button>
+                                @if(! empty($selectedIsAlreadyLive))
+                                    <button type="button"
+                                        class="tool-btn"
+                                        @click="confirmNew = true"
+                                        title="Copy into a new draft (live unchanged)">
+                                        <i class="fa-solid fa-copy"></i><span>Save as new</span>
+                                    </button>
+                                    <button type="button"
+                                        class="btn-primary"
+                                        @click="confirmSave = true">
+                                        <i class="fa-solid fa-floppy-disk"></i> Update live
+                                    </button>
+                                @else
+                                    <button type="button"
+                                        class="btn-primary"
+                                        @click="confirmSave = true">
+                                        <i class="fa-solid fa-floppy-disk"></i> Save columns
+                                    </button>
+                                @endif
                             </div>
                         </div>
+                        <template x-teleport="body">
+                            <div class="tpl-confirm-backdrop" x-show="confirmReset" x-cloak x-transition.opacity @keydown.escape.window="confirmReset = false">
+                                <div class="tpl-confirm-card" role="dialog" aria-modal="true" @click.outside="confirmReset = false">
+                                    <p class="tpl-confirm-title">Reset to previous live?</p>
+                                    <p class="tpl-confirm-body">
+                                        @if(! empty($hasPreviousLive))
+                                            Restores the <strong>live columns template from before your last Update live / Enable live</strong>
+                                            (header, footer, and columns). This also updates report exports.
+                                        @else
+                                            No earlier live publish is stored yet. This will only discard <strong>unsaved</strong> edits
+                                            and reload the current selected / live columns version.
+                                        @endif
+                                    </p>
+                                    <div class="tpl-confirm-actions">
+                                        <button type="button" class="btn-ghost" @click="confirmReset = false">Cancel</button>
+                                        <button type="button" class="btn-primary" @click="confirmReset = false; $wire.resetSelectedVersion()">Reset</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-teleport="body">
+                            <div class="tpl-confirm-backdrop" x-show="confirmSave" x-cloak x-transition.opacity @keydown.escape.window="confirmSave = false">
+                                <div class="tpl-confirm-card" role="dialog" aria-modal="true" @click.outside="confirmSave = false">
+                                    @if(! empty($selectedIsAlreadyLive))
+                                        <p class="tpl-confirm-title">Update live columns?</p>
+                                        <p class="tpl-confirm-body">Publishes branding and column edits to report exports. Does <strong>not</strong> create a new Saved versions row. Use <em>Save as new</em> if you want a draft first.</p>
+                                    @else
+                                        <p class="tpl-confirm-title">Save columns draft?</p>
+                                        <p class="tpl-confirm-body">Creates or updates a Saved versions draft. Select it to reveal <em>Enable live</em>.</p>
+                                    @endif
+                                    <div class="tpl-confirm-actions">
+                                        <button type="button" class="btn-ghost" @click="confirmSave = false">Cancel</button>
+                                        <button type="button" class="btn-primary" @click="confirmSave = false; $wire.saveColumns()">
+                                            @if(! empty($selectedIsAlreadyLive)) Update live @else Save columns @endif
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        @if(! empty($selectedIsAlreadyLive))
+                            <template x-teleport="body">
+                                <div class="tpl-confirm-backdrop" x-show="confirmNew" x-cloak x-transition.opacity @keydown.escape.window="confirmNew = false">
+                                    <div class="tpl-confirm-card" role="dialog" aria-modal="true" @click.outside="confirmNew = false">
+                                        <p class="tpl-confirm-title">Save as new version?</p>
+                                        <p class="tpl-confirm-body">Copies the current columns into a <strong>new Saved versions</strong> draft. Live stays unchanged until you Enable live.</p>
+                                        <div class="tpl-confirm-actions">
+                                            <button type="button" class="btn-ghost" @click="confirmNew = false">Cancel</button>
+                                            <button type="button" class="btn-primary" @click="confirmNew = false; $wire.saveColumnsAsNew()">Save as new</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        @endif
                         <div class="layout-restore-bar">
                             @if(count($layoutRevisions) > 0)
-                                <label class="revision-pick" x-data>
-                                    <span>History</span>
-                                    <select @change="if ($event.target.value) { $wire.restoreRevision(Number($event.target.value)); $event.target.value = ''; }">
-                                        <option value="">Restore a saved columns version…</option>
+                                <label class="revision-pick">
+                                    <span>Saved versions</span>
+                                    <select wire:change="selectSavedRevision($event.target.value)">
+                                        <option value="0" disabled @selected(! $selectedLiveRevisionId)>Select a saved columns version…</option>
                                         @foreach($layoutRevisions as $rev)
                                             @php
                                                 $revName = trim((string) ($rev['label'] ?? ''));
                                                 if ($revName === '') {
-                                                    $revName = 'Saved columns';
+                                                    $revName = ! empty($rev['is_official']) ? 'Official (stock)' : 'Saved columns';
+                                                }
+                                                if (! empty($rev['is_live'])) {
+                                                    $revName .= ' · Live';
+                                                } elseif (! empty($rev['is_official'])) {
+                                                    $revName .= ' · Original';
                                                 }
                                             @endphp
-                                            <option value="{{ $rev['id'] }}">
-                                                {{ $revName }} · {{ $rev['created_at'] }}
+                                            <option value="{{ $rev['id'] }}" @selected($selectedLiveRevisionId === (int) $rev['id'])>
+                                                {{ $revName }}@if(empty($rev['is_official']) && ! empty($rev['created_at'])) · {{ $rev['created_at'] }}@endif
                                             </option>
                                         @endforeach
                                     </select>
                                 </label>
                             @endif
+                            @if($selectedLiveRevisionId && $selectedIsAlreadyLive)
+                                <span class="tag tag-live" title="This saved version is already published">Already live</span>
+                                <span class="enable-live-hint"><em>Update live</em> publishes edits · <em>Save as new</em> creates a draft first</span>
+                            @elseif($selectedLiveRevisionId)
+                                <div class="enable-live-actions" x-data="{ confirmLive: false }">
+                                    <button type="button" class="btn-primary enable-live-btn" @click="confirmLive = true">
+                                        <i class="fa-solid fa-bolt"></i> Enable live
+                                    </button>
+                                    <span class="enable-live-hint">Publish this version (replaces current live)</span>
+                                    <template x-teleport="body">
+                                        <div class="tpl-confirm-backdrop" x-show="confirmLive" x-cloak x-transition.opacity @keydown.escape.window="confirmLive = false">
+                                            <div class="tpl-confirm-card" role="dialog" aria-modal="true" @click.outside="confirmLive = false">
+                                                <p class="tpl-confirm-title">Enable live?</p>
+                                                <p class="tpl-confirm-body">Publish the <strong>selected saved version</strong> to report exports. The previous live version is replaced.</p>
+                                                <div class="tpl-confirm-actions">
+                                                    <button type="button" class="btn-ghost" @click="confirmLive = false">Cancel</button>
+                                                    <button type="button" class="btn-primary" @click="confirmLive = false; $wire.enableLive()">
+                                                        <i class="fa-solid fa-bolt"></i> Enable live
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            @endif
                         </div>
-                        <p class="hint bar-hint warn-hint"><i class="fa-solid fa-circle-info"></i> Live preview uses the <strong>official Distribution / Masterlist print UI</strong>. <em>Save columns</em> makes this the live export template. History lists saved versions only.</p>
+                        <p class="hint bar-hint"><i class="fa-solid fa-circle-info"></i>
+                            @if($selectedKey === 'distribution')
+                                Edit branding and the DISTRIBUTION / RETRIEVAL table here.
+                            @else
+                                Edit branding and table columns here.
+                            @endif
+                            <em>Update live</em> publishes; <em>Save as new</em> creates a draft.
+                        </p>
                     </div>
 
-                    <div class="layout-workspace">
+                    <div class="layout-workspace" x-data="{ colsPanel: @js($selectedKey === 'distribution' ? 'table' : 'branding') }">
                         <div class="layout-edit columns-edit">
-                            <div class="card-grid">
-                                <div class="prop-card">
-                                    <div class="prop-card-h"><i class="fa-solid fa-palette"></i> 1st table row style</div>
-                                    <div class="form-grid">
-                                        <label class="color-row">Background<input type="color" wire:model.live="tableHeaderBg"></label>
-                                        <label class="color-row">Text color<input type="color" wire:model.live="tableHeaderColor"></label>
-                                        <label>Font
+                            <div class="cols-subnav" role="tablist" aria-label="Columns editor sections">
+                                <button type="button" role="tab" class="cols-subnav-btn" :class="colsPanel === 'branding' && 'is-active'" @click="colsPanel = 'branding'" :aria-selected="colsPanel === 'branding'">
+                                    <i class="fa-solid fa-heading"></i> Branding
+                                </button>
+                                <button type="button" role="tab" class="cols-subnav-btn" :class="colsPanel === 'table' && 'is-active'" @click="colsPanel = 'table'" :aria-selected="colsPanel === 'table'">
+                                    <i class="fa-solid fa-table"></i> Table
+                                </button>
+                            </div>
+
+                            <div class="cols-panel" x-show="colsPanel === 'branding'" x-cloak>
+                                <section class="cols-section">
+                                    <div class="cols-section-h">
+                                        <div>
+                                            <h3>Form identity</h3>
+                                            <p>Code and title printed on the sheet.</p>
+                                        </div>
+                                    </div>
+                                    <div class="cols-fields cols-fields-2">
+                                        <label class="field"><span>Form code</span><input type="text" wire:model.live="formCode" placeholder="CSPC-F-DCC-05"></label>
+                                        <label class="field"><span>Form title</span><input type="text" wire:model.live="formTitle"></label>
+                                    </div>
+                                </section>
+
+                                <section class="cols-section">
+                                    <div class="cols-section-h">
+                                        <div>
+                                            <h3>Institution header</h3>
+                                            <p>Logo band text above the blue rule.</p>
+                                        </div>
+                                    </div>
+                                    <div class="cols-fields">
+                                        <label class="field"><span>Republic</span><input type="text" wire:model.live="republic"></label>
+                                        <label class="field"><span>Institution</span><input type="text" wire:model.live="institutionName"></label>
+                                        <label class="field"><span>Address</span><input type="text" wire:model.live="institutionAddress"></label>
+                                    </div>
+                                </section>
+
+                                <section class="cols-section">
+                                    <div class="cols-section-h">
+                                        <div>
+                                            <h3>Footer</h3>
+                                            <p>Effectivity and revision line under the table.</p>
+                                        </div>
+                                    </div>
+                                    <div class="cols-fields cols-fields-2">
+                                        <label class="field"><span>Left label</span><input type="text" wire:model.live="footerLeft" placeholder="Effectivity Date:"></label>
+                                        <label class="field"><span>Effectivity</span><input type="text" wire:model.live="defaultEffectivity"></label>
+                                        <label class="field"><span>Center label</span><input type="text" wire:model.live="footerCenter" placeholder="Rev."></label>
+                                        <label class="field"><span>Rev.</span><input type="text" wire:model.live="defaultRev"></label>
+                                    </div>
+                                </section>
+
+                                <section class="cols-section">
+                                    <div class="cols-section-h">
+                                        <div>
+                                            <h3>Logo</h3>
+                                            <p>Replace the header seal, or upload a new custom logo.</p>
+                                        </div>
+                                    </div>
+                                    <label class="field">
+                                        <span>Replace / upload new logo</span>
+                                        <input type="file" wire:model="logoUpload" accept="image/*">
+                                    </label>
+                                    <div class="logo-actions-row mt-8">
+                                        <button type="button" class="tool-btn" wire:click="clearCustomLogo" title="Use the default system seal">
+                                            <i class="fa-solid fa-rotate-left"></i><span>Use default logo</span>
+                                        </button>
+                                    </div>
+                                    <div class="identity-logo-dd mt-8">
+                                        @if($identityLogoSrc !== '')
+                                            <img src="{{ $identityLogoSrc }}" alt="Form logo" class="identity-logo-thumb">
+                                            <span class="mono">{{ $logoPath !== '' && $logoPath !== null ? $logoPath : 'Default system logo' }}</span>
+                                        @else
+                                            <span class="mono">No logo</span>
+                                        @endif
+                                    </div>
+                                    <p class="hint mt-8">New uploads preview immediately and save with Save / Update live.</p>
+                                </section>
+                            </div>
+
+                            <div class="cols-panel" x-show="colsPanel === 'table'" x-cloak>
+                                <section class="cols-section">
+                                    <div class="cols-section-h">
+                                        <div>
+                                            <h3>Group header style</h3>
+                                            <p>Colors and type for the top table band{{ $selectedKey === 'distribution' ? ' (DISTRIBUTION / RETRIEVAL)' : '' }}.</p>
+                                        </div>
+                                        <div class="header-swatch header-swatch-inline" style="background: {{ $tableHeaderBg }}; color: {{ $tableHeaderColor }}; font-family: {{ $tableHeaderFontFamily }}; font-size: {{ max(9, $tableHeaderFontSize) }}pt; font-weight: {{ $tableHeaderFontWeight }}; font-style: {{ $tableHeaderFontStyle }};">
+                                            Aa
+                                        </div>
+                                    </div>
+                                    <div class="cols-style-bar">
+                                        <label class="field color-row"><span>Fill</span><input type="color" wire:model.live="tableHeaderBg"></label>
+                                        <label class="field color-row"><span>Text</span><input type="color" wire:model.live="tableHeaderColor"></label>
+                                        <label class="field"><span>Font</span>
                                             <select wire:model.live="tableHeaderFontFamily">
                                                 @foreach($fontFamilies as $ff)
                                                     <option value="{{ $ff }}">{{ $ff }}</option>
                                                 @endforeach
                                             </select>
                                         </label>
-                                        <label>Size (pt)<input type="number" step="0.5" min="6" max="36" wire:model.live="tableHeaderFontSize"></label>
-                                        <label>Weight
+                                        <label class="field"><span>Size</span><input type="number" step="0.5" min="6" max="36" wire:model.live="tableHeaderFontSize"></label>
+                                        <label class="field"><span>Weight</span>
                                             <select wire:model.live="tableHeaderFontWeight">
                                                 <option value="400">Regular</option>
                                                 <option value="600">Semibold</option>
                                                 <option value="700">Bold</option>
                                             </select>
                                         </label>
-                                        <label>Style
+                                        <label class="field"><span>Style</span>
                                             <select wire:model.live="tableHeaderFontStyle">
                                                 <option value="normal">Normal</option>
                                                 <option value="italic">Italic</option>
                                             </select>
                                         </label>
                                     </div>
-                                    <div class="header-swatch" style="background: {{ $tableHeaderBg }}; color: {{ $tableHeaderColor }}; font-family: {{ $tableHeaderFontFamily }}; font-size: {{ $tableHeaderFontSize }}pt; font-weight: {{ $tableHeaderFontWeight }}; font-style: {{ $tableHeaderFontStyle }};">
-                                        First row preview
-                                    </div>
-                                </div>
-                            </div>
+                                </section>
 
-                            @if(count($groupHeaders) > 0)
-                                <div class="prop-card mt-12">
-                                    <div class="prop-card-h">Group headers</div>
-                                    <div class="col-table">
-                                        @foreach($groupHeaders as $gi => $gh)
-                                            <div class="col-row">
-                                                <input type="text" wire:model.live="groupHeaders.{{ $gi }}.label" placeholder="Label">
-                                                <input type="number" min="1" wire:model.live="groupHeaders.{{ $gi }}.span" style="width:80px" title="Span">
-                                                <button type="button" class="tool-btn danger" wire:click="removeGroupHeader({{ $gi }})"><i class="fa-solid fa-trash"></i></button>
+                                @if(count($groupHeaders) > 0)
+                                    <section class="cols-section">
+                                        <div class="cols-section-h">
+                                            <div>
+                                                <h3>Group headers</h3>
+                                                <p>Merged top labels and how many columns each spans.</p>
                                             </div>
-                                        @endforeach
-                                    </div>
-                                </div>
-                            @endif
-
-                            <div class="prop-card mt-12">
-                                <div class="prop-card-h"><i class="fa-solid fa-table-columns"></i> Columns</div>
-                                <div class="col-table">
-                                    @foreach($columns as $ci => $col)
-                                        <div class="col-row cardish">
-                                            <button type="button" class="vis-btn {{ ! empty($col['visible']) ? 'is-on' : '' }}" wire:click="toggleColumnVisible({{ $ci }})" title="Toggle visible">
-                                                <i class="fa-solid {{ ! empty($col['visible']) ? 'fa-eye' : 'fa-eye-slash' }}"></i>
-                                            </button>
-                                            <select wire:model.live="columns.{{ $ci }}.key">
-                                                @foreach($fieldCatalog as $f)
-                                                    <option value="{{ $f['key'] }}">{{ $f['key'] }}</option>
-                                                @endforeach
-                                            </select>
-                                            <input type="text" wire:model.live="columns.{{ $ci }}.label" placeholder="Label">
-                                            <input type="text" wire:model.live="columns.{{ $ci }}.width" placeholder="Width %" style="width:90px">
-                                            <input type="text" wire:model.live="columns.{{ $ci }}.group" placeholder="Group" style="width:110px">
-                                            <button type="button" class="icon-btn" wire:click="moveColumn({{ $ci }}, 'up')"><i class="fa-solid fa-arrow-up"></i></button>
-                                            <button type="button" class="icon-btn" wire:click="moveColumn({{ $ci }}, 'down')"><i class="fa-solid fa-arrow-down"></i></button>
-                                            <button type="button" class="tool-btn danger" wire:click="removeColumn({{ $ci }})"><i class="fa-solid fa-trash"></i></button>
+                                            <button type="button" class="tool-btn" wire:click="addGroupHeader" title="Add group"><i class="fa-solid fa-plus"></i><span>Group</span></button>
                                         </div>
-                                    @endforeach
-                                </div>
+                                        <div class="group-chip-list">
+                                            @foreach($groupHeaders as $gi => $gh)
+                                                <div class="group-chip">
+                                                    <span class="group-chip-idx">{{ $gi + 1 }}</span>
+                                                    <input type="text" wire:model.live="groupHeaders.{{ $gi }}.label" placeholder="Label" aria-label="Group label">
+                                                    <label class="group-chip-span">
+                                                        <span>Span</span>
+                                                        <input type="number" min="1" wire:model.live="groupHeaders.{{ $gi }}.span" title="Column span">
+                                                    </label>
+                                                    <button type="button" class="icon-btn danger" wire:click="removeGroupHeader({{ $gi }})" title="Remove group"><i class="fa-solid fa-trash"></i></button>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    </section>
+                                @endif
+
+                                <section class="cols-section">
+                                    <div class="cols-section-h">
+                                        <div>
+                                            <h3>Columns <span class="cols-count">{{ count($columns) }}</span></h3>
+                                            <p>Order, labels, widths, and group assignment.</p>
+                                        </div>
+                                        <button type="button" class="tool-btn" wire:click="addColumn" title="Add column"><i class="fa-solid fa-plus"></i><span>Column</span></button>
+                                    </div>
+                                    <div class="col-card-list">
+                                        @foreach($columns as $ci => $col)
+                                            <article class="col-card {{ empty($col['visible']) ? 'is-hidden-col' : '' }}">
+                                                <div class="col-card-top">
+                                                    <button type="button" class="vis-btn {{ ! empty($col['visible']) ? 'is-on' : '' }}" wire:click="toggleColumnVisible({{ $ci }})" title="Toggle visible">
+                                                        <i class="fa-solid {{ ! empty($col['visible']) ? 'fa-eye' : 'fa-eye-slash' }}"></i>
+                                                    </button>
+                                                    <span class="col-card-order">{{ $ci + 1 }}</span>
+                                                    <strong class="col-card-title">{{ trim((string) ($col['label'] ?? '')) !== '' ? strip_tags((string) $col['label']) : ((string) ($col['key'] ?? 'Column')) }}</strong>
+                                                    @if(trim((string) ($col['group'] ?? '')) !== '')
+                                                        <span class="col-card-group">{{ $col['group'] }}</span>
+                                                    @endif
+                                                    <div class="col-card-actions">
+                                                        <button type="button" class="icon-btn" wire:click="moveColumn({{ $ci }}, 'up')" title="Move up" @disabled($ci === 0)><i class="fa-solid fa-arrow-up"></i></button>
+                                                        <button type="button" class="icon-btn" wire:click="moveColumn({{ $ci }}, 'down')" title="Move down" @disabled($ci === count($columns) - 1)><i class="fa-solid fa-arrow-down"></i></button>
+                                                        <button type="button" class="icon-btn danger" wire:click="removeColumn({{ $ci }})" title="Remove"><i class="fa-solid fa-trash"></i></button>
+                                                    </div>
+                                                </div>
+                                                <div class="col-card-grid">
+                                                    <label class="field"><span>Field</span>
+                                                        <select wire:model.live="columns.{{ $ci }}.key">
+                                                            @foreach($fieldCatalog as $f)
+                                                                <option value="{{ $f['key'] }}">{{ $f['key'] }}</option>
+                                                            @endforeach
+                                                        </select>
+                                                    </label>
+                                                    <label class="field"><span>Display name</span>
+                                                        <input type="text" wire:model.live="columns.{{ $ci }}.label" placeholder="Label">
+                                                    </label>
+                                                    <label class="field"><span>Width</span>
+                                                        <input type="text" wire:model.live="columns.{{ $ci }}.width" placeholder="e.g. 34%">
+                                                    </label>
+                                                    <label class="field"><span>Group</span>
+                                                        <input type="text" wire:model.live="columns.{{ $ci }}.group" placeholder="{{ $selectedKey === 'distribution' ? 'DISTRIBUTION / RETRIEVAL' : 'Group' }}">
+                                                    </label>
+                                                </div>
+                                            </article>
+                                        @endforeach
+                                        @if(count($columns) === 0)
+                                            <p class="hint empty-cols">No columns yet. Add a column to build the table.</p>
+                                        @endif
+                                    </div>
+                                </section>
                             </div>
                         </div>
 
                         <aside class="layout-live">
                             <div class="layout-live-head">
                                 <div>
-                                    <p class="eyebrow" style="margin:0">Live preview</p>
-                                    <p class="hint" style="margin:2px 0 0">{{ $pageWidth }} × {{ $pageHeight }} in</p>
+                                    <p class="eyebrow" style="margin:0">{{ trim($formTitle) !== '' ? trim($formTitle) : 'Live preview' }}</p>
+                                    <p class="hint" style="margin:2px 0 0">{{ $pageWidth }} × {{ $pageHeight }} in · branding + table update live</p>
                                 </div>
                                 <button type="button" class="tool-btn" wire:click="refreshPreview" title="Refresh preview">
                                     <i class="fa-solid fa-rotate"></i><span>Refresh</span>
                                 </button>
                             </div>
-                            <div class="layout-live-stage" wire:key="columns-side-preview-{{ $previewKey }}-{{ $previewBump }}">
+                            <div class="layout-live-stage" wire:key="columns-side-preview-{{ $previewKey }}-{{ $previewBump }}" x-data x-init="$el.scrollTop = 0">
                                 <iframe
                                     class="layout-live-frame"
                                     title="Columns live preview"
                                     src="{{ $livePreviewUrl }}?t={{ $previewKey }}&b={{ $previewBump }}&k={{ urlencode($selectedKey) }}"
                                     style="width: {{ $pageWidth * 96 }}px; height: {{ $pageHeight * 96 }}px;"
+                                    onload="this.parentElement.scrollTop = 0"
                                 ></iframe>
                             </div>
                         </aside>
@@ -2367,7 +3735,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
                     <div class="preview-toolbar">
                         <div>
                             <p class="eyebrow" style="margin:0">Live preview</p>
-                            <p class="hint" style="margin:2px 0 0">Real size · {{ $pageWidth }} × {{ $pageHeight }} in (scroll to see full page)</p>
+                            <p class="hint" style="margin:2px 0 0">Edited draft · {{ $pageWidth }} × {{ $pageHeight }} in (same as Layout side preview)</p>
                         </div>
                         <button type="button" class="btn-secondary" wire:click="refreshPreview"><i class="fa-solid fa-rotate"></i> Refresh</button>
                     </div>
@@ -2431,6 +3799,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
 .dcs-tpl-page .list-count { font-size: 11px; font-weight: 700; color: var(--brand); background: var(--brand-soft); border-radius: 999px; padding: 2px 8px; }
 .dcs-tpl-page .tpl-code { font-size: 11px; color: #475569; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .dcs-tpl-page .tag { font-size: 10px; font-weight: 700; color: #334155; background: #e2e8f0; border-radius: 999px; padding: 1px 7px; }
+.dcs-tpl-page .tag-live { color: #065f46; background: #d1fae5; }
+.dcs-tpl-page .tag-draft { color: #92400e; background: #fef3c7; }
+.dcs-tpl-page .tag-diff { color: #1e40af; background: #dbeafe; }
+.dcs-tpl-page .prop-card.identity-card:has(> .field) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+    align-items: start;
+}
+.dcs-tpl-page .prop-card.identity-card:has(> .field) .prop-card-h { grid-column: 1 / -1; }
+.dcs-tpl-page .identity-card .field { display: flex; flex-direction: column; gap: 4px; margin: 0; min-width: 0; }
+.dcs-tpl-page .identity-card .field.span-2 { grid-column: 1 / -1; }
+.dcs-tpl-page .identity-card .field label { font-size: 11px; font-weight: 650; color: #64748b; }
+.dcs-tpl-page .identity-card .field input,
+.dcs-tpl-page .identity-card .field select {
+    border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 13px; background: #fff; width: 100%;
+}
+.dcs-tpl-page .tpl-picker-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .dcs-tpl-page .dcs-tpl-editor {
     background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
     display: flex; flex-direction: column; box-shadow: 0 1px 2px rgba(15,23,42,.04); min-width: 0;
@@ -2603,6 +3989,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
     align-items: center;
     gap: 10px;
 }
+.dcs-tpl-page .logo-actions { display: flex; flex-direction: column; gap: 8px; }
+.dcs-tpl-page .logo-actions-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .dcs-tpl-page .identity-logo-thumb {
     width: 44px;
     height: 44px;
@@ -2677,15 +4065,126 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
 }
 [x-cloak] { display: none !important; }
 .dcs-tpl-page .layout-restore-bar {
-    display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px;
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px;
+    padding: 8px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
 }
 .dcs-tpl-page .revision-pick {
-    display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #475569;
+    display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 650; color: #475569;
 }
 .dcs-tpl-page .revision-pick select {
-    border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px 8px; background: #fff; max-width: 320px;
+    border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 10px; background: #fff;
+    min-width: 220px; max-width: min(360px, 70vw); font-weight: 500; color: #0f172a;
 }
-.dcs-tpl-page .columns-edit { min-width: 0; overflow: auto; max-height: calc(100vh - 220px); padding-right: 4px; }
+.dcs-tpl-page .enable-live-actions {
+    display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.dcs-tpl-page .enable-live-btn {
+    padding: 7px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+}
+.dcs-tpl-page .enable-live-hint {
+    font-size: 12px; color: #64748b; font-weight: 500; line-height: 1.3;
+}
+.dcs-tpl-page .columns-edit { min-width: 0; overflow: auto; max-height: calc(100vh - 220px); padding-right: 4px; display: flex; flex-direction: column; gap: 12px; }
+.dcs-tpl-page .cols-subnav {
+    display: inline-flex; gap: 4px; padding: 4px; border-radius: 10px;
+    background: #f1f5f9; border: 1px solid #e2e8f0; align-self: flex-start; position: sticky; top: 0; z-index: 3;
+}
+.dcs-tpl-page .cols-subnav-btn {
+    border: 0; background: transparent; border-radius: 8px; padding: 7px 12px;
+    font-size: 12px; font-weight: 700; color: #64748b; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+}
+.dcs-tpl-page .cols-subnav-btn:hover { color: var(--brand); background: #fff; }
+.dcs-tpl-page .cols-subnav-btn.is-active { color: #0f172a; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.08); }
+.dcs-tpl-page .cols-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dcs-tpl-page .cols-section {
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fff; min-width: 0;
+}
+.dcs-tpl-page .cols-section-h {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin: 0 0 12px;
+    padding: 0; background: transparent !important; color: inherit; border: 0; min-height: 0; height: auto;
+}
+.dcs-tpl-page .cols-section-h h3 {
+    margin: 0; font-size: 13px; font-weight: 750; color: #0f172a !important; background: transparent !important;
+    display: inline-flex; align-items: center; gap: 8px;
+}
+.dcs-tpl-page .cols-section-h p {
+    margin: 3px 0 0; font-size: 12px; color: #64748b !important; font-weight: 500; line-height: 1.35;
+    background: transparent !important;
+}
+.dcs-tpl-page .cols-count {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px;
+    padding: 0 6px; border-radius: 999px; background: var(--brand-soft); color: var(--brand); font-size: 11px;
+}
+.dcs-tpl-page .cols-fields { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.dcs-tpl-page .cols-fields-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dcs-tpl-page .cols-fields .field span,
+.dcs-tpl-page .cols-style-bar .field span,
+.dcs-tpl-page .col-card-grid .field span {
+    display: block; margin-bottom: 4px; font-size: 11px; font-weight: 650; color: #64748b;
+}
+.dcs-tpl-page .cols-style-bar {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
+}
+.dcs-tpl-page .header-swatch-inline {
+    margin: 0; min-width: 44px; padding: 8px 10px; flex-shrink: 0; line-height: 1;
+}
+.dcs-tpl-page .group-chip-list { display: flex; flex-direction: column; gap: 8px; }
+.dcs-tpl-page .group-chip {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 8px; align-items: center;
+    padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc;
+}
+.dcs-tpl-page .group-chip-idx {
+    width: 22px; height: 22px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 750; color: #334155; background: #e2e8f0;
+}
+.dcs-tpl-page .group-chip-span {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 650; color: #64748b;
+}
+.dcs-tpl-page .group-chip input[type="text"],
+.dcs-tpl-page .group-chip input[type="number"] {
+    width: 100%; min-width: 0; border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 9px;
+    font-size: 13px; font-weight: 500; color: var(--ink); background: #fff;
+}
+.dcs-tpl-page .group-chip-span input { width: 64px !important; }
+.dcs-tpl-page .cols-style-bar .color-row span { display: inline; margin-bottom: 0; }
+.dcs-tpl-page .col-card-list { display: flex; flex-direction: column; gap: 10px; }
+.dcs-tpl-page .col-card {
+    border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff;
+    box-shadow: 0 1px 0 rgba(15,23,42,.03);
+}
+.dcs-tpl-page .col-card.is-hidden-col { opacity: .62; background: #f8fafc; }
+.dcs-tpl-page .col-card-top {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px; min-width: 0;
+}
+.dcs-tpl-page .col-card-order {
+    width: 22px; height: 22px; border-radius: 999px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 750; color: #475569; background: #e2e8f0;
+}
+.dcs-tpl-page .col-card-title {
+    flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 700; color: #0f172a;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dcs-tpl-page .col-card-group {
+    flex-shrink: 0; font-size: 10px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase;
+    color: #1e40af; background: #dbeafe; border-radius: 999px; padding: 2px 8px;
+}
+.dcs-tpl-page .col-card-actions { display: inline-flex; gap: 4px; margin-left: auto; flex-shrink: 0; }
+.dcs-tpl-page .col-card-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px;
+}
+.dcs-tpl-page .icon-btn.danger { color: #b91c1c; }
+.dcs-tpl-page .icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+.dcs-tpl-page .empty-cols { margin: 0; padding: 16px; text-align: center; border: 1px dashed #cbd5e1; border-radius: 10px; }
+@media (max-width: 720px) {
+    .dcs-tpl-page .cols-fields-2,
+    .dcs-tpl-page .cols-style-bar,
+    .dcs-tpl-page .col-card-grid { grid-template-columns: 1fr; }
+    .dcs-tpl-page .group-chip { grid-template-columns: auto minmax(0, 1fr); }
+    .dcs-tpl-page .group-chip-span { grid-column: 2; }
+}
 .dcs-tpl-page .layout-chrome { margin-bottom: 12px; }
 .dcs-tpl-page .section-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
 .dcs-tpl-page .section-tabs button {
@@ -2791,19 +4290,29 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
 .dcs-tpl-page .canvas-block.type-line.is-selected { border-color: #2563eb; background: rgba(37,99,235,.08); }
 .dcs-tpl-page .canvas-line-bar { display: block; width: 100%; height: 3px; border-radius: 2px; flex-shrink: 0; }
 .dcs-tpl-page .canvas-block.type-line .type { position: absolute; left: 4px; top: -12px; background: #fff; padding: 0 3px; }
-.dcs-tpl-page .canvas-block.type-table { background: rgba(15,23,42,.03); }
-.dcs-tpl-page .canvas-table-preview {
-    display: block; margin-top: 2px; height: calc(100% - 22px); min-height: 18px;
-    background:
-        linear-gradient(#94a3b8, #94a3b8) 0 0 / 100% 1px no-repeat,
-        linear-gradient(#94a3b8, #94a3b8) 0 33% / 100% 1px no-repeat,
-        linear-gradient(#94a3b8, #94a3b8) 0 66% / 100% 1px no-repeat,
-        linear-gradient(#94a3b8, #94a3b8) 0 100% / 100% 1px no-repeat,
-        linear-gradient(#94a3b8, #94a3b8) 0 0 / 1px 100% no-repeat,
-        linear-gradient(#94a3b8, #94a3b8) 33% 0 / 1px 100% no-repeat,
-        linear-gradient(#94a3b8, #94a3b8) 66% 0 / 1px 100% no-repeat,
-        linear-gradient(#94a3b8, #94a3b8) 100% 0 / 1px 100% no-repeat;
-    opacity: .55;
+.dcs-tpl-page .canvas-block.type-table { background: rgba(15,23,42,.03); padding: 2px 3px; overflow: hidden; }
+.dcs-tpl-page .canvas-table-grid {
+    width: 100%; height: calc(100% - 14px); min-height: 16px; margin-top: 1px;
+    border-collapse: collapse; table-layout: fixed; font-size: 8px; line-height: 1.1;
+}
+.dcs-tpl-page .canvas-table-grid td {
+    border: 1px solid #94a3b8; padding: 1px 2px; overflow: hidden; white-space: nowrap;
+    text-overflow: ellipsis; color: #334155; vertical-align: middle;
+}
+.dcs-tpl-page .canvas-table-grid.no-borders td { border-color: transparent; }
+.dcs-tpl-page .table-cell-editor { max-height: 220px; overflow: auto; }
+.dcs-tpl-page .table-cell-grid {
+    display: grid; gap: 4px; min-width: 0;
+}
+.dcs-tpl-page .table-cell-grid.table-header-names {
+    gap: 6px;
+}
+.dcs-tpl-page .table-cell-grid input {
+    width: 100%; min-width: 0; padding: 5px 6px; font-size: 11px;
+    border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;
+}
+.dcs-tpl-page .table-cell-grid.table-header-names input {
+    padding: 7px 8px; font-size: 12px;
 }
 .dcs-tpl-page .canvas-checks-preview { display: block; margin-top: 2px; font-size: 10px; color: #475569; }
 .dcs-tpl-page .canvas-ruled-preview {
@@ -2869,6 +4378,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Form Templates')] cl
 .dcs-tpl-page .mt-8 { margin-top: 8px; }
 .dcs-tpl-page .mt-12 { margin-top: 12px; }
 .dcs-tpl-page .header-swatch { border-radius: 8px; padding: 12px; margin-top: 12px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700; }
+.dcs-tpl-page .header-swatch.header-swatch-inline { margin-top: 0; }
 .dcs-tpl-page .col-table { display: flex; flex-direction: column; gap: 8px; }
 .dcs-tpl-page .col-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .dcs-tpl-page .col-row.cardish { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px; }

@@ -3234,6 +3234,7 @@ class OfficeIntakeHelper
         return response()->view('pages.dcs.reports.print-layout-renderer', [
             'tpl' => $tpl,
             'values' => DcsPrintTemplateHelper::drfLayoutValues($drf, $distributeOffices, $sourceOffices),
+            'distributeOffices' => $distributeOffices,
             'logoSrcOverride' => $logoSrc,
             'preview' => true,
             'hideToolbar' => false,
@@ -3292,43 +3293,32 @@ class OfficeIntakeHelper
         $viewerMode = false;
         $allowPrint = false;
 
-        // Editable Form Templates layout drives office DCN print/preview.
+        // Official CSPC-F-DCC-01 blade + live canvas overrides (same as Form Templates preview).
         $tpl = DcsPrintTemplateHelper::get('office_dcn');
         $identity = DcsPrintTemplateHelper::identityVars($tpl);
         if (($identity['logoSrc'] ?? '') !== '') {
             $logoSrc = $identity['logoSrc'];
         }
-        $blocks = DcsPrintTemplateHelper::layoutBlocks($tpl);
-        if ($blocks === []) {
-            return response()->view('pages.dcs.office.dcn-print', [
-                'dcn' => $dcn,
-                'logoSrc' => $logoSrc,
-                'revisions' => $revisions,
-                'sourceOffices' => $sourceOffices,
-                'viewerMode' => $viewerMode,
-                'allowPrint' => $allowPrint,
-                'printFormCode' => $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-01',
-                'printFormTitle' => $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Change Notice',
-                'printRepublic' => $identity['republic'],
-                'printInstitution' => $identity['institutionName'],
-                'printAddress' => $identity['institutionAddress'],
-                'printFooterLeft' => $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:',
-                'printFooterCenter' => $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.',
-                'printFooterEffectivity' => $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018',
-                'printFooterRev' => $identity['footerRev'] !== '' ? $identity['footerRev'] : '0',
-            ]);
-        }
+        $layoutOverrides = DcsPrintTemplateHelper::dcnLiveLayoutOverrides();
 
-        return response()->view('pages.dcs.reports.print-layout-renderer', [
-            'tpl' => $tpl,
-            'values' => DcsPrintTemplateHelper::dcnLayoutValues($dcn, $sourceOffices),
-            'logoSrcOverride' => $logoSrc,
-            'preview' => true,
-            'hideToolbar' => false,
-            'embed' => false,
+        return response()->view('pages.dcs.office.dcn-print', [
+            'dcn' => $dcn,
+            'logoSrc' => $logoSrc,
+            'revisions' => $revisions,
+            'sourceOffices' => $sourceOffices,
             'viewerMode' => $viewerMode,
-            'allowPrint' => false,
+            'allowPrint' => $allowPrint,
             'printLockMessage' => 'Preview only — this is not a printable copy yet.',
+            'printFormCode' => $identity['letterNumber'] !== '' ? $identity['letterNumber'] : 'CSPC-F-DCC-01',
+            'printFormTitle' => $identity['formTitle'] !== '' ? $identity['formTitle'] : 'Document Change Notice',
+            'printRepublic' => $identity['republic'],
+            'printInstitution' => $identity['institutionName'],
+            'printAddress' => $identity['institutionAddress'],
+            'printFooterLeft' => $identity['footerLeft'] !== '' ? $identity['footerLeft'] : 'Effectivity Date:',
+            'printFooterCenter' => $identity['footerCenter'] !== '' ? $identity['footerCenter'] : 'Rev.',
+            'printFooterEffectivity' => $identity['footerEffectivity'] !== '' ? $identity['footerEffectivity'] : 'January 2018',
+            'printFooterRev' => $identity['footerRev'] !== '' ? $identity['footerRev'] : '1',
+            'layoutOverrides' => $layoutOverrides,
         ]);
     }
 

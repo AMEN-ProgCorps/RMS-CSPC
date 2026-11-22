@@ -603,6 +603,7 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
         .attach-table {
             width: 100% !important;
             border-collapse: collapse !important;
+            border-spacing: 0 !important;
             table-layout: fixed !important;
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 11pt !important;
@@ -611,14 +612,16 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
         .attach-table th,
         .attach-table td {
             border: 0.5pt solid #000 !important;
-            padding: 0 4px !important;
+            padding: 0 3px !important;
+            margin: 0 !important;
             vertical-align: middle !important;
             text-align: left !important;
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 11pt !important;
             line-height: 1 !important;
-            height: 13pt !important;
-            max-height: 13pt !important;
+            height: 11pt !important;
+            min-height: 11pt !important;
+            max-height: 11pt !important;
             overflow: hidden !important;
             white-space: nowrap !important;
             text-overflow: ellipsis !important;
@@ -626,8 +629,11 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
         .attach-table th {
             font-weight: 700 !important;
             text-align: center !important;
-            height: 14pt !important;
-            max-height: 14pt !important;
+            height: 11pt !important;
+            min-height: 11pt !important;
+            max-height: 11pt !important;
+            line-height: 1 !important;
+            padding: 0 3px !important;
         }
         .attach-table col.c-no { width: 0.55in !important; }
         .attach-table col.c-name { width: auto !important; }
@@ -645,29 +651,31 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
             display: flex !important;
             flex-direction: column !important;
             box-sizing: border-box !important;
-            height: calc(13in - 0.85in) !important;
-            min-height: calc(13in - 0.85in) !important;
-            max-height: calc(13in - 0.85in) !important;
-            padding: 0.75in 0.5in 0.12in !important;
+            /* Full sheet — no form footer on attach pages. */
+            height: 13in !important;
+            min-height: 13in !important;
+            max-height: 13in !important;
+            padding: 0.50in 0.5in 0.28in !important;
         }
         .sheet-attach .attach-doc-title {
-            margin: 0 0 4pt !important;
+            margin: 0 0 2pt !important;
             height: auto !important;
-            min-height: 13pt !important;
+            min-height: 11pt !important;
             max-height: none !important;
+            line-height: 1 !important;
         }
         .sheet-attach .attach-dist-label {
-            margin: 2pt 0 2pt !important;
+            margin: 1pt 0 2pt !important;
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 11pt !important;
             font-weight: 700 !important;
-            line-height: 1.15 !important;
+            line-height: 1 !important;
             color: #000 !important;
         }
         .sheet-attach .attach-office-name {
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 11pt !important;
-            line-height: 1.35 !important;
+            line-height: 1 !important;
             color: #000 !important;
         }
         .sheet-attach .attach-dist-note {
@@ -831,16 +839,22 @@ DCS file: CSPC-F-DCC-06 print. Title prefers one line (shrinks down to 8pt); if 
 
     $distributeOverflow = count($allDistribute) > 24;
     /*
-     * Long bond attach body ≈ 11.5in after header/title/dist-label/footer.
-     * Arial 11pt / line-height 1.0 @ ~13pt rows → ~58 offices before next page
-     * (slightly fewer than before to leave room for the distribution heading).
+     * Attach pages: 11pt @ line-height 1.0. Pack first sheet full, then spill.
+     * Long bond 13in — keep in sync with .attach-table / .sheet-attach .body CSS.
      */
-    $attachPerPage = 58;
+    $attachPadTopIn = 0.50;
+    $attachPadBottomIn = 0.28;
+    $attachMetaIn = 0.50;
+    $attachRowPt = 11.0; // strict 1.0: 11pt text @ line-height 1
+    $attachPageHeightIn = 13.0;
+    $attachUsableIn = max(3.0, $attachPageHeightIn - $attachPadTopIn - $attachPadBottomIn - $attachMetaIn);
+    $attachPerPage = max(20, (int) floor($attachUsableIn / ($attachRowPt / 72)));
     $attachPages = $distributeOverflow
         ? array_chunk($attachOfficeRows, $attachPerPage)
         : [];
 
     if ($distributeOverflow) {
+        // Column-major: index 1 = 2nd row col1, index 2 = 3rd row col1.
         $distribute = array_fill(0, 24, '');
         $distribute[1] = 'Please see attached';
         $distribute[2] = 'distribution list';
@@ -1113,6 +1127,7 @@ window.print = function () {};
 @if($distributeOverflow)
 @foreach($attachPages as $pageIndex => $pageOffices)
 @php $rowOffset = $pageIndex * $attachPerPage; @endphp
+{{-- Attach list only — no form footer (DRF stays Page: 1 of 1). --}}
 <div class="sheet sheet-attach">
     <div class="body">
         <div class="doc-title-block attach-doc-title" data-doc-title="{{ $docTitle }}">

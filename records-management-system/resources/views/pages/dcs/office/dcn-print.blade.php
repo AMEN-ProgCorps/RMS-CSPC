@@ -292,6 +292,12 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
             text-underline-offset: 2px;
             text-decoration-thickness: 1px;
         }
+        /* Empty Title: full write-in rule (official blank form) */
+        .r1-title-hang .r1-title-val.is-blank {
+            min-height: 0.16in;
+            text-decoration: none;
+            border-bottom: 1px solid #000;
+        }
         .fline {
             display: inline-flex;
             flex-direction: column;
@@ -572,6 +578,34 @@ DCS file: CSPC-F-DCC-01 print. Originator stays on the single signature line, co
         .footer > :nth-child(2) { text-align: center; }
         .footer > :nth-child(3) { text-align: right; }
 
+        /* Freeform tables from Form Templates Layout (Word-like). */
+        .extra-table {
+            position: absolute;
+            border-collapse: collapse;
+            border-spacing: 0;
+            table-layout: fixed;
+            z-index: 5;
+        }
+        .extra-table th,
+        .extra-table td {
+            border: 1px solid #000;
+            padding: 1px 3px;
+            vertical-align: middle;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            line-height: 1;
+        }
+        .extra-table.no-borders th,
+        .extra-table.no-borders td {
+            border: none !important;
+        }
+        .approvals.no-borders th,
+        .approvals-body.no-borders td {
+            border: none !important;
+            border-color: transparent !important;
+        }
+
         @media print {
             html, body {
                 width: 8.5in !important;
@@ -784,28 +818,145 @@ function ofiPrintClean() {
 }
 </script>
 
+@php
+    $lo = is_array($layoutOverrides ?? null) ? $layoutOverrides : [];
+    $logoO = is_array($lo['logo'] ?? null) ? $lo['logo'] : [];
+    $ruleO = is_array($lo['rule'] ?? null) ? $lo['rule'] : [];
+    $footerRuleO = is_array($lo['footer_rule'] ?? null) ? $lo['footer_rule'] : [];
+    $codeO = is_array($lo['form_code'] ?? null) ? $lo['form_code'] : [];
+    $titleO = is_array($lo['form_title'] ?? null) ? $lo['form_title'] : [];
+    $headerTextO = is_array($lo['header_text'] ?? null) ? $lo['header_text'] : [];
+    $labelO = is_array($lo['labels'] ?? null) ? $lo['labels'] : [];
+    $stylesO = is_array($lo['styles'] ?? null) ? $lo['styles'] : [];
+    $lbl = static function (string $key, string $default) use ($labelO): string {
+        $v = trim((string) ($labelO[$key] ?? ''));
+
+        return $v !== '' ? $v : $default;
+    };
+    $sty = static function (string $key, array $opts = []) use ($stylesO): string {
+        $s = is_array($stylesO[$key] ?? null) ? $stylesO[$key] : [];
+        if ($s === []) {
+            return '';
+        }
+        // Canvas "underline" means the write-in rule, not label text-decoration.
+        $opts = array_merge(['underline' => false], $opts);
+
+        return \App\Helpers\DcsPrintTemplateHelper::blockStyleToInlineCss($s, $opts);
+    };
+    $logoStyle = '';
+    if ($logoO !== []) {
+        $parts = [];
+        foreach (['top' => 'top', 'left' => 'left', 'width' => 'width', 'height' => 'height'] as $k => $css) {
+            if (isset($logoO[$k]) && is_numeric($logoO[$k])) {
+                $parts[] = $css . ':' . (float) $logoO[$k] . 'in';
+            }
+        }
+        if ($parts !== []) {
+            $logoStyle = implode(';', $parts) . ';';
+        }
+    }
+    $ruleStyle = '';
+    if (isset($ruleO['top']) && is_numeric($ruleO['top'])) {
+        $ruleStyle = 'top:' . (float) $ruleO['top'] . 'in;';
+    }
+    $ruleLineStyle = '';
+    if (isset($ruleO['color']) && trim((string) $ruleO['color']) !== '') {
+        $ruleLineStyle = 'background:' . trim((string) $ruleO['color']) . ';';
+    }
+    $footerRuleStyle = '';
+    if (isset($footerRuleO['color']) && trim((string) $footerRuleO['color']) !== '') {
+        $footerRuleStyle = 'border-top-color:' . trim((string) $footerRuleO['color']) . ';';
+    }
+    $codeStyle = '';
+    if ($codeO !== []) {
+        $cparts = [];
+        if (isset($codeO['top']) && is_numeric($codeO['top'])) {
+            // form code sits on the rule row; nudge via margin when override given
+            $cparts[] = 'position:relative';
+            $cparts[] = 'top:' . ((float) $codeO['top'] - 0.88) . 'in';
+        }
+        $codeStyle = $cparts !== [] ? implode(';', $cparts) . ';' : '';
+    }
+    $codeStyle .= $sty('form_code');
+    $titleStyle = '';
+    if (isset($titleO['margin_top']) && is_numeric($titleO['margin_top'])) {
+        $titleStyle = 'margin-top:' . (float) $titleO['margin_top'] . 'in;';
+    }
+    $titleStyle .= $sty('form_title');
+    $headerTextStyle = '';
+    if ($headerTextO !== []) {
+        $hparts = [];
+        if (isset($headerTextO['top']) && is_numeric($headerTextO['top'])) {
+            $hparts[] = 'top:' . (float) $headerTextO['top'] . 'in';
+        }
+        if (isset($headerTextO['left']) && is_numeric($headerTextO['left'])) {
+            $hparts[] = 'left:' . (float) $headerTextO['left'] . 'in';
+        }
+        if ($hparts !== []) {
+            $headerTextStyle = implode(';', $hparts) . ';';
+        }
+    }
+    $republicStyle = $sty('republic');
+    $institutionStyle = $sty('institution_name');
+    $addressStyle = $sty('institution_address');
+    $dcnNoStyle = $sty('dcn_no');
+    $docNoStyle = $sty('document_no');
+    $docTitleStyle = $sty('document_title');
+    $changeDescStyle = $sty('change_from'); // often carries the description label
+    if ($changeDescStyle === '') {
+        $changeDescStyle = $sty('change_desc');
+    }
+    $fromStyle = $sty('change_from');
+    $toStyle = $sty('change_to');
+    $justStyle = $sty('justification');
+    $originatorStyle = $sty('originator');
+    $departmentStyle = $sty('department');
+    $reviewedStyle = $sty('reviewed_by');
+    $approvalsStyle = $sty('approvals');
+    if ($approvalsStyle === '' && is_array($lo['approvals_style'] ?? null)) {
+        $approvalsStyle = \App\Helpers\DcsPrintTemplateHelper::blockStyleToInlineCss($lo['approvals_style'], ['underline' => false]);
+    }
+    $footerLeftStyle = $sty('footer_effectivity_line');
+    $footerCenterStyle = $sty('footer_rev_line');
+    $lblDcnNo = $lbl('dcn_no', 'DCN #');
+    $lblDocNo = $lbl('document_no', 'Document No:');
+    $lblDocTitle = $lbl('document_title', 'Title:');
+    $lblChangeDesc = $lbl('change_desc', 'Detailed Description of Change:');
+    $lblFrom = $lbl('change_from_only', 'From:');
+    $lblTo = $lbl('change_to', 'To:');
+    $lblJust = $lbl('justification', 'Justification of Change:');
+    $lblOriginator = $lbl('originator', 'Originator/ Signature:');
+    $lblDepartment = $lbl('department', 'Department/ Date:');
+    $lblReviewed = $lbl('reviewed_by', 'Reviewed by/ Date:');
+    $lblApprovals = $lbl('approvals', 'Approvals');
+    $printRepublic = $lbl('republic', (string) ($printRepublic ?? 'Republic of the Philippines'));
+    $printInstitution = $lbl('institution_name', (string) ($printInstitution ?? 'Camarines Sur Polytechnic Colleges'));
+    $printAddress = $lbl('institution_address', (string) ($printAddress ?? 'Nabua, Camarines Sur'));
+    $printFormTitle = $lbl('form_title', (string) ($printFormTitle ?? 'Document Change Notice'));
+    $printFormCode = $lbl('form_code', (string) ($printFormCode ?? 'CSPC-F-DCC-01'));
+@endphp
 <div class="sheet">
     <header class="hdr-band">
-        <div class="hdr-logo-cell">
+        <div class="hdr-logo-cell" @if($logoStyle !== '') style="{{ $logoStyle }}" @endif>
             @if(!empty($logoSrc))
                 <img src="{{ $logoSrc }}" alt="" class="hdr-logo">
             @endif
         </div>
-        <div class="hdr-text-cell">
-            <div class="hdr-republic">{{ $printRepublic ?? 'Republic of the Philippines' }}</div>
-            <div class="hdr-name">{{ $printInstitution ?? 'Camarines Sur Polytechnic Colleges' }}</div>
-            <div class="hdr-location">{{ $printAddress ?? 'Nabua, Camarines Sur' }}</div>
+        <div class="hdr-text-cell" @if($headerTextStyle !== '') style="{{ $headerTextStyle }}" @endif>
+            <div class="hdr-republic" @if($republicStyle !== '') style="{{ $republicStyle }}" @endif>{{ $printRepublic }}</div>
+            <div class="hdr-name" @if($institutionStyle !== '') style="{{ $institutionStyle }}" @endif>{{ $printInstitution }}</div>
+            <div class="hdr-location" @if($addressStyle !== '') style="{{ $addressStyle }}" @endif>{{ $printAddress }}</div>
         </div>
-        <div class="hdr-rule">
-            <div class="hdr-rule-line"></div>
-            <span class="hdr-rule-code">{{ $printFormCode ?? 'CSPC-F-DCC-01' }}</span>
+        <div class="hdr-rule" @if($ruleStyle !== '') style="{{ $ruleStyle }}" @endif>
+            <div class="hdr-rule-line" @if($ruleLineStyle !== '') style="{{ $ruleLineStyle }}" @endif></div>
+            <span class="hdr-rule-code" @if($codeStyle !== '') style="{{ $codeStyle }}" @endif>{{ $printFormCode ?? 'CSPC-F-DCC-01' }}</span>
         </div>
     </header>
 
-    <div class="form-title">{{ $printFormTitle ?? 'Document Change Notice' }}</div>
+    <div class="form-title" @if($titleStyle !== '') style="{{ $titleStyle }}" @endif>{{ $printFormTitle ?? 'Document Change Notice' }}</div>
 
-    <div class="dcn-no-row">
-        <span class="lbl">DCN #</span>
+    <div class="dcn-no-row" @if($dcnNoStyle !== '') style="{{ $dcnNoStyle }}" @endif>
+        <span class="lbl">{{ $lblDcnNo }}</span>
         <div class="dcn-no-uline">
             <div class="val">{{ $dcnNo }}</div>
             <div class="rule"></div>
@@ -818,17 +969,18 @@ function ofiPrintClean() {
             <td>
                 <div class="r1-inner">
                     <div class="r1-band r1-b1"></div>
-                    <div class="r1-band r1-b2">
-                        <span class="lbl-11">Document No:</span>
+                    <div class="r1-band r1-b2" @if($docNoStyle !== '') style="{{ $docNoStyle }}" @endif>
+                        <span class="lbl-11">{{ $lblDocNo }}</span>
                         <div class="fline docno">
                             <div class="val">{{ $docNo }}</div>
                             <div class="rule"></div>
                         </div>
                     </div>
                     <div class="r1-band r1-gap"></div>
-                    <div class="r1-title-area">
+                    <div class="r1-title-area" @if($docTitleStyle !== '') style="{{ $docTitleStyle }}" @endif>
                         <div class="r1-title-hang">
-                            <span class="lbl-10">Title:</span><span class="r1-title-val"> {{ $docTitle }}</span>
+                            <span class="lbl-10">{{ $lblDocTitle }}</span>
+                            <span class="r1-title-val{{ trim((string) $docTitle) === '' ? ' is-blank' : '' }}">{{ trim((string) $docTitle) !== '' ? $docTitle : '' }}</span>
                         </div>
                     </div>
                 </div>
@@ -841,10 +993,10 @@ function ofiPrintClean() {
                 <div class="r2-inner">
                     {{-- 18 × 0.18in: From/To each shortened by 2 bands --}}
                     <div class="r2-band"></div>
-                    <div class="r2-band r2-label">Detailed Description of Change:</div>
+                    <div class="r2-band r2-label" @if($changeDescStyle !== '') style="{{ $changeDescStyle }}" @endif>{{ $lblChangeDesc }}</div>
                     <div class="r2-band"></div>
-                    <div class="r2-band r2-from">
-                        <span>From:</span>
+                    <div class="r2-band r2-from" @if($fromStyle !== '') style="{{ $fromStyle }}" @endif>
+                        <span>{{ $lblFrom }}</span>
                         <div class="r2-write is-first">{{ $fromLines[0] ?? '' }}</div>
                     </div>
                     @for($i = 1; $i <= 5; $i++)
@@ -853,8 +1005,8 @@ function ofiPrintClean() {
                         </div>
                     @endfor
                     <div class="r2-band"></div>
-                    <div class="r2-band r2-to">
-                        <span>To:</span>
+                    <div class="r2-band r2-to" @if($toStyle !== '') style="{{ $toStyle }}" @endif>
+                        <span>{{ $lblTo }}</span>
                         <div class="r2-write is-first">{{ $toLines[0] ?? '' }}</div>
                     </div>
                     @for($i = 1; $i <= 6; $i++)
@@ -872,8 +1024,8 @@ function ofiPrintClean() {
             <td>
                 <div class="r3-inner">
                     <div class="r3-band"></div>
-                    <div class="r3-just-area">
-                        <span class="r3-just-label">Justification of Change:</span>
+                    <div class="r3-just-area" @if($justStyle !== '') style="{{ $justStyle }}" @endif>
+                        <span class="r3-just-label">{{ $lblJust }}</span>
                         <div class="r3-just-body">{{ $justification }}</div>
                     </div>
                 </div>
@@ -885,22 +1037,22 @@ function ofiPrintClean() {
             <td>
                 <div class="r4-inner">
                     <div class="r4-band"></div>
-                    <div class="r4-band">
-                        <span class="lbl-11">Originator/ Signature:</span>
+                    <div class="r4-band" @if($originatorStyle !== '') style="{{ $originatorStyle }}" @endif>
+                        <span class="lbl-11">{{ $lblOriginator }}</span>
                         <div class="fline sig">
                             <div class="val">{{ $originator }}</div>
                             <div class="rule"></div>
                         </div>
                     </div>
-                    <div class="r4-band">
-                        <span class="lbl-11">Department/ Date:</span>
+                    <div class="r4-band" @if($departmentStyle !== '') style="{{ $departmentStyle }}" @endif>
+                        <span class="lbl-11">{{ $lblDepartment }}</span>
                         <div class="fline sig">
                             <div class="val">{{ $departmentDate }}</div>
                             <div class="rule"></div>
                         </div>
                     </div>
-                    <div class="r4-band">
-                        <span class="lbl-11">Reviewed by/ Date:</span>
+                    <div class="r4-band" @if($reviewedStyle !== '') style="{{ $reviewedStyle }}" @endif>
+                        <span class="lbl-11">{{ $lblReviewed }}</span>
                         <div class="fline sig is-reviewed">
                             <div class="val">{{ $reviewedByDate }}</div>
                             <div class="rule"></div>
@@ -908,7 +1060,7 @@ function ofiPrintClean() {
                     </div>
                     <div class="r4-band">
                         @if($reviewedByDate2 !== '')
-                            <span class="lbl-11 r4-lbl-spacer" aria-hidden="true">Reviewed by/ Date:</span>
+                            <span class="lbl-11 r4-lbl-spacer" aria-hidden="true">{{ $lblReviewed }}</span>
                             <div class="fline sig is-reviewed">
                                 <div class="val">{{ $reviewedByDate2 }}</div>
                                 <div class="rule"></div>
@@ -919,18 +1071,28 @@ function ofiPrintClean() {
             </td>
         </tr>
 
-        {{-- Row 5 header --}}
+        {{-- Row 5 header — column names from Form Templates Layout (table_headers). --}}
         <tr>
             <td class="r5-head">
-                <table class="approvals">
+                @php
+                    $apprHeaders = is_array($lo['approvals_headers'] ?? null) ? array_values($lo['approvals_headers']) : [];
+                    $apprH1 = trim((string) ($apprHeaders[0] ?? '')) !== '' ? trim((string) $apprHeaders[0]) : 'Position';
+                    $apprH2 = trim((string) ($apprHeaders[1] ?? '')) !== '' ? trim((string) $apprHeaders[1]) : 'Names';
+                    $apprH3 = trim((string) ($apprHeaders[2] ?? '')) !== '' ? trim((string) $apprHeaders[2]) : 'Signature';
+                    $apprH4 = trim((string) ($apprHeaders[3] ?? '')) !== '' ? trim((string) $apprHeaders[3]) : 'Date';
+                    $apprBorderCls = (array_key_exists('approvals_borders', $lo) && ! filter_var($lo['approvals_borders'], FILTER_VALIDATE_BOOLEAN))
+                        ? 'no-borders'
+                        : '';
+                @endphp
+                <table class="approvals {{ $apprBorderCls }}" @if($approvalsStyle !== '') style="{{ $approvalsStyle }}" @endif>
                     <colgroup>
                         <col class="c1"><col class="c2"><col class="c3"><col class="c4">
                     </colgroup>
                     <tr>
-                        <th class="appr-label"><em>Approvals:</em> <span class="pos">Position</span></th>
-                        <th>Names</th>
-                        <th>Signature</th>
-                        <th>Date</th>
+                        <th class="appr-label" @if($approvalsStyle !== '') style="{{ $approvalsStyle }}" @endif><em>{{ str_ends_with(rtrim($lblApprovals), ':') ? rtrim($lblApprovals) : rtrim($lblApprovals) . ':' }}</em> <span class="pos">{{ $apprH1 }}</span></th>
+                        <th @if($approvalsStyle !== '') style="{{ $approvalsStyle }}" @endif>{{ $apprH2 }}</th>
+                        <th @if($approvalsStyle !== '') style="{{ $approvalsStyle }}" @endif>{{ $apprH3 }}</th>
+                        <th @if($approvalsStyle !== '') style="{{ $approvalsStyle }}" @endif>{{ $apprH4 }}</th>
                     </tr>
                 </table>
             </td>
@@ -966,7 +1128,7 @@ function ofiPrintClean() {
                         }
                     }
                 @endphp
-                <table class="approvals-body">
+                <table class="approvals-body {{ $apprBorderCls }}" @if($approvalsStyle !== '') style="{{ $approvalsStyle }}" @endif>
                     <colgroup>
                         <col class="c1"><col class="c2"><col class="c3"><col class="c4">
                     </colgroup>
@@ -1013,11 +1175,38 @@ function ofiPrintClean() {
         </tr>
     </table>
 
+    @foreach(($lo['extra_tables'] ?? []) as $et)
+        @continue(! is_array($et))
+        @php
+            $etCols = max(1, (int) ($et['cols'] ?? 1));
+            $etRows = max(1, (int) ($et['rows'] ?? 1));
+            $etCells = \App\Helpers\DcsPrintTemplateHelper::padTableCells($et['cells'] ?? [], $etRows, $etCols);
+            $etBorders = ! array_key_exists('borders', $et) || filter_var($et['borders'], FILTER_VALIDATE_BOOLEAN);
+            $etStyle = is_array($et['style'] ?? null) ? $et['style'] : [];
+            $etTypo = \App\Helpers\DcsPrintTemplateHelper::blockStyleToInlineCss($etStyle);
+            $etCss = 'left:'.(float) ($et['x'] ?? 0).'in;top:'.(float) ($et['y'] ?? 0).'in;'
+                .'width:'.(float) ($et['w'] ?? 2).'in;height:'.(float) ($et['h'] ?? 0.8).'in;'
+                .$etTypo;
+            $etAlign = (string) ($etStyle['align'] ?? 'left');
+        @endphp
+        <table class="extra-table {{ $etBorders ? '' : 'no-borders' }}" style="{{ $etCss }}">
+            <tbody>
+                @for($er = 0; $er < $etRows; $er++)
+                    <tr>
+                        @for($ec = 0; $ec < $etCols; $ec++)
+                            <td style="text-align: {{ $etAlign }};{{ $etTypo }}">{{ ($etCells[$er][$ec] ?? '') !== '' ? $etCells[$er][$ec] : "\u{00A0}" }}</td>
+                        @endfor
+                    </tr>
+                @endfor
+            </tbody>
+        </table>
+    @endforeach
+
     <div class="footer-wrap">
-        <div class="footer-rule"></div>
+        <div class="footer-rule" @if($footerRuleStyle !== '') style="{{ $footerRuleStyle }}" @endif></div>
         <div class="footer">
-            <span>{{ trim((string) ($printFooterLeft ?? 'Effectivity Date:')) !== '' ? trim((string) ($printFooterLeft ?? 'Effectivity Date:')) : 'Effectivity Date:' }} {{ $printFooterEffectivity ?? 'January 2018' }}</span>
-            <span>{{ trim((string) ($printFooterCenter ?? 'Rev.')) !== '' ? trim((string) ($printFooterCenter ?? 'Rev.')) : 'Rev.' }} {{ $printFooterRev ?? '0' }}</span>
+            <span @if($footerLeftStyle !== '') style="{{ $footerLeftStyle }}" @endif>{{ trim((string) ($printFooterLeft ?? 'Effectivity Date:')) !== '' ? trim((string) ($printFooterLeft ?? 'Effectivity Date:')) : 'Effectivity Date:' }} {{ $printFooterEffectivity ?? 'January 2018' }}</span>
+            <span @if($footerCenterStyle !== '') style="{{ $footerCenterStyle }}" @endif>{{ trim((string) ($printFooterCenter ?? 'Rev.')) !== '' ? trim((string) ($printFooterCenter ?? 'Rev.')) : 'Rev.' }} {{ $printFooterRev ?? '1' }}</span>
             <span>Page: 1 of 1</span>
         </div>
     </div>

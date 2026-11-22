@@ -13,8 +13,7 @@
     }
     .drf-theme .block {
         position: absolute !important;
-        font-family: Arial, Helvetica, sans-serif !important;
-        color: #000 !important;
+        /* Typography comes from each block's inline style (canvas Size / Color / Weight). */
         line-height: 1 !important;
         overflow: visible !important;
         /* Never let theme helpers override the block's own height from layout_json */
@@ -36,26 +35,17 @@
         background: #0070C0 !important;
     }
     .drf-theme .drf-title {
-        font-size: 12pt !important;
-        font-weight: 700 !important;
         text-transform: uppercase !important;
-        text-align: center !important;
         line-height: 1 !important;
     }
     .drf-theme .drf-hdr-text {
-        font-size: 11pt !important;
         line-height: 1 !important;
-        text-align: left !important;
     }
     .drf-theme .drf-hdr-text.is-name {
-        font-weight: 700 !important;
         text-transform: uppercase !important;
     }
     .drf-theme .drf-form-code {
-        font-size: 10pt !important;
-        font-weight: 700 !important;
         white-space: nowrap !important;
-        text-align: right !important;
     }
     .drf-theme .block-field {
         /* Match official .row — 13.5pt single spacing; height comes from layout_json */
@@ -67,7 +57,7 @@
         width: 100% !important;
         height: 100% !important;
         max-height: 100% !important;
-        font-size: 11pt !important;
+        font-size: inherit !important;
         line-height: 1 !important;
         margin: 0 !important;
         padding: 0 !important;
@@ -76,8 +66,9 @@
         flex: 0 0 auto !important;
         margin: 0 4px 0 0 !important;
         white-space: nowrap !important;
-        font-size: 11pt !important;
-        font-weight: 400 !important;
+        font-size: inherit !important;
+        font-weight: inherit !important;
+        color: inherit !important;
     }
     .drf-theme .drf-field .fline {
         flex: 1 1 auto !important;
@@ -85,10 +76,11 @@
         display: flex !important;
         flex-direction: column !important;
         justify-content: flex-end !important;
-        height: 11pt !important;
+        height: 1em !important;
     }
     .drf-theme .drf-field .fline-val {
-        font-size: 11pt !important;
+        font-size: inherit !important;
+        color: inherit !important;
         line-height: 1 !important;
         padding: 0 1px !important;
         white-space: nowrap !important;
@@ -111,7 +103,8 @@
         width: 100% !important;
         height: 100% !important;
         max-height: 100% !important;
-        font-size: 11pt !important;
+        font-size: inherit !important;
+        color: inherit !important;
         line-height: 1 !important;
         gap: 0 !important;
         margin: 0 !important;
@@ -149,10 +142,11 @@
     }
     .drf-theme .drf-ruled .lbl {
         display: block !important;
-        height: 11pt !important;
+        height: 1em !important;
         line-height: 1 !important;
         margin: 0 0 2px 0 !important;
-        font-size: 11pt !important;
+        font-size: inherit !important;
+        color: inherit !important;
     }
     .drf-theme .drf-ruled .ruled-line {
         display: flex !important;
@@ -175,7 +169,8 @@
         left: 0 !important;
         right: 0 !important;
         bottom: 1px !important;
-        font-size: 11pt !important;
+        font-size: inherit !important;
+        color: inherit !important;
         white-space: nowrap !important;
         overflow: hidden !important;
     }
@@ -186,9 +181,10 @@
         height: 100% !important;
     }
     .drf-theme .drf-dist .lbl {
-        height: 11pt !important;
+        height: 1em !important;
         margin: 0 0 2px 0 !important;
-        font-size: 11pt !important;
+        font-size: inherit !important;
+        color: inherit !important;
     }
     .drf-theme .drf-dist .grid {
         flex: 1 1 auto !important;
@@ -197,12 +193,18 @@
         column-gap: 0.33in !important;
         min-height: 0 !important;
     }
+    .drf-theme .drf-dist .dist-col {
+        display: flex !important;
+        flex-direction: column !important;
+        min-width: 0 !important;
+    }
     .drf-theme .drf-dist .cell {
         height: 12.5pt !important;
         min-height: 12.5pt !important;
         max-height: 12.5pt !important;
         border-bottom: 1px solid #000 !important;
-        font-size: 11pt !important;
+        font-size: inherit !important;
+        color: inherit !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         display: flex !important;
@@ -214,9 +216,15 @@
         height: 100% !important;
         border-collapse: collapse !important;
         table-layout: fixed !important;
-        font-size: 11pt !important;
+        font-size: inherit !important;
+        color: inherit !important;
         line-height: 1 !important;
         background: transparent !important;
+    }
+    .drf-theme .drf-sig.no-borders th,
+    .drf-theme .drf-sig.no-borders td {
+        border: none !important;
+        border-color: transparent !important;
     }
     .drf-theme .drf-sig th,
     .drf-theme .drf-sig td {
@@ -228,19 +236,20 @@
         vertical-align: middle !important;
         background: transparent !important;
         background-color: transparent !important;
-        color: #000 !important;
-        font-weight: 400 !important;
+        color: inherit !important;
+        font-size: inherit !important;
+        font-weight: inherit !important;
         overflow: hidden !important;
         white-space: nowrap !important;
     }
     .drf-theme .drf-sig thead th {
         text-align: center !important;
-        font-weight: 400 !important;
-        font-size: 11pt !important;
+        font-weight: inherit !important;
+        font-size: inherit !important;
     }
     .drf-theme .drf-sig .row-label {
         text-align: left !important;
-        font-weight: 400 !important;
+        font-weight: inherit !important;
     }
     .drf-theme .drf-sig .name-bold {
         font-weight: 700 !important;
@@ -248,8 +257,6 @@
         text-align: center !important;
     }
     .drf-theme .drf-footer {
-        font-size: 7pt !important;
-        font-weight: 700 !important;
         line-height: 1 !important;
     }
 </style>

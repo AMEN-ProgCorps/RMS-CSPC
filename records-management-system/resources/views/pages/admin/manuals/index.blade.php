@@ -39,7 +39,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Page Manuals')] class ex
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
-        if (! $perms || (! $perms->is_sadm && ! $perms->can_access_settings)) {
+        if (! $perms || (! $perms->is_sadm && ! $perms->can_access_settings && ! $perms->can_access_subsystems)) {
             $this->redirect(route('portal'));
             return;
         }

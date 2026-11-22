@@ -78,13 +78,12 @@ new #[Layout('layouts.dts')] #[Title('Forwarded Transactions - Document Tracking
             ->where('dt.current_office', '!=', $userOfficeCode)
             ->whereNotIn('dt.status', ['completed', 'cancelled']);
 
-        if (!empty($this->searchQuery)) {
-            $searchVal = trim($this->searchQuery);
-            $query->where(function($q) use ($searchVal) {
-                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dtd.subject', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
-            });
+        if (!empty(trim($this->searchQuery))) {
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->searchQuery, [
+                'primary'   => ['dtd.control_number', 'dt.qr_code'],
+                'secondary' => ['dtd.subject'],
+                'meta'      => ['req.requestor_name', 'originated_office.office_name'],
+            ]);
         }
 
         $items = $query->select(
@@ -131,6 +130,16 @@ new #[Layout('layouts.dts')] #[Title('Forwarded Transactions - Document Tracking
             // Display in Forwarded Transactions ONLY until target destination receives it
             return !$destReceived;
         });
+
+        if (!empty(trim($this->searchQuery))) {
+            $forwardedPending = \App\Helpers\SmartSearchHelper::sortCollection($forwardedPending, $this->searchQuery, function ($t) {
+                return [
+                    'primary'   => trim(($t->control_number ?? '') . ' ' . ($t->qr_code ?? '')),
+                    'secondary' => $t->subject ?? '',
+                    'meta'      => trim(($t->requestor_name ?? '') . ' ' . ($t->originated_office_name ?? '')),
+                ];
+            });
+        }
 
         $page = \Illuminate\Pagination\Paginator::resolveCurrentPage() ?: 1;
         $sliced = $forwardedPending->slice(($page - 1) * $this->perPage, $this->perPage)->values();

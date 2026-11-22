@@ -125,6 +125,7 @@ new class extends Component {
         pingIntervalMs: 2 * 60 * 1000,
         refreshToken: '{{ \App\Helpers\SubsystemHelper::refreshToken() }}',
         refreshing: false,
+        checkInFlight: false,
 
         onUserActivity() {
             const now = Date.now();
@@ -165,7 +166,8 @@ new class extends Component {
         },
 
         checkSystemRefresh() {
-            if (this.refreshing) return;
+            if (this.refreshing || this.checkInFlight) return;
+            this.checkInFlight = true;
             fetch('{{ url('/api/systems/refresh-token') }}', { headers: { 'Accept': 'application/json' } })
                 .then((r) => (r.ok ? r.json() : null))
                 .then((data) => {
@@ -179,7 +181,10 @@ new class extends Component {
                         window.location.reload();
                     }
                 })
-                .catch(() => {});
+                .catch(() => {})
+                .finally(() => {
+                    this.checkInFlight = false;
+                });
         },
 
         applySystemRefreshToken(detail) {

@@ -211,23 +211,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
      */
     private function applySearchFilter($query, array $columns): void
     {
-        $tokens = preg_split('/\s+/', trim($this->search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
-
-        foreach ($tokens as $token) {
-            $like = '%' . addcslashes($token, '%_\\') . '%';
-
-            $query->where(function ($q) use ($columns, $like) {
-                foreach ($columns as $index => $column) {
-                    $method = $index === 0 ? 'where' : 'orWhere';
-
-                    if (stripos($column, 'CAST(') === 0) {
-                        $q->{$method}(DB::raw($column), 'ilike', $like);
-                    } else {
-                        $q->{$method}($column, 'ilike', $like);
-                    }
-                }
-            });
-        }
+        \App\Helpers\SmartSearchHelper::applySearch($query, $this->search, $columns);
     }
 
     /**

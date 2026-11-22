@@ -90,7 +90,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
-        if ($perms && !$perms->is_sadm && !$perms->can_dts_use_internal) {
+        if ($perms && !$perms->is_sadm && !($perms->can_dts_create_internal || $perms->can_dts_receive_internal || $perms->can_dts_use_internal)) {
             abort(403, 'Unauthorized access to Internal transactions list.');
         }
     }
@@ -109,6 +109,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
      */
     public function openExportModal(): void
     {
+        if (!\App\Helpers\DtsExportHelper::isExportEnabled()) {
+            return;
+        }
+
         $this->exportFlowCount = 0;
         $available = \App\Helpers\DtsExportHelper::getAvailableColumns('internal', 0);
         $this->exportColumns = array_keys(array_filter($available, fn($c) => $c['default']));
@@ -225,6 +229,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
      */
     public function executeExport()
     {
+        if (!\App\Helpers\DtsExportHelper::isExportEnabled()) {
+            $this->showExportModal = false;
+            return;
+        }
+
         if (empty($this->selectedIds)) {
             return;
         }
@@ -552,7 +561,34 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     }
 
     /**
-     * Retrieves and populates transactions property data.
+     * Retrieves, filters, and paginates internal transactions with dynamic routing metadata.
+     *
+     * =========================================================================================
+     * INSTITUTIONAL DEVELOPER / DEBUGGING GUIDE:
+     * =========================================================================================
+     * Pipeline Overview:
+     *   1. Authorization & Office Clearance:
+     *      - Users with sitewide clearance ($this->canViewAll()) can view all internal transactions or filter by office.
+     *      - Standard office staff are restricted to transactions originating from their station ($userOfficeCode).
+     *   2. Query Joining:
+     *      - Joins `dts_transactions` (dt) with `dts_transaction_details` (dtd).
+     *      - Left joins `dts_requestor_history` (req), `sys_office` (originated_office & current_office),
+     *        `dts_transaction_flow` (flow), and `sys_document_data` (doc).
+     *   3. Status Filtering:
+     *      - 'standby': Transactions held at a station (date_in set, date_out null, or awaiting initial dispatch).
+     *      - 'ongoing': Transactions released/dispatched from a station and currently in transit.
+     *      - 'completed' / 'cancelled': Final terminal states.
+     *   4. Smart Searching (SmartSearchHelper):
+     *      - Applies multi-column phrase and token search with defensive table alias validation.
+     *      - Applies SQL relevance ranking so exact/prefix matches appear first.
+     *   5. Modifier Sorting:
+     *      - Supports 'standby_first', 'ongoing_first', and 'completed_first' ordering.
+     *   6. Transformation & Life-cycle Routing (transform closure):
+     *      - Dynamically resolves Current Office and Destination Office from routing logs ($logs).
+     *      - Formats Received / Released timestamps for the active forwarding stage.
+     *      - Calculates Elapsed Days based on institutional settings policy.
+     *
+     * @return \Illuminate\Contracts\Pagination\LengthAwarePaginator
      */
     public function getTransactionsProperty()
     {
@@ -561,6 +597,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
 
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+            ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
             ->leftJoin('dts_transaction_flow as flow', 'flow.flow_code', '=', 'dtd.transaction_flow')
@@ -580,20 +617,48 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         }
 
         if ($this->selectedStatus !== 'all') {
-            $query->where('dt.status', $this->selectedStatus);
+            $logsTable = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+            if ($this->selectedStatus === 'standby') {
+                $query->whereNotIn('dt.status', ['completed', 'cancelled'])
+                      ->where(function($q) use ($logsTable) {
+                          $q->whereExists(function($sub) use ($logsTable) {
+                              $sub->select(DB::raw(1))
+                                  ->from($logsTable . ' as l')
+                                  ->whereColumn('l.transaction_id', 'dt.transaction_id')
+                                  ->whereNotNull('l.date_in')
+                                  ->whereNull('l.date_out');
+                          })->orWhereNotExists(function($sub) use ($logsTable) {
+                              $sub->select(DB::raw(1))
+                                  ->from($logsTable . ' as l')
+                                  ->whereColumn('l.transaction_id', 'dt.transaction_id');
+                          });
+                      });
+            } elseif ($this->selectedStatus === 'ongoing') {
+                $query->whereNotIn('dt.status', ['completed', 'cancelled'])
+                      ->whereExists(function($sub) use ($logsTable) {
+                          $sub->select(DB::raw(1))
+                              ->from($logsTable . ' as l')
+                              ->whereColumn('l.transaction_id', 'dt.transaction_id')
+                              ->whereNotNull('l.date_out');
+                      })
+                      ->whereNotExists(function($sub) use ($logsTable) {
+                          $sub->select(DB::raw(1))
+                              ->from($logsTable . ' as l')
+                              ->whereColumn('l.transaction_id', 'dt.transaction_id')
+                              ->whereNotNull('l.date_in')
+                              ->whereNull('l.date_out');
+                      });
+            } else {
+                $query->where('dt.status', $this->selectedStatus);
+            }
         }
 
-        if (!empty($this->searchQuery)) {
-            $searchVal = trim($this->searchQuery);
-            $decoded = base64_decode($searchVal, true);
-            if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
-                $searchVal = $decoded;
-            }
-            $query->where(function($q) use ($searchVal) {
-                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dtd.subject', 'like', '%' . $this->searchQuery . '%')
-                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
-            });
+        if (!empty(trim($this->searchQuery))) {
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->searchQuery, [
+                'primary'   => ['dtd.control_number', 'dt.qr_code'],
+                'secondary' => ['dtd.subject'],
+                'meta'      => ['req.requestor_name', 'originated_office.office_name', 'dtd.action_needed'],
+            ]);
         }
 
         if (!empty($this->dateFrom) || !empty($this->dateTo)) {
@@ -615,7 +680,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             }
         }
 
-        if ($this->statusOrder === 'ongoing_first') {
+        if ($this->statusOrder === 'standby_first') {
+            $logsTable = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+            $query->orderByRaw("CASE 
+                WHEN LOWER(TRIM(dt.status)) NOT IN ('completed', 'cancelled') 
+                     AND (EXISTS (SELECT 1 FROM {$logsTable} as l WHERE l.transaction_id = dt.transaction_id AND l.date_in IS NOT NULL AND l.date_out IS NULL)
+                          OR NOT EXISTS (SELECT 1 FROM {$logsTable} as l WHERE l.transaction_id = dt.transaction_id)) 
+                THEN 0 ELSE 1 END ASC");
+        } elseif ($this->statusOrder === 'ongoing_first') {
             $query->orderByRaw("CASE WHEN LOWER(TRIM(dt.status)) = 'ongoing' THEN 0 ELSE 1 END ASC");
         } elseif ($this->statusOrder === 'completed_first') {
             $query->orderByRaw("CASE WHEN LOWER(TRIM(dt.status)) = 'completed' THEN 0 ELSE 1 END ASC");
@@ -632,6 +704,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             'dtd.control_number',
             'dtd.subject',
             'dtd.classification',
+            'req.requestor_name',
+            'dtd.action_needed',
             'dtd.date_created',
             DB::raw("COALESCE(NULLIF(flow.flow_name, ''), flow.referenced_flow) as doc_type_name"),
             'originated_office.office_name as originated_office_name',
@@ -651,23 +725,91 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 ->get();
 
             $firstLog = $logs->first();
-            $secondLog = $logs->count() > 1 ? $logs->get(1) : null;
             $latestLog = $logs->last();
 
             $t->remarks = $latestLog ? $latestLog->notes : '-';
             $t->received_by = $latestLog && $latestLog->first_name ? ($latestLog->first_name . ' ' . $latestLog->last_name) : '-';
 
-            // Step 1 Received & Released
-            $t->step1_received = $firstLog && $firstLog->date_in ? \Carbon\Carbon::parse($firstLog->date_in)->format('M d, Y h:i A') : ($t->date_created ? \Carbon\Carbon::parse($t->date_created)->format('M d, Y h:i A') : '-');
-            $t->step1_released = $firstLog && $firstLog->date_out ? \Carbon\Carbon::parse($firstLog->date_out)->format('M d, Y h:i A') : ($logs->count() > 1 ? \Carbon\Carbon::parse($firstLog?->date_in ?? $t->date_created)->format('M d, Y h:i A') : '-');
+            // =========================================================================================
+            // INSTITUTIONAL DEVELOPER / DEBUGGING GUIDE: ACTIVE ROUTING & FORWARDING STAGE RESOLUTION
+            // =========================================================================================
+            // Dynamic Stage Progression:
+            //   The table features a 2-tier header:
+            //     [ Current Office (Received | Released) ] [ Destination Office (Received | Released) ]
+            //
+            //   Instead of hardcoding steps 1 & 2, this logic dynamically advances along the forwarding path:
+            //   - When Office A forwards to Office B (count == 2):
+            //       * $currentOfficeLog = Log 1 (Office A: Received & Released)
+            //       * $destOfficeLog    = Log 2 (Office B: Received & Released/pending)
+            //   - When Office B completes its forward to Office C (count == 3):
+            //       * $currentOfficeLog = Log 2 (Office B now acts as Current Office with its dispatch timestamp)
+            //       * $destOfficeLog    = Log 3 (Office C now acts as the new Destination Office)
+            //   - When newly created at Origin (count <= 1):
+            //       * $currentOfficeLog = Log 1 or creation timestamp
+            //       * $destOfficeLog    = null (displays '-' for Received & Released)
+            // =========================================================================================
+            if ($logs->count() > 1) {
+                $currentOfficeLog = $logs->get($logs->count() - 2);
+                $destOfficeLog = $logs->last();
+            } else {
+                $currentOfficeLog = $logs->first();
+                $destOfficeLog = null;
+            }
 
-            // Step 2 Received & Released
-            $t->step2_received = $secondLog && $secondLog->date_in ? \Carbon\Carbon::parse($secondLog->date_in)->format('M d, Y h:i A') : '-';
-            $t->step2_released = $secondLog && $secondLog->date_out ? \Carbon\Carbon::parse($secondLog->date_out)->format('M d, Y h:i A') : '-';
+            // Current Office Received & Released
+            $t->step1_received = $currentOfficeLog && $currentOfficeLog->date_in 
+                ? \Carbon\Carbon::parse($currentOfficeLog->date_in)->format('M d, Y h:i A') 
+                : ($t->date_created ? \Carbon\Carbon::parse($t->date_created)->format('M d, Y h:i A') : '-');
 
-            // Elapsed Days
-            $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
-            $t->elapsed_days = $createdDateRaw ? \App\Services\DtsWorkingHoursService::calculateWorkingDays($createdDateRaw) : 0;
+            $t->step1_released = $currentOfficeLog && $currentOfficeLog->date_out 
+                ? \Carbon\Carbon::parse($currentOfficeLog->date_out)->format('M d, Y h:i A') 
+                : '-';
+
+            // Destination Office Received & Released
+            $t->step2_received = $destOfficeLog && $destOfficeLog->date_in 
+                ? \Carbon\Carbon::parse($destOfficeLog->date_in)->format('M d, Y h:i A') 
+                : '-';
+
+            $t->step2_released = $destOfficeLog && $destOfficeLog->date_out 
+                ? \Carbon\Carbon::parse($destOfficeLog->date_out)->format('M d, Y h:i A') 
+                : '-';
+
+            // =========================================================================================
+            // INSTITUTIONAL DEVELOPER / DEBUGGING GUIDE: DYNAMIC STATUS RESOLUTION (STANDBY vs ONGOING)
+            // =========================================================================================
+            // Status Rules:
+            //   - 'completed' / 'cancelled': Preserved when final terminal state is reached.
+            //   - 'standby': Document is actively in custody of an office upon receipt and has not yet been released
+            //     (any log has date_in != null && date_out == null, or newly created awaiting initial dispatch).
+            //   - 'ongoing': Document has been released/dispatched (date_out is logged) and is in transit.
+            // =========================================================================================
+            $rawStatus = strtolower($t->status ?? '');
+            if ($rawStatus === 'completed') {
+                $t->display_status = 'completed';
+            } elseif ($rawStatus === 'cancelled') {
+                $t->display_status = 'cancelled';
+            } else {
+                $hasOpenReceived = $logs->contains(function($l) {
+                    return !empty($l->date_in) && empty($l->date_out);
+                });
+
+                if ($logs->isEmpty() || $hasOpenReceived) {
+                    $t->display_status = 'standby';
+                } else {
+                    $t->display_status = 'ongoing';
+                }
+            }
+
+            // Elapsed Days Calculation
+            // Configurable via Admin Console -> System Settings -> DTS Settings ("Elapsed Days Calculation Mode")
+            // Modes supported:
+            //   - 'total_lifetime': counts cumulative working days from transaction inception ($firstLog->date_in or $t->date_created).
+            //   - 'current_stage': counts working days only since active Current Office received/held the document ($currentOfficeLog).
+            $t->elapsed_days = \App\Services\DtsWorkingHoursService::calculateTransactionElapsedDays(
+                $t->date_created,
+                $firstLog?->date_in,
+                $currentOfficeLog
+            );
 
             // Previous office (from office)
             $prevLog = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
@@ -1564,8 +1706,43 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
      * Triggers upload file modal.
      * @return void
      */
+    /**
+     * Checks if the active user is allowed to upload/manage documents for the selected transaction.
+     * Allowed only if transaction is currently on the user's office, or an admin is using edit mode.
+     * @return bool
+     */
+    public function canUploadDocument(): bool
+    {
+        if (!$this->selectedTransaction) {
+            return false;
+        }
+
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+        $status = strtolower($this->selectedTransaction->status ?? '');
+        $effectiveCurrentOffice = ($this->selectedTransaction->current_office === 'ORIGIN')
+            ? ($this->selectedTransaction->originated_from ?? null)
+            : ($this->selectedTransaction->current_office ?? null);
+
+        $isCurrentOffice = !empty($userOfficeCode)
+            && ($effectiveCurrentOffice === $userOfficeCode)
+            && ($status !== 'completed');
+
+        $perms = auth()->user()?->permissions;
+        $isAdmin = $perms && (
+            $perms->is_sadm
+            || $perms->is_admin
+            || ($perms->can_dts_modify_transaction ?? false)
+            || ($perms->can_dts_list_modify_transaction ?? false)
+        );
+
+        return $isCurrentOffice || ($isAdmin && $this->editingAll);
+    }
+
     public function triggerUploadFileModal(): void
     {
+        if (!$this->canUploadDocument()) {
+            return;
+        }
         $this->uploadFileName = '';
         $this->uploadErrorMessage = '';
         $this->uploadedFile = null;
@@ -1614,7 +1791,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
      */
     public function removeUploadedFile(): void
     {
-        if (!$this->selectedTransactionId || !$this->selectedTransaction) return;
+        if (!$this->selectedTransactionId || !$this->selectedTransaction || !$this->canUploadDocument()) return;
 
         $oldDocDir = $this->selectedTransaction->doc_dir ?? null;
 
@@ -1636,6 +1813,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
      */
     public function changeUploadedFile(): void
     {
+        if (!$this->canUploadDocument()) {
+            $this->showViewFileModal = false;
+            return;
+        }
         $this->showViewFileModal = false;
         $this->triggerUploadFileModal();
     }
@@ -1658,6 +1839,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     public function handleUploadFile(): void
     {
         $this->uploadErrorMessage = '';
+
+        if (!$this->canUploadDocument()) {
+            $this->uploadErrorMessage = 'Upload is only permitted when the transaction is at your office or via admin edit mode.';
+            return;
+        }
 
         $requiredUpload = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_required_upload_file')->value('value') === 'true';
         if ($requiredUpload && !$this->uploadedFile) {
@@ -2634,6 +2820,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         [data-theme="dark"] .dts-im-btn:hover {
             background: #334155;
         }
+        .status-standby {
+            background-color: #fef3c7 !important;
+            color: #92400e !important;
+        }
     </style>
 @endpush
 
@@ -2661,6 +2851,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 </select>
                 <select class="rms-select" wire:model.live="selectedStatus">
                     <option value="all">All Status</option>
+                    <option value="standby">Standby</option>
                     <option value="ongoing">Ongoing</option>
                     <option value="completed">Completed</option>
                     <option value="revision">Revision</option>
@@ -2669,10 +2860,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 </select>
             </div>
             <div style="display: flex; gap: 16px; align-items: center;">
+                @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                 <label class="rms-select-all-label">
                     <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                     Select All
                 </label>
+                @endif
                 <button type="button" wire:click="toggleLayout" class="rms-select" style="background-image: none; padding-right: 12px; display: inline-flex; align-items: center; gap: 6px;">
                     @if ($layoutMode === 'table')
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
@@ -2682,9 +2875,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                         Table
                     @endif
                 </button>
+                @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                 <button type="button" class="rms-btn-export" wire:click="openExportModal">
                     <svg class="btn-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg> Export
                 </button>
+                @endif
             </div>
         </div>
         <div class="rms-toolbar-bottom" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
@@ -2715,6 +2910,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <span class="rms-filter-label">Modifier:</span>
                     <select class="rms-select" wire:model.live="statusOrder" style="font-size: 0.82rem; height: 34px;" title="Filter Modifier">
+                        <option value="standby_first">Standby First</option>
                         <option value="ongoing_first">Ongoing First</option>
                         <option value="completed_first">Completed First</option>
                         <option value="none">None</option>
@@ -2750,22 +2946,28 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             <table class="rms-table">
                 <thead>
                     <tr>
-                        <th style="width: 40px; text-align: center;">
+                        @if(\App\Helpers\DtsExportHelper::isExportEnabled())
+                        <th rowspan="2" style="width: 40px; text-align: center; vertical-align: middle;">
                             <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                         </th>
-                        <th style="width: 60px;">Item No.</th>
-                        <th>Control No.</th>
-                        <th>QR Code</th>
-                        <th>Created</th>
-                        <th>Originator</th>
-                        <th>Subject</th>
-                        <th>Received</th>
-                        <th>Released</th>
-                        <th>Received</th>
-                        <th>Released</th>
-                        <th>Elapsed Day</th>
-                        <th>Status</th>
-                        <th style="width: 60px;">View</th>
+                        @endif
+                        <th rowspan="2" style="width: 60px; text-align: center; vertical-align: middle;">Item No.</th>
+                        <th rowspan="2" style="vertical-align: middle;">Control No.</th>
+                        <th rowspan="2" style="vertical-align: middle;">QR Code</th>
+                        <th rowspan="2" style="vertical-align: middle;">Created</th>
+                        <th rowspan="2" style="vertical-align: middle;">Originator</th>
+                        <th rowspan="2" style="vertical-align: middle;">Subject</th>
+                        <th colspan="2" style="text-align: center; border-bottom: 1px solid #dee2e6;">Current Office</th>
+                        <th colspan="2" style="text-align: center; border-bottom: 1px solid #dee2e6;">Destination Office</th>
+                        <th rowspan="2" style="text-align: center; vertical-align: middle;">Elapsed Day</th>
+                        <th rowspan="2" style="text-align: center; vertical-align: middle;">Status</th>
+                        <th rowspan="2" style="width: 60px; text-align: center; vertical-align: middle;">View</th>
+                    </tr>
+                    <tr>
+                        <th style="text-align: center;">Received</th>
+                        <th style="text-align: center;">Released</th>
+                        <th style="text-align: center;">Received</th>
+                        <th style="text-align: center;">Released</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2775,9 +2977,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                             $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false) || (strtolower($t->status ?? '') === 'completed');
                         @endphp
                         <tr style="background-color: {{ $isChecked ? '#f0f6ff' : '' }};">
+                            @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                             <td style="text-align: center;">
                                 <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                             </td>
+                            @endif
                             <td style="text-align: center;">{{ $this->transactions->firstItem() + $index }}</td>
                             <td style="font-weight: 600; color: {{ $canSeeCtrlNo ? '#1e40af' : '#94a3b8' }};">
                                 {{ $canSeeCtrlNo ? $t->control_number : '—' }}
@@ -2801,8 +3005,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                 {{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->elapsed_days . ' day(s)') }}
                             </td>
                             <td style="text-align: center;">
-                                <span class="status-badge status-{{ $t->status }}">
-                                    {{ $t->status }}
+                                <span class="status-badge status-{{ strtolower($t->display_status ?? $t->status) }}">
+                                    {{ ucfirst($t->display_status ?? $t->status) }}
                                 </span>
                             </td>
                             <td style="text-align: center;">
@@ -2810,7 +3014,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="14" class="rms-no-data">No transactions found.</td></tr>
+                        <tr><td colspan="{{ \App\Helpers\DtsExportHelper::isExportEnabled() ? 14 : 13 }}" class="rms-no-data">No transactions found.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -2825,16 +3029,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                 @endphp
                 <div class="dts-box-card {{ $isChecked ? 'selected' : '' }}">
                     
+                    @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                     <!-- Left side Checkbox -->
                     <div style="display: flex; align-items: center; justify-content: center; height: 20px;">
                         <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 18px; height: 18px; cursor: pointer; accent-color: #1e40af;">
                     </div>
+                    @endif
 
                     <!-- Right side Info Contents -->
                     <div class="dts-box-card-content">
                         <div class="dts-box-card-header">
                             <span class="dts-box-control-no" style="{{ $canSeeCtrlNo ? '' : 'color: #94a3b8;' }}">{{ $canSeeCtrlNo ? $t->control_number : '—' }}</span>
-                            <span class="status-badge status-{{ $t->status }}" style="font-size: 9px; padding: 2px 6px;">{{ $t->status }}</span>
+                            <span class="status-badge status-{{ strtolower($t->display_status ?? $t->status) }}" style="font-size: 9px; padding: 2px 6px;">{{ ucfirst($t->display_status ?? $t->status) }}</span>
                         </div>
 
                         <div class="dts-box-subject">
@@ -3133,6 +3339,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                             </div>
 
                             <!-- Email Access -->
+                            @php
+                                $hasEmailAccess = (!empty(trim($emailAccess ?? '')) && trim($emailAccess) !== 'N/A') || (!empty(trim($selectedTransaction->access_email ?? '')) && trim($selectedTransaction->access_email) !== 'N/A');
+                            @endphp
+                            @if ($editingAll || $hasEmailAccess)
                             <div class="dts-im-tile">
                                 <span class="dts-im-tile-k"><i class="fa-regular fa-envelope" style="color: #0284c7;"></i> Email Access</span>
                                 @if ($editingAll)
@@ -3141,8 +3351,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                     <span class="dts-im-tile-v">{{ $emailAccess ?: ($selectedTransaction->access_email ?? 'N/A') }}</span>
                                 @endif
                             </div>
+                            @endif
 
                             <!-- Document Password -->
+                            @php
+                                $hasDocPassword = (!empty(trim($docPassword ?? '')) && !in_array(trim($docPassword), ['N/A', 'None'], true)) || (!empty(trim($selectedTransaction->document_password ?? '')) && !in_array(trim($selectedTransaction->document_password), ['N/A', 'None'], true));
+                            @endphp
+                            @if ($editingAll || $hasDocPassword)
                             <div class="dts-im-tile">
                                 <span class="dts-im-tile-k"><i class="fa-solid fa-key" style="color: #f59e0b;"></i> Document Password</span>
                                 @if ($editingAll)
@@ -3160,9 +3375,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                     </div>
                                 @endif
                             </div>
+                            @endif
 
 
                             <!-- Attached Document -->
+                            @if (!empty($selectedTransaction->doc_dir) || ($editingAll && $this->canUploadDocument()))
                             <div class="dts-im-tile" style="grid-column: span 2;">
                                 <span class="dts-im-tile-k"><i class="fa-solid fa-paperclip" style="color: #0891b2;"></i> Attached Document</span>
                                 @if (!empty($selectedTransaction->doc_dir))
@@ -3177,20 +3394,25 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                             <button type="button" class="dts-im-btn" wire:click="openPdfPreviewModal" style="padding: 4px 10px; font-size: 11.5px; color: #0284c7; border-color: #bae6fd; background: #f0f9ff;">
                                                 <i class="fa-solid fa-file-pdf"></i> Preview
                                             </button>
+                                            @if ($this->canUploadDocument())
                                             <button type="button" class="dts-im-btn" wire:click="openViewFileModal" style="padding: 4px 10px; font-size: 11.5px;">
                                                 <i class="fa-solid fa-gear"></i> Manage
                                             </button>
+                                            @endif
                                         </div>
                                     </div>
                                 @else
                                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px;">
                                         <span style="font-size: 12px; color: #94a3b8; font-style: italic;">No document currently attached</span>
+                                        @if ($this->canUploadDocument())
                                         <button type="button" class="dts-im-btn" wire:click="triggerUploadFileModal" style="padding: 4px 10px; font-size: 11.5px; color: #16a34a; border-color: #bbf7d0; background: #f0fdf4;">
                                             <i class="fa-solid fa-cloud-arrow-up"></i> Upload Document
                                         </button>
+                                        @endif
                                     </div>
                                 @endif
                             </div>
+                            @endif
                         </div>
                     </div>
 
@@ -3633,6 +3855,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                 <i class="fa-solid fa-file-pdf" style="color: #dc2626;"></i>
                                 <span>Preview Document</span>
                             </button>
+                        @elseif ($this->canUploadDocument())
+                            <button type="button" class="dts-im-btn" wire:click="triggerUploadFileModal" style="color: #16a34a; border-color: #bbf7d0; background: #f0fdf4;">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                <span>Upload Document</span>
+                            </button>
                         @endif
                     </div>
 
@@ -3653,9 +3880,42 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                     </button>
                                 @endif
                             @else
-                                <button type="button" class="dts-im-btn dts-im-btn-primary" wire:click="completeTransaction">
-                                    <i class="fa-solid fa-paper-plane"></i>
-                                    <span>{{ $activeAction === 'To be Forwarded to' ? 'Forward to Office' : 'Forward Transaction' }}</span>
+                                @php
+                                    $listActionLower = strtolower(trim($activeAction));
+                                    $listIsApprovalFlow = in_array($listActionLower, [
+                                        'for approval', 
+                                        'for endorsement', 
+                                        'for recomendation', 
+                                        'for recommendation', 
+                                        'for signature'
+                                    ]);
+                                    $listIsRevision = in_array($listActionLower, [
+                                        'for revision', 
+                                        'returned for revision'
+                                    ]);
+                                    $listIsToBeForwarded = ($listActionLower === 'to be forwarded to');
+
+                                    if ($listIsRevision) {
+                                        $listBtnLabel = 'Return for Revision';
+                                        $listBtnBg = '#dc2626';
+                                        $listBtnIcon = 'fa-arrow-rotate-left';
+                                    } elseif ($listIsToBeForwarded) {
+                                        $listBtnLabel = 'Proceed Action';
+                                        $listBtnBg = '#2563eb';
+                                        $listBtnIcon = 'fa-paper-plane';
+                                    } elseif ($listIsApprovalFlow) {
+                                        $listBtnLabel = 'Proceed Forward';
+                                        $listBtnBg = '#16a34a';
+                                        $listBtnIcon = 'fa-paper-plane';
+                                    } else {
+                                        $listBtnLabel = 'Forward to Office';
+                                        $listBtnBg = '#16a34a';
+                                        $listBtnIcon = 'fa-paper-plane';
+                                    }
+                                @endphp
+                                <button type="button" class="dts-im-btn" wire:click="completeTransaction" style="background: {{ $listBtnBg }} !important; color: #ffffff !important; border-color: {{ $listBtnBg }} !important;">
+                                    <i class="fa-solid {{ $listBtnIcon }}"></i>
+                                    <span>{{ $listBtnLabel }}</span>
                                 </button>
                             @endif
                         @endif
@@ -3965,6 +4225,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
     @include('components.dts.qr-print-modal')
 
     <!-- Export Modal -->
+    @if(\App\Helpers\DtsExportHelper::isExportEnabled())
     <x-dts.export-modal
         :show="$showExportModal"
         category="internal"
@@ -3976,6 +4237,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
         :prepared-by="$exportPreparedBy"
         :noted-by="$exportNotedBy"
     />
+    @endif
 
     <!-- Office Hub Collective Modal for Forwarding -->
     <x-dts.hub-collective-modal 

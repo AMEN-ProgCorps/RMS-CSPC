@@ -10,10 +10,21 @@
     if ($system === 'dts') {
         $perms = auth()->user()?->permissions;
         $isSadm = $perms?->is_sadm ?? false;
-        $canInternal = $isSadm || ($perms?->can_dts_use_internal ?? false);
-        $canExternal = $isSadm || ($perms?->can_dts_use_external ?? false);
-        $canApplication = $isSadm || ($perms?->can_dts_use_application ?? false);
-        $canIssuance = $isSadm || ($perms?->can_dts_use_issuance ?? false);
+
+        $canCreateInternal = $isSadm || ($perms?->can_dts_create_internal ?? $perms?->can_dts_use_internal ?? false);
+        $canCreateExternal = $isSadm || ($perms?->can_dts_create_external ?? $perms?->can_dts_use_external ?? false);
+        $canCreateApplication = $isSadm || ($perms?->can_dts_create_application ?? $perms?->can_dts_use_application ?? false);
+        $canCreateIssuance = $isSadm || ($perms?->can_dts_create_issuance ?? $perms?->can_dts_use_issuance ?? false);
+
+        $canReceiveInternal = $isSadm || ($perms?->can_dts_receive_internal ?? $perms?->can_dts_use_internal ?? false);
+        $canReceiveExternal = $isSadm || ($perms?->can_dts_receive_external ?? $perms?->can_dts_use_external ?? false);
+        $canReceiveApplication = $isSadm || ($perms?->can_dts_receive_application ?? $perms?->can_dts_use_application ?? false);
+        $canReceiveIssuance = $isSadm || ($perms?->can_dts_receive_issuance ?? $perms?->can_dts_use_issuance ?? false);
+
+        $canListInternal = $canCreateInternal || $canReceiveInternal;
+        $canListExternal = $canCreateExternal || $canReceiveExternal;
+        $canListApplication = $canCreateApplication || $canReceiveApplication;
+        $canListIssuance = $canCreateIssuance || $canReceiveIssuance;
 
         // 1. Transactions Section
         if (request()->routeIs('dts') || request()->routeIs('dts.incoming') || request()->routeIs('dts.my-transactions') || request()->routeIs('dts.received') || request()->routeIs('dts.forwarded')) {
@@ -55,28 +66,28 @@
         // 3. Create Transaction Section
         elseif (request()->routeIs('dts.create.*')) {
             $sectionTitle = 'Create Transaction';
-            if ($canInternal) {
+            if ($canCreateInternal) {
                 $tabs[] = [
                     'label' => 'Internal Transaction',
                     'url' => route('dts.create.internal'),
                     'active' => request()->routeIs('dts.create.internal'),
                 ];
             }
-            if ($canExternal) {
+            if ($canCreateExternal) {
                 $tabs[] = [
                     'label' => 'External Transaction',
                     'url' => route('dts.create.external'),
                     'active' => request()->routeIs('dts.create.external'),
                 ];
             }
-            if ($canApplication) {
+            if ($canCreateApplication) {
                 $tabs[] = [
                     'label' => 'Application Letters',
                     'url' => route('dts.create.application-letters'),
                     'active' => request()->routeIs('dts.create.application-letters'),
                 ];
             }
-            if ($canIssuance) {
+            if ($canCreateIssuance) {
                 $tabs[] = [
                     'label' => 'Issuances',
                     'url' => route('dts.create.issuances'),
@@ -87,28 +98,28 @@
         // 4. List of Transactions Section
         elseif (request()->routeIs('dts.list.*')) {
             $sectionTitle = 'List of Transactions';
-            if ($canInternal) {
+            if ($canListInternal) {
                 $tabs[] = [
                     'label' => 'Internal Transaction',
                     'url' => route('dts.list.internal'),
                     'active' => request()->routeIs('dts.list.internal'),
                 ];
             }
-            if ($canExternal) {
+            if ($canListExternal) {
                 $tabs[] = [
                     'label' => 'External Transaction',
                     'url' => route('dts.list.external'),
                     'active' => request()->routeIs('dts.list.external'),
                 ];
             }
-            if ($canApplication) {
+            if ($canListApplication) {
                 $tabs[] = [
                     'label' => 'Application Letters',
                     'url' => route('dts.list.application-letters'),
                     'active' => request()->routeIs('dts.list.application-letters'),
                 ];
             }
-            if ($canIssuance) {
+            if ($canListIssuance) {
                 $tabs[] = [
                     'label' => 'Issuances',
                     'url' => route('dts.list.issuances'),
@@ -119,28 +130,28 @@
         // 5. Transaction History Section
         elseif (request()->routeIs('dts.history.*')) {
             $sectionTitle = 'Transaction History';
-            if ($canInternal) {
+            if ($canListInternal) {
                 $tabs[] = [
                     'label' => 'Internal Transaction',
                     'url' => route('dts.history.internal'),
                     'active' => request()->routeIs('dts.history.internal'),
                 ];
             }
-            if ($canExternal) {
+            if ($canListExternal) {
                 $tabs[] = [
                     'label' => 'External Transaction',
                     'url' => route('dts.history.external'),
                     'active' => request()->routeIs('dts.history.external'),
                 ];
             }
-            if ($canApplication) {
+            if ($canListApplication) {
                 $tabs[] = [
                     'label' => 'Application Letters',
                     'url' => route('dts.history.application-letters'),
                     'active' => request()->routeIs('dts.history.application-letters'),
                 ];
             }
-            if ($canIssuance) {
+            if ($canListIssuance) {
                 $tabs[] = [
                     'label' => 'Issuances',
                     'url' => route('dts.history.issuances'),
@@ -694,6 +705,11 @@
                     'label' => 'Changes Logs',
                     'url' => route('admin.subsystems.changes-logs'),
                     'active' => request()->routeIs('admin.subsystems.changes-logs'),
+                ],
+                [
+                    'label' => 'Patch Notes',
+                    'url' => route('admin.subsystems.patch-notes'),
+                    'active' => request()->routeIs('admin.subsystems.patch-notes'),
                 ],
             ];
         }

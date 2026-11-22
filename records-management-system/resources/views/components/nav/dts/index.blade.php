@@ -1,19 +1,34 @@
 @php
     $perms = auth()->user()?->permissions;
     $isSadm = $perms?->is_sadm ?? false;
-    $canInternal = $isSadm || ($perms?->can_dts_use_internal ?? false);
-    $canExternal = $isSadm || ($perms?->can_dts_use_external ?? false);
-    $canApplication = $isSadm || ($perms?->can_dts_use_application ?? false);
-    $canIssuance = $isSadm || ($perms?->can_dts_use_issuance ?? false);
-    $canReceive = $isSadm || ($perms?->can_dts_user_received ?? false);
-    $canAnyCreate = $canInternal || $canExternal || $canApplication || $canIssuance;
+
+    // Create clearances
+    $canCreateInternal = $isSadm || ($perms?->can_dts_create_internal ?? $perms?->can_dts_use_internal ?? false);
+    $canCreateExternal = $isSadm || ($perms?->can_dts_create_external ?? $perms?->can_dts_use_external ?? false);
+    $canCreateApplication = $isSadm || ($perms?->can_dts_create_application ?? $perms?->can_dts_use_application ?? false);
+    $canCreateIssuance = $isSadm || ($perms?->can_dts_create_issuance ?? $perms?->can_dts_use_issuance ?? false);
+    $canAnyCreate = $canCreateInternal || $canCreateExternal || $canCreateApplication || $canCreateIssuance;
+
+    // Receive & process clearances
+    $canReceiveInternal = $isSadm || ($perms?->can_dts_receive_internal ?? $perms?->can_dts_use_internal ?? false);
+    $canReceiveExternal = $isSadm || ($perms?->can_dts_receive_external ?? $perms?->can_dts_use_external ?? false);
+    $canReceiveApplication = $isSadm || ($perms?->can_dts_receive_application ?? $perms?->can_dts_use_application ?? false);
+    $canReceiveIssuance = $isSadm || ($perms?->can_dts_receive_issuance ?? $perms?->can_dts_use_issuance ?? false);
+    $canAnyReceive = $canReceiveInternal || $canReceiveExternal || $canReceiveApplication || $canReceiveIssuance;
+
+    // List & history clearances (accessible if user can create OR receive)
+    $canListInternal = $canCreateInternal || $canReceiveInternal;
+    $canListExternal = $canCreateExternal || $canReceiveExternal;
+    $canListApplication = $canCreateApplication || $canReceiveApplication;
+    $canListIssuance = $canCreateIssuance || $canReceiveIssuance;
+    $canAnyList = $canListInternal || $canListExternal || $canListApplication || $canListIssuance;
 
     $enableTopTabs = auth()->user()?->enableTopTabs() ?? true;
 
     $defaultTransactionsRoute = route('dts.incoming');
-    $defaultCreateRoute = $canInternal ? route('dts.create.internal') : ($canExternal ? route('dts.create.external') : ($canApplication ? route('dts.create.application-letters') : ($canIssuance ? route('dts.create.issuances') : '')));
-    $defaultListRoute = $canInternal ? route('dts.list.internal') : ($canExternal ? route('dts.list.external') : ($canApplication ? route('dts.list.application-letters') : ($canIssuance ? route('dts.list.issuances') : '')));
-    $defaultHistoryRoute = $canInternal ? route('dts.history.internal') : ($canExternal ? route('dts.history.external') : ($canApplication ? route('dts.history.application-letters') : ($canIssuance ? route('dts.history.issuances') : '')));
+    $defaultCreateRoute = $canCreateInternal ? route('dts.create.internal') : ($canCreateExternal ? route('dts.create.external') : ($canCreateApplication ? route('dts.create.application-letters') : ($canCreateIssuance ? route('dts.create.issuances') : '')));
+    $defaultListRoute = $canListInternal ? route('dts.list.internal') : ($canListExternal ? route('dts.list.external') : ($canListApplication ? route('dts.list.application-letters') : ($canListIssuance ? route('dts.list.issuances') : '')));
+    $defaultHistoryRoute = $canListInternal ? route('dts.history.internal') : ($canListExternal ? route('dts.history.external') : ($canListApplication ? route('dts.history.application-letters') : ($canListIssuance ? route('dts.history.issuances') : '')));
 
     $navGuides = \App\Services\ManualService::getNavGuides();
 @endphp
@@ -77,16 +92,16 @@
         @endif
     </div>
     <div class="functions-container">
-        @if($canInternal)
+        @if($canCreateInternal)
             <div class="function-button {{ request()->routeIs('dts.create.internal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.internal') }}')">Internal Transaction</div>
         @endif
-        @if($canExternal)
+        @if($canCreateExternal)
             <div class="function-button {{ request()->routeIs('dts.create.external') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.external') }}')">External Transaction</div>
         @endif
-        @if($canApplication)
+        @if($canCreateApplication)
             <div class="function-button {{ request()->routeIs('dts.create.application-letters') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.application-letters') }}')">Application Letters</div>
         @endif
-        @if($canIssuance)
+        @if($canCreateIssuance)
             <div class="function-button {{ request()->routeIs('dts.create.issuances') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.create.issuances') }}')">Issuances</div>
         @endif
     </div>
@@ -94,7 +109,7 @@
 @endif
 
 {{-- 3. List of Transactions Section --}}
-@if($canAnyCreate)
+@if($canAnyList)
 <div id="dts-list-id" class="button-section-container {{ (request()->routeIs('dts.list.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.list.*') ? 'force-active' : '' }}" 
          data-nav-guide="{{ $navGuides['List of Transactions'] ?? 'View, track, and monitor incoming and outgoing transaction records' }}"
@@ -116,16 +131,16 @@
         @endif
     </div>
     <div class="functions-container">
-        @if($canInternal)
+        @if($canListInternal)
             <div class="function-button {{ request()->routeIs('dts.list.internal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.internal') }}')">Internal Transaction</div>
         @endif
-        @if($canExternal)
+        @if($canListExternal)
             <div class="function-button {{ request()->routeIs('dts.list.external') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.external') }}')">External Transaction</div>
         @endif
-        @if($canApplication)
+        @if($canListApplication)
             <div class="function-button {{ request()->routeIs('dts.list.application-letters') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.application-letters') }}')">Application Letters</div>
         @endif
-        @if($canIssuance)
+        @if($canListIssuance)
             <div class="function-button {{ request()->routeIs('dts.list.issuances') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.list.issuances') }}')">Issuances</div>
         @endif
     </div>
@@ -133,7 +148,7 @@
 @endif
 
 {{-- 4. Transaction History Section --}}
-@if($canAnyCreate)
+@if($canAnyList)
 <div id="dts-history-id" class="button-section-container {{ (request()->routeIs('dts.history.*') && !$enableTopTabs) ? 'show' : '' }}">
     <div class="button-container {{ request()->routeIs('dts.history.*') ? 'force-active' : '' }}" 
          data-nav-guide="{{ $navGuides['History'] ?? 'Review completed and archived transaction histories' }}"
@@ -155,16 +170,16 @@
         @endif
     </div>
     <div class="functions-container">
-        @if($canInternal)
+        @if($canListInternal)
             <div class="function-button {{ request()->routeIs('dts.history.internal') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.history.internal') }}')">Internal Transaction</div>
         @endif
-        @if($canExternal)
+        @if($canListExternal)
             <div class="function-button {{ request()->routeIs('dts.history.external') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.history.external') }}')">External Transaction</div>
         @endif
-        @if($canApplication)
+        @if($canListApplication)
             <div class="function-button {{ request()->routeIs('dts.history.application-letters') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.history.application-letters') }}')">Application Letters</div>
         @endif
-        @if($canIssuance)
+        @if($canListIssuance)
             <div class="function-button {{ request()->routeIs('dts.history.issuances') ? 'force-active' : '' }}" onclick="proccedto('{{ route('dts.history.issuances') }}')">Issuances</div>
         @endif
     </div>

@@ -14,12 +14,13 @@ class DtsWorkingHoursService
     protected static ?string $cachedStart = null;
     protected static ?string $cachedEnd = null;
     protected static ?string $cachedDays = null;
+    protected static ?string $cachedElapsedDaysMode = null;
 
     /**
      * Clear the in-memory cache for working hours settings.
      *
-     * Resets cached values for enabled flag, start hour, end hour, and working days
-     * to force fresh queries from the database on subsequent calls.
+     * Resets cached values for enabled flag, start hour, end hour, working days,
+     * and elapsed days mode to force fresh queries from the database on subsequent calls.
      *
      * @return void
      */
@@ -29,6 +30,7 @@ class DtsWorkingHoursService
         self::$cachedStart = null;
         self::$cachedEnd = null;
         self::$cachedDays = null;
+        self::$cachedElapsedDaysMode = null;
     }
 
     /**
@@ -155,7 +157,7 @@ class DtsWorkingHoursService
      */
     public static function getTimezone(): string
     {
-        $tz = env('APP_TIMEZONE') ?: config('app.timezone');
+        $tz = env('APP_TIMEZONE') ?: (function_exists('app') && app()->has('config') ? config('app.timezone') : 'Asia/Manila');
         return (!empty($tz) && $tz !== 'UTC') ? $tz : 'Asia/Manila';
     }
 
@@ -430,6 +432,82 @@ class DtsWorkingHoursService
         $dailySecs = self::getDailyWorkingSeconds();
 
         return (int) floor($seconds / $dailySecs);
+    }
+
+    /**
+     * Get the configured Elapsed Days calculation mode from system settings.
+     *
+     * Available modes:
+     * - 'total_lifetime': Counts elapsed business days from the initial creation of the transaction.
+     * - 'current_stage': Counts elapsed business days only from when the active Current Office received the document.
+     *
+     * Cached in-memory per request to prevent redundant database queries during table rendering.
+     *
+     * @return string 'total_lifetime' or 'current_stage'
+     */
+    public static function getElapsedDaysMode(): string
+    {
+        if (self::$cachedElapsedDaysMode !== null) {
+            return self::$cachedElapsedDaysMode;
+        }
+
+        try {
+            $table = self::getSettingsTable();
+            $val = DB::table($table)->where('key', 'dts_elapsed_days_mode')->value('value');
+            self::$cachedElapsedDaysMode = in_array($val, ['total_lifetime', 'current_stage'], true) ? $val : 'total_lifetime';
+        } catch (\Throwable $e) {
+            self::$cachedElapsedDaysMode = 'total_lifetime';
+        }
+
+        return self::$cachedElapsedDaysMode;
+    }
+
+    /**
+     * Calculate elapsed working days for a transaction based on the configured mode.
+     *
+     * =========================================================================================
+     * INSTITUTIONAL DEVELOPER / DEBUGGING GUIDE:
+     * =========================================================================================
+     * This function determines whether the "Elapsed Day" column calculates:
+     *   A) TOTAL LIFETIME: Cumulative business days from initial document creation across all offices.
+     *   B) CURRENT STAGE: Business days only while in the custody of the active Current Office.
+     *
+     * HOW THIS FUNCTION OPERATES:
+     * 1. Reads the system setting `dts_elapsed_days_mode` (configured via Admin Settings -> DTS).
+     * 2. When mode is 'current_stage':
+     *    - Determines the start date as the date the active CURRENT office received the transaction
+     *      ($currentOfficeLog->date_in, with fallback to $currentOfficeLog->date_out or $dateCreated).
+     *    - Calculates working days between that station receipt timestamp and now.
+     * 3. When mode is 'total_lifetime' (or unconfigured default):
+     *    - Determines the start date as the transaction's initial creation / first log date
+     *      ($firstLogDateIn, with fallback to $dateCreated).
+     *    - Calculates working days across the entire lifetime of the document.
+     * 4. Respects institutional working hours / days if DTS Working Hours policy is enabled.
+     *
+     * @param \Carbon\Carbon|string|null $dateCreated Document creation timestamp
+     * @param \Carbon\Carbon|string|null $firstLogDateIn Timestamp when the first office received/created the transaction
+     * @param object|null $currentOfficeLog The log record for the current active office (contains date_in and date_out)
+     * @return int Number of working days elapsed
+     */
+    public static function calculateTransactionElapsedDays(
+        Carbon|string|null $dateCreated,
+        Carbon|string|null $firstLogDateIn = null,
+        ?object $currentOfficeLog = null
+    ): int {
+        $mode = self::getElapsedDaysMode();
+
+        if ($mode === 'current_stage' && $currentOfficeLog) {
+            // Stage mode: Count working days since the active current office received the document
+            $startDate = $currentOfficeLog->date_in 
+                ?? $currentOfficeLog->date_out 
+                ?? $dateCreated;
+
+            return self::calculateWorkingDays($startDate);
+        }
+
+        // Lifetime mode (default): Count working days since the transaction was created
+        $startDate = $firstLogDateIn ?? $dateCreated;
+        return self::calculateWorkingDays($startDate);
     }
 
     /**

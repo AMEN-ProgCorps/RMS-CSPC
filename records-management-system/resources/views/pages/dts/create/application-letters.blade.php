@@ -256,7 +256,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
-        if ($perms && !$perms->is_sadm && !$perms->can_dts_use_application) {
+        if ($perms && !$perms->is_sadm && !($perms->can_dts_create_application ?? $perms->can_dts_use_application)) {
             abort(403, 'Unauthorized access to Application Letter transactions.');
         }
 

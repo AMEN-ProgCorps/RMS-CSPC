@@ -373,10 +373,11 @@ new class extends Component {
 ?>
 
 <div
-    class="urgent-wrapper notif-wrapper"
+    class="urgent-wrapper notif-wrapper {{ ($totalCount > 0 && $monitoringEnabled) ? 'urgent-active' : 'urgent-empty' }}"
     wire:poll.15s.keep-alive="loadUrgentItems"
     data-urgent-tone="{{ $urgentSoundTone }}"
     data-urgent-sound-enabled="{{ $urgentSoundAlert ? '1' : '0' }}"
+    data-has-urgent="{{ ($totalCount > 0 && $monitoringEnabled) ? '1' : '0' }}"
     @if($totalCount === 0 || !$monitoringEnabled) style="display: none !important;" @endif
     x-data="{
         open: @entangle('showDropdown'),

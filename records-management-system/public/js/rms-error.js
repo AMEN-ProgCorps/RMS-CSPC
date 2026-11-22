@@ -537,6 +537,8 @@
         if (/ResizeObserver|undelivered notifications|script error|Snapshot missing on Livewire component/i.test(message)) return;
         // Optional widget helpers may be clicked before scripts finish loading.
         if (/toggleMessifyWidget|reloadMessifyIframe|hideMessifyLoader|updateMessifyUnreadBadge/i.test(message)) return;
+        // Camera hardware aborts or disconnects in html5-qrcode (e.g. webcam privacy shutter, Windows Camera off toggle, background tab).
+        if (/RenderedCameraImpl|video surface onabort|video surface onerror/i.test(message)) return;
         var filename = event && event.filename ? String(event.filename) : '';
         if (!filename || filename.indexOf(location.origin) !== 0) return;
         if (/\/vendor\/livewire\//i.test(filename) && /Snapshot missing/i.test(message)) return;
@@ -556,8 +558,9 @@
         var message = '';
         if (reason && typeof reason === 'object' && reason.message) message = String(reason.message);
         else if (typeof reason === 'string') message = reason;
-        if (/Snapshot missing on Livewire component/i.test(message)) {
+        if (/Snapshot missing on Livewire component|RenderedCameraImpl|video surface onabort|video surface onerror/i.test(message)) {
             if (event && typeof event.preventDefault === 'function') event.preventDefault();
+            return;
         }
     });
 
@@ -579,8 +582,16 @@
     }
 
     window.__rmsGuardsReady = false;
+    var _syncGuardsInFlight = false;
+    var _lastGuardsSync = 0;
 
-    function syncActiveGuards() {
+    function syncActiveGuards(force) {
+        var now = Date.now();
+        if (_syncGuardsInFlight) return;
+        if (!force && (now - _lastGuardsSync < 6000)) return;
+
+        _syncGuardsInFlight = true;
+        _lastGuardsSync = now;
         try {
             fetch('/api/errors/active-guards', { credentials: 'same-origin', cache: 'no-store' })
                 .then(function (r) { return r.json(); })
@@ -593,16 +604,20 @@
                 .catch(function () {
                     // Keep blade snapshot usable if refresh fails.
                     window.__rmsGuardsReady = true;
+                })
+                .finally(function () {
+                    _syncGuardsInFlight = false;
                 });
         } catch (e) {
             window.__rmsGuardsReady = true;
+            _syncGuardsInFlight = false;
         }
     }
 
     // Always refresh — blade snapshot stays stale after tickets are resolved in another tab/session.
-    syncActiveGuards();
-    setInterval(syncActiveGuards, 15000);
-    window.addEventListener('focus', syncActiveGuards);
+    syncActiveGuards(true);
+    setInterval(syncActiveGuards, 20000);
+    window.addEventListener('focus', function () { syncActiveGuards(); });
     document.addEventListener('visibilitychange', function () {
         if (!document.hidden) syncActiveGuards();
     });

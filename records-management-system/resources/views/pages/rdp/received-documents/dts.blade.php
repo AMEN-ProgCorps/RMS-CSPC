@@ -333,14 +333,12 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
             $query->where('date_received', '>=', Carbon::now()->startOfYear()->toDateString());
         }
 
-        if (!empty($this->search)) {
-            $s = '%' . trim($this->search) . '%';
-            $query->where(function ($q) use ($s) {
-                $q->where('document_code', 'ilike', $s)
-                  ->orWhere('document_title', 'ilike', $s)
-                  ->orWhere('description', 'ilike', $s)
-                  ->orWhere('origin_office', 'ilike', $s);
-            });
+        if (!empty(trim($this->search))) {
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->search, [
+                'primary'   => ['document_code'],
+                'secondary' => ['document_title'],
+                'meta'      => ['description', 'origin_office'],
+            ]);
         }
 
         $documents = $query->orderBy('created_at', 'desc')->paginate($this->perPage);

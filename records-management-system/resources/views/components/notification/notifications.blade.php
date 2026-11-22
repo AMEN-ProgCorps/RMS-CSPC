@@ -855,12 +855,17 @@ new class extends Component {
             border-radius: 9999px !important;
             border: 2px solid #003699 !important;
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35) !important;
-            display: inline-flex !important;
+            display: inline-flex;
             align-items: center !important;
             justify-content: center !important;
             box-sizing: border-box !important;
             pointer-events: none !important;
             z-index: 5 !important;
+        }
+        .notif-badge[style*="display: none"],
+        .notif-badge[style*="display:none"],
+        .notif-badge:empty {
+            display: none !important;
         }
     </style>
 
@@ -886,8 +891,8 @@ new class extends Component {
             id="header-notif-badge"
             class="notif-badge"
             data-system-unread="{{ (int) $unreadCount }}"
-            @if($unreadCount < 1) style="display: none;" @endif
-        >{{ $unreadCount > 99 ? '99+' : $unreadCount }}</span>
+            @if($unreadCount < 1) style="display: none !important;" @endif
+        >{{ $unreadCount > 99 ? '99+' : ($unreadCount > 0 ? $unreadCount : '') }}</span>
     </button>
 
     <!-- Dropdown Menu -->

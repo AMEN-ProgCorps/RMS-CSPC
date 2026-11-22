@@ -525,14 +525,11 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Record Requests')] cl
 
         // Apply Search Filter
         if (!empty(trim($this->search))) {
-            $s = '%' . trim($this->search) . '%';
-            $query->where(function($q) use ($s) {
-                $q->where('rdp_record_series.series_title', 'ilike', $s)
-                  ->orWhere('rdp_record.description', 'ilike', $s)
-                  ->orWhere('rdp_record.request_group_id', 'ilike', $s)
-                  ->orWhere('rdp_record.request_origin_office', 'ilike', $s)
-                  ->orWhere('rdp_record.request_target_office', 'ilike', $s);
-            });
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->search, [
+                'primary'   => ['rdp_record.request_group_id'],
+                'secondary' => ['rdp_record_series.series_title', 'rdp_record.description'],
+                'meta'      => ['rdp_record.request_origin_office', 'rdp_record.request_target_office'],
+            ]);
         }
 
         $records = $query->orderBy('rdp_record.id', 'desc')->paginate($this->perPage);

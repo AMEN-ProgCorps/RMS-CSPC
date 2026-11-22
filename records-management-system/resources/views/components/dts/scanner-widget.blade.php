@@ -19,6 +19,10 @@
          */
         openScanner() {
             if (this.isOpen) {
+                if (typeof window.stopModalScanner === 'function') {
+                    window.stopModalScanner();
+                }
+                window.dispatchEvent(new CustomEvent('stop-camera-scanner'));
                 if (window.Livewire) {
                     Livewire.dispatch('close-scanner-modal');
                 } else {
@@ -64,8 +68,9 @@
         }
     }"
     x-on:scanner-modal-opened.window="isOpen = true"
-    x-on:scanner-modal-closed.window="isOpen = false"
-    x-on:rms-widget-opened.window="if ($event.detail && ($event.detail.widget || (Array.isArray($event.detail) ? $event.detail[0]?.widget : null)) !== 'scanner' && isOpen) { isOpen = false; if (window.Livewire) { Livewire.dispatch('close-scanner-modal'); } else { window.dispatchEvent(new CustomEvent('close-scanner-modal')); } }"
+    x-on:scanner-modal-closed.window="isOpen = false; if (typeof window.stopModalScanner === 'function') { window.stopModalScanner(); }"
+    x-on:close-scanner-modal.window="isOpen = false; if (typeof window.stopModalScanner === 'function') { window.stopModalScanner(); }"
+    x-on:rms-widget-opened.window="if ($event.detail && ($event.detail.widget || (Array.isArray($event.detail) ? $event.detail[0]?.widget : null)) !== 'scanner' && isOpen) { isOpen = false; if (typeof window.stopModalScanner === 'function') { window.stopModalScanner(); } window.dispatchEvent(new CustomEvent('stop-camera-scanner')); if (window.Livewire) { Livewire.dispatch('close-scanner-modal'); } else { window.dispatchEvent(new CustomEvent('close-scanner-modal')); } }"
 >
     <!-- Floating Scanner Trigger Button -->
     <button

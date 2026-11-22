@@ -297,6 +297,10 @@
     background-color: #dbeafe;
     color: #1e40af;
 }
+.status-standby {
+    background-color: #fef3c7;
+    color: #92400e;
+}
 .status-revision {
     background-color: #fef3c7;
     color: #92400e;

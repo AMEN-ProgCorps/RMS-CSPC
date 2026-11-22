@@ -3478,6 +3478,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                             </div>
 
                             <!-- Attached Document -->
+                            @if (!empty($selectedTransaction->doc_dir) || ($editingAll && $this->canUploadDocument()))
                             <div class="dts-im-tile" style="grid-column: span 2;">
                                 <span class="dts-im-tile-k"><i class="fa-solid fa-paperclip" style="color: #0891b2;"></i> Attached Document</span>
                                 @if (!empty($selectedTransaction->doc_dir))
@@ -3510,6 +3511,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                     </div>
                                 @endif
                             </div>
+                            @endif
                         </div>
 
                         <!-- Expandable Details Toggle -->
@@ -4005,6 +4007,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                             <button type="button" class="dts-im-btn" wire:click="openPdfPreviewModal">
                                 <i class="fa-solid fa-file-pdf" style="color: #dc2626;"></i>
                                 <span>Preview Document</span>
+                            </button>
+                        @elseif ($this->canUploadDocument())
+                            <button type="button" class="dts-im-btn" wire:click="triggerUploadFileModal" style="color: #16a34a; border-color: #bbf7d0; background: #f0fdf4;">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                <span>Upload Document</span>
                             </button>
                         @endif
                     </div>

@@ -3224,6 +3224,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                             </div>
 
                             <!-- Email Access -->
+                            @php
+                                $hasEmailAccess = (!empty(trim($emailAccess ?? '')) && trim($emailAccess) !== 'N/A') || (!empty(trim($selectedTransaction->access_email ?? '')) && trim($selectedTransaction->access_email) !== 'N/A');
+                            @endphp
+                            @if ($editingAll || $hasEmailAccess)
                             <div class="dts-im-tile">
                                 <span class="dts-im-tile-k"><i class="fa-regular fa-envelope" style="color: #0284c7;"></i> Email Access</span>
                                 @if ($editingAll)
@@ -3232,8 +3236,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                     <span class="dts-im-tile-v">{{ $emailAccess ?: ($selectedTransaction->access_email ?? 'N/A') }}</span>
                                 @endif
                             </div>
+                            @endif
 
                             <!-- Document Password -->
+                            @php
+                                $hasDocPassword = (!empty(trim($docPassword ?? '')) && !in_array(trim($docPassword), ['N/A', 'None'], true)) || (!empty(trim($selectedTransaction->document_password ?? '')) && !in_array(trim($selectedTransaction->document_password), ['N/A', 'None'], true));
+                            @endphp
+                            @if ($editingAll || $hasDocPassword)
                             <div class="dts-im-tile">
                                 <span class="dts-im-tile-k"><i class="fa-solid fa-key" style="color: #f59e0b;"></i> Document Password</span>
                                 @if ($editingAll)
@@ -3251,9 +3260,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                     </div>
                                 @endif
                             </div>
+                            @endif
 
 
                             <!-- Attached Document -->
+                            @if (!empty($selectedTransaction->doc_dir) || ($editingAll && $this->canUploadDocument()))
                             <div class="dts-im-tile" style="grid-column: span 2;">
                                 <span class="dts-im-tile-k"><i class="fa-solid fa-paperclip" style="color: #0891b2;"></i> Attached Document</span>
                                 @if (!empty($selectedTransaction->doc_dir))
@@ -3286,6 +3297,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                     </div>
                                 @endif
                             </div>
+                            @endif
                         </div>
                     </div>
 
@@ -3727,6 +3739,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                             <button type="button" class="dts-im-btn" wire:click="openPdfPreviewModal">
                                 <i class="fa-solid fa-file-pdf" style="color: #dc2626;"></i>
                                 <span>Preview Document</span>
+                            </button>
+                        @elseif ($this->canUploadDocument())
+                            <button type="button" class="dts-im-btn" wire:click="triggerUploadFileModal" style="color: #16a34a; border-color: #bbf7d0; background: #f0fdf4;">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                <span>Upload Document</span>
                             </button>
                         @endif
                     </div>

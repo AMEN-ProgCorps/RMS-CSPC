@@ -341,6 +341,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @endphp
                         @include('pages.dcs.office.partials.drf-syllabi-context', [
                             'syllabiContextVisible' => $syllabiContextVisible,
+                            'oldCourseType' => old('courseType', ''),
                             'oldCollegeId' => old('collegeId', ''),
                             'oldProgramId' => old('programId', ''),
                             'oldSemesterId' => old('semesterId', ''),

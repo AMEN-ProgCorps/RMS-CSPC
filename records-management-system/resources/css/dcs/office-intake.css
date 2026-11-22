@@ -95,6 +95,12 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     gap: 12px;
 }
 
+/* .reg-field { display:flex } beats bare [hidden] — force-hide Program for GE/PE/NSTP. */
+#ofiDrfProgramWrap[hidden],
+#ofiDrfProgramWrap.is-ofi-hidden {
+    display: none !important;
+}
+
 [data-theme="dark"] .ofi-syllabi-context {
     background: #0f172a;
     border-color: #1e3a5f;

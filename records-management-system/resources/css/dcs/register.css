@@ -551,52 +551,11 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     z-index: 80;
 }
 
-.reg-supersede-selected[hidden],
 #supersedeReselect[hidden],
-#supersedeFinderHint[hidden] {
+#supersedeFinderHint[hidden],
+#supersedeDocPicked[hidden],
+#supersedeDocPicked {
     display: none !important;
-}
-
-.reg-supersede-selected {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px 16px;
-    flex-wrap: wrap;
-    padding: 12px 14px;
-    border: 1px solid #bfdbfe;
-    border-radius: 10px;
-    background: linear-gradient(180deg, #eff6ff 0%, #f8fbff 100%);
-}
-
-.reg-supersede-selected-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
-    flex: 1 1 240px;
-}
-
-.reg-supersede-selected-badge {
-    display: inline-flex;
-    align-items: center;
-    width: fit-content;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: #dbeafe;
-    color: #1d4ed8;
-    font-size: 0.68rem;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-
-.reg-supersede-selected-text {
-    margin: 0;
-    color: #334155;
-    font-size: 0.88rem;
-    font-weight: 600;
-    line-height: 1.45;
 }
 
 #supersedeReselect,
@@ -626,14 +585,10 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     color: #0f172a;
 }
 
-/* Locked: selected document reads as a summary, not form fields */
+/* Locked: keep the same input chrome; values stay inside the fields (readonly). */
 #section-supersede.is-finder-locked .reg-supersede-finder-fields {
     margin: 0;
-    padding: 14px 16px;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    background: #f8fafc;
-    gap: 14px 18px;
+    gap: 12px 16px;
 }
 
 #section-supersede.is-finder-locked .reg-supersede-finder-fields .reg-field {
@@ -642,43 +597,40 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 }
 
 #section-supersede.is-finder-locked .reg-supersede-finder-fields label {
-    margin-bottom: 4px;
-    color: #64748b;
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    margin-bottom: 6px;
 }
 
 #section-supersede.is-finder-locked #supersedeDocNo,
 #section-supersede.is-finder-locked #supersedeDocTitle,
-#section-supersede.is-finder-locked #supersedeDocOriginator {
+#section-supersede.is-finder-locked #supersedeDocOriginator,
+#section-supersede.is-finder-locked .reg-supersede-finder-fields .reg-field input[readonly],
+#section-supersede.is-finder-locked .reg-supersede-finder-fields .reg-field input:disabled {
     width: 100%;
-    min-height: 0;
-    margin: 0;
-    padding: 0;
-    border: 0 !important;
-    border-radius: 0;
-    background: transparent !important;
-    box-shadow: none !important;
-    color: #0f172a !important;
-    font-size: 0.98rem;
-    font-weight: 700;
-    line-height: 1.35;
-    cursor: default !important;
+    cursor: default;
     pointer-events: none;
     opacity: 1;
+    color: #0f172a;
     -webkit-text-fill-color: #0f172a;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    box-shadow: none;
 }
 
 #section-supersede.is-finder-locked #supersedeDocNo:focus,
 #section-supersede.is-finder-locked #supersedeDocTitle:focus,
 #section-supersede.is-finder-locked #supersedeDocOriginator:focus {
-    outline: none !important;
-    box-shadow: none !important;
+    outline: none;
+    box-shadow: none;
+    border-color: #cbd5e1;
 }
 
 #supersedeHistoryField.is-loading { min-height: 148px; }
+
+#supersedeHistoryField {
+    padding-top: 20px;
+    margin-top: 4px;
+}
 
 /*
  * Previous-documents table in Document to be Superseded.
@@ -1260,6 +1212,16 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 
 .reg-reldocs-noresult:hover {
     background: transparent !important;
+}
+
+.reg-reldocs-add {
+    color: var(--reg-accent, #1d4ed8) !important;
+    font-weight: 600;
+    cursor: pointer !important;
+}
+
+.reg-reldocs-add:hover {
+    background: var(--reg-accent-subtle, #eff6ff) !important;
 }
 
 /* Selected panel — highlighted like the reference screenshot */
@@ -2628,6 +2590,18 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     cursor: default;
 }
 
+.syllabi-faculty-dropdown .reg-reldocs-add {
+    padding: 9px 14px;
+    font-size: 0.82rem;
+    color: var(--reg-accent, #1d4ed8);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.syllabi-faculty-dropdown .reg-reldocs-add:hover {
+    background: var(--reg-accent-subtle, #eff6ff);
+}
+
 .syllabi-faculty-input:read-only,
 .syllabi-faculty-input:disabled {
     background: var(--reg-bg);
@@ -2868,6 +2842,17 @@ select.reg-field-locked:disabled {
     border-radius: var(--reg-radius-sm);
     overflow: hidden;
     flex: 1;
+}
+
+.reg-office-table-wrap.is-attention {
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.28);
+    animation: regOfficeAttentionPulse 0.9s ease-in-out 2;
+}
+
+@keyframes regOfficeAttentionPulse {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.28); }
+    50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.12); }
 }
 
 .reg-office-table-wrap.is-collapsed {
@@ -4190,8 +4175,9 @@ select.reg-field-locked:disabled {
     color: #64748b;
 }
 
-/* ═══ REVIEW ROWS — red for missing values ═══ */
-.review-row-empty .review-label {
+/* ═══ REVIEW ROWS — red for missing / not available values ═══ */
+.review-row-empty .review-label,
+.review-row-unavailable .review-label {
     color: #b91c1c;
 }
 
@@ -4342,7 +4328,8 @@ select.reg-field-locked:disabled {
 }
 
 .reg-modal--insert {
-    max-width: 560px;
+    max-width: 640px;
+    width: min(640px, calc(100vw - 32px));
 }
 
 #docNoInsertModal.is-open {
@@ -4354,9 +4341,10 @@ select.reg-field-locked:disabled {
 }
 
 .reg-insert-lead {
-    margin: 0 0 12px;
+    margin: 0 0 14px;
     color: var(--reg-text-muted, #475569);
-    font-size: 0.9rem;
+    font-size: 0.95rem;
+    line-height: 1.45;
 }
 
 .reg-modal--insert [hidden] {
@@ -4366,12 +4354,14 @@ select.reg-field-locked:disabled {
 .reg-insert-choices {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
 }
 
 .reg-insert-back {
     display: inline-flex;
-    margin: 0 0 10px;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 12px;
     padding: 0;
     border: 0;
     background: none;
@@ -4379,6 +4369,11 @@ select.reg-field-locked:disabled {
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
+}
+
+.reg-insert-back:hover {
+    color: #1e40af;
+    text-decoration: underline;
 }
 
 .reg-stack-list {
@@ -4428,23 +4423,29 @@ select.reg-field-locked:disabled {
     text-align: left;
     border: 1px solid var(--reg-border, #cbd5e1);
     background: #fff;
-    border-radius: 8px;
-    padding: 10px 12px;
+    border-radius: 10px;
+    padding: 12px 14px;
     cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .reg-insert-choice:hover {
     border-color: #2563eb;
     background: #f8fafc;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
 }
 
 .reg-insert-choice strong {
     display: block;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
+    color: #0f172a;
+    font-size: 0.95rem;
 }
 
 .reg-insert-choice span {
-    font-size: 12px;
+    display: block;
+    font-size: 12.5px;
+    line-height: 1.4;
     color: #64748b;
 }
 
@@ -4457,30 +4458,148 @@ select.reg-field-locked:disabled {
 }
 
 .reg-insert-preview {
-    margin-top: 14px;
+    margin-top: 4px;
+}
+
+.reg-insert-preview-head {
+    margin: 0 0 12px;
+}
+
+.reg-insert-preview-head h4 {
+    margin: 0 0 4px;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.reg-insert-preview-head p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: #64748b;
 }
 
 .reg-insert-preview-table-wrap {
-    max-height: 220px;
+    max-height: 280px;
     overflow: auto;
     border: 1px solid var(--reg-border, #cbd5e1);
-    border-radius: 6px;
+    border-radius: 10px;
+    background: #f8fafc;
 }
 
-.reg-insert-preview table {
+.reg-insert-preview table,
+.reg-insert-select-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 12px;
+    font-size: 13px;
+    background: #fff;
 }
 
 .reg-insert-preview th,
 .reg-insert-preview td {
-    padding: 6px 8px;
+    padding: 10px 12px;
     border-bottom: 1px solid #e2e8f0;
     text-align: left;
+    vertical-align: middle;
+}
+
+.reg-insert-select-table thead th {
+    position: sticky;
+    top: 0;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    z-index: 1;
+}
+
+.reg-insert-select-table .col-check {
+    width: 40px;
+    text-align: center;
+}
+
+.reg-insert-select-table .col-check input {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #2563eb;
+}
+
+.reg-insert-select-table .col-doc strong {
+    display: block;
+    color: #0f172a;
+    font-size: 13px;
+}
+
+.reg-insert-select-table .col-from code,
+.reg-insert-select-table .col-to {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.reg-insert-select-table .col-from code {
+    color: #334155;
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.reg-insert-select-table .col-to {
+    color: #1d4ed8;
+}
+
+.reg-insert-select-table .col-to.is-keep {
+    color: #64748b;
+    font-weight: 500;
+    font-family: inherit;
+}
+
+.reg-insert-select-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.reg-insert-select-table tbody tr:has(input:checked) {
+    background: #eff6ff;
+}
+
+.reg-insert-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 11px;
+    color: #64748b;
+}
+
+.reg-insert-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.reg-insert-preview-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 14px;
+}
+
+.reg-insert-preview-actions .reg-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 
 .reg-insert-error {
     color: #dc2626;
     font-size: 12px;
+    margin: 10px 0 0;
 }

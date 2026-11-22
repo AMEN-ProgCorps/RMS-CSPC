@@ -1484,13 +1484,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             this.open.distribution = true;
         }
         this.$watch('notice', (v) => { if (v) setTimeout(() => { this.notice = ''; }, 4000); });
-        this.$watch('open', () => this.queueStickySync(), { deep: true });
-        this.$watch('visible', () => this.queueStickySync(), { deep: true });
+        this.$watch('open', () => {
+            this.paintOpenDom();
+            this.queueStickySync();
+        }, { deep: true });
+        this.$watch('visible', () => {
+            this.paintVisibilityDom();
+            this.queueStickySync();
+        }, { deep: true });
+        // Imperative data-open/data-vis — Alpine :attr on this root can go stale after morph / category expand.
+        this.paintOpenDom();
+        this.paintVisibilityDom();
         // Play the shared page-enter once, then lock so in-page morphs stay still.
         this.markPageEnterSettled();
         // After Livewire type/search/filter morphs — only reset categories when server attrs change.
         this._onDbResync = () => {
             this.syncCategoriesFromDom();
+            this.paintOpenDom();
+            this.paintVisibilityDom();
             if (this._needsLayoutSettle) {
                 this._needsLayoutSettle = false;
                 this.settleTableLayout();
@@ -1534,8 +1545,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 api.openRowMenuFromEl(row, e.clientX, e.clientY);
                 return;
             }
-            const th = e.target?.closest?.('.db-group-header[data-group]');
+            // Collapsed: .db-group-header[data-group]. Expanded primary: same + data-group.
+            // Expanded sub-headers (2nd/3rd row): col-group-* only — resolve group from class or data-group.
+            const th = e.target?.closest?.('th[data-group], th.db-group-header, th.col-group-expanded');
             if (th && root.contains(th) && typeof api.openGroupMenu === 'function') {
+                let group = th.getAttribute('data-group');
+                if (!group) {
+                    const m = String(th.className || '').match(/\bcol-group-(approval|deadline|masterlist|dcn|drf|distribution|retrieval)\b/);
+                    group = m ? m[1] : null;
+                }
+                if (!group) return;
                 e.preventDefault();
                 e.stopPropagation();
                 api.openGroupMenu({
@@ -1543,7 +1562,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     clientY: e.clientY,
                     currentTarget: th,
                     target: e.target,
-                }, th.getAttribute('data-group'));
+                }, group);
             }
         };
         if (window.__dcsDbContextMenuHandler) {
@@ -1554,7 +1573,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         // Close menus on outside click even if Alpine @mousedown.outside is stale after morph.
         this._onDbMenuOutside = (e) => {
             if (this._suppressOutsideClick) return;
-            const api = window.__dcsDbApi || this;
+            let api = null;
+            try {
+                const root = document.querySelector('[data-dcs-db-root]');
+                api = (window.Alpine && typeof Alpine.$data === 'function' && root) ? Alpine.$data(root) : null;
+            } catch (err) {}
+            api = api || window.__dcsDbApi || this;
             const rowMenu = document.getElementById('dcs-db-row-menu');
             const groupMenu = document.getElementById('dcs-db-group-menu');
             if (rowMenu && rowMenu.style.display === 'block' && !rowMenu.contains(e.target)) {
@@ -1627,10 +1651,47 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             }
         }
     },
+    resolveDbApi() {
+        const root = document.querySelector('[data-dcs-db-root]');
+        let api = null;
+        try {
+            api = (window.Alpine && typeof Alpine.$data === 'function' && root) ? Alpine.$data(root) : null;
+        } catch (err) {}
+        if (!api || typeof api.hideGroupFromMenu !== 'function') {
+            api = window.__dcsDbApi;
+        }
+        if (api) {
+            window.__dcsDbApi = api;
+        }
+        return api;
+    },
+    paintOpenDom() {
+        const root = this.dbRoot();
+        if (!root || !this.open) return;
+        Object.keys(this.open).forEach((g) => {
+            root.setAttribute('data-open-' + g, this.open[g] ? '1' : '0');
+        });
+    },
+    paintVisibilityDom() {
+        const root = this.dbRoot();
+        if (!root || !this.visible) return;
+        Object.keys(this.visible).forEach((g) => {
+            root.setAttribute('data-vis-' + g, this.visible[g] ? '1' : '0');
+        });
+    },
     bindMenuActionClicks() {
         this._onDbMenuClick = (e) => {
-            const api = window.__dcsDbApi;
+            // Prefer live Alpine scope — stale __dcsDbApi after category expand left hide no-ops.
+            let api = null;
+            try {
+                const root = document.querySelector('[data-dcs-db-root]');
+                api = (window.Alpine && typeof Alpine.$data === 'function' && root) ? Alpine.$data(root) : null;
+            } catch (err) {}
+            if (!api || typeof api.hideGroupFromMenu !== 'function') {
+                api = window.__dcsDbApi;
+            }
             if (!api) return;
+            window.__dcsDbApi = api;
             const rowMenu = document.getElementById('dcs-db-row-menu');
             const groupMenu = document.getElementById('dcs-db-group-menu');
             if (rowMenu && rowMenu.style.display !== 'none' && rowMenu.contains(e.target)) {
@@ -1860,12 +1921,25 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         } catch (e) {}
     },
     persistVisible() {
-        $wire.saveVisibleGroups(this.visible);
+        try {
+            const wire = this.$wire;
+            if (wire && typeof wire.saveVisibleGroups === 'function') {
+                wire.saveVisibleGroups(this.visible);
+                return;
+            }
+        } catch (err) {}
+        try {
+            $wire.saveVisibleGroups(this.visible);
+        } catch (err2) {}
     },
     get allCollapsed() {
         return Object.values(this.open).every(v => !v);
     },
-    toggle(g) { this.open[g] = !this.open[g]; this.persistExpand(); },
+    toggle(g) {
+        this.open = Object.assign({}, this.open, { [g]: !this.open[g] });
+        this.paintOpenDom();
+        this.persistExpand();
+    },
     openGroupMenu(e, group) {
         if (!this.visible[group]) {
             return;
@@ -2064,15 +2138,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         const g = this.groupMenu.group;
         this._suppressOutsideClick = false;
         this.closeGroupMenu();
-        if (!g || !this.visible[g]) {
+        if (!g) {
             return;
         }
-        this.visible[g] = false;
+        // Always paint DOM attrs — Alpine :data-vis-* on the root can miss updates after
+        // category expand / Livewire morph even when this.visible was already false in JS.
+        this.visible = Object.assign({}, this.visible, { [g]: false });
+        this.paintVisibilityDom();
+        this.queueStickySync();
         this.persistVisible();
     },
     collapseAll() {
         const next = Object.values(this.open).some(Boolean);
-        Object.keys(this.open).forEach(k => this.open[k] = !next);
+        const updated = {};
+        Object.keys(this.open).forEach(k => { updated[k] = !next; });
+        this.open = updated;
+        this.paintOpenDom();
         this.persistExpand();
     },
     withTableBusy(label, hint, fn) {
@@ -2108,6 +2189,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 // New object so Alpine always notices the change.
                 this.categories = Object.assign({}, this.categories, { [slug]: true });
                 this.applyCategoryVisibility();
+                // Re-assert column hide attrs so newly shown rows honor data-vis-*.
+                this.paintVisibilityDom();
+                this.paintOpenDom();
                 this.persistExpand();
             });
             return;
@@ -2322,25 +2406,25 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th rowspan="3" class="db-related-col">RELATED DOCS</th>
 
                         <th rowspan="3" class="col-group-summary db-group-header" data-group="approval" x-on:click="toggle('approval')">APPROVAL <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['approval'] ?? 2 }}" class="col-group-approval col-group-expanded db-group-header" x-on:click="toggle('approval')">APPROVAL <span class="collapse-arrow">&#9664;</span></th>
+                        <th colspan="{{ $groupColspans['approval'] ?? 2 }}" class="col-group-approval col-group-expanded db-group-header" data-group="approval" x-on:click="toggle('approval')">APPROVAL <span class="collapse-arrow">&#9664;</span></th>
 
                         <th rowspan="3" class="col-group-summary db-group-header" data-group="deadline" x-on:click="toggle('deadline')">DEADLINE <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['deadline'] ?? 2 }}" class="col-group-deadline col-group-expanded db-group-header" x-on:click="toggle('deadline')">DEADLINE <span class="collapse-arrow">&#9664;</span></th>
+                        <th colspan="{{ $groupColspans['deadline'] ?? 2 }}" class="col-group-deadline col-group-expanded db-group-header" data-group="deadline" x-on:click="toggle('deadline')">DEADLINE <span class="collapse-arrow">&#9664;</span></th>
 
                         <th rowspan="3" class="col-group-summary db-group-header" data-group="masterlist" x-on:click="toggle('masterlist')">MASTERLIST <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['masterlist'] ?? 5 }}" class="col-group-masterlist col-group-expanded db-group-header" x-on:click="toggle('masterlist')">MASTERLIST REGISTRATION <span class="collapse-arrow">&#9664;</span></th>
+                        <th colspan="{{ $groupColspans['masterlist'] ?? 5 }}" class="col-group-masterlist col-group-expanded db-group-header" data-group="masterlist" x-on:click="toggle('masterlist')">MASTERLIST REGISTRATION <span class="collapse-arrow">&#9664;</span></th>
 
                         <th rowspan="3" class="col-group-summary db-group-header" data-group="dcn" x-on:click="toggle('dcn')">DCN <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['dcn'] ?? 6 }}" class="col-group-dcn col-group-expanded db-group-header" x-on:click="toggle('dcn')">DOCUMENT CHANGE NOTICE <span class="collapse-arrow">&#9664;</span></th>
+                        <th colspan="{{ $groupColspans['dcn'] ?? 6 }}" class="col-group-dcn col-group-expanded db-group-header" data-group="dcn" x-on:click="toggle('dcn')">DOCUMENT CHANGE NOTICE <span class="collapse-arrow">&#9664;</span></th>
 
                         <th rowspan="3" class="col-group-summary db-group-header" data-group="drf" x-on:click="toggle('drf')">DRF <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['drf'] ?? 5 }}" class="col-group-drf col-group-expanded db-group-header" x-on:click="toggle('drf')">DOCUMENT REQUEST FORM <span class="collapse-arrow">&#9664;</span></th>
+                        <th colspan="{{ $groupColspans['drf'] ?? 5 }}" class="col-group-drf col-group-expanded db-group-header" data-group="drf" x-on:click="toggle('drf')">DOCUMENT REQUEST FORM <span class="collapse-arrow">&#9664;</span></th>
 
                         <th rowspan="3" class="col-group-summary db-group-header" data-group="distribution" x-on:click="toggle('distribution')">DISTRIBUTION <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['distribution'] ?? 6 }}" class="col-group-distribution col-group-expanded db-group-header" x-on:click="toggle('distribution')">DISTRIBUTION <span class="collapse-arrow">&#9664;</span></th>
+                        <th colspan="{{ $groupColspans['distribution'] ?? 6 }}" class="col-group-distribution col-group-expanded db-group-header" data-group="distribution" x-on:click="toggle('distribution')">DISTRIBUTION <span class="collapse-arrow">&#9664;</span></th>
 
                         <th rowspan="3" class="col-group-summary db-group-header" data-group="retrieval" x-on:click="toggle('retrieval')">RETRIEVAL <span class="collapse-arrow">&#9654;</span></th>
-                        <th rowspan="3" class="col-group-retrieval col-group-expanded db-group-header db-offices-col" x-on:click="toggle('retrieval')">RETRIEVED OFFICE(S) <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-retrieval col-group-expanded db-group-header db-offices-col" data-group="retrieval" x-on:click="toggle('retrieval')">RETRIEVED OFFICE(S) <span class="collapse-arrow">&#9664;</span></th>
                     </tr>
 
                     <tr class="db-head-secondary">

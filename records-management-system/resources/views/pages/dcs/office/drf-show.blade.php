@@ -220,15 +220,25 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     $syllabiCtx = \App\Helpers\OfficeIntakeHelper::officeDrfSyllabiContextFromRow($drf);
                 @endphp
                 @if(!empty($syllabiCtx['is_syllabi']))
+                    @php
+                        $sylCourseType = trim((string) ($syllabiCtx['course_type'] ?? ''));
+                        $sylIsShared = \App\Helpers\CourseTypeRules::isSharedType($sylCourseType);
+                    @endphp
                     <div class="reg-grid-3" style="margin-top:8px;">
+                        <div class="reg-field">
+                            <label>Course Type</label>
+                            <div class="ofi-show-value">{{ $sylCourseType !== '' ? $sylCourseType : '—' }}</div>
+                        </div>
                         <div class="reg-field">
                             <label>College</label>
                             <div class="ofi-show-value">{{ $syllabiCtx['college'] ?: '—' }}</div>
                         </div>
-                        <div class="reg-field">
-                            <label>Program</label>
-                            <div class="ofi-show-value">{{ $syllabiCtx['program'] ?: '—' }}</div>
-                        </div>
+                        @unless($sylIsShared)
+                            <div class="reg-field">
+                                <label>Program</label>
+                                <div class="ofi-show-value">{{ $syllabiCtx['program'] ?: '—' }}</div>
+                            </div>
+                        @endunless
                         <div class="reg-field">
                             <label>Semester</label>
                             <div class="ofi-show-value">{{ $syllabiCtx['semester'] ?: '—' }}</div>

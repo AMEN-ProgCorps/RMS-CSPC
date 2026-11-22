@@ -772,15 +772,37 @@
         return true; // Navigation blocked
     };
 
-    // Successful page render clears any circuit-breaker lock for this path.
+    // Successful page render clears circuit-breaker lock for this path (client + server ticket).
     (function clearGuardForCurrentPage() {
         var path = normalizePath(location.pathname);
-        if (!path || !window.__rmsActiveGuards || !window.__rmsActiveGuards.pages) return;
-        if (window.__rmsActiveGuards.pages[path]) {
-            delete window.__rmsActiveGuards.pages[path];
-        }
+        if (!path) return;
+
         window.__rmsDismissedPageGuards = window.__rmsDismissedPageGuards || {};
         window.__rmsDismissedPageGuards[path] = true;
+        if (window.__rmsActiveGuards && window.__rmsActiveGuards.pages && window.__rmsActiveGuards.pages[path]) {
+            delete window.__rmsActiveGuards.pages[path];
+        }
+
+        // Persist clear so returning to this page is not blocked by a fixed crash ticket.
+        try {
+            var csrf = document.querySelector('meta[name="csrf-token"]');
+            fetch('/api/errors/clear-page-guard', {
+                method: 'POST',
+                credentials: 'same-origin',
+                cache: 'no-store',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrf ? csrf.getAttribute('content') : '',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({ path: path })
+            }).then(function (r) { return r.json(); }).then(function (data) {
+                if (data && data.guards && typeof data.guards === 'object') {
+                    window.__rmsActiveGuards = data.guards;
+                }
+            }).catch(function () {});
+        } catch (e) {}
     })();
 
     window.rmsCheckModalGuard = function (modalKey) {

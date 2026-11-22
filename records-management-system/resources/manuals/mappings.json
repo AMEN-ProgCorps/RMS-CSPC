@@ -1,4 +1,5 @@
 {
     "dts.received": "dts/dts.received.md",
-    "dcs.register.index": "dcs/dcs-register-index.md"
+    "dcs.register.index": "dcs/dcs-register-index.md",
+    "dcs.office.incoming": "dcs/dcs.office.incoming.md"
 }

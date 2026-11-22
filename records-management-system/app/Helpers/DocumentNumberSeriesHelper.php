@@ -194,6 +194,57 @@ class DocumentNumberSeriesHelper
     }
 
     /**
+     * Latest series-tip document numbers only (excludes "Register another copy" rows).
+     * Used so insert/shift does not treat separate same-number copies as series slots.
+     *
+     * @return list<string>
+     */
+    public static function liveSeriesTipDocNos(int $docTypeId, ?int $subTypeId, int $excludeRequestId = 0): array
+    {
+        if ($docTypeId < 1 || ! Schema::hasTable('dcs_masterlist_registration')) {
+            return [];
+        }
+
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->whereNotNull('ml.doc_no')
+            ->whereRaw("TRIM(ml.doc_no) <> ''");
+
+        $requestIds = RegisterQueryHelper::requestIdsWithSameDocType((object) [
+            'doc_type_id' => $docTypeId,
+            'sub_type_id' => $subTypeId,
+        ]);
+        if ($requestIds === []) {
+            return [];
+        }
+        $query->whereIn('ml.request_id', $requestIds);
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
+
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
+            $query->where(function ($q) {
+                $q->where('ml.revision_status', 'latest')
+                    ->orWhereNull('ml.revision_status')
+                    ->orWhere('ml.revision_status', '');
+            });
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'allows_revision')) {
+            $query->where(function ($q) {
+                $q->where('ml.allows_revision', true)->orWhereNull('ml.allows_revision');
+            });
+        }
+        if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $query->where(function ($q) {
+                $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
+        if ($excludeRequestId > 0) {
+            $query->where('ml.request_id', '!=', $excludeRequestId);
+        }
+
+        return $query->pluck('ml.doc_no')->filter()->unique()->values()->all();
+    }
+
+    /**
      * Helper used for members in series.
      * @param  list<string>  $docNos
      * @return list<array{doc_no: string, series: string, number: int, width: int, suffix: string}>
@@ -228,7 +279,10 @@ class DocumentNumberSeriesHelper
     }
 
     /**
-     * Helper used for next in series.
+     * Next free number in the same series.
+     * When $typed ends with a number (e.g. CSPC-F-01), returns the next free
+     * sequential slot (…-02), not after the series max (…-1026).
+     * When $typed is a leaf prefix without a trailing item number, appends after max.
      */
     public static function nextInSeries(string $typed, int $docTypeId, ?int $subTypeId, int $excludeRequestId = 0): ?string
     {
@@ -238,10 +292,15 @@ class DocumentNumberSeriesHelper
         }
 
         $parsed = self::parseDocNo($typed);
-        // Typed value that does not end in a digit is a leaf prefix (17B), not item 17B.
-        $series = preg_match('/\d$/', $typed)
-            ? (string) ($parsed['series'] ?? $typed)
-            : $typed;
+        // Typed value that ends in a digit: walk forward from that number.
+        if ($parsed && $parsed['number'] !== null && preg_match('/\d$/', $typed)) {
+            $allocated = self::allocateNextFreeNumbers($typed, $docTypeId, $subTypeId, $excludeRequestId, 1);
+
+            return $allocated[0] ?? null;
+        }
+
+        // Leaf prefix (17B): append after the highest member.
+        $series = $typed;
         if ($series === '') {
             return null;
         }
@@ -258,20 +317,10 @@ class DocumentNumberSeriesHelper
             $width = max($width, $row['width']);
         }
         if ($members === []) {
-            if ($parsed && $parsed['number'] !== null) {
-                $width = max(2, (int) $parsed['width']);
-            }
-
-            return self::formatDocNo(
-                $parsed && $parsed['number'] !== null ? (string) $parsed['series'] : $series,
-                $max + 1,
-                $width
-            );
+            return self::formatDocNo($series, 1, $width);
         }
 
-        $seriesOut = $members[0]['series'];
-
-        return self::formatDocNo($seriesOut, $max + 1, $width);
+        return self::formatDocNo($members[0]['series'], $max + 1, $width);
     }
 
     /**
@@ -377,106 +426,175 @@ class DocumentNumberSeriesHelper
     }
 
     /**
-     * Helper used for preview insert shift.
-     * @return list<array{from: string, to: string, title: ?string}>
+     * Preview: free the typed document number by renumbering selected holders only.
+     * Does not cascade later series numbers (e.g. …-1024 when freeing …-01).
+     *
+     * @return array<string, mixed>
      */
     public static function previewInsertShift(Request $request): array
     {
-        $plan = self::buildShiftPlan($request);
-        if (! empty($plan['error'])) {
+        $docNo = trim((string) (
+            $request->input('doc_no')
+            ?: $request->input('insert_shift_doc_no')
+            ?: $request->input('masterlistDocNo')
+            ?: ''
+        ));
+        $docTypeId = (int) $request->input('doc_type_id', 0);
+        $subTypeId = $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null;
+        $excludeRequestId = (int) $request->input('exclude_request_id', 0);
+
+        $nextFree = $docNo !== '' && $docTypeId > 0
+            ? self::nextInSeries($docNo, $docTypeId, $subTypeId, $excludeRequestId)
+            : null;
+
+        if ($docNo === '' || $docTypeId < 1) {
             return [
                 'ok' => false,
-                'error' => $plan['error'],
+                'error' => 'Enter a document number and type first.',
+                'candidates' => [],
                 'shifts' => [],
-                'next_free' => $plan['next_free'] ?? null,
+                'next_free' => $nextFree,
             ];
         }
+
+        $holders = self::exactDocNoHolders($docNo, $docTypeId, $subTypeId, $excludeRequestId);
+        if ($holders === []) {
+            return [
+                'ok' => false,
+                'error' => 'No registered document currently uses that exact number.',
+                'candidates' => [],
+                'shifts' => [],
+                'next_free' => $nextFree,
+            ];
+        }
+
+        $targets = self::allocateNextFreeNumbers($docNo, $docTypeId, $subTypeId, $excludeRequestId, count($holders));
+        $candidates = [];
+        foreach ($holders as $i => $row) {
+            $to = $targets[$i] ?? null;
+            $candidates[] = [
+                'request_id' => (int) $row->request_id,
+                'masterlist_id' => (int) $row->id,
+                'from' => (string) $row->doc_no,
+                'to' => $to,
+                'title' => trim((string) ($row->doc_title ?? '')) ?: 'Untitled',
+                'revise_no' => (int) ($row->revise_no ?? 0),
+                'is_copy' => Schema::hasColumn('dcs_masterlist_registration', 'allows_revision')
+                    && ! (bool) ($row->allows_revision ?? true),
+                // User must choose which registration(s) to renumber.
+                'selected' => false,
+            ];
+        }
+
+        // Back-compat for older JS that only reads shifts.
+        $shifts = array_map(fn (array $c) => [
+            'from' => $c['from'],
+            'to' => $c['to'],
+            'title' => $c['title'],
+            'request_id' => $c['request_id'],
+        ], $candidates);
 
         return [
             'ok' => true,
             'error' => null,
-            'insert' => $plan['insert'],
-            'next_free' => $plan['next_free'],
-            'allows_revision' => $plan['allows_revision'],
-            'shifts' => $plan['shifts'],
-            'date_warning' => self::insertDateWarning($request, (string) ($plan['insert'] ?? '')),
+            'insert' => $docNo,
+            'next_free' => $nextFree,
+            'candidates' => $candidates,
+            'shifts' => $shifts,
+            // Exact free/renumber is about picking holders — date does not affect the number.
+            'date_warning' => null,
+            'mode' => 'exact_select',
         ];
     }
 
     /**
-     * Apply query/scope constraint: apply insert shift.
+     * Free the typed document number by renumbering only the selected registrations.
      *
-     * DEBUG: wrong rows visible for office/user → check this scope.
      * @return array{ok: bool, error?: string, mappings?: list<array{from: string, to: string}>}
      */
     public static function applyInsertShift(Request $request): array
     {
-        $plan = self::buildShiftPlan($request);
-        if (! empty($plan['error'])) {
-            return ['ok' => false, 'error' => $plan['error']];
-        }
-
+        $docNo = trim((string) (
+            $request->input('insert_shift_doc_no')
+            ?: $request->input('doc_no')
+            ?: $request->input('masterlistDocNo')
+            ?: ''
+        ));
         $docTypeId = (int) $request->input('doc_type_id', 0);
         $subTypeId = $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null;
-        $typeFilter = (object) ['doc_type_id' => $docTypeId, 'sub_type_id' => $subTypeId];
-        $requestIds = RegisterQueryHelper::requestIdsWithSameDocType($typeFilter);
+        $excludeRequestId = (int) $request->input('exclude_request_id', 0);
 
-        $mappings = $plan['shifts'];
-        usort($mappings, function ($a, $b) {
-            $pa = self::parseDocNo($a['from']);
-            $pb = self::parseDocNo($b['from']);
+        $selected = $request->input('insert_shift_request_ids', $request->input('insert_shift_ids', []));
+        if (is_string($selected)) {
+            $selected = preg_split('/[\s,;|]+/', $selected) ?: [];
+        }
+        $selectedIds = array_values(array_unique(array_filter(array_map('intval', (array) $selected))));
 
-            return ((int) ($pb['number'] ?? 0)) <=> ((int) ($pa['number'] ?? 0));
-        });
+        if ($docNo === '' || $docTypeId < 1) {
+            return ['ok' => false, 'error' => 'Enter a document number and type first.'];
+        }
+        if ($selectedIds === []) {
+            return ['ok' => false, 'error' => 'Select at least one document to renumber.'];
+        }
 
-        $movedIds = [];
-        foreach ($mappings as $map) {
-            $from = (string) $map['from'];
-            $to = (string) $map['to'];
-            $ids = DB::table('dcs_masterlist_registration as ml')
-                ->whereIn('ml.request_id', $requestIds)
-                ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower(trim($from))])
-                ->when(Schema::hasColumn('dcs_masterlist_registration', 'revision_status'), function ($q) {
-                    $q->whereIn('ml.revision_status', ['latest', 'obsolete', 'superseded']);
-                })
-                ->lockForUpdate()
-                ->pluck('ml.id');
+        $holders = self::exactDocNoHolders($docNo, $docTypeId, $subTypeId, $excludeRequestId);
+        $byRequest = [];
+        foreach ($holders as $row) {
+            $byRequest[(int) $row->request_id] = $row;
+        }
 
-            if ($ids->isEmpty()) {
-                continue;
+        $ordered = [];
+        foreach ($selectedIds as $rid) {
+            if (! isset($byRequest[$rid])) {
+                return ['ok' => false, 'error' => 'A selected document no longer uses '.$docNo.'. Refresh and try again.'];
             }
+            $ordered[] = $byRequest[$rid];
+        }
 
+        $targets = self::allocateNextFreeNumbers($docNo, $docTypeId, $subTypeId, $excludeRequestId, count($ordered));
+        if (count($targets) < count($ordered)) {
+            return ['ok' => false, 'error' => 'Could not allocate free document numbers for the selection.'];
+        }
+
+        $mappings = [];
+        $movedIds = [];
+        foreach ($ordered as $i => $row) {
+            $to = $targets[$i];
             $taken = DB::table('dcs_masterlist_registration as ml')
-                ->whereIn('ml.request_id', $requestIds)
-                ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower(trim($to))])
+                ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($to)])
                 ->when(Schema::hasColumn('dcs_masterlist_registration', 'revision_status'), function ($q) {
                     $q->where('ml.revision_status', 'latest');
                 })
-                ->whereNotIn('ml.id', $ids)
+                ->where('ml.id', '!=', (int) $row->id)
                 ->exists();
             if ($taken) {
-                return ['ok' => false, 'error' => 'Cannot shift: "'.$to.'" is already used by another document.'];
+                return ['ok' => false, 'error' => 'Cannot renumber: "'.$to.'" is already used by another document.'];
             }
 
             DB::table('dcs_masterlist_registration')
-                ->whereIn('id', $ids)
+                ->where('id', (int) $row->id)
                 ->update([
                     'doc_no' => $to,
                     'updated_at' => now(),
                 ]);
-            foreach ($ids as $id) {
-                $movedIds[] = (int) $id;
-            }
+            $movedIds[] = (int) $row->id;
+            $mappings[] = [
+                'from' => (string) $row->doc_no,
+                'to' => $to,
+                'title' => trim((string) ($row->doc_title ?? '')),
+                'request_id' => (int) $row->request_id,
+            ];
         }
 
         self::separateShiftedDocuments($mappings, $movedIds);
 
         self::ensureShiftTable();
         if (Schema::hasTable('dcs_doc_no_shifts')) {
+            $parsed = self::parseDocNo($docNo);
             $shift = [
-                'series_key' => $plan['series_key'],
-                'inserted_doc_no' => $plan['insert'],
-                'rename_letters' => ! empty($plan['rename_letters']),
+                'series_key' => self::seriesKey((string) ($parsed['series'] ?? $docNo)),
+                'inserted_doc_no' => $docNo,
+                'rename_letters' => false,
                 'created_by' => auth()->id(),
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -490,10 +608,107 @@ class DocumentNumberSeriesHelper
 
         $summary = collect($mappings)->map(fn ($m) => $m['from'].' → '.$m['to'])->implode(', ');
         RegisterPersistHelper::logAdminChange(
-            'Inserted document number '.$plan['insert'].' and shifted: '.$summary
+            'Freed document number '.$docNo.' by renumbering: '.$summary
         );
 
         return ['ok' => true, 'mappings' => $mappings];
+    }
+
+    /**
+     * Registrations currently holding this exact document number (latest).
+     *
+     * @return list<object>
+     */
+    public static function exactDocNoHolders(
+        string $docNo,
+        int $docTypeId,
+        ?int $subTypeId,
+        int $excludeRequestId = 0
+    ): array {
+        $docNo = trim($docNo);
+        if ($docNo === '' || $docTypeId < 1 || ! Schema::hasTable('dcs_masterlist_registration')) {
+            return [];
+        }
+
+        $requestIds = RegisterQueryHelper::requestIdsWithSameDocType((object) [
+            'doc_type_id' => $docTypeId,
+            'sub_type_id' => $subTypeId,
+        ]);
+        if ($requestIds === []) {
+            return [];
+        }
+
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->whereIn('ml.request_id', $requestIds)
+            ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)]);
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
+            $query->where(function ($q) {
+                $q->where('ml.revision_status', 'latest')
+                    ->orWhereNull('ml.revision_status')
+                    ->orWhere('ml.revision_status', '');
+            });
+        }
+        if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $query->where(function ($q) {
+                $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
+        if ($excludeRequestId > 0) {
+            $query->where('ml.request_id', '!=', $excludeRequestId);
+        }
+
+        $cols = ['ml.id', 'ml.request_id', 'ml.doc_no', 'ml.doc_title', 'ml.revise_no'];
+        if (Schema::hasColumn('dcs_masterlist_registration', 'allows_revision')) {
+            $cols[] = 'ml.allows_revision';
+        }
+
+        return $query->orderBy('ml.id')->get($cols)->all();
+    }
+
+    /**
+     * Next N free numbers after $docNo in the same series (e.g. …-01 → …-02).
+     * Skips only numbers that are already taken; does not jump to after the series max
+     * (so …-1024 elsewhere does not force …-1026).
+     *
+     * @return list<string>
+     */
+    public static function allocateNextFreeNumbers(
+        string $docNo,
+        int $docTypeId,
+        ?int $subTypeId,
+        int $excludeRequestId,
+        int $count
+    ): array {
+        if ($count < 1) {
+            return [];
+        }
+        $parsed = self::parseDocNo($docNo);
+        if (! $parsed || $parsed['number'] === null) {
+            return [];
+        }
+        $series = (string) $parsed['series'];
+        // Keep the freed number's digit width (01 → 02), not the widest later tip (1024).
+        $width = max(2, (int) $parsed['width']);
+        $live = array_map('mb_strtolower', self::liveDocNos($docTypeId, $subTypeId, $excludeRequestId));
+        $liveSet = array_fill_keys($live, true);
+
+        $out = [];
+        $n = (int) $parsed['number'];
+        $guard = 0;
+        while (count($out) < $count && $guard < 100000) {
+            $guard++;
+            $n++;
+            $candidate = self::formatDocNo($series, $n, $width, '');
+            if (isset($liveSet[mb_strtolower($candidate)])) {
+                continue;
+            }
+            $out[] = $candidate;
+            $liveSet[mb_strtolower($candidate)] = true;
+        }
+
+        return $out;
     }
 
     /**
@@ -645,7 +860,8 @@ class DocumentNumberSeriesHelper
         $series = (string) $parsed['series'];
         $slot = (int) $parsed['number'];
         $insertedSuffix = (string) ($parsed['suffix'] ?? '');
-        $live = self::liveDocNos($docTypeId, $subTypeId, $excludeRequestId);
+        // Series tips only — separate same-number copies are not shifted as a group.
+        $live = self::liveSeriesTipDocNos($docTypeId, $subTypeId, $excludeRequestId);
         $numeric = self::membersInSeries($live, $series, true);
         $letters = self::membersInSeries($live, $series, false);
 

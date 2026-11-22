@@ -2,18 +2,18 @@
 Read-only view of your saved DRF (CSPC-F-DCC-06).
 
 ## Header actions
-- Back to list: Return to My DRF.
+- Back to list: Return to My DRF (intake reviewers see Back to DCS).
 - Edit form: Only when RFIO unlocked corrections.
-- Print form: Unlocked after RFIO notify print and sign; otherwise shows Locked and keeps checking.
+- Print form: Always labeled Print form. When locked it is disabled and a **Print is locked** banner explains that RFIO must notify print and sign; the page keeps checking and enables print without a full reload.
 
 ## Banners you may see
-- Print locked: Waiting until RFIO notifies.
+- Print is locked: Waiting until RFIO notifies.
 - RFIO asked for corrections: Edit is available.
 - Status banner: Registered by RFIO / Editing enabled / View only.
 
 ## Body
 - Form fields: Full read-only DRF fields, distribution chips, and signatories.
-- Recurring card: Shown when the DRF was created for a yearly (recurring) document.
+- Recurring from registered document: Card shown when the DRF was created as a recurring request.
 
 > [!TIP]
-> After printing and signing, submit the hard copy to Records. Marking printed is not a button on this page.
+> After printing and signing, submit the hard copy to Records. There is no “mark printed” button on this page.

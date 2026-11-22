@@ -230,9 +230,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </div>
                         </div>
                         <p class="ofi-hint">Document type and sub-type cannot be changed while correcting this request.</p>
+                        @php
+                            $editCourseType = old('courseType', '');
+                            if ($editCourseType === '' && ! empty($drf->course_id)
+                                && \Illuminate\Support\Facades\Schema::hasColumn('dcs_program_courses', 'course_type')) {
+                                $editCourseType = (string) (\Illuminate\Support\Facades\DB::table('dcs_program_courses')
+                                    ->where('id', $drf->course_id)
+                                    ->value('course_type') ?? '');
+                            }
+                        @endphp
                         @include('pages.dcs.office.partials.drf-syllabi-context', [
                             'syllabiContextVisible' => (bool) ($isSyllabiLikeEdit ?? false),
                             'subTypeName' => $subTypeName ?? '',
+                            'oldCourseType' => $editCourseType,
                             'oldCollegeId' => old('collegeId', (string) ($drf->college_id ?? '')),
                             'oldProgramId' => old('programId', (string) ($drf->program_id ?? '')),
                             'oldSemesterId' => old('semesterId', (string) ($drf->semester_id ?? '')),

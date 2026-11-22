@@ -206,7 +206,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
                 $idleTicks = (int)$matches[4];
                 $totalTicks = (int)$matches[1] + (int)$matches[2] + (int)$matches[3] + (int)$matches[4];
 
-                $lastStat = \Illuminate\Support\Facades\Cache::get('rms_cpu_stat_ticks_v2');
+                $lastStat = null;
+                try {
+                    $lastStat = \Illuminate\Support\Facades\Cache::get('rms_cpu_stat_ticks_v2');
+                } catch (\Throwable $e) {}
+
                 if ($lastStat && isset($lastStat['total'], $lastStat['idle']) && $totalTicks > $lastStat['total']) {
                     $dTotal = $totalTicks - $lastStat['total'];
                     $dIdle = $idleTicks - $lastStat['idle'];
@@ -214,7 +218,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
                 } else {
                     $cpuUsage = 18;
                 }
-                \Illuminate\Support\Facades\Cache::put('rms_cpu_stat_ticks_v2', ['total' => $totalTicks, 'idle' => $idleTicks], 300);
+
+                try {
+                    \Illuminate\Support\Facades\Cache::put('rms_cpu_stat_ticks_v2', ['total' => $totalTicks, 'idle' => $idleTicks], 300);
+                } catch (\Throwable $e) {}
             }
         } elseif (function_exists('sys_getloadavg')) {
             $load = sys_getloadavg();
@@ -255,7 +262,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
 
         // Rolling 12-point history stored in cache for multi-line telemetry
         $historyKey = 'rms_server_telemetry_history_v2';
-        $telemetryHistory = \Illuminate\Support\Facades\Cache::get($historyKey, []);
+        $telemetryHistory = [];
+        try {
+            $telemetryHistory = \Illuminate\Support\Facades\Cache::get($historyKey, []);
+        } catch (\Throwable $e) {}
 
         if (empty($telemetryHistory) || count($telemetryHistory) < 12) {
             $telemetryHistory = [];
@@ -275,7 +285,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Dashboard')] class exten
         if (count($telemetryHistory) > 12) {
             $telemetryHistory = array_slice($telemetryHistory, -12);
         }
-        \Illuminate\Support\Facades\Cache::put($historyKey, $telemetryHistory, 3600);
+
+        try {
+            \Illuminate\Support\Facades\Cache::put($historyKey, $telemetryHistory, 3600);
+        } catch (\Throwable $e) {}
 
         $cpuPoints = array_column($telemetryHistory, 'cpu');
         $ramPoints = array_column($telemetryHistory, 'ram');

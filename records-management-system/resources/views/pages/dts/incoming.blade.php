@@ -280,15 +280,13 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
                   });
             });
 
-        // Search Filter
-        if (!empty($this->searchQuery)) {
-            $searchVal = trim($this->searchQuery);
-            $query->where(function($q) use ($searchVal) {
-                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dtd.subject', 'like', '%' . $searchVal . '%')
-                  ->orWhere('req.requestor_name', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
-            });
+        // Smart search filter & relevance ranking
+        if (!empty(trim($this->searchQuery))) {
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->searchQuery, [
+                'primary'   => ['dtd.control_number', 'dt.qr_code'],
+                'secondary' => ['dtd.subject'],
+                'meta'      => ['req.requestor_name', 'originated_office.office_name', 'dtd.action_needed'],
+            ]);
         }
 
         $items = $query->select(
@@ -325,6 +323,16 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
             $isReceived = $currentLog && ($currentLog->type === 'received' || (!empty($currentLog->date_in) && $currentLog->type !== 'forwarded'));
             return !$isReceived; // Return TRUE only for transactions NOT received yet
         });
+
+        if (!empty(trim($this->searchQuery))) {
+            $incomingOnly = \App\Helpers\SmartSearchHelper::sortCollection($incomingOnly, $this->searchQuery, function ($t) {
+                return [
+                    'primary'   => trim(($t->control_number ?? '') . ' ' . ($t->qr_code ?? '')),
+                    'secondary' => $t->subject ?? '',
+                    'meta'      => trim(($t->requestor_name ?? '') . ' ' . ($t->originated_office_name ?? '') . ' ' . ($t->action_needed ?? '')),
+                ];
+            });
+        }
 
         // Paginate manually
         $page = \Illuminate\Pagination\Paginator::resolveCurrentPage() ?: 1;

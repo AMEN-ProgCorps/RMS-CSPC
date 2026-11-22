@@ -29,6 +29,10 @@ new class extends Component {
     public string $availableSearch = '';
     public string $availableFilter = 'all';
 
+    // Direct Control Number Editing State
+    public bool $isEditingControlNumber = false;
+    public string $editingControlNumberValue = '';
+
     /**
      * Toggles modal maximize state between standard docked dialog and full-viewport view.
      *
@@ -54,6 +58,8 @@ new class extends Component {
         $this->forwardHubOffices = [];
         $this->forwardHubTempSelected = [];
         $this->showForwardHubModal = false;
+        $this->isEditingControlNumber = false;
+        $this->editingControlNumberValue = '';
         $this->dispatch('focus-scanner-input');
     }
 
@@ -128,6 +134,105 @@ new class extends Component {
     {
         $this->closeAvailableCodesModal();
         $this->loadTransaction($qrCode);
+    }
+
+    /**
+     * Starts inline editing of the active transaction's control number.
+     *
+     * @return void
+     */
+    public function startEditingControlNumber(): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !($perms->can_dts_modify_control_no ?? false))) {
+            $this->errorMessage = 'You do not have clearance to modify the Control Number.';
+            return;
+        }
+
+        if (!$this->activeTransaction) {
+            return;
+        }
+
+        $this->editingControlNumberValue = (string) ($this->activeTransaction['control_number'] ?? '');
+        $this->isEditingControlNumber = true;
+    }
+
+    /**
+     * Cancels inline editing of the control number.
+     *
+     * @return void
+     */
+    public function cancelEditControlNumber(): void
+    {
+        $this->isEditingControlNumber = false;
+        $this->editingControlNumberValue = '';
+    }
+
+    /**
+     * Persists the modified control number to the database after validation.
+     *
+     * @return void
+     */
+    public function saveControlNumber(): void
+    {
+        $this->clearMessages();
+
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !($perms->can_dts_modify_control_no ?? false))) {
+            $this->errorMessage = 'You do not have clearance to modify the Control Number.';
+            $this->isEditingControlNumber = false;
+            return;
+        }
+
+        if (!$this->activeTransaction) {
+            $this->isEditingControlNumber = false;
+            return;
+        }
+
+        $newCode = trim($this->editingControlNumberValue);
+        $oldCode = trim((string) ($this->activeTransaction['control_number'] ?? ''));
+
+        if (empty($newCode)) {
+            $this->errorMessage = 'Control number cannot be empty.';
+            return;
+        }
+
+        if ($newCode === $oldCode) {
+            $this->isEditingControlNumber = false;
+            return;
+        }
+
+        $transId = (int) $this->activeTransaction['id'];
+
+        $exists = DB::table('dts_transaction_details')
+            ->where('control_number', $newCode)
+            ->where('id', '!=', $transId)
+            ->exists();
+
+        if ($exists) {
+            $this->errorMessage = "Control number '{$newCode}' is already in use by another transaction.";
+            return;
+        }
+
+        try {
+            DB::transaction(function () use ($transId, $newCode, $oldCode) {
+                DB::table('dts_transaction_details')
+                    ->where('id', $transId)
+                    ->update(['control_number' => $newCode]);
+
+                if (\Illuminate\Support\Facades\Schema::hasTable('dts_copy_filled_transaction')) {
+                    DB::table('dts_copy_filled_transaction')
+                        ->where('control_num', $oldCode)
+                        ->update(['control_num' => $newCode]);
+                }
+            });
+
+            $this->activeTransaction['control_number'] = $newCode;
+            $this->isEditingControlNumber = false;
+            $this->successMessage = "Control number updated successfully to '{$newCode}'.";
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Failed to update control number: ' . $e->getMessage();
+        }
     }
 
     /**
@@ -497,8 +602,10 @@ new class extends Component {
         $this->forwardHubOffices = [];
         $this->forwardHubTempSelected = [];
         $this->showForwardHubModal = false;
-        $this->dispatch('scanner-modal-closed');
+        $this->isEditingControlNumber = false;
+        $this->editingControlNumberValue = '';
         $this->dispatch('stop-camera-scanner');
+        $this->dispatch('scanner-modal-closed');
     }
 
     /**
@@ -1361,7 +1468,17 @@ new class extends Component {
         <div 
             id="dts-scanner-widget-card"
             class="dts-scanner-widget-card {{ $isMaximized ? 'is-maximized' : '' }}"
-            @keydown.window.escape="$wire.closeModal()"
+            x-data="{
+                destroy() {
+                    if (typeof window.stopModalScanner === 'function') window.stopModalScanner();
+                }
+            }"
+            x-init="() => {
+                return () => {
+                    if (typeof window.stopModalScanner === 'function') window.stopModalScanner();
+                };
+            }"
+            @keydown.window.escape="if (typeof window.stopModalScanner === 'function') window.stopModalScanner(); window.dispatchEvent(new CustomEvent('stop-camera-scanner')); $wire.closeModal()"
         >
             <!-- Chatify-Style Dark Header Bar -->
             <div class="dts-scanner-widget-header">
@@ -1426,7 +1543,7 @@ new class extends Component {
                     <!-- Minimize Button -->
                     <button
                         type="button"
-                        wire:click="closeModal"
+                        @click="if (typeof window.stopModalScanner === 'function') window.stopModalScanner(); window.dispatchEvent(new CustomEvent('stop-camera-scanner')); $wire.closeModal()"
                         class="scanner-header-icon-btn"
                         title="Minimize Scanner"
                     >
@@ -1443,8 +1560,8 @@ new class extends Component {
                     right: 24px;
                     width: 1040px;
                     max-width: calc(100vw - 32px);
-                    height: 520px;
-                    max-height: calc(100vh - 105px);
+                    height: 480px;
+                    max-height: calc(100vh - 110px);
                     border-radius: 16px;
                     background: #ffffff;
                     box-shadow: 0 24px 50px -10px rgba(15, 23, 42, 0.32), 0 0 0 1px rgba(148, 163, 184, 0.25);
@@ -1457,12 +1574,12 @@ new class extends Component {
                     font-family: 'Inter', system-ui, -apple-system, sans-serif;
                 }
                 .dts-scanner-widget-card.is-maximized {
-                    bottom: 16px;
+                    bottom: 88px;
                     right: 16px;
                     width: calc(100vw - 32px);
                     max-width: calc(100vw - 32px);
-                    height: calc(100vh - 32px);
-                    max-height: calc(100vh - 32px);
+                    height: calc(100vh - 120px);
+                    max-height: calc(100vh - 120px);
                     border-radius: 14px;
                     box-shadow: 0 25px 60px -10px rgba(15, 23, 42, 0.5), 0 0 0 1px rgba(148, 163, 184, 0.3);
                 }
@@ -1727,8 +1844,8 @@ new class extends Component {
                 @media (max-width: 860px) {
                     .dts-scanner-widget-card {
                         width: calc(100vw - 20px) !important;
-                        height: calc(100vh - 90px) !important;
-                        bottom: 75px !important;
+                        height: calc(100vh - 105px) !important;
+                        bottom: 80px !important;
                         right: 10px !important;
                     }
                     .dts-scanner-widget-body {
@@ -1754,6 +1871,11 @@ new class extends Component {
                 }
                 [data-theme="dark"] .dts-scanner-widget-body {
                     background: #0f172a;
+                }
+                [data-theme="dark"] .scanner-ctrl-edit-input {
+                    background: #0f172a !important;
+                    color: #f8fafc !important;
+                    border-color: #3b82f6 !important;
                 }
                 [data-theme="dark"] .dts-scanner-left-pane {
                     background: #111827;
@@ -1931,13 +2053,48 @@ new class extends Component {
                 [data-theme="dark"] .dts-available-inner-pane [style*="border: 1px solid #e2e8f0"] {
                     border-color: #334155 !important;
                 }
+                [data-theme="dark"] .dts-hub-inner-pane {
+                    background: rgba(0, 0, 0, 0.6) !important;
+                }
+                [data-theme="dark"] .dts-hub-card {
+                    background: #0f172a !important;
+                    border-color: #334155 !important;
+                }
+                [data-theme="dark"] .dts-hub-card [style*="background: #ffffff"],
+                [data-theme="dark"] .dts-hub-card [style*="background:#ffffff"],
+                [data-theme="dark"] .dts-hub-card [style*="background: #f8fafc"],
+                [data-theme="dark"] .dts-hub-card [style*="background:#f8fafc"] {
+                    background: #1e293b !important;
+                    border-color: #334155 !important;
+                    color: #e2e8f0 !important;
+                }
+                [data-theme="dark"] .dts-hub-card .ia-modal-title {
+                    color: #f8fafc !important;
+                }
+                [data-theme="dark"] .dts-hub-card .ia-collective-name {
+                    color: #e2e8f0 !important;
+                }
+                [data-theme="dark"] .dts-hub-card .ia-collective-code-badge {
+                    background: #334155 !important;
+                    color: #f8fafc !important;
+                }
+                [data-theme="dark"] .dts-hub-card input[type="text"] {
+                    background: #0f172a !important;
+                    color: #f8fafc !important;
+                    border-color: #475569 !important;
+                }
                 [data-theme="dark"] #modal-camera-select {
                     background: #0f172a !important;
                     border-color: #334155 !important;
                     color: #e2e8f0 !important;
                 }
                 @media (max-width: 860px) {
-                    [data-theme="dark"] .dts-scanner-left-pane {
+                    [data-theme="dark"] .scanner-ctrl-edit-input {
+                    background: #0f172a !important;
+                    color: #f8fafc !important;
+                    border-color: #3b82f6 !important;
+                }
+                [data-theme="dark"] .dts-scanner-left-pane {
                         border-bottom-color: #1e293b !important;
                     }
                 }
@@ -2079,9 +2236,64 @@ new class extends Component {
                             
                             <!-- Header Status Line -->
                             <div style="display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                                @php
+                                    $userPerms = auth()->user()?->permissions;
+                                    $canModifyControlNumber = (bool) (
+                                        ($userPerms->is_sadm ?? false) || 
+                                        ($userPerms->can_dts_modify_control_no ?? false)
+                                    );
+                                @endphp
                                 <div>
                                     <span style="font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">Control Number</span>
-                                    <h4 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 2px 0 0 0; word-break: break-all; font-family: monospace;">{{ $activeTransaction['control_number'] }}</h4>
+                                    @if($canModifyControlNumber && $isEditingControlNumber)
+                                        <div style="display: flex; align-items: center; gap: 5px; margin-top: 2px;">
+                                            <input 
+                                                type="text" 
+                                                wire:model="editingControlNumberValue" 
+                                                wire:keydown.enter="saveControlNumber"
+                                                wire:keydown.escape="cancelEditControlNumber"
+                                                class="scanner-ctrl-edit-input"
+                                                style="height: 30px; padding: 2px 8px; font-size: 14px; font-weight: 700; font-family: monospace; border: 1.5px solid #2563eb; border-radius: 6px; color: #0f172a; outline: none; background: #ffffff; min-width: 170px;"
+                                                autofocus
+                                            >
+                                            <button 
+                                                type="button" 
+                                                wire:click="saveControlNumber" 
+                                                title="Save Control Number (Enter)"
+                                                style="height: 30px; padding: 0 10px; font-size: 11.5px; font-weight: 700; background: #16a34a; color: #ffffff; border: none; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 1px 3px rgba(22,163,74,0.3);"
+                                            >
+                                                <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                                <span>Save</span>
+                                            </button>
+                                            <button 
+                                                type="button" 
+                                                wire:click="cancelEditControlNumber" 
+                                                title="Cancel (Esc)"
+                                                style="height: 30px; padding: 0 8px; font-size: 11.5px; font-weight: 600; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center;"
+                                            >
+                                                <span>Cancel</span>
+                                            </button>
+                                        </div>
+                                    @else
+                                        <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
+                                            <h4 style="font-size: 17px; font-weight: 800; color: #0f172a; margin: 0; word-break: break-all; font-family: monospace;">{{ $activeTransaction['control_number'] }}</h4>
+                                            @if($canModifyControlNumber)
+                                                <button 
+                                                    type="button" 
+                                                    wire:click="startEditingControlNumber" 
+                                                    title="Click to edit Control Number"
+                                                    style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 2px 7px; font-size: 11px; font-weight: 600; color: #2563eb; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s ease;"
+                                                    onmouseover="this.style.background='#e0f2fe'; this.style.borderColor='#93c5fd'" 
+                                                    onmouseout="this.style.background='#f1f5f9'; this.style.borderColor='#cbd5e1'"
+                                                >
+                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+                                                    </svg>
+                                                    <span>Edit</span>
+                                                </button>
+                                            @endif
+                                        </div>
+                                    @endif
                                 </div>
 
                                 <div style="display: flex; align-items: center; gap: 6px;">
@@ -2220,19 +2432,57 @@ new class extends Component {
                                     @endif
 
                                     <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+                                        @php
+                                            $actionLower = strtolower(trim($actionNeeded));
+                                            $isApprovalFlow = in_array($actionLower, [
+                                                'for approval', 
+                                                'for endorsement', 
+                                                'for recomendation', 
+                                                'for recommendation', 
+                                                'for signature'
+                                            ]);
+                                            $isRevision = in_array($actionLower, [
+                                                'for revision', 
+                                                'returned for revision'
+                                            ]);
+                                            $isToBeForwarded = ($actionLower === 'to be forwarded to');
+
+                                            if (!$activeTransaction['is_received_here']) {
+                                                $btnLabel = 'Receive Transaction';
+                                                $btnBg = '#2563eb';
+                                                $btnIcon = 'receive';
+                                            } elseif ($isRevision) {
+                                                $btnLabel = 'Return for Revision';
+                                                $btnBg = '#dc2626';
+                                                $btnIcon = 'revision';
+                                            } elseif ($isToBeForwarded) {
+                                                $btnLabel = 'Proceed Action';
+                                                $btnBg = '#2563eb';
+                                                $btnIcon = 'forward';
+                                            } elseif ($isApprovalFlow) {
+                                                $btnLabel = 'Proceed Forward';
+                                                $btnBg = '#16a34a';
+                                                $btnIcon = 'forward';
+                                            } else {
+                                                $btnLabel = 'Forward to Office';
+                                                $btnBg = '#16a34a';
+                                                $btnIcon = 'forward';
+                                            }
+                                        @endphp
                                         <button 
                                             type="button" 
                                             wire:click="processScanAction" 
                                             class="scanner-action-btn"
-                                            style="background: {{ $activeTransaction['is_received_here'] ? '#16a34a' : '#2563eb' }}; padding: 9px 18px; font-size: 12.5px;"
+                                            style="background: {{ $btnBg }}; padding: 9px 18px; font-size: 12.5px; transition: background-color 0.15s ease;"
                                         >
-                                            @if($activeTransaction['is_received_here'])
-                                                <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
-                                                <span>{{ $actionNeeded === 'To be Forwarded to' ? 'Forward to Office' : 'Forward Transaction' }}</span>
-                                            @else
+                                            @if($btnIcon === 'receive')
                                                 <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z" clip-rule="evenodd"/></svg>
-                                                <span>Receive Transaction</span>
+                                            @elseif($btnIcon === 'revision')
+                                                <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+                                            @else
+                                                <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
                                             @endif
+                                            <span>{{ $btnLabel }}</span>
                                         </button>
                                     </div>
                                 </div>
@@ -2420,6 +2670,21 @@ new class extends Component {
                     </div>
                 </div>
             @endif
+
+            <!-- Office Hub Collective Inner Pane (Contained 100% Inside Widget Card) -->
+            <x-dts.hub-collective-modal 
+                :show="$showForwardHubModal" 
+                :search="$forwardHubSearch" 
+                :selected="$forwardHubTempSelected" 
+                :offices="$this->availableTargetOffices"
+                :contained="true"
+                wireClose="closeForwardHubModal"
+                wireToggle="toggleForwardHubOffice"
+                wireSelectAll="selectAllForwardHubOffices"
+                wireClear="clearForwardHubOffices"
+                wireApply="applyForwardHubModal"
+                wireSearch="forwardHubSearch"
+            />
         </div>
     @endif
 
@@ -2514,6 +2779,29 @@ new class extends Component {
             if (input) input.focus();
         });
 
+        // Intercept getUserMedia so any active camera streams are directly tracked and reliably stoppable
+        if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function' && !window.__rmsGUMIntercepted) {
+            window.__rmsGUMIntercepted = true;
+            window.__rmsActiveScannerStreams = window.__rmsActiveScannerStreams || new Set();
+            const origGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+            navigator.mediaDevices.getUserMedia = async function(...args) {
+                const stream = await origGUM(...args);
+                if (stream) {
+                    window.__rmsActiveScannerStreams.add(stream);
+                    try {
+                        stream.getTracks().forEach(t => {
+                            t.addEventListener('ended', () => {
+                                if (window.__rmsActiveScannerStreams) {
+                                    window.__rmsActiveScannerStreams.delete(stream);
+                                }
+                            });
+                        });
+                    } catch(e) {}
+                }
+                return stream;
+            };
+        }
+
         /**
          * Stops and releases all active hardware media streams and tracks attached to modal video elements.
          *
@@ -2521,8 +2809,22 @@ new class extends Component {
          */
         function releaseAllModalMediaTracks() {
             try {
-                const modal = document.querySelector('.dts-scanner-widget-card, .global-scanner-modal');
-                const videos = modal ? modal.querySelectorAll('video') : document.querySelectorAll('#modal-qr-preview video');
+                // 1. Release streams captured via getUserMedia tracking
+                if (window.__rmsActiveScannerStreams && window.__rmsActiveScannerStreams.size > 0) {
+                    window.__rmsActiveScannerStreams.forEach(stream => {
+                        try {
+                            if (stream && typeof stream.getTracks === 'function') {
+                                stream.getTracks().forEach(track => {
+                                    try { track.stop(); } catch(e) {}
+                                });
+                            }
+                        } catch(e) {}
+                    });
+                    window.__rmsActiveScannerStreams.clear();
+                }
+
+                // 2. Query any video elements currently in the document
+                const videos = document.querySelectorAll('video');
                 videos.forEach(v => {
                     if (v.srcObject && typeof v.srcObject.getTracks === 'function') {
                         v.srcObject.getTracks().forEach(track => {
@@ -2543,6 +2845,7 @@ new class extends Component {
          */
         async function stopModalScanner() {
             stopModalWatchdog();
+            releaseAllModalMediaTracks();
             if (modalHtml5QrCode) {
                 const instance = modalHtml5QrCode;
                 modalHtml5QrCode = null;
@@ -2572,6 +2875,9 @@ new class extends Component {
                 previewEl.innerHTML = '';
             }
         }
+
+        window.stopModalScanner = stopModalScanner;
+        window.releaseAllModalMediaTracks = releaseAllModalMediaTracks;
 
         // ------------------------------------------------------------------
         // Camera watchdog: html5-qrcode keeps looping over a dead stream, so the
@@ -2948,6 +3254,22 @@ new class extends Component {
                         }
                     });
                     el.innerHTML = '';
+
+                    // Shield video element against html5-qrcode's RenderedCameraImpl throwing unhandled onabort/onerror
+                    if (!el.__abortShielded && typeof MutationObserver !== 'undefined') {
+                        el.__abortShielded = true;
+                        const observer = new MutationObserver(mutations => {
+                            mutations.forEach(m => {
+                                m.addedNodes.forEach(node => {
+                                    if (node && node.nodeName === 'VIDEO') {
+                                        node.onabort = function() { console.warn('[Scanner] video surface onabort caught'); };
+                                        node.onerror = function() { console.warn('[Scanner] video surface onerror caught'); };
+                                    }
+                                });
+                            });
+                        });
+                        observer.observe(el, { childList: true, subtree: true });
+                    }
                 }
                 return new Html5Qrcode("modal-qr-preview", {
                     formatsToSupport: qrFormats,
@@ -3181,8 +3503,8 @@ new class extends Component {
                     let guidance = 'Please allow camera permission in your browser or connect a webcam.';
                     if (errName === 'NotAllowedError' || /permission/i.test(errMsg)) {
                         guidance = 'Camera access is blocked by your browser. Click the lock/camera icon in your address bar, select <b>Always allow</b>, and click Retry.';
-                    } else if (errName === 'NotFoundError' || /device not found/i.test(errMsg)) {
-                        guidance = 'No camera found. Check if your laptop privacy shutter is open or if Windows has "Camera off" toggled.';
+                    } else if (errName === 'NotFoundError' || /device not found|camera off|abort/i.test(errMsg)) {
+                        guidance = 'Camera is currently turned off or unavailable. Check if your camera privacy shutter is open or toggle Windows Camera on.';
                     } else if (errName === 'NotReadableError') {
                         guidance = 'Camera is in use by another application (e.g. Teams, Zoom, or another browser tab).';
                     }
@@ -3317,6 +3639,8 @@ new class extends Component {
             window.__scannerModalEventsBound = true;
             window.addEventListener('init-camera-scanner', handleInitCameraScanner);
             window.addEventListener('stop-camera-scanner', handleStopCameraScanner);
+            window.addEventListener('close-scanner-modal', handleStopCameraScanner);
+            window.addEventListener('scanner-modal-closed', handleStopCameraScanner);
             window.addEventListener('scanner-code-invalid', handleScannerCodeInvalid);
 
             window.addEventListener('scanner-modal-opened', () => {
@@ -3330,6 +3654,9 @@ new class extends Component {
                 const detail = e.detail;
                 const w = (detail && typeof detail === 'object') ? (detail.widget || (Array.isArray(detail) ? detail[0]?.widget : null)) : detail;
                 if (w && w !== 'scanner') {
+                    if (typeof window.stopModalScanner === 'function') {
+                        window.stopModalScanner();
+                    }
                     const isScannerDomOpen = document.getElementById('dts-scanner-widget-card') || document.querySelector('.global-scanner-modal');
                     if (isScannerDomOpen) {
                         const comp = resolveModalComponent();
@@ -3347,23 +3674,13 @@ new class extends Component {
             });
         }
 
+        document.addEventListener('livewire:navigating', () => {
+            if (typeof window.stopModalScanner === 'function') window.stopModalScanner();
+        });
+
         window.addEventListener('beforeunload', () => {
             stopModalScanner();
         });
     })();
     </script>
-
-    <!-- Office Hub Collective Modal for Forwarding -->
-    <x-dts.hub-collective-modal 
-        :show="$showForwardHubModal" 
-        :search="$forwardHubSearch" 
-        :selected="$forwardHubTempSelected" 
-        :offices="$this->availableTargetOffices"
-        wireClose="closeForwardHubModal"
-        wireToggle="toggleForwardHubOffice"
-        wireSelectAll="selectAllForwardHubOffices"
-        wireClear="clearForwardHubOffices"
-        wireApply="applyForwardHubModal"
-        wireSearch="forwardHubSearch"
-    />
 </div>

@@ -193,6 +193,7 @@
         <div class="function-button {{ request()->routeIs('admin.subsystems.activate') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.subsystems.activate') }}')">Activate</div>
         <div class="function-button {{ request()->routeIs('admin.subsystems.deactivate') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.subsystems.deactivate') }}')">Deactivate</div>
         <div class="function-button {{ request()->routeIs('admin.subsystems.changes-logs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.subsystems.changes-logs') }}')">Changes Logs</div>
+        <div class="function-button {{ request()->routeIs('admin.subsystems.patch-notes') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.subsystems.patch-notes') }}')">Patch Notes</div>
     </div>
 </div>
 @endif

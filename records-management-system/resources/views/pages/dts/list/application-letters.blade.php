@@ -90,7 +90,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
-        if ($perms && !$perms->is_sadm && !$perms->can_dts_use_application) {
+        if ($perms && !$perms->is_sadm && !($perms->can_dts_create_application || $perms->can_dts_receive_application || $perms->can_dts_use_application)) {
             abort(403, 'Unauthorized access to Application Letter transactions list.');
         }
     }
@@ -109,6 +109,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
      */
     public function openExportModal(): void
     {
+        if (!\App\Helpers\DtsExportHelper::isExportEnabled()) {
+            return;
+        }
+
         $this->exportFlowCount = 0;
         $available = \App\Helpers\DtsExportHelper::getAvailableColumns('application_letters', 0);
         $this->exportColumns = array_keys(array_filter($available, fn($c) => $c['default']));
@@ -225,6 +229,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
      */
     public function executeExport()
     {
+        if (!\App\Helpers\DtsExportHelper::isExportEnabled()) {
+            $this->showExportModal = false;
+            return;
+        }
+
         if (empty($this->selectedIds)) {
             return;
         }
@@ -584,18 +593,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             $query->where('dt.status', $this->selectedStatus);
         }
 
-        if (!empty($this->searchQuery)) {
-            $searchVal = trim($this->searchQuery);
-            $decoded = base64_decode($searchVal, true);
-            if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
-                $searchVal = $decoded;
-            }
-            $query->where(function($q) use ($searchVal) {
-                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
-                  ->orWhere('req.requestor_name', 'like', '%' . $this->searchQuery . '%')
-                  ->orWhere('dtd.subject', 'like', '%' . $this->searchQuery . '%')
-                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
-            });
+        if (!empty(trim($this->searchQuery))) {
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->searchQuery, [
+                'primary'   => ['dtd.control_number', 'dt.qr_code'],
+                'secondary' => ['dtd.subject'],
+                'meta'      => ['req.requestor_name', 'originated_office.office_name', 'dtd.action_needed'],
+            ]);
         }
 
         if (!empty($this->dateFrom) || !empty($this->dateTo)) {
@@ -1578,8 +1581,43 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
      * Triggers upload file modal.
      * @return void
      */
+    /**
+     * Checks if the active user is allowed to upload/manage documents for the selected transaction.
+     * Allowed only if transaction is currently on the user's office, or an admin is using edit mode.
+     * @return bool
+     */
+    public function canUploadDocument(): bool
+    {
+        if (!$this->selectedTransaction) {
+            return false;
+        }
+
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+        $status = strtolower($this->selectedTransaction->status ?? '');
+        $effectiveCurrentOffice = ($this->selectedTransaction->current_office === 'ORIGIN')
+            ? ($this->selectedTransaction->originated_from ?? null)
+            : ($this->selectedTransaction->current_office ?? null);
+
+        $isCurrentOffice = !empty($userOfficeCode)
+            && ($effectiveCurrentOffice === $userOfficeCode)
+            && ($status !== 'completed');
+
+        $perms = auth()->user()?->permissions;
+        $isAdmin = $perms && (
+            $perms->is_sadm
+            || $perms->is_admin
+            || ($perms->can_dts_modify_transaction ?? false)
+            || ($perms->can_dts_list_modify_transaction ?? false)
+        );
+
+        return $isCurrentOffice || ($isAdmin && $this->editingAll);
+    }
+
     public function triggerUploadFileModal(): void
     {
+        if (!$this->canUploadDocument()) {
+            return;
+        }
         $this->uploadFileName = '';
         $this->uploadErrorMessage = '';
         $this->uploadedFile = null;
@@ -1628,7 +1666,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
      */
     public function removeUploadedFile(): void
     {
-        if (!$this->selectedTransactionId || !$this->selectedTransaction) return;
+        if (!$this->selectedTransactionId || !$this->selectedTransaction || !$this->canUploadDocument()) return;
 
         $oldDocDir = $this->selectedTransaction->doc_dir ?? null;
 
@@ -1650,6 +1688,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
      */
     public function changeUploadedFile(): void
     {
+        if (!$this->canUploadDocument()) {
+            $this->showViewFileModal = false;
+            return;
+        }
         $this->showViewFileModal = false;
         $this->triggerUploadFileModal();
     }
@@ -1672,6 +1714,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public function handleUploadFile(): void
     {
         $this->uploadErrorMessage = '';
+
+        if (!$this->canUploadDocument()) {
+            $this->uploadErrorMessage = 'Upload is only permitted when the transaction is at your office or via admin edit mode.';
+            return;
+        }
 
         $requiredUpload = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_required_upload_file')->value('value') === 'true';
         if ($requiredUpload && !$this->uploadedFile) {
@@ -2678,10 +2725,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                 </select>
             </div>
             <div style="display: flex; gap: 16px; align-items: center;">
+                @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                 <label class="rms-select-all-label">
                     <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                     Select All
                 </label>
+                @endif
                 <button type="button" wire:click="toggleLayout" class="rms-select" style="background-image: none; padding-right: 12px; display: inline-flex; align-items: center; gap: 6px;">
                     @if ($layoutMode === 'table')
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
@@ -2691,9 +2740,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                         Table
                     @endif
                 </button>
+                @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                 <button type="button" class="rms-btn-export" wire:click="openExportModal">
                     <svg class="btn-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg> Export
                 </button>
+                @endif
             </div>
         </div>
         <div class="rms-toolbar-bottom" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
@@ -2759,9 +2810,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             <table class="rms-table">
                 <thead>
                     <tr>
+                        @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                         <th rowspan="2" style="width: 40px; text-align: center;">
                             <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                         </th>
+                        @endif
                         <th rowspan="2" style="width: 60px;">Item No.</th>
                         <th rowspan="2">Control No.</th>
                         <th rowspan="2">QR Code</th>
@@ -2790,9 +2843,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                             $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false) || (strtolower($t->status ?? '') === 'completed');
                         @endphp
                         <tr style="background-color: {{ $isChecked ? '#f0f6ff' : '' }};">
+                            @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                             <td style="text-align: center;">
                                 <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                             </td>
+                            @endif
                             <td style="text-align: center;">{{ $this->transactions->firstItem() + $index }}</td>
                             <td style="font-weight: 600; color: {{ $canSeeCtrlNo ? '#1e40af' : '#94a3b8' }};">
                                 {{ $canSeeCtrlNo ? $t->control_number : '—' }}
@@ -2816,7 +2871,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="16" class="rms-no-data">No transactions found.</td></tr>
+                        <tr><td colspan="{{ \App\Helpers\DtsExportHelper::isExportEnabled() ? 16 : 15 }}" class="rms-no-data">No transactions found.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -2831,10 +2886,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                 @endphp
                 <div class="dts-box-card {{ $isChecked ? 'selected' : '' }}">
                     
+                    @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                     <!-- Left side Checkbox -->
                     <div style="display: flex; align-items: center; justify-content: center; height: 20px;">
                         <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 18px; height: 18px; cursor: pointer; accent-color: #1e40af;">
                     </div>
+                    @endif
 
                     <!-- Right side Info Contents -->
                     <div class="dts-box-card-content">
@@ -3167,6 +3224,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                             </div>
 
                             <!-- Email Access -->
+                            @php
+                                $hasEmailAccess = (!empty(trim($emailAccess ?? '')) && trim($emailAccess) !== 'N/A') || (!empty(trim($selectedTransaction->access_email ?? '')) && trim($selectedTransaction->access_email) !== 'N/A');
+                            @endphp
+                            @if ($editingAll || $hasEmailAccess)
                             <div class="dts-im-tile">
                                 <span class="dts-im-tile-k"><i class="fa-regular fa-envelope" style="color: #0284c7;"></i> Email Access</span>
                                 @if ($editingAll)
@@ -3175,8 +3236,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                     <span class="dts-im-tile-v">{{ $emailAccess ?: ($selectedTransaction->access_email ?? 'N/A') }}</span>
                                 @endif
                             </div>
+                            @endif
 
                             <!-- Document Password -->
+                            @php
+                                $hasDocPassword = (!empty(trim($docPassword ?? '')) && !in_array(trim($docPassword), ['N/A', 'None'], true)) || (!empty(trim($selectedTransaction->document_password ?? '')) && !in_array(trim($selectedTransaction->document_password), ['N/A', 'None'], true));
+                            @endphp
+                            @if ($editingAll || $hasDocPassword)
                             <div class="dts-im-tile">
                                 <span class="dts-im-tile-k"><i class="fa-solid fa-key" style="color: #f59e0b;"></i> Document Password</span>
                                 @if ($editingAll)
@@ -3194,9 +3260,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                     </div>
                                 @endif
                             </div>
+                            @endif
 
 
                             <!-- Attached Document -->
+                            @if (!empty($selectedTransaction->doc_dir) || ($editingAll && $this->canUploadDocument()))
                             <div class="dts-im-tile" style="grid-column: span 2;">
                                 <span class="dts-im-tile-k"><i class="fa-solid fa-paperclip" style="color: #0891b2;"></i> Attached Document</span>
                                 @if (!empty($selectedTransaction->doc_dir))
@@ -3211,20 +3279,25 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                             <button type="button" class="dts-im-btn" wire:click="openPdfPreviewModal" style="padding: 4px 10px; font-size: 11.5px; color: #0284c7; border-color: #bae6fd; background: #f0f9ff;">
                                                 <i class="fa-solid fa-file-pdf"></i> Preview
                                             </button>
+                                            @if ($this->canUploadDocument())
                                             <button type="button" class="dts-im-btn" wire:click="openViewFileModal" style="padding: 4px 10px; font-size: 11.5px;">
                                                 <i class="fa-solid fa-gear"></i> Manage
                                             </button>
+                                            @endif
                                         </div>
                                     </div>
                                 @else
                                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px;">
                                         <span style="font-size: 12px; color: #94a3b8; font-style: italic;">No document currently attached</span>
+                                        @if ($this->canUploadDocument())
                                         <button type="button" class="dts-im-btn" wire:click="triggerUploadFileModal" style="padding: 4px 10px; font-size: 11.5px; color: #16a34a; border-color: #bbf7d0; background: #f0fdf4;">
                                             <i class="fa-solid fa-cloud-arrow-up"></i> Upload Document
                                         </button>
+                                        @endif
                                     </div>
                                 @endif
                             </div>
+                            @endif
                         </div>
                     </div>
 
@@ -3667,6 +3740,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                 <i class="fa-solid fa-file-pdf" style="color: #dc2626;"></i>
                                 <span>Preview Document</span>
                             </button>
+                        @elseif ($this->canUploadDocument())
+                            <button type="button" class="dts-im-btn" wire:click="triggerUploadFileModal" style="color: #16a34a; border-color: #bbf7d0; background: #f0fdf4;">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                <span>Upload Document</span>
+                            </button>
                         @endif
                     </div>
 
@@ -3687,9 +3765,42 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                     </button>
                                 @endif
                             @else
-                                <button type="button" class="dts-im-btn dts-im-btn-primary" wire:click="completeTransaction">
-                                    <i class="fa-solid fa-paper-plane"></i>
-                                    <span>{{ $activeAction === 'To be Forwarded to' ? 'Forward to Office' : 'Forward Transaction' }}</span>
+                                @php
+                                    $listActionLower = strtolower(trim($activeAction));
+                                    $listIsApprovalFlow = in_array($listActionLower, [
+                                        'for approval', 
+                                        'for endorsement', 
+                                        'for recomendation', 
+                                        'for recommendation', 
+                                        'for signature'
+                                    ]);
+                                    $listIsRevision = in_array($listActionLower, [
+                                        'for revision', 
+                                        'returned for revision'
+                                    ]);
+                                    $listIsToBeForwarded = ($listActionLower === 'to be forwarded to');
+
+                                    if ($listIsRevision) {
+                                        $listBtnLabel = 'Return for Revision';
+                                        $listBtnBg = '#dc2626';
+                                        $listBtnIcon = 'fa-arrow-rotate-left';
+                                    } elseif ($listIsToBeForwarded) {
+                                        $listBtnLabel = 'Proceed Action';
+                                        $listBtnBg = '#2563eb';
+                                        $listBtnIcon = 'fa-paper-plane';
+                                    } elseif ($listIsApprovalFlow) {
+                                        $listBtnLabel = 'Proceed Forward';
+                                        $listBtnBg = '#16a34a';
+                                        $listBtnIcon = 'fa-paper-plane';
+                                    } else {
+                                        $listBtnLabel = 'Forward to Office';
+                                        $listBtnBg = '#16a34a';
+                                        $listBtnIcon = 'fa-paper-plane';
+                                    }
+                                @endphp
+                                <button type="button" class="dts-im-btn" wire:click="completeTransaction" style="background: {{ $listBtnBg }} !important; color: #ffffff !important; border-color: {{ $listBtnBg }} !important;">
+                                    <i class="fa-solid {{ $listBtnIcon }}"></i>
+                                    <span>{{ $listBtnLabel }}</span>
                                 </button>
                             @endif
                         @endif
@@ -3999,6 +4110,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     @include('components.dts.qr-print-modal')
 
     <!-- Export Modal -->
+    @if(\App\Helpers\DtsExportHelper::isExportEnabled())
     <x-dts.export-modal
         :show="$showExportModal"
         category="application_letters"
@@ -4010,6 +4122,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         :prepared-by="$exportPreparedBy"
         :noted-by="$exportNotedBy"
     />
+    @endif
 
     <!-- Office Hub Collective Modal for Forwarding -->
     <x-dts.hub-collective-modal 

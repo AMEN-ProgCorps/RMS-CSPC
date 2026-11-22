@@ -76,6 +76,10 @@ RUN groupadd -g 1000 appuser \
     && chown -R appuser:appuser /opt/paddleocr \
     && sed -i 's/^user = www-data/user = appuser/' /usr/local/etc/php-fpm.d/www.conf \
     && sed -i 's/^group = www-data/group = appuser/' /usr/local/etc/php-fpm.d/www.conf \
+    && sed -i 's/^pm.max_children = 5/pm.max_children = 30/' /usr/local/etc/php-fpm.d/www.conf \
+    && sed -i 's/^pm.start_servers = 2/pm.start_servers = 6/' /usr/local/etc/php-fpm.d/www.conf \
+    && sed -i 's/^pm.min_spare_servers = 1/pm.min_spare_servers = 4/' /usr/local/etc/php-fpm.d/www.conf \
+    && sed -i 's/^pm.max_spare_servers = 3/pm.max_spare_servers = 10/' /usr/local/etc/php-fpm.d/www.conf \
     && git config --system --add safe.directory "*"
 
 WORKDIR /var/www/html

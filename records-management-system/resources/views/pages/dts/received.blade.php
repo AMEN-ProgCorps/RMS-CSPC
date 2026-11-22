@@ -629,13 +629,12 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                   });
             });
 
-        if (!empty($this->searchQuery)) {
-            $searchVal = trim($this->searchQuery);
-            $query->where(function($q) use ($searchVal) {
-                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dtd.subject', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
-            });
+        if (!empty(trim($this->searchQuery))) {
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->searchQuery, [
+                'primary'   => ['dtd.control_number', 'dt.qr_code'],
+                'secondary' => ['dtd.subject'],
+                'meta'      => ['req.requestor_name', 'originated_office.office_name', 'dtd.action_needed'],
+            ]);
         }
 
         $items = $query->select(
@@ -667,6 +666,16 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
 
             return $currentLog && ($currentLog->type === 'received' || (!empty($currentLog->date_in) && $currentLog->type !== 'forwarded'));
         });
+
+        if (!empty(trim($this->searchQuery))) {
+            $receivedOnly = \App\Helpers\SmartSearchHelper::sortCollection($receivedOnly, $this->searchQuery, function ($t) {
+                return [
+                    'primary'   => trim(($t->control_number ?? '') . ' ' . ($t->qr_code ?? '')),
+                    'secondary' => $t->subject ?? '',
+                    'meta'      => trim(($t->requestor_name ?? '') . ' ' . ($t->originated_office_name ?? '') . ' ' . ($t->action_needed ?? '')),
+                ];
+            });
+        }
 
         $page = \Illuminate\Pagination\Paginator::resolveCurrentPage() ?: 1;
         $sliced = $receivedOnly->slice(($page - 1) * $this->perPage, $this->perPage)->values();
@@ -937,8 +946,40 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                     <button wire:click="closeForwardModal" style="background: #f1f5f9; color: #475569; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer;">
                         Cancel
                     </button>
-                    <button wire:click="confirmForward" class="btn-forward-action">
-                        {{ $actionNeeded === 'To be Forwarded to' ? '📤 Forward to Office' : (($forwardTransData['is_last_step'] ?? false) ? '✓ Complete Transaction' : '📤 Confirm Forward') }}
+                    @php
+                        $rcvActionLower = strtolower(trim($actionNeeded));
+                        $rcvIsApprovalFlow = in_array($rcvActionLower, [
+                            'for approval', 
+                            'for endorsement', 
+                            'for recomendation', 
+                            'for recommendation', 
+                            'for signature'
+                        ]);
+                        $rcvIsRevision = in_array($rcvActionLower, [
+                            'for revision', 
+                            'returned for revision'
+                        ]);
+                        $rcvIsToBeForwarded = ($rcvActionLower === 'to be forwarded to');
+
+                        if ($rcvIsRevision) {
+                            $rcvBtnLabel = 'Return for Revision';
+                            $rcvBtnBg = '#dc2626';
+                        } elseif ($rcvIsToBeForwarded) {
+                            $rcvBtnLabel = 'Proceed Action';
+                            $rcvBtnBg = '#2563eb';
+                        } elseif ($rcvIsApprovalFlow) {
+                            $rcvBtnLabel = 'Proceed Forward';
+                            $rcvBtnBg = '#16a34a';
+                        } elseif (($forwardTransData['is_last_step'] ?? false)) {
+                            $rcvBtnLabel = '✓ Complete Transaction';
+                            $rcvBtnBg = '#16a34a';
+                        } else {
+                            $rcvBtnLabel = 'Forward to Office';
+                            $rcvBtnBg = '#16a34a';
+                        }
+                    @endphp
+                    <button wire:click="confirmForward" class="btn-forward-action" style="background-color: {{ $rcvBtnBg }};">
+                        {{ $rcvBtnLabel }}
                     </button>
                 </div>
             </div>

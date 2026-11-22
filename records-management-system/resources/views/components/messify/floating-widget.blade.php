@@ -670,8 +670,19 @@ body.messify-widget-open #messify-global-widget {
             }
         }
 
-        // 3. Header bell badge is owned by the Livewire notifications component only.
-        //    Writing it here caused a 69↔22 flicker (all-subsystem vs page-scoped counts).
+        // 3. Update Header Bell Notification Badge (respect Notification Manager mutes)
+        const bellBadge = document.getElementById('header-notif-badge') || document.querySelector('.notif-badge');
+        if (bellBadge) {
+            if (systemCount > 0) {
+                bellBadge.style.removeProperty('display');
+                bellBadge.style.display = 'inline-flex';
+                bellBadge.textContent = systemCount > 99 ? '99+' : String(systemCount);
+            } else {
+                bellBadge.style.setProperty('display', 'none', 'important');
+                bellBadge.textContent = '';
+            }
+            bellBadge.setAttribute('data-system-unread', String(systemCount));
+        }
 
         // 4. Update Tab Title & Favicon Red Dot
         updateTabTitle(totalCount);

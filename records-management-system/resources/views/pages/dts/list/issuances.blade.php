@@ -90,7 +90,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
-        if ($perms && !$perms->is_sadm && !$perms->can_dts_use_issuance) {
+        if ($perms && !$perms->is_sadm && !($perms->can_dts_create_issuance || $perms->can_dts_receive_issuance || $perms->can_dts_use_issuance)) {
             abort(403, 'Unauthorized access to Issuance transactions list.');
         }
     }
@@ -109,6 +109,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
      */
     public function openExportModal(): void
     {
+        if (!\App\Helpers\DtsExportHelper::isExportEnabled()) {
+            return;
+        }
+
         $this->exportFlowCount = 0;
         $available = \App\Helpers\DtsExportHelper::getAvailableColumns('issuances', 0);
         $this->exportColumns = array_keys(array_filter($available, fn($c) => $c['default']));
@@ -225,6 +229,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
      */
     public function executeExport()
     {
+        if (!\App\Helpers\DtsExportHelper::isExportEnabled()) {
+            $this->showExportModal = false;
+            return;
+        }
+
         if (empty($this->selectedIds)) {
             return;
         }
@@ -583,17 +592,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
             $query->where('dt.status', $this->selectedStatus);
         }
 
-        if (!empty($this->searchQuery)) {
-            $searchVal = trim($this->searchQuery);
-            $decoded = base64_decode($searchVal, true);
-            if ($decoded !== false && preg_match('/^[A-Z0-9-]+$/i', $decoded)) {
-                $searchVal = $decoded;
-            }
-            $query->where(function($q) use ($searchVal) {
-                $q->where('dtd.control_number', 'like', '%' . $searchVal . '%')
-                  ->orWhere('dtd.subject', 'like', '%' . $this->searchQuery . '%')
-                  ->orWhere('dt.qr_code', 'like', '%' . $searchVal . '%');
-            });
+        if (!empty(trim($this->searchQuery))) {
+            \App\Helpers\SmartSearchHelper::applySearch($query, $this->searchQuery, [
+                'primary'   => ['dtd.control_number', 'dt.qr_code'],
+                'secondary' => ['dtd.subject'],
+                'meta'      => ['req.requestor_name', 'originated_office.office_name', 'dtd.action_needed'],
+            ]);
         }
 
         if (!empty($this->dateFrom) || !empty($this->dateTo)) {
@@ -1730,8 +1734,43 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
      * Triggers upload file modal.
      * @return void
      */
+    /**
+     * Checks if the active user is allowed to upload/manage documents for the selected transaction.
+     * Allowed only if transaction is currently on the user's office, or an admin is using edit mode.
+     * @return bool
+     */
+    public function canUploadDocument(): bool
+    {
+        if (!$this->selectedTransaction) {
+            return false;
+        }
+
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+        $status = strtolower($this->selectedTransaction->status ?? '');
+        $effectiveCurrentOffice = ($this->selectedTransaction->current_office === 'ORIGIN')
+            ? ($this->selectedTransaction->originated_from ?? null)
+            : ($this->selectedTransaction->current_office ?? null);
+
+        $isCurrentOffice = !empty($userOfficeCode)
+            && ($effectiveCurrentOffice === $userOfficeCode)
+            && ($status !== 'completed');
+
+        $perms = auth()->user()?->permissions;
+        $isAdmin = $perms && (
+            $perms->is_sadm
+            || $perms->is_admin
+            || ($perms->can_dts_modify_transaction ?? false)
+            || ($perms->can_dts_list_modify_transaction ?? false)
+        );
+
+        return $isCurrentOffice || ($isAdmin && $this->editingAll);
+    }
+
     public function triggerUploadFileModal(): void
     {
+        if (!$this->canUploadDocument()) {
+            return;
+        }
         $this->uploadFileName = '';
         $this->uploadErrorMessage = '';
         $this->uploadedFile = null;
@@ -1780,7 +1819,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
      */
     public function removeUploadedFile(): void
     {
-        if (!$this->selectedTransactionId || !$this->selectedTransaction) return;
+        if (!$this->selectedTransactionId || !$this->selectedTransaction || !$this->canUploadDocument()) return;
 
         $oldDocDir = $this->selectedTransaction->doc_dir ?? null;
 
@@ -1802,6 +1841,10 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
      */
     public function changeUploadedFile(): void
     {
+        if (!$this->canUploadDocument()) {
+            $this->showViewFileModal = false;
+            return;
+        }
         $this->showViewFileModal = false;
         $this->triggerUploadFileModal();
     }
@@ -1824,6 +1867,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
     public function handleUploadFile(): void
     {
         $this->uploadErrorMessage = '';
+
+        if (!$this->canUploadDocument()) {
+            $this->uploadErrorMessage = 'Upload is only permitted when the transaction is at your office or via admin edit mode.';
+            return;
+        }
 
         $requiredUpload = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_required_upload_file')->value('value') === 'true';
         if ($requiredUpload && !$this->uploadedFile) {
@@ -2312,6 +2360,63 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
         }
         .dts-timeline-node-wrapper:hover .dts-timeline-node-dot {
             transform: scale(1.2) !important;
+        }
+
+        /* Slim unobtrusive scrollbar for timeline stepper inside table cells */
+        .dts-table-timeline-scroll {
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
+        }
+        .dts-table-timeline-scroll::-webkit-scrollbar {
+            height: 4px;
+        }
+        .dts-table-timeline-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .dts-table-timeline-scroll::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        .dts-table-timeline-scroll::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Fixed floating unclipped tooltip for timeline nodes */
+        #dts-timeline-floating-tooltip {
+            position: fixed;
+            z-index: 9999999;
+            display: none;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.12s ease;
+            width: 220px;
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 8px 10px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            border: 1px solid #334155;
+            font-size: 11px;
+            line-height: 1.4;
+            box-sizing: border-box;
+        }
+        #dts-timeline-floating-tooltip::after {
+            content: '';
+            position: absolute;
+            border-width: 6px;
+            border-style: solid;
+        }
+        #dts-timeline-floating-tooltip.arrow-down::after {
+            top: 100%;
+            left: var(--arrow-left, 50%);
+            transform: translateX(-50%);
+            border-color: #0f172a transparent transparent transparent;
+        }
+        #dts-timeline-floating-tooltip.arrow-up::after {
+            bottom: 100%;
+            left: var(--arrow-left, 50%);
+            transform: translateX(-50%);
+            border-color: transparent transparent #0f172a transparent;
         }
 
         /* ═══════════════════════════════════════════════════════════════
@@ -2830,10 +2935,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                 </select>
             </div>
             <div style="display: flex; gap: 16px; align-items: center;">
+                @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                 <label class="rms-select-all-label">
                     <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                     Select All
                 </label>
+                @endif
                 <button type="button" wire:click="toggleLayout" class="rms-select" style="background-image: none; padding-right: 12px; display: inline-flex; align-items: center; gap: 6px;">
                     @if ($layoutMode === 'table')
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
@@ -2843,9 +2950,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                         Table
                     @endif
                 </button>
+                @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                 <button type="button" class="rms-btn-export" wire:click="openExportModal">
                     <svg class="btn-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg> Export
                 </button>
+                @endif
             </div>
         </div>
         <div class="rms-toolbar-bottom" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
@@ -2911,9 +3020,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
             <table class="rms-table">
                 <thead>
                     <tr>
+                        @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                         <th style="width: 40px; text-align: center;">
                             <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                         </th>
+                        @endif
                         <th style="width: 60px;">Item No.</th>
                         <th>Control No.</th>
                         <th>QR Code</th>
@@ -2934,9 +3045,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                             $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (auth()->user()?->permissions?->can_dts_modify_issuance_control_no ?? false) || (auth()->user()?->permissions?->can_dts_modify_transaction ?? false) || (auth()->user()?->permissions?->can_dts_list_modify_transaction ?? false) || (strtolower($t->status ?? '') === 'completed');
                         @endphp
                         <tr style="background-color: {{ $isChecked ? '#f0f6ff' : '' }};">
+                            @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                             <td style="text-align: center;">
                                 <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                             </td>
+                            @endif
                             <td style="text-align: center;">{{ $this->transactions->firstItem() + $index }}</td>
                             <td style="font-weight: 600; color: {{ $canSeeCtrlNo ? '#1e40af' : '#94a3b8' }};">
                                 {{ $canSeeCtrlNo ? $t->control_number : '—' }}
@@ -2959,7 +3072,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                         <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
                                     </span>
                                 @else
-                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 6px 6px 6px; max-width: 100%;">
+                                    <div class="dts-table-timeline-scroll" style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 6px 10px 6px; max-width: 100%;">
                                         @forelse ($t->timeline_path as $index => $step)
                                             @php
                                                 $isReceived = !is_null($step->date_in) || $t->status === 'completed';
@@ -3013,7 +3126,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                             @endphp
 
                                             <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0; flex-shrink: 0;">
-                                                <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isCompleted ? 'Forwarded' : ($isReceived ? 'Received/Holder' : ($isCurrentOffice || $isInTransitToThisOffice ? 'In Transit / Incoming' : 'Pending'))) }})">
+                                                <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: {{ ($dotColor === '#cbd5e1') ? '#475569' : '#ffffff' }}; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ ($isCurrentOffice && $isReceived) ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : (($isCurrentOffice || $isInTransitToThisOffice) ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35); border: 2px solid #ffffff;' : '') }}">
                                                     @if ($isRevisionStep)
                                                         <i class="fa-solid fa-rotate-left" style="font-size: 10px;"></i>
                                                     @elseif ($isHubStep)
@@ -3039,7 +3152,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                                     @endif
                                                 </span>
 
-                                                <div class="dts-node-tooltip" style="position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); width: 210px; background: #0f172a; color: #f8fafc; padding: 8px 10px; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s ease; z-index: 9999; text-align: left; font-size: 11px; line-height: 1.4;">
+                                                <div class="dts-node-tooltip-template" style="display: none;">
                                                     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 4px;">
                                                         <span style="font-weight: 700; font-size: 11px; color: #38bdf8;">Step {{ $index + 1 }}: @if ($isHubStep) [HUB] @else {{ $step->office_code }} @endif</span>
                                                         @if ($isRevisionStep)
@@ -3101,7 +3214,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="12" class="rms-no-data">No transactions found.</td></tr>
+                        <tr><td colspan="{{ \App\Helpers\DtsExportHelper::isExportEnabled() ? 12 : 11 }}" class="rms-no-data">No transactions found.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -3116,10 +3229,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                 @endphp
                 <div class="dts-box-card {{ $isChecked ? 'selected' : '' }}">
                     
+                    @if(\App\Helpers\DtsExportHelper::isExportEnabled())
                     <!-- Left side Checkbox -->
                     <div style="display: flex; align-items: center; justify-content: center; height: 20px;">
                         <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 18px; height: 18px; cursor: pointer; accent-color: #1e40af;">
                     </div>
+                    @endif
 
                     <!-- Right side Info Contents -->
                     <div class="dts-box-card-content">
@@ -3363,6 +3478,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                             </div>
 
                             <!-- Attached Document -->
+                            @if (!empty($selectedTransaction->doc_dir) || ($editingAll && $this->canUploadDocument()))
                             <div class="dts-im-tile" style="grid-column: span 2;">
                                 <span class="dts-im-tile-k"><i class="fa-solid fa-paperclip" style="color: #0891b2;"></i> Attached Document</span>
                                 @if (!empty($selectedTransaction->doc_dir))
@@ -3373,19 +3489,29 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                                 {{ $attachedDocName ?: basename($selectedTransaction->doc_dir) }}
                                             </span>
                                         </div>
-                                        <button type="button" wire:click="openPdfPreviewModal" class="dts-im-btn dts-im-btn-primary" style="padding: 4px 10px; font-size: 11.5px; height: 28px; white-space: nowrap;">
-                                            <i class="fa-solid fa-eye"></i> Preview
-                                        </button>
+                                        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                                            <button type="button" wire:click="openPdfPreviewModal" class="dts-im-btn dts-im-btn-primary" style="padding: 4px 10px; font-size: 11.5px; height: 28px; white-space: nowrap;">
+                                                <i class="fa-solid fa-eye"></i> Preview
+                                            </button>
+                                            @if ($this->canUploadDocument())
+                                            <button type="button" class="dts-im-btn" wire:click="openViewFileModal" style="padding: 4px 10px; font-size: 11.5px; height: 28px; white-space: nowrap;">
+                                                <i class="fa-solid fa-gear"></i> Manage
+                                            </button>
+                                            @endif
+                                        </div>
                                     </div>
                                 @else
                                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px;">
                                         <span style="font-size: 12px; color: #94a3b8; font-style: italic;">No document uploaded</span>
+                                        @if ($this->canUploadDocument())
                                         <button type="button" wire:click="triggerUploadFileModal" class="dts-im-btn" style="padding: 4px 10px; font-size: 11.5px; height: 28px; white-space: nowrap;">
                                             <i class="fa-solid fa-upload"></i> Upload
                                         </button>
+                                        @endif
                                     </div>
                                 @endif
                             </div>
+                            @endif
                         </div>
 
                         <!-- Expandable Details Toggle -->
@@ -3882,6 +4008,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                 <i class="fa-solid fa-file-pdf" style="color: #dc2626;"></i>
                                 <span>Preview Document</span>
                             </button>
+                        @elseif ($this->canUploadDocument())
+                            <button type="button" class="dts-im-btn" wire:click="triggerUploadFileModal" style="color: #16a34a; border-color: #bbf7d0; background: #f0fdf4;">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                <span>Upload Document</span>
+                            </button>
                         @endif
                     </div>
 
@@ -3902,9 +4033,42 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                     </button>
                                 @endif
                             @else
-                                <button type="button" class="dts-im-btn dts-im-btn-primary" wire:click="completeTransaction">
-                                    <i class="fa-solid fa-paper-plane"></i>
-                                    <span>{{ $activeAction === 'To be Forwarded to' ? 'Forward to Office' : 'Forward Transaction' }}</span>
+                                @php
+                                    $listActionLower = strtolower(trim($activeAction));
+                                    $listIsApprovalFlow = in_array($listActionLower, [
+                                        'for approval', 
+                                        'for endorsement', 
+                                        'for recomendation', 
+                                        'for recommendation', 
+                                        'for signature'
+                                    ]);
+                                    $listIsRevision = in_array($listActionLower, [
+                                        'for revision', 
+                                        'returned for revision'
+                                    ]);
+                                    $listIsToBeForwarded = ($listActionLower === 'to be forwarded to');
+
+                                    if ($listIsRevision) {
+                                        $listBtnLabel = 'Return for Revision';
+                                        $listBtnBg = '#dc2626';
+                                        $listBtnIcon = 'fa-arrow-rotate-left';
+                                    } elseif ($listIsToBeForwarded) {
+                                        $listBtnLabel = 'Proceed Action';
+                                        $listBtnBg = '#2563eb';
+                                        $listBtnIcon = 'fa-paper-plane';
+                                    } elseif ($listIsApprovalFlow) {
+                                        $listBtnLabel = 'Proceed Forward';
+                                        $listBtnBg = '#16a34a';
+                                        $listBtnIcon = 'fa-paper-plane';
+                                    } else {
+                                        $listBtnLabel = 'Forward to Office';
+                                        $listBtnBg = '#16a34a';
+                                        $listBtnIcon = 'fa-paper-plane';
+                                    }
+                                @endphp
+                                <button type="button" class="dts-im-btn" wire:click="completeTransaction" style="background: {{ $listBtnBg }} !important; color: #ffffff !important; border-color: {{ $listBtnBg }} !important;">
+                                    <i class="fa-solid {{ $listBtnIcon }}"></i>
+                                    <span>{{ $listBtnLabel }}</span>
                                 </button>
                             @endif
                         @endif
@@ -4227,6 +4391,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
     @include('components.dts.qr-print-modal')
 
     <!-- Export Modal -->
+    @if(\App\Helpers\DtsExportHelper::isExportEnabled())
     <x-dts.export-modal
         :show="$showExportModal"
         category="issuances"
@@ -4238,6 +4403,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
         :prepared-by="$exportPreparedBy"
         :noted-by="$exportNotedBy"
     />
+    @endif
 
     <!-- Office Hub Collective Modal for Forwarding -->
     <x-dts.hub-collective-modal 
@@ -4252,4 +4418,96 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
         wireApply="applyForwardHubModal"
         wireSearch="forwardHubSearch"
     />
+
+    <!-- Global Floating Tooltip for Timeline Stepper (Prevents Overflow Clipping) -->
+    <div id="dts-timeline-floating-tooltip"></div>
+
+    <script>
+    (function() {
+        let activeDot = null;
+        let tooltipEl = null;
+
+        function getTooltipEl() {
+            if (!tooltipEl) {
+                tooltipEl = document.getElementById('dts-timeline-floating-tooltip');
+            }
+            return tooltipEl;
+        }
+
+        function positionTooltip(dot, tooltip) {
+            const rect = dot.getBoundingClientRect();
+            const tooltipWidth = 220;
+            const tooltipHeight = tooltip.offsetHeight || 120;
+
+            let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
+            left = Math.max(12, Math.min(window.innerWidth - tooltipWidth - 12, left));
+
+            let top = rect.top - tooltipHeight - 10;
+            let arrowTop = true;
+            if (top < 10) {
+                top = rect.bottom + 10;
+                arrowTop = false;
+            }
+
+            const arrowLeft = Math.max(16, Math.min(tooltipWidth - 16, (rect.left + rect.width / 2) - left));
+            tooltip.style.setProperty('--arrow-left', arrowLeft + 'px');
+
+            if (arrowTop) {
+                tooltip.classList.remove('arrow-up');
+                tooltip.classList.add('arrow-down');
+            } else {
+                tooltip.classList.remove('arrow-down');
+                tooltip.classList.add('arrow-up');
+            }
+
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+        }
+
+        function hideTooltip() {
+            const el = getTooltipEl();
+            if (el) {
+                el.style.opacity = '0';
+                el.style.display = 'none';
+            }
+            activeDot = null;
+        }
+
+        document.addEventListener('mouseover', function(e) {
+            const dot = e.target.closest('.dts-timeline-node-dot');
+            if (!dot) return;
+            const wrapper = dot.closest('.dts-timeline-node-wrapper');
+            if (!wrapper) return;
+            const tpl = wrapper.querySelector('.dts-node-tooltip-template');
+            if (!tpl) return;
+
+            const el = getTooltipEl();
+            if (!el) return;
+
+            activeDot = dot;
+            el.innerHTML = tpl.innerHTML;
+            el.style.display = 'block';
+
+            positionTooltip(dot, el);
+            requestAnimationFrame(() => {
+                if (activeDot === dot) {
+                    el.style.opacity = '1';
+                }
+            });
+        });
+
+        document.addEventListener('mouseout', function(e) {
+            const dot = e.target.closest('.dts-timeline-node-dot');
+            if (dot && dot === activeDot) {
+                hideTooltip();
+            }
+        });
+
+        window.addEventListener('scroll', function() {
+            if (activeDot) {
+                hideTooltip();
+            }
+        }, true);
+    })();
+    </script>
 </div>

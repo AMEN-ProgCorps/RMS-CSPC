@@ -180,6 +180,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Register & Update Subsys
                 $this->subsystemVersion = '';
                 $this->selectedOption = '';
                 $this->subsystemName = '';
+
+                // Clear all subsystem version layout caches immediately
+                \App\Services\PatchNoteService::clearAllSubsystemVersionCaches();
             });
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to save subsystem: ' . $e->getMessage();

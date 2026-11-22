@@ -29,6 +29,7 @@ try {
         // Keep the session in sync too, same as index.php does on full page load.
         $_SESSION['name']      = $fullName;
         $_SESSION['full_name'] = $fullName;
+        session_write_close();
 
         echo json_encode(['name' => $fullName]);
         exit();
@@ -37,4 +38,5 @@ try {
     // Non-fatal — just report failure, front-end will keep the old value.
 }
 
+session_write_close();
 echo json_encode(['name' => null]);

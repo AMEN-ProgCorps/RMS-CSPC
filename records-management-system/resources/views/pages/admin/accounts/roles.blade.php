@@ -72,6 +72,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
     public bool $canViewAllCurrentTrans = false;
     public bool $canViewAllScannerCodes = false;
     public bool $canCreateOwnFlow = false;
+    public bool $canDtsCreateInternal = false;
+    public bool $canDtsCreateExternal = false;
+    public bool $canDtsCreateApplication = false;
+    public bool $canDtsCreateIssuance = false;
+    public bool $canDtsReceiveInternal = false;
+    public bool $canDtsReceiveExternal = false;
+    public bool $canDtsReceiveApplication = false;
+    public bool $canDtsReceiveIssuance = false;
     public bool $canDtsUseInternal = false;
     public bool $canDtsUseExternal = false;
     public bool $canDtsUseApplication = false;
@@ -195,6 +203,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         $this->canViewAllCurrentTrans = false;
         $this->canViewAllScannerCodes = false;
         $this->canCreateOwnFlow = false;
+        $this->canDtsCreateInternal = false;
+        $this->canDtsCreateExternal = false;
+        $this->canDtsCreateApplication = false;
+        $this->canDtsCreateIssuance = false;
+        $this->canDtsReceiveInternal = false;
+        $this->canDtsReceiveExternal = false;
+        $this->canDtsReceiveApplication = false;
+        $this->canDtsReceiveIssuance = false;
         $this->canDtsUseInternal = false;
         $this->canDtsUseExternal = false;
         $this->canDtsUseApplication = false;
@@ -274,10 +290,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                 $this->canViewAllCurrentTrans = (bool) $perms->can_dts_view_all_current_trans;
                 $this->canViewAllScannerCodes = (bool) ($perms->can_dts_view_all_scanner_codes ?? false);
                 $this->canCreateOwnFlow = (bool) $perms->can_dts_create_own_flow;
-                $this->canDtsUseInternal = (bool) $perms->can_dts_use_internal;
-                $this->canDtsUseExternal = (bool) $perms->can_dts_use_external;
-                $this->canDtsUseApplication = (bool) $perms->can_dts_use_application;
-                $this->canDtsUseIssuance = (bool) $perms->can_dts_use_issuance;
+                $this->canDtsCreateInternal = (bool) ($perms->can_dts_create_internal ?? $perms->can_dts_use_internal ?? false);
+                $this->canDtsCreateExternal = (bool) ($perms->can_dts_create_external ?? $perms->can_dts_use_external ?? false);
+                $this->canDtsCreateApplication = (bool) ($perms->can_dts_create_application ?? $perms->can_dts_use_application ?? false);
+                $this->canDtsCreateIssuance = (bool) ($perms->can_dts_create_issuance ?? $perms->can_dts_use_issuance ?? false);
+                $this->canDtsReceiveInternal = (bool) ($perms->can_dts_receive_internal ?? $perms->can_dts_use_internal ?? false);
+                $this->canDtsReceiveExternal = (bool) ($perms->can_dts_receive_external ?? $perms->can_dts_use_external ?? false);
+                $this->canDtsReceiveApplication = (bool) ($perms->can_dts_receive_application ?? $perms->can_dts_use_application ?? false);
+                $this->canDtsReceiveIssuance = (bool) ($perms->can_dts_receive_issuance ?? $perms->can_dts_use_issuance ?? false);
+                $this->canDtsUseInternal = (bool) $perms->can_dts_use_internal || $this->canDtsCreateInternal || $this->canDtsReceiveInternal;
+                $this->canDtsUseExternal = (bool) $perms->can_dts_use_external || $this->canDtsCreateExternal || $this->canDtsReceiveExternal;
+                $this->canDtsUseApplication = (bool) $perms->can_dts_use_application || $this->canDtsCreateApplication || $this->canDtsReceiveApplication;
+                $this->canDtsUseIssuance = (bool) $perms->can_dts_use_issuance || $this->canDtsCreateIssuance || $this->canDtsReceiveIssuance;
                 $this->canDtsIssuanceReceivingOffice = (bool) ($perms->can_dts_issuance_receiving_office ?? false);
                 $this->canDtsIssuanceTransactionFlow = (bool) ($perms->can_dts_issuance_transaction_flow ?? false);
                 $this->canDtsUserReceived = (bool) $perms->can_dts_user_received;
@@ -331,16 +355,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
             + ($this->canAccessArchv ? 1 : 0)
             + ($this->canAccessDcs ? 1 : 0);
 
-        // DTS (16)
+        // DTS
         $dtsActive = ($this->canModifyDocflow ? 1 : 0)
             + ($this->canViewAllList ? 1 : 0)
             + ($this->canViewAllArchive ? 1 : 0)
             + ($this->canViewAllCurrentTrans ? 1 : 0)
             + ($this->canCreateOwnFlow ? 1 : 0)
-            + ($this->canDtsUseInternal ? 1 : 0)
-            + ($this->canDtsUseExternal ? 1 : 0)
-            + ($this->canDtsUseApplication ? 1 : 0)
-            + ($this->canDtsUseIssuance ? 1 : 0)
+            + ($this->canDtsCreateInternal ? 1 : 0)
+            + ($this->canDtsCreateExternal ? 1 : 0)
+            + ($this->canDtsCreateApplication ? 1 : 0)
+            + ($this->canDtsCreateIssuance ? 1 : 0)
+            + ($this->canDtsReceiveInternal ? 1 : 0)
+            + ($this->canDtsReceiveExternal ? 1 : 0)
+            + ($this->canDtsReceiveApplication ? 1 : 0)
+            + ($this->canDtsReceiveIssuance ? 1 : 0)
             + ($this->canDtsIssuanceReceivingOffice ? 1 : 0)
             + ($this->canDtsIssuanceTransactionFlow ? 1 : 0)
             + ($this->canDtsUserReceived ? 1 : 0)
@@ -411,6 +439,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                 $this->canViewAllScannerCodes = true;
             }
             $this->canCreateOwnFlow = true;
+            $this->canDtsCreateInternal = true;
+            $this->canDtsCreateExternal = true;
+            $this->canDtsCreateApplication = true;
+            $this->canDtsCreateIssuance = true;
+            $this->canDtsReceiveInternal = true;
+            $this->canDtsReceiveExternal = true;
+            $this->canDtsReceiveApplication = true;
+            $this->canDtsReceiveIssuance = true;
             $this->canDtsUseInternal = true;
             $this->canDtsUseExternal = true;
             $this->canDtsUseApplication = true;
@@ -468,6 +504,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
             $this->canViewAllArchive = false;
             $this->canViewAllCurrentTrans = false;
             $this->canCreateOwnFlow = false;
+            $this->canDtsCreateInternal = false;
+            $this->canDtsCreateExternal = false;
+            $this->canDtsCreateApplication = false;
+            $this->canDtsCreateIssuance = false;
+            $this->canDtsReceiveInternal = false;
+            $this->canDtsReceiveExternal = false;
+            $this->canDtsReceiveApplication = false;
+            $this->canDtsReceiveIssuance = false;
             $this->canDtsUseInternal = false;
             $this->canDtsUseExternal = false;
             $this->canDtsUseApplication = false;
@@ -689,10 +733,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         $perms->can_dts_view_all_current_trans = $this->canViewAllCurrentTrans;
         $perms->can_dts_view_all_scanner_codes = $this->canViewAllScannerCodes;
         $perms->can_dts_create_own_flow = $this->canCreateOwnFlow;
-        $perms->can_dts_use_internal = $this->canDtsUseInternal;
-        $perms->can_dts_use_external = $this->canDtsUseExternal;
-        $perms->can_dts_use_application = $this->canDtsUseApplication;
-        $perms->can_dts_use_issuance = $this->canDtsUseIssuance;
+        $perms->can_dts_create_internal = $this->canDtsCreateInternal;
+        $perms->can_dts_create_external = $this->canDtsCreateExternal;
+        $perms->can_dts_create_application = $this->canDtsCreateApplication;
+        $perms->can_dts_create_issuance = $this->canDtsCreateIssuance;
+        $perms->can_dts_receive_internal = $this->canDtsReceiveInternal;
+        $perms->can_dts_receive_external = $this->canDtsReceiveExternal;
+        $perms->can_dts_receive_application = $this->canDtsReceiveApplication;
+        $perms->can_dts_receive_issuance = $this->canDtsReceiveIssuance;
+        $perms->can_dts_use_internal = $this->canDtsCreateInternal || $this->canDtsReceiveInternal;
+        $perms->can_dts_use_external = $this->canDtsCreateExternal || $this->canDtsReceiveExternal;
+        $perms->can_dts_use_application = $this->canDtsCreateApplication || $this->canDtsReceiveApplication;
+        $perms->can_dts_use_issuance = $this->canDtsCreateIssuance || $this->canDtsReceiveIssuance;
         $perms->can_dts_issuance_receiving_office = $this->canDtsIssuanceReceivingOffice;
         $perms->can_dts_issuance_transaction_flow = $this->canDtsIssuanceTransactionFlow;
         $perms->can_dts_user_received = $this->canDtsUserReceived;
@@ -928,6 +980,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
         $this->canViewAllCurrentTrans = true;
         $this->canViewAllScannerCodes = true;
         $this->canCreateOwnFlow = true;
+        $this->canDtsCreateInternal = true;
+        $this->canDtsCreateExternal = true;
+        $this->canDtsCreateApplication = true;
+        $this->canDtsCreateIssuance = true;
+        $this->canDtsReceiveInternal = true;
+        $this->canDtsReceiveExternal = true;
+        $this->canDtsReceiveApplication = true;
+        $this->canDtsReceiveIssuance = true;
         $this->canDtsUseInternal = true;
         $this->canDtsUseExternal = true;
         $this->canDtsUseApplication = true;
@@ -961,6 +1021,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
      *
      * @return void
      */
+    public function updatedCanDtsCreateIssuance($value): void
+    {
+        if ($value) {
+            $this->canDtsIssuanceReceivingOffice = true;
+            $this->canDtsIssuanceTransactionFlow = true;
+        } else {
+            $this->canDtsIssuanceReceivingOffice = false;
+            $this->canDtsIssuanceTransactionFlow = false;
+        }
+    }
+
     public function updatedCanDtsUseIssuance($value): void
     {
         if ($value) {
@@ -1892,71 +1963,131 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                                             <span class="slider"></span>
                                         </label>
                                     </div>
-                                    <!-- Use Internal Transactions -->
+                                    <!-- Subheader: Create Clearances -->
+                                    <div style="grid-column: 1 / -1; margin-top: 8px; margin-bottom: 2px; padding-bottom: 6px; border-bottom: 1px dashed #cbd5e1; font-size: 11px; font-weight: 700; color: #1e40af; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-file-circle-plus" style="color: #2563eb;"></i> Create Transaction Clearances
+                                    </div>
+
+                                    <!-- Create Internal Transactions -->
                                     <div class="permission-toggle-row">
                                         <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">Use Internal Transactions</span>
-                                            <span class="permission-toggle-desc">Clearance to create, list, and filter Internal Transactions.</span>
+                                            <span class="permission-toggle-title">Create Internal Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to originate and create new Internal Transactions.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canDtsUseInternal">
+                                            <input type="checkbox" wire:model="canDtsCreateInternal">
                                             <span class="slider"></span>
                                         </label>
                                     </div>
-                                    <!-- Use External Transactions -->
+                                    <!-- Create External Transactions -->
                                     <div class="permission-toggle-row">
                                         <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">Use External Transactions</span>
-                                            <span class="permission-toggle-desc">Clearance to create, list, and filter External Transactions.</span>
+                                            <span class="permission-toggle-title">Create External Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to originate and create new External Transactions.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canDtsUseExternal">
+                                            <input type="checkbox" wire:model="canDtsCreateExternal">
                                             <span class="slider"></span>
                                         </label>
                                     </div>
-                                    <!-- Use Application Letter Transactions -->
+                                    <!-- Create Application Letter Transactions -->
                                     <div class="permission-toggle-row">
                                         <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">Use Application Letter Transactions</span>
-                                            <span class="permission-toggle-desc">Clearance to create, list, and filter Application Letter Transactions.</span>
+                                            <span class="permission-toggle-title">Create Application Letter Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to originate and create new Application Letter Transactions.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canDtsUseApplication">
+                                            <input type="checkbox" wire:model="canDtsCreateApplication">
                                             <span class="slider"></span>
                                         </label>
                                     </div>
-                                    <!-- Use Issuance Transactions -->
+                                    <!-- Create Issuance Transactions -->
                                     <div class="permission-toggle-row">
                                         <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">Use Issuance Transactions</span>
-                                            <span class="permission-toggle-desc">Clearance to create, list, and filter Issuance Transactions.</span>
+                                            <span class="permission-toggle-title">Create Issuance Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to originate and create new Issuance Transactions.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model.live="canDtsUseIssuance">
+                                            <input type="checkbox" wire:model.live="canDtsCreateIssuance">
                                             <span class="slider"></span>
                                         </label>
                                     </div>
                                     <!-- Issuance Receiving Office Clearance -->
-                                    <div class="permission-toggle-row" style="{{ !$canDtsUseIssuance ? 'opacity: 0.6;' : '' }}">
+                                    <div class="permission-toggle-row" style="{{ !$canDtsCreateIssuance ? 'opacity: 0.6;' : '' }}">
                                         <div class="permission-toggle-info" style="padding-left: 14px;">
                                             <span class="permission-toggle-title">Issuance - Receiving Office</span>
                                             <span class="permission-toggle-desc">Clearance to route issuances using Receiving Office(s) and Hub broadcast.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canDtsIssuanceReceivingOffice" {{ !$canDtsUseIssuance ? 'disabled' : '' }}>
+                                            <input type="checkbox" wire:model="canDtsIssuanceReceivingOffice" {{ !$canDtsCreateIssuance ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>
                                     <!-- Issuance Transaction Flow Clearance -->
-                                    <div class="permission-toggle-row" style="{{ !$canDtsUseIssuance ? 'opacity: 0.6;' : '' }}">
+                                    <div class="permission-toggle-row" style="{{ !$canDtsCreateIssuance ? 'opacity: 0.6;' : '' }}">
                                         <div class="permission-toggle-info" style="padding-left: 14px;">
                                             <span class="permission-toggle-title">Issuance - Transaction Flow</span>
                                             <span class="permission-toggle-desc">Clearance to route issuances using Transaction Flow / Path sequences.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canDtsIssuanceTransactionFlow" {{ !$canDtsUseIssuance ? 'disabled' : '' }}>
+                                            <input type="checkbox" wire:model="canDtsIssuanceTransactionFlow" {{ !$canDtsCreateIssuance ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
+                                    </div>
+
+                                    <!-- Subheader: Receive Clearances -->
+                                    <div style="grid-column: 1 / -1; margin-top: 12px; margin-bottom: 2px; padding-bottom: 6px; border-bottom: 1px dashed #cbd5e1; font-size: 11px; font-weight: 700; color: #047857; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-inbox" style="color: #059669;"></i> Receive & Process Clearances
+                                    </div>
+
+                                    <!-- Receive / Process Internal Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Receive Internal Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to view, track, receive, and process incoming Internal Transactions at this station.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsReceiveInternal">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Receive / Process External Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Receive External Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to view, track, receive, and process incoming External Transactions at this station.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsReceiveExternal">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Receive / Process Application Letter Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Receive Application Letters</span>
+                                            <span class="permission-toggle-desc">Clearance to view, track, receive, and process incoming Application Letters at this station.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsReceiveApplication">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Receive / Process Issuance Transactions -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Receive Issuance Transactions</span>
+                                            <span class="permission-toggle-desc">Clearance to view, track, receive, and process incoming Issuances at this station.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsReceiveIssuance">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+
+                                    <!-- Subheader: Actions & Routing Clearances -->
+                                    <div style="grid-column: 1 / -1; margin-top: 12px; margin-bottom: 2px; padding-bottom: 6px; border-bottom: 1px dashed #cbd5e1; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-sliders" style="color: #64748b;"></i> Processing & Routing Actions
                                     </div>
                                     <!-- Receive Transactions -->
                                     <div class="permission-toggle-row">
@@ -2664,79 +2795,133 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles & Clearances')] cl
                             </div>
                         @endif
 
-                        @if(empty($permSearch) || str_contains(strtolower('Use Internal Transactions'), strtolower($permSearch)))
+                        <!-- Create Clearances -->
+                        @if(empty($permSearch) || str_contains(strtolower('Create Internal Transactions'), strtolower($permSearch)))
                             <div class="m-permission-card">
                                 <div class="m-permission-info">
-                                    <span class="m-permission-title">Use Internal Transactions</span>
-                                    <span class="m-permission-desc">Clearance to create, list, and filter Internal Transactions.</span>
+                                    <span class="m-permission-title">Create Internal Transactions</span>
+                                    <span class="m-permission-desc">Clearance to originate and create new Internal Transactions.</span>
                                 </div>
                                 <label class="switch">
-                                    <input type="checkbox" wire:model="canDtsUseInternal">
+                                    <input type="checkbox" wire:model="canDtsCreateInternal">
                                     <span class="slider"></span>
                                 </label>
                             </div>
                         @endif
 
-                        @if(empty($permSearch) || str_contains(strtolower('Use External Transactions'), strtolower($permSearch)))
+                        @if(empty($permSearch) || str_contains(strtolower('Create External Transactions'), strtolower($permSearch)))
                             <div class="m-permission-card">
                                 <div class="m-permission-info">
-                                    <span class="m-permission-title">Use External Transactions</span>
-                                    <span class="m-permission-desc">Clearance to create, list, and filter External Transactions.</span>
+                                    <span class="m-permission-title">Create External Transactions</span>
+                                    <span class="m-permission-desc">Clearance to originate and create new External Transactions.</span>
                                 </div>
                                 <label class="switch">
-                                    <input type="checkbox" wire:model="canDtsUseExternal">
+                                    <input type="checkbox" wire:model="canDtsCreateExternal">
                                     <span class="slider"></span>
                                 </label>
                             </div>
                         @endif
 
-                        @if(empty($permSearch) || str_contains(strtolower('Use Application Letter Transactions'), strtolower($permSearch)))
+                        @if(empty($permSearch) || str_contains(strtolower('Create Application Letter Transactions'), strtolower($permSearch)))
                             <div class="m-permission-card">
                                 <div class="m-permission-info">
-                                    <span class="m-permission-title">Use Application Letter Transactions</span>
-                                    <span class="m-permission-desc">Clearance to create, list, and filter Application Letter Transactions.</span>
+                                    <span class="m-permission-title">Create Application Letter Transactions</span>
+                                    <span class="m-permission-desc">Clearance to originate and create new Application Letter Transactions.</span>
                                 </div>
                                 <label class="switch">
-                                    <input type="checkbox" wire:model="canDtsUseApplication">
+                                    <input type="checkbox" wire:model="canDtsCreateApplication">
                                     <span class="slider"></span>
                                 </label>
                             </div>
                         @endif
 
-                        @if(empty($permSearch) || str_contains(strtolower('Use Issuance Transactions'), strtolower($permSearch)))
+                        @if(empty($permSearch) || str_contains(strtolower('Create Issuance Transactions'), strtolower($permSearch)))
                             <div class="m-permission-card">
                                 <div class="m-permission-info">
-                                    <span class="m-permission-title">Use Issuance Transactions</span>
-                                    <span class="m-permission-desc">Clearance to create, list, and filter Issuance Transactions.</span>
+                                    <span class="m-permission-title">Create Issuance Transactions</span>
+                                    <span class="m-permission-desc">Clearance to originate and create new Issuance Transactions.</span>
                                 </div>
                                 <label class="switch">
-                                    <input type="checkbox" wire:model.live="canDtsUseIssuance">
+                                    <input type="checkbox" wire:model.live="canDtsCreateIssuance">
                                     <span class="slider"></span>
                                 </label>
                             </div>
                         @endif
 
                         @if(empty($permSearch) || str_contains(strtolower('Issuance - Receiving Office'), strtolower($permSearch)))
-                            <div class="m-permission-card" style="{{ !$canDtsUseIssuance ? 'opacity: 0.6;' : '' }}">
+                            <div class="m-permission-card" style="{{ !$canDtsCreateIssuance ? 'opacity: 0.6;' : '' }}">
                                 <div class="m-permission-info" style="padding-left: 12px;">
                                     <span class="m-permission-title">Issuance - Receiving Office</span>
                                     <span class="m-permission-desc">Route issuances using Receiving Office(s) and Hub broadcast.</span>
                                 </div>
                                 <label class="switch">
-                                    <input type="checkbox" wire:model="canDtsIssuanceReceivingOffice" {{ !$canDtsUseIssuance ? 'disabled' : '' }}>
+                                    <input type="checkbox" wire:model="canDtsIssuanceReceivingOffice" {{ !$canDtsCreateIssuance ? 'disabled' : '' }}>
                                     <span class="slider"></span>
                                 </label>
                             </div>
                         @endif
 
                         @if(empty($permSearch) || str_contains(strtolower('Issuance - Transaction Flow'), strtolower($permSearch)))
-                            <div class="m-permission-card" style="{{ !$canDtsUseIssuance ? 'opacity: 0.6;' : '' }}">
+                            <div class="m-permission-card" style="{{ !$canDtsCreateIssuance ? 'opacity: 0.6;' : '' }}">
                                 <div class="m-permission-info" style="padding-left: 12px;">
                                     <span class="m-permission-title">Issuance - Transaction Flow</span>
                                     <span class="m-permission-desc">Route issuances using Transaction Flow / Path sequences.</span>
                                 </div>
                                 <label class="switch">
-                                    <input type="checkbox" wire:model="canDtsIssuanceTransactionFlow" {{ !$canDtsUseIssuance ? 'disabled' : '' }}>
+                                    <input type="checkbox" wire:model="canDtsIssuanceTransactionFlow" {{ !$canDtsCreateIssuance ? 'disabled' : '' }}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        <!-- Receive Clearances -->
+                        @if(empty($permSearch) || str_contains(strtolower('Receive Internal Transactions'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Receive Internal Transactions</span>
+                                    <span class="m-permission-desc">Clearance to view, track, receive, and process incoming Internal Transactions at this station.</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canDtsReceiveInternal">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Receive External Transactions'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Receive External Transactions</span>
+                                    <span class="m-permission-desc">Clearance to view, track, receive, and process incoming External Transactions at this station.</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canDtsReceiveExternal">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Receive Application Letters'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Receive Application Letters</span>
+                                    <span class="m-permission-desc">Clearance to view, track, receive, and process incoming Application Letters at this station.</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canDtsReceiveApplication">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        @endif
+
+                        @if(empty($permSearch) || str_contains(strtolower('Receive Issuance Transactions'), strtolower($permSearch)))
+                            <div class="m-permission-card">
+                                <div class="m-permission-info">
+                                    <span class="m-permission-title">Receive Issuance Transactions</span>
+                                    <span class="m-permission-desc">Clearance to view, track, receive, and process incoming Issuances at this station.</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" wire:model="canDtsReceiveIssuance">
                                     <span class="slider"></span>
                                 </label>
                             </div>

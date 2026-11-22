@@ -1064,7 +1064,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
             try {
                 $c = Carbon::parse($token);
+                $isJuneJuly = in_array((int)$c->month, [6, 7]);
                 $text = \App\Helpers\RegisterQueryHelper::formatRdpPeriodDate($c);
+                if ($isJuneJuly && ((int)$c->format('j') === 1 || (int)$c->format('j') === (int)$c->format('t'))) {
+                    $text = $c->format('F Y');
+                }
                 return ['text' => $text, 'year' => $c->year, 'carbon' => $c, 'has_month' => true];
             } catch (\Throwable) {
                 return ['text' => $token, 'year' => null, 'carbon' => null, 'has_month' => false];
@@ -1284,22 +1288,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $groupPeriods = [];
             foreach ($group as $r) {
                 $rPeriods = $periods[$r->id] ?? collect();
+                $periodIndices = [];
+                foreach ($rPeriods->values() as $idx => $origP) {
+                    $periodIndices[$origP->id] = $idx + 1;
+                }
                 if ($rPeriods->isEmpty()) {
                     $groupPeriods[] = [
-                        'rec'    => $r,
-                        'period' => (object)[
+                        'rec'            => $r,
+                        'period'         => (object)[
                             'id'               => null,
                             'date_covered'     => '—',
                             'date_covered_end' => null,
                             'volume'           => $r->volume,
                             'description'      => null,
                         ],
+                        'original_index' => 1,
                     ];
                 } else {
                     foreach ($rPeriods as $p) {
                         $groupPeriods[] = [
-                            'rec'    => $r,
-                            'period' => $p,
+                            'rec'            => $r,
+                            'period'         => $p,
+                            'original_index' => $periodIndices[$p->id] ?? 1,
                         ];
                     }
                 }
@@ -1312,6 +1322,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $isBatch = ($group->count() > 1) 
                 || count($groupPeriods) > 1 
                 || (bool)($firstRec->ispartof_batch ?? false);
+            $isNativeBatch = (bool)($firstRec->ispartof_batch ?? false);
 
             if (!$isBatch) {
                 // Single Record
@@ -1446,9 +1457,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $pStart = $p->date_covered ?? null;
                     $pEnd = $p->date_covered_end ?? null;
 
-                    if (!empty($pStart)) $allStartDates[] = $pStart;
-                    if (!empty($pEnd)) $allEndDates[] = $pEnd;
-
                     $rMedium = !empty($r->records_medium) ? ($mediumsMap[$r->records_medium] ?? (string)$r->records_medium) : '—';
                     $rRestriction = !empty($r->restriction) ? $r->restriction : '—';
                     $rFreq = !empty($r->frequence_use) ? $r->frequence_use : '—';
@@ -1462,12 +1470,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
                     $rURows = ($utilities[$r->id] ?? collect())->pluck('utility_name')->all();
 
-                    $subTitle = $this->formatSubPeriodTitle(
-                        $primarySubject,
-                        $p->description ?? null,
-                        $pStart,
-                        $pEnd
-                    );
+                    if ($isNativeBatch) {
+                        $subTitle = !empty($p->description) 
+                            ? trim((string)$p->description) 
+                            : ($primarySubject . ' ' . ($gp['original_index'] ?? 1));
+                    } else {
+                        $subTitle = $this->formatSubPeriodTitle(
+                            $primarySubject,
+                            $p->description ?? null,
+                            $pStart,
+                            $pEnd,
+                            $gp['original_index'] ?? 1
+                        );
+                    }
 
                     $subVol = !empty($p->volume) ? $p->volume : (!empty($r->volume) ? $r->volume : '—');
 
@@ -1524,6 +1539,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         continue;
                     }
 
+                    if (!empty($pStart)) $allStartDates[] = $pStart;
+                    if (!empty($pEnd)) $allEndDates[] = $pEnd;
+
                     $subLockedCluster = null;
                     if (!empty($activeClustersByRecord) && isset($activeClustersByRecord[$r->id])) {
                         $subLockedCluster = $activeClustersByRecord[$r->id]->first();
@@ -1563,8 +1581,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     continue;
                 }
 
-                // Sort sub-periods descending (latest year/date on top, oldest at bottom)
-                usort($subPeriodItems, function($a, $b) {
+                // Sort sub-periods: native batches sort ascending (earliest to latest); merged batches sort descending (latest year on top)
+                usort($subPeriodItems, function($a, $b) use ($isNativeBatch) {
+                    if ($isNativeBatch) {
+                        return strcmp($a->raw_sort_date, $b->raw_sort_date);
+                    }
                     return strcmp($b->raw_sort_date, $a->raw_sort_date);
                 });
 
@@ -1621,14 +1642,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     if (!empty($batchStart) && !empty($batchEnd)) {
                         $compiledDates[] = $batchStart . ' - ' . $batchEnd;
                     }
-                    foreach ($groupPeriods as $gp) {
-                        $p = $gp['period'];
-                        if (!empty($p->date_covered) && !empty($p->date_covered_end)) {
-                            $compiledDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
-                        } elseif (!empty($p->date_covered)) {
-                            $compiledDates[] = $p->date_covered;
-                        } elseif (!empty($p->date_covered_end)) {
-                            $compiledDates[] = $p->date_covered_end;
+                    foreach ($subPeriodItems as $sItem) {
+                        if (!empty($sItem->date_covered) && $sItem->date_covered !== '—') {
+                            $compiledDates[] = $sItem->date_covered;
                         }
                     }
 
@@ -3399,7 +3415,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         @endif
                                         <td style="text-align: center; color: #cbd5e1;">—</td>
                                         <td style="text-align: right; white-space: nowrap;">
-                                            @if($recStatus === 'disposed')
+                                            @if(!empty($rec->is_batch))
+                                                <span style="color: #cbd5e1;">—</span>
+                                            @elseif($recStatus === 'disposed')
                                                 @if($hasRecordClearance($rec->office_code ?? null))
                                                     <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
                                                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -3571,7 +3589,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
                                     <td style="text-align: center; color: #cbd5e1;">—</td>
                                     <td style="text-align: right; white-space: nowrap;">
-                                        @if($recStatus === 'disposed')
+                                        @if(!empty($rec->is_batch))
+                                            <span style="color: #cbd5e1;">—</span>
+                                        @elseif($recStatus === 'disposed')
                                             @if($hasRecordClearance($rec->office_code ?? null))
                                                 <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>

@@ -37,6 +37,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             return;
         }
         $this->layoutMode = session('admin_flows_layout_mode', session('admin_management_layout_mode', 'horizontal'));
+        $this->loadContinRdpTypes();
         $this->cancelSelection();
     }
 
@@ -95,12 +96,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public $continRdpId = null;
     public string $continRdpSearch = '';
     public string $continRdpTypeFilter = '';
+    public ?string $continRdpError = null;
     /** @var array<int, array{id:int, type_name:string}> Record series types for the filter dropdown */
     public array $continRdpTypes = [];
     /** @var int|null Selected rdp_record_series id for the custom flow (null = Server default) */
     public $customContinRdpId = null;
     public string $customContinRdpSearch = '';
     public string $customContinRdpTypeFilter = '';
+    public ?string $customContinRdpError = null;
     public string $customPurposeFilter = 'all';
 
     // ---- SEARCH & FILTER FOR FLOWS ----
@@ -249,6 +252,65 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     }
 
     /**
+     * Resolves hierarchy chain, root item number, full path, and whether it has subsections.
+     *
+     * @param int|object $series
+     * @return array{id: int, item_number: ?int, series_title: string, full_path: string, parent_title: ?string, has_subsections: bool, chain: array}|null
+     */
+    public function resolveSeriesHierarchy($series): ?array
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series')) {
+            return null;
+        }
+
+        if (is_numeric($series)) {
+            $series = \DB::table('rdp_record_series')->where('id', (int) $series)->first();
+        }
+        if (!$series) return null;
+
+        $chain = [];
+        $curr = $series;
+        $visited = [];
+        while ($curr && !in_array($curr->id, $visited, true)) {
+            $visited[] = $curr->id;
+            array_unshift($chain, $curr);
+            $curr = $curr->parent_id
+                ? \DB::table('rdp_record_series')->where('id', $curr->parent_id)->first()
+                : null;
+        }
+
+        $rootItemNumber = null;
+        foreach ($chain as $node) {
+            if (!empty($node->item_number)) {
+                $rootItemNumber = (int) $node->item_number;
+                break;
+            }
+        }
+        if ($rootItemNumber === null && !empty($series->item_number)) {
+            $rootItemNumber = (int) $series->item_number;
+        }
+
+        $titles = array_map(fn($n) => $n->series_title, $chain);
+        $fullPath = implode(' ➔ ', $titles);
+        $parentTitle = count($chain) > 1 ? $chain[count($chain) - 2]->series_title : null;
+
+        $hasSubsections = \DB::table('rdp_record_series')
+            ->where('parent_id', $series->id)
+            ->where('is_active', true)
+            ->exists();
+
+        return [
+            'id' => (int) $series->id,
+            'item_number' => $rootItemNumber,
+            'series_title' => $series->series_title,
+            'full_path' => $fullPath,
+            'parent_title' => $parentTitle,
+            'has_subsections' => $hasSubsections,
+            'chain' => $chain,
+        ];
+    }
+
+    /**
      * Record series choices (search + type filtered) for the flow details pickers.
      */
     public function continRdpChoices(string $search, string $typeFilter): \Illuminate\Support\Collection
@@ -257,24 +319,88 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             return collect();
         }
 
-        $query = \DB::table('rdp_record_series')
-            ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
-            ->where('rdp_record_series.is_active', true)
-            ->select('rdp_record_series.id', 'rdp_record_series.item_number', 'rdp_record_series.series_title', 'rdp_record_series_type.shorted_type');
-
         $term = trim($search);
+
+        $query = \DB::table('rdp_record_series as s')
+            ->leftJoin('rdp_record_series_type as t', 's.series_type', '=', 't.id')
+            ->leftJoin('rdp_record_series as p', 's.parent_id', '=', 'p.id')
+            ->where('s.is_active', true)
+            ->select([
+                's.id',
+                's.item_number',
+                's.series_title',
+                's.parent_id',
+                's.series_type',
+                't.shorted_type',
+                'p.series_title as direct_parent_title',
+                'p.item_number as direct_parent_item_number',
+            ]);
+
         if ($term !== '') {
-            $query->where(function ($q) use ($term) {
-                $q->where('rdp_record_series.series_title', 'ilike', '%' . $term . '%')
-                    ->orWhereRaw('CAST(rdp_record_series.item_number AS TEXT) ILIKE ?', ['%' . $term . '%']);
+            $matchedIds = \DB::table('rdp_record_series')
+                ->where('is_active', true)
+                ->where(function ($q) use ($term) {
+                    $q->where('series_title', 'ilike', '%' . $term . '%')
+                      ->orWhereRaw('CAST(item_number AS TEXT) ILIKE ?', ['%' . $term . '%']);
+                })
+                ->pluck('id')
+                ->toArray();
+
+            $query->where(function ($q) use ($term, $matchedIds) {
+                $q->where('s.series_title', 'ilike', '%' . $term . '%')
+                  ->orWhereRaw('CAST(s.item_number AS TEXT) ILIKE ?', ['%' . $term . '%'])
+                  ->orWhere('p.series_title', 'ilike', '%' . $term . '%')
+                  ->orWhereRaw('CAST(p.item_number AS TEXT) ILIKE ?', ['%' . $term . '%'])
+                  ->orWhere('t.shorted_type', 'ilike', '%' . $term . '%')
+                  ->orWhere('t.type_name', 'ilike', '%' . $term . '%');
+
+                if (!empty($matchedIds)) {
+                    $q->orWhereIn('s.parent_id', $matchedIds);
+                }
             });
         }
 
         if (trim($typeFilter) !== '') {
-            $query->where('rdp_record_series.series_type', (int) $typeFilter);
+            $tf = (int) $typeFilter;
+            $query->where(function ($q) use ($tf) {
+                $q->where('s.series_type', $tf)
+                  ->orWhere(function ($q2) use ($tf) {
+                      $q2->whereNull('s.series_type')->where('p.series_type', $tf);
+                  });
+            });
         }
 
-        return $query->orderBy('rdp_record_series.series_title', 'asc')->limit(15)->get();
+        $rawResults = $query->orderByRaw('COALESCE(p.series_title, s.series_title) ASC, s.parent_id ASC NULLS FIRST, s.series_title ASC')
+            ->limit(30)
+            ->get();
+
+        if ($rawResults->isEmpty()) {
+            return collect();
+        }
+
+        $ids = $rawResults->pluck('id')->toArray();
+        $parentCounts = \DB::table('rdp_record_series')
+            ->whereIn('parent_id', $ids)
+            ->where('is_active', true)
+            ->select('parent_id', \DB::raw('count(*) as c'))
+            ->groupBy('parent_id')
+            ->pluck('c', 'parent_id')
+            ->toArray();
+
+        return $rawResults->map(function ($row) use ($parentCounts) {
+            $hasSubs = !empty($parentCounts[$row->id]);
+            $hier = $this->resolveSeriesHierarchy($row);
+
+            $row->has_subsections = $hasSubs;
+            $row->full_path = $hier['full_path'] ?? $row->series_title;
+            $row->parent_title = $hier['parent_title'] ?? null;
+            $row->root_item_number = $hier['item_number'] ?? $row->item_number;
+            if (empty($row->item_number) && !empty($row->root_item_number)) {
+                $row->item_number = $row->root_item_number;
+            }
+
+            return $row;
+        });
     }
 
     /**
@@ -291,9 +417,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             return $search;
         }
 
-        $itemNo = \DB::table('rdp_record_series')->where('id', (int) $id)->value('item_number');
+        $hier = $this->resolveSeriesHierarchy((int) $id);
+        if (!$hier) {
+            return $search;
+        }
 
-        return ($itemNo !== null ? '#' . $itemNo . ' · ' : '') . $search;
+        $itemNo = $hier['item_number'];
+        $title = !empty($hier['full_path']) ? $hier['full_path'] : $search;
+
+        return ($itemNo !== null ? '#' . $itemNo . ' · ' : '') . $title;
     }
 
     /**
@@ -305,11 +437,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
      */
     public function selectContinRdpSeries(int $id): void
     {
-        $title = $this->continRdpTitle($id);
-        if ($title === null) return;
+        $this->continRdpError = null;
+
+        $series = \DB::table('rdp_record_series')->where('id', $id)->first();
+        if (!$series) return;
+
+        $hasSubsections = \DB::table('rdp_record_series')
+            ->where('parent_id', $id)
+            ->where('is_active', true)
+            ->exists();
+
+        if ($hasSubsections) {
+            $this->continRdpError = "The record series '{$series->series_title}' contains subsections. Please select a specific subsection.";
+            $this->continRdpSearch = $series->series_title;
+            $this->showRdpDropdown = true;
+            return;
+        }
 
         $this->continRdpId = $id;
-        $this->continRdpSearch = $title;
+        $hier = $this->resolveSeriesHierarchy($id);
+        $this->continRdpSearch = $hier['full_path'] ?? $series->series_title;
         $this->showRdpDropdown = false;
     }
 
@@ -321,6 +468,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     {
         $this->continRdpId = null;
         $this->continRdpSearch = '';
+        $this->continRdpError = null;
     }
 
     /**
@@ -332,11 +480,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
      */
     public function selectCustomContinRdpSeries(int $id): void
     {
-        $title = $this->continRdpTitle($id);
-        if ($title === null) return;
+        $this->customContinRdpError = null;
+
+        $series = \DB::table('rdp_record_series')->where('id', $id)->first();
+        if (!$series) return;
+
+        $hasSubsections = \DB::table('rdp_record_series')
+            ->where('parent_id', $id)
+            ->where('is_active', true)
+            ->exists();
+
+        if ($hasSubsections) {
+            $this->customContinRdpError = "The record series '{$series->series_title}' contains subsections. Please select a specific subsection.";
+            $this->customContinRdpSearch = $series->series_title;
+            $this->showCustomRdpDropdown = true;
+            return;
+        }
 
         $this->customContinRdpId = $id;
-        $this->customContinRdpSearch = $title;
+        $hier = $this->resolveSeriesHierarchy($id);
+        $this->customContinRdpSearch = $hier['full_path'] ?? $series->series_title;
         $this->showCustomRdpDropdown = false;
     }
 
@@ -348,6 +511,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     {
         $this->customContinRdpId = null;
         $this->customContinRdpSearch = '';
+        $this->customContinRdpError = null;
     }
 
     /**
@@ -359,6 +523,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
      */
     public function updatedContinRdpSearch(string $value): void
     {
+        $this->continRdpError = null;
         if ($this->continRdpId === null) return;
 
         $title = $this->continRdpTitle((int) $this->continRdpId);
@@ -376,6 +541,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
      */
     public function updatedCustomContinRdpSearch(string $value): void
     {
+        $this->customContinRdpError = null;
         if ($this->customContinRdpId === null) return;
 
         $title = $this->continRdpTitle((int) $this->customContinRdpId);
@@ -397,9 +563,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             return null;
         }
 
-        $title = \DB::table('rdp_record_series')->where('id', $id)->value('series_title');
+        $hier = $this->resolveSeriesHierarchy($id);
+        if (!$hier) return null;
 
-        return $title === null ? null : trim((string) $title);
+        return $hier['full_path'];
     }
 
     /**
@@ -892,6 +1059,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             return;
         }
 
+        if ($this->customContinRdpId !== null) {
+            $hasSub = \DB::table('rdp_record_series')
+                ->where('parent_id', $this->customContinRdpId)
+                ->where('is_active', true)
+                ->exists();
+            if ($hasSub) {
+                $title = $this->continRdpTitle($this->customContinRdpId) ?? 'Selected series';
+                $this->customContinRdpError = "The record series '{$title}' contains subsections. Please select a specific subsection.";
+                $this->errorMessage = $this->customContinRdpError;
+                return;
+            }
+        }
+
         if ($this->selectedCustom === 'new') {
             $codeToUse = !empty($this->customFlowCode) ? strtoupper(trim($this->customFlowCode)) : ('FLOW-CUSTOM-' . time() . '-' . rand(100, 999));
             $this->validate([
@@ -1351,6 +1531,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         if (count($this->flowOffices) === 0) {
             $this->errorMessage = 'A transaction flow must contain at least one office in its routing path.';
             return;
+        }
+
+        if ($this->continRdpId !== null) {
+            $hasSub = \DB::table('rdp_record_series')
+                ->where('parent_id', $this->continRdpId)
+                ->where('is_active', true)
+                ->exists();
+            if ($hasSub) {
+                $title = $this->continRdpTitle($this->continRdpId) ?? 'Selected series';
+                $this->continRdpError = "The record series '{$title}' contains subsections. Please select a specific subsection.";
+                $this->errorMessage = $this->continRdpError;
+                return;
+            }
         }
 
         // 1. Validate inputs
@@ -3504,18 +3697,30 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                                        placeholder="Server default"
                                                        wire:model.live="continRdpSearch"
                                                        @focus="open = true">
-                                                @if($continRdpId)
+                                                @if($continRdpId || $continRdpSearch !== '')
                                                     <button type="button" wire:click="clearContinRdpSeries" title="Revert to Server default" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 16px; line-height: 1; padding: 0;">&times;</button>
                                                 @endif
                                             </div>
 
-                                            <div x-show="open" class="suggestions-dropdown" style="top: 100%; bottom: auto; margin-top: 4px;">
+                                            <div x-show="open" class="suggestions-dropdown" style="top: 100%; bottom: auto; margin-top: 4px; max-height: 280px; overflow-y: auto;">
                                                 @php $continSeriesChoices = $this->continRdpChoices($continRdpSearch, $continRdpTypeFilter); @endphp
                                                 @forelse($continSeriesChoices as $series)
-                                                    <div class="suggestion-item" @click="open = false" wire:click="selectContinRdpSeries({{ $series->id }})">
-                                                        <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700;">{{ $series->item_number ?? '—' }}</span>
-                                                        <span style="font-weight: 500; color: #1e293b; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $series->series_title }}</span>
-                                                        <span style="color: #64748b; font-weight: 600; font-size: 11px; white-space: nowrap;">{{ $series->shorted_type ?: '—' }}</span>
+                                                    <div class="suggestion-item"
+                                                         @if(!$series->has_subsections) @click="open = false" @endif
+                                                         wire:click="selectContinRdpSeries({{ $series->id }})"
+                                                         style="{{ $series->has_subsections ? 'background: #fffbeb;' : '' }}; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                                        <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700;">{{ $series->item_number ? '#' . $series->item_number : '—' }}</span>
+                                                        <div style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; overflow: hidden; flex-wrap: wrap;">
+                                                            @if(!empty($series->parent_title))
+                                                                <span style="font-weight: 500; color: #64748b; font-size: 12px; white-space: nowrap;">{{ $series->parent_title }}</span>
+                                                                <span style="color: #059669; font-weight: 800; font-size: 11px;">➔</span>
+                                                            @endif
+                                                            <span style="font-weight: 600; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $series->series_title }}</span>
+                                                            @if($series->has_subsections)
+                                                                <span style="font-size: 9.5px; font-weight: 700; background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; white-space: nowrap;">Subsections</span>
+                                                            @endif
+                                                        </div>
+                                                        <span style="color: #64748b; font-weight: 600; font-size: 11px; white-space: nowrap; flex-shrink: 0;">{{ $series->shorted_type ?: '—' }}</span>
                                                     </div>
                                                 @empty
                                                     <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No record series found</div>
@@ -3531,9 +3736,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                         </select>
                                     </div>
 
+                                    @if($continRdpError)
+                                        <div style="background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <i class="fa-solid fa-circle-exclamation" style="flex-shrink: 0;"></i>
+                                                <span>{{ $continRdpError }}</span>
+                                            </div>
+                                            <button type="button" wire:click="$set('continRdpError', null)" style="border: none; background: none; color: inherit; font-size: 16px; cursor: pointer; line-height: 1; padding: 0 4px;">&times;</button>
+                                        </div>
+                                    @endif
+
                                     @if($continRdpId)
-                                        <span style="font-size: 11.5px; color: #059669; margin-top: 8px; display: block;">
-                                            <i class="fa-solid fa-circle-check"></i> Selected: {{ $this->continRdpSelectedLabel($continRdpId, $continRdpSearch) }} — applied when you click Save Configuration.
+                                        <span style="font-size: 11.5px; color: #059669; margin-top: 8px; display: flex; align-items: center; gap: 6px;">
+                                            <i class="fa-solid fa-circle-check"></i>
+                                            <span>Selected: <strong>{{ $this->continRdpSelectedLabel($continRdpId, $continRdpSearch) }}</strong> — applied when you click Save Configuration.</span>
                                         </span>
                                     @else
                                         <span style="font-size: 11.5px; color: #64748b; margin-top: 8px; display: block;">
@@ -4061,18 +4277,30 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                                    placeholder="Server default"
                                                    wire:model.live="customContinRdpSearch"
                                                    @focus="open = true">
-                                            @if($customContinRdpId)
+                                            @if($customContinRdpId || $customContinRdpSearch !== '')
                                                 <button type="button" wire:click="clearCustomContinRdpSeries" title="Revert to Server default" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 16px; line-height: 1; padding: 0;">&times;</button>
                                             @endif
                                         </div>
 
-                                        <div x-show="open" class="suggestions-dropdown" style="top: 100%; bottom: auto; margin-top: 4px;">
+                                        <div x-show="open" class="suggestions-dropdown" style="top: 100%; bottom: auto; margin-top: 4px; max-height: 280px; overflow-y: auto;">
                                             @php $customContinSeriesChoices = $this->continRdpChoices($customContinRdpSearch, $customContinRdpTypeFilter); @endphp
                                             @forelse($customContinSeriesChoices as $series)
-                                                <div class="suggestion-item" @click="open = false" wire:click="selectCustomContinRdpSeries({{ $series->id }})">
-                                                    <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700;">{{ $series->item_number ?? '—' }}</span>
-                                                    <span style="font-weight: 500; color: #1e293b; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $series->series_title }}</span>
-                                                    <span style="color: #64748b; font-weight: 600; font-size: 11px; white-space: nowrap;">{{ $series->shorted_type ?: '—' }}</span>
+                                                <div class="suggestion-item"
+                                                     @if(!$series->has_subsections) @click="open = false" @endif
+                                                     wire:click="selectCustomContinRdpSeries({{ $series->id }})"
+                                                     style="{{ $series->has_subsections ? 'background: #fffbeb;' : '' }}; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                                    <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700;">{{ $series->item_number ? '#' . $series->item_number : '—' }}</span>
+                                                    <div style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; overflow: hidden; flex-wrap: wrap;">
+                                                        @if(!empty($series->parent_title))
+                                                            <span style="font-weight: 500; color: #64748b; font-size: 12px; white-space: nowrap;">{{ $series->parent_title }}</span>
+                                                            <span style="color: #059669; font-weight: 800; font-size: 11px;">➔</span>
+                                                        @endif
+                                                        <span style="font-weight: 600; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $series->series_title }}</span>
+                                                        @if($series->has_subsections)
+                                                            <span style="font-size: 9.5px; font-weight: 700; background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; white-space: nowrap;">Subsections</span>
+                                                        @endif
+                                                    </div>
+                                                    <span style="color: #64748b; font-weight: 600; font-size: 11px; white-space: nowrap; flex-shrink: 0;">{{ $series->shorted_type ?: '—' }}</span>
                                                 </div>
                                             @empty
                                                 <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No record series found</div>
@@ -4088,9 +4316,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                     </select>
                                 </div>
 
+                                @if($customContinRdpError)
+                                    <div style="background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <i class="fa-solid fa-circle-exclamation" style="flex-shrink: 0;"></i>
+                                            <span>{{ $customContinRdpError }}</span>
+                                        </div>
+                                        <button type="button" wire:click="$set('customContinRdpError', null)" style="border: none; background: none; color: inherit; font-size: 16px; cursor: pointer; line-height: 1; padding: 0 4px;">&times;</button>
+                                    </div>
+                                @endif
+
                                 @if($customContinRdpId)
-                                    <span style="font-size: 11.5px; color: #059669; margin-top: 8px; display: block;">
-                                        <i class="fa-solid fa-circle-check"></i> Selected: {{ $this->continRdpSelectedLabel($customContinRdpId, $customContinRdpSearch) }} — applied when you click Save Configuration.
+                                    <span style="font-size: 11.5px; color: #059669; margin-top: 8px; display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-circle-check"></i>
+                                        <span>Selected: <strong>{{ $this->continRdpSelectedLabel($customContinRdpId, $customContinRdpSearch) }}</strong> — applied when you click Save Configuration.</span>
                                     </span>
                                 @else
                                     <span style="font-size: 11.5px; color: #64748b; margin-top: 8px; display: block;">
@@ -4620,24 +4859,56 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                 Connect this workflow to an RDP Record Series to automatically assign retention & disposal policies.
                             </p>
 
+                            @if($continRdpError)
+                                <div style="background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-circle-exclamation" style="flex-shrink: 0; font-size: 11px;"></i>
+                                        <span>{{ $continRdpError }}</span>
+                                    </div>
+                                    <button type="button" wire:click="$set('continRdpError', null)" style="border: none; background: none; color: inherit; font-size: 14px; cursor: pointer; line-height: 1; padding: 0 2px;">&times;</button>
+                                </div>
+                            @endif
+
                             @if($continRdpId)
                                 <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #e0e7ff; border-radius: 6px; border: 1px solid #c7d2fe;">
-                                    <i class="fa-solid fa-link" style="color: #4338ca; font-size: 11px;"></i>
-                                    <span style="font-size: 11.5px; font-weight: 600; color: #3730a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    <i class="fa-solid fa-link" style="color: #4338ca; font-size: 11px; flex-shrink: 0;"></i>
+                                    <span style="font-size: 11.5px; font-weight: 600; color: #3730a3; white-space: normal; word-break: break-word;">
                                         {{ $this->continRdpSelectedLabel($continRdpId, $continRdpSearch) }}
                                     </span>
                                 </div>
                             @else
-                                <div style="position: relative;">
-                                    <input type="text" class="m-field-input" placeholder="Search record series title or #number..." wire:model.live.debounce.150ms="continRdpSearch" wire:focus="$set('showRdpDropdown', true)">
-                                    @if($showRdpDropdown && strlen($continRdpSearch) > 0)
-                                        <div class="m-dropdown-results">
-                                            @foreach($this->continRdpChoices($continRdpSearch, $continRdpTypeFilter) as $series)
-                                                <div class="m-dropdown-row" wire:click="selectContinRdpSeries({{ $series->id }})">
-                                                    <span style="font-weight: 600;">#{{ $series->item_number }} &bull; {{ $series->series_title }}</span>
-                                                    <span style="font-size: 10px; color: #64748b;">{{ $series->shorted_type }}</span>
+                                <div style="position: relative;" @click.outside="$wire.set('showRdpDropdown', false)">
+                                    <input type="text"
+                                           class="m-field-input"
+                                           placeholder="Search record series title or #number..."
+                                           wire:model.live.debounce.150ms="continRdpSearch"
+                                           wire:focus="$set('showRdpDropdown', true)">
+                                    @if($showRdpDropdown)
+                                        <div class="m-dropdown-results" style="max-height: 240px; overflow-y: auto;">
+                                            @forelse($this->continRdpChoices($continRdpSearch, $continRdpTypeFilter) as $series)
+                                                <div class="m-dropdown-row"
+                                                     wire:click="selectContinRdpSeries({{ $series->id }})"
+                                                     style="{{ $series->has_subsections ? 'background: #fffbeb;' : '' }}; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; cursor: pointer;">
+                                                    <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; flex-wrap: wrap;">
+                                                        <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 4px; padding: 1px 5px; font-size: 10px; font-weight: 700;">
+                                                            {{ $series->item_number ? '#' . $series->item_number : '—' }}
+                                                        </span>
+                                                        @if(!empty($series->parent_title))
+                                                            <span style="font-size: 11px; color: #64748b; font-weight: 500; white-space: nowrap;">{{ $series->parent_title }}</span>
+                                                            <span style="color: #059669; font-weight: 800; font-size: 10px;">➔</span>
+                                                        @endif
+                                                        <span style="font-weight: 600; color: #1e293b; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                            {{ $series->series_title }}
+                                                        </span>
+                                                        @if($series->has_subsections)
+                                                            <span style="font-size: 9px; font-weight: 700; background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; white-space: nowrap;">Subsections</span>
+                                                        @endif
+                                                    </div>
+                                                    <span style="font-size: 10px; color: #64748b; font-weight: 600; flex-shrink: 0;">{{ $series->shorted_type ?: '—' }}</span>
                                                 </div>
-                                            @endforeach
+                                            @empty
+                                                <div style="padding: 8px 10px; color: #94a3b8; font-size: 11px; font-style: italic; text-align: center;">No record series found</div>
+                                            @endforelse
                                         </div>
                                     @endif
                                 </div>
@@ -5071,23 +5342,56 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                 @endif
                             </div>
 
+                            @if($customContinRdpError)
+                                <div style="background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-circle-exclamation" style="flex-shrink: 0; font-size: 11px;"></i>
+                                        <span>{{ $customContinRdpError }}</span>
+                                    </div>
+                                    <button type="button" wire:click="$set('customContinRdpError', null)" style="border: none; background: none; color: inherit; font-size: 14px; cursor: pointer; line-height: 1; padding: 0 2px;">&times;</button>
+                                </div>
+                            @endif
+
                             @if($customContinRdpId)
                                 <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #e0e7ff; border-radius: 6px; border: 1px solid #c7d2fe;">
-                                    <i class="fa-solid fa-link" style="color: #4338ca; font-size: 11px;"></i>
-                                    <span style="font-size: 11.5px; font-weight: 600; color: #3730a3;">
+                                    <i class="fa-solid fa-link" style="color: #4338ca; font-size: 11px; flex-shrink: 0;"></i>
+                                    <span style="font-size: 11.5px; font-weight: 600; color: #3730a3; white-space: normal; word-break: break-word;">
                                         {{ $this->continRdpSelectedLabel($customContinRdpId, $customContinRdpSearch) }}
                                     </span>
                                 </div>
                             @else
-                                <div style="position: relative;">
-                                    <input type="text" class="m-field-input" placeholder="Search series title or #..." wire:model.live.debounce.150ms="customContinRdpSearch" wire:focus="$set('showCustomRdpDropdown', true)">
-                                    @if($showCustomRdpDropdown && strlen($customContinRdpSearch) > 0)
-                                        <div class="m-dropdown-results">
-                                            @foreach($this->continRdpChoices($customContinRdpSearch, $customContinRdpTypeFilter) as $series)
-                                                <div class="m-dropdown-row" wire:click="selectCustomContinRdpSeries({{ $series->id }})">
-                                                    <span>#{{ $series->item_number }} &bull; {{ $series->series_title }}</span>
+                                <div style="position: relative;" @click.outside="$wire.set('showCustomRdpDropdown', false)">
+                                    <input type="text"
+                                           class="m-field-input"
+                                           placeholder="Search series title or #..."
+                                           wire:model.live.debounce.150ms="customContinRdpSearch"
+                                           wire:focus="$set('showCustomRdpDropdown', true)">
+                                    @if($showCustomRdpDropdown)
+                                        <div class="m-dropdown-results" style="max-height: 240px; overflow-y: auto;">
+                                            @forelse($this->continRdpChoices($customContinRdpSearch, $customContinRdpTypeFilter) as $series)
+                                                <div class="m-dropdown-row"
+                                                     wire:click="selectCustomContinRdpSeries({{ $series->id }})"
+                                                     style="{{ $series->has_subsections ? 'background: #fffbeb;' : '' }}; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; cursor: pointer;">
+                                                    <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; flex-wrap: wrap;">
+                                                        <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 4px; padding: 1px 5px; font-size: 10px; font-weight: 700;">
+                                                            {{ $series->item_number ? '#' . $series->item_number : '—' }}
+                                                        </span>
+                                                        @if(!empty($series->parent_title))
+                                                            <span style="font-size: 11px; color: #64748b; font-weight: 500; white-space: nowrap;">{{ $series->parent_title }}</span>
+                                                            <span style="color: #059669; font-weight: 800; font-size: 10px;">➔</span>
+                                                        @endif
+                                                        <span style="font-weight: 600; color: #1e293b; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                            {{ $series->series_title }}
+                                                        </span>
+                                                        @if($series->has_subsections)
+                                                            <span style="font-size: 9px; font-weight: 700; background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; white-space: nowrap;">Subsections</span>
+                                                        @endif
+                                                    </div>
+                                                    <span style="font-size: 10px; color: #64748b; font-weight: 600; flex-shrink: 0;">{{ $series->shorted_type ?: '—' }}</span>
                                                 </div>
-                                            @endforeach
+                                            @empty
+                                                <div style="padding: 8px 10px; color: #94a3b8; font-size: 11px; font-style: italic; text-align: center;">No record series found</div>
+                                            @endforelse
                                         </div>
                                     @endif
                                 </div>

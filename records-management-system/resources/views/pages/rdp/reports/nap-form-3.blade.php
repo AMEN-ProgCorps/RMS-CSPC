@@ -1288,6 +1288,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             $groupPeriods = [];
             foreach ($group as $r) {
                 $rPeriods = $periods[$r->id] ?? collect();
+                $periodIndices = [];
+                foreach ($rPeriods->values() as $idx => $origP) {
+                    $periodIndices[$origP->id] = $idx + 1;
+                }
                 $isRecordBatch = (bool)($r->ispartof_batch ?? false) || $rPeriods->count() > 1;
 
                 if ($isRecordBatch) {
@@ -1310,8 +1314,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
                 foreach ($expiredP as $p) {
                     $groupPeriods[] = [
-                        'rec'    => $r,
-                        'period' => $p,
+                        'rec'            => $r,
+                        'period'         => $p,
+                        'original_index' => $periodIndices[$p->id] ?? 1,
                     ];
                 }
             }
@@ -1323,6 +1328,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             $isBatch = ($group->count() > 1) 
                 || count($groupPeriods) > 1 
                 || (bool)($firstRec->ispartof_batch ?? false);
+            $isNativeBatch = (bool)($firstRec->ispartof_batch ?? false);
 
             if (!$isBatch) {
                 // Single Record
@@ -1436,12 +1442,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
                     $rURows = ($utilities[$r->id] ?? collect())->pluck('utility_name')->all();
 
-                    $subTitle = $this->formatSubPeriodTitle(
-                        $primarySubject,
-                        $p->description ?? null,
-                        $pStart,
-                        $pEnd
-                    );
+                    if ($isNativeBatch) {
+                        $subTitle = !empty($p->description) 
+                            ? trim((string)$p->description) 
+                            : ($primarySubject . ' ' . ($gp['original_index'] ?? 1));
+                    } else {
+                        $subTitle = $this->formatSubPeriodTitle(
+                            $primarySubject,
+                            $p->description ?? null,
+                            $pStart,
+                            $pEnd,
+                            $gp['original_index'] ?? 1
+                        );
+                    }
 
                     $subVol = !empty($p->volume) ? $p->volume : (!empty($r->volume) ? $r->volume : '');
 
@@ -1466,8 +1479,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     ];
                 }
 
-                // Sort sub-periods descending (latest year/date on top, oldest at bottom)
-                usort($subPeriodItems, function($a, $b) {
+                // Sort sub-periods: native batches sort ascending (earliest to latest); merged batches sort descending (latest year on top)
+                usort($subPeriodItems, function($a, $b) use ($isNativeBatch) {
+                    if ($isNativeBatch) {
+                        return strcmp($a->raw_sort_date, $b->raw_sort_date);
+                    }
                     return strcmp($b->raw_sort_date, $a->raw_sort_date);
                 });
 

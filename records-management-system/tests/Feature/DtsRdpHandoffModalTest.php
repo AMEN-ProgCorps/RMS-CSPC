@@ -43,4 +43,12 @@ class DtsRdpHandoffModalTest extends TestCase
             ->call('closeModal')
             ->assertSet('isOpen', false);
     }
+
+    public function test_dts_received_documents_page_renders_without_import_button()
+    {
+        $comp = Volt::test('pages.rdp.received-documents.dts');
+        $comp->assertSee('Received Documents');
+        $comp->assertDontSee('Import from DTS');
+        $comp->assertDontSee('Pull from Document Tracking System');
+    }
 }

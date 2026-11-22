@@ -44,6 +44,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public string $rdpSeriesSearch = '';
     /** @var string Record series type filter ('' = all types) */
     public string $rdpSeriesTypeFilter = '';
+    public ?string $rdpSeriesError = null;
     /** @var array<int, array{id:int, type_name:string}> Record series types for the filter */
     public array $rdpSeriesTypes = [];
     public bool $dtsRequiredUploadFile = false;
@@ -748,6 +749,65 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     }
 
     /**
+     * Resolves hierarchy chain, root item number, full path, and whether it has subsections.
+     *
+     * @param int|object $series
+     * @return array{id: int, item_number: ?int, series_title: string, full_path: string, parent_title: ?string, has_subsections: bool, chain: array}|null
+     */
+    public function resolveSeriesHierarchy($series): ?array
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series')) {
+            return null;
+        }
+
+        if (is_numeric($series)) {
+            $series = \DB::table('rdp_record_series')->where('id', (int) $series)->first();
+        }
+        if (!$series) return null;
+
+        $chain = [];
+        $curr = $series;
+        $visited = [];
+        while ($curr && !in_array($curr->id, $visited, true)) {
+            $visited[] = $curr->id;
+            array_unshift($chain, $curr);
+            $curr = $curr->parent_id
+                ? \DB::table('rdp_record_series')->where('id', $curr->parent_id)->first()
+                : null;
+        }
+
+        $rootItemNumber = null;
+        foreach ($chain as $node) {
+            if (!empty($node->item_number)) {
+                $rootItemNumber = (int) $node->item_number;
+                break;
+            }
+        }
+        if ($rootItemNumber === null && !empty($series->item_number)) {
+            $rootItemNumber = (int) $series->item_number;
+        }
+
+        $titles = array_map(fn($n) => $n->series_title, $chain);
+        $fullPath = implode(' ➔ ', $titles);
+        $parentTitle = count($chain) > 1 ? $chain[count($chain) - 2]->series_title : null;
+
+        $hasSubsections = \DB::table('rdp_record_series')
+            ->where('parent_id', $series->id)
+            ->where('is_active', true)
+            ->exists();
+
+        return [
+            'id' => (int) $series->id,
+            'item_number' => $rootItemNumber,
+            'series_title' => $series->series_title,
+            'full_path' => $fullPath,
+            'parent_title' => $parentTitle,
+            'has_subsections' => $hasSubsections,
+            'chain' => $chain,
+        ];
+    }
+
+    /**
      * Searchable record series choices (search + type filtered) for the picker.
      * Same source as the RDP Record Series page and the flows details panels.
      */
@@ -757,25 +817,88 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             return collect();
         }
 
-        $query = \DB::table('rdp_record_series')
-            ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
-            ->where('rdp_record_series.is_active', true)
-            ->select('rdp_record_series.id', 'rdp_record_series.item_number', 'rdp_record_series.series_title', 'rdp_record_series_type.shorted_type');
-
         $term = trim($search);
+
+        $query = \DB::table('rdp_record_series as s')
+            ->leftJoin('rdp_record_series_type as t', 's.series_type', '=', 't.id')
+            ->leftJoin('rdp_record_series as p', 's.parent_id', '=', 'p.id')
+            ->where('s.is_active', true)
+            ->select([
+                's.id',
+                's.item_number',
+                's.series_title',
+                's.parent_id',
+                's.series_type',
+                't.shorted_type',
+                'p.series_title as direct_parent_title',
+                'p.item_number as direct_parent_item_number',
+            ]);
+
         if ($term !== '') {
-            // Match on series title or item number (typing digits filters by item no.).
-            $query->where(function ($q) use ($term) {
-                $q->where('rdp_record_series.series_title', 'ilike', '%' . $term . '%')
-                    ->orWhereRaw('CAST(rdp_record_series.item_number AS TEXT) ILIKE ?', ['%' . $term . '%']);
+            $matchedIds = \DB::table('rdp_record_series')
+                ->where('is_active', true)
+                ->where(function ($q) use ($term) {
+                    $q->where('series_title', 'ilike', '%' . $term . '%')
+                      ->orWhereRaw('CAST(item_number AS TEXT) ILIKE ?', ['%' . $term . '%']);
+                })
+                ->pluck('id')
+                ->toArray();
+
+            $query->where(function ($q) use ($term, $matchedIds) {
+                $q->where('s.series_title', 'ilike', '%' . $term . '%')
+                  ->orWhereRaw('CAST(s.item_number AS TEXT) ILIKE ?', ['%' . $term . '%'])
+                  ->orWhere('p.series_title', 'ilike', '%' . $term . '%')
+                  ->orWhereRaw('CAST(p.item_number AS TEXT) ILIKE ?', ['%' . $term . '%'])
+                  ->orWhere('t.shorted_type', 'ilike', '%' . $term . '%')
+                  ->orWhere('t.type_name', 'ilike', '%' . $term . '%');
+
+                if (!empty($matchedIds)) {
+                    $q->orWhereIn('s.parent_id', $matchedIds);
+                }
             });
         }
 
         if (trim($typeFilter) !== '') {
-            $query->where('rdp_record_series.series_type', (int) $typeFilter);
+            $tf = (int) $typeFilter;
+            $query->where(function ($q) use ($tf) {
+                $q->where('s.series_type', $tf)
+                  ->orWhere(function ($q2) use ($tf) {
+                      $q2->whereNull('s.series_type')->where('p.series_type', $tf);
+                  });
+            });
         }
 
-        return $query->orderBy('rdp_record_series.series_title', 'asc')->limit(15)->get();
+        $rawResults = $query->orderByRaw('COALESCE(p.series_title, s.series_title) ASC, s.parent_id ASC NULLS FIRST, s.series_title ASC')
+            ->limit(30)
+            ->get();
+
+        if ($rawResults->isEmpty()) {
+            return collect();
+        }
+
+        $ids = $rawResults->pluck('id')->toArray();
+        $parentCounts = \DB::table('rdp_record_series')
+            ->whereIn('parent_id', $ids)
+            ->where('is_active', true)
+            ->select('parent_id', \DB::raw('count(*) as c'))
+            ->groupBy('parent_id')
+            ->pluck('c', 'parent_id')
+            ->toArray();
+
+        return $rawResults->map(function ($row) use ($parentCounts) {
+            $hasSubs = !empty($parentCounts[$row->id]);
+            $hier = $this->resolveSeriesHierarchy($row);
+
+            $row->has_subsections = $hasSubs;
+            $row->full_path = $hier['full_path'] ?? $row->series_title;
+            $row->parent_title = $hier['parent_title'] ?? null;
+            $row->root_item_number = $hier['item_number'] ?? $row->item_number;
+            if (empty($row->item_number) && !empty($row->root_item_number)) {
+                $row->item_number = $row->root_item_number;
+            }
+
+            return $row;
+        });
     }
 
     /**
@@ -787,11 +910,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             return $this->rdpSeriesSearch;
         }
 
-        $itemNo = \DB::table('rdp_record_series')
-            ->where('id', (int) $this->rdpServerDefaultRecordSeries)
-            ->value('item_number');
+        $hier = $this->resolveSeriesHierarchy((int) $this->rdpServerDefaultRecordSeries);
+        if (!$hier) {
+            return $this->rdpSeriesSearch;
+        }
 
-        return ($itemNo !== null ? '#' . $itemNo . ' · ' : '') . $this->rdpSeriesSearch;
+        $itemNo = $hier['item_number'];
+        $title = !empty($hier['full_path']) ? $hier['full_path'] : $this->rdpSeriesSearch;
+
+        return ($itemNo !== null ? '#' . $itemNo . ' · ' : '') . $title;
     }
 
     /**
@@ -799,11 +926,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
      */
     public function selectRdpServerDefaultSeries(int $id): void
     {
-        $title = $this->rdpSeriesTitle($id);
-        if ($title === null) return;
+        $this->rdpSeriesError = null;
+
+        $series = \DB::table('rdp_record_series')->where('id', $id)->first();
+        if (!$series) return;
+
+        $hasSubsections = \DB::table('rdp_record_series')
+            ->where('parent_id', $id)
+            ->where('is_active', true)
+            ->exists();
+
+        if ($hasSubsections) {
+            $this->rdpSeriesError = "The record series '{$series->series_title}' contains subsections. Please select a specific subsection.";
+            $this->rdpSeriesSearch = $series->series_title;
+            return;
+        }
 
         $this->rdpServerDefaultRecordSeries = (string) $id;
-        $this->rdpSeriesSearch = $title;
+        $hier = $this->resolveSeriesHierarchy($id);
+        $this->rdpSeriesSearch = $hier['full_path'] ?? $series->series_title;
     }
 
     /**
@@ -813,6 +954,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     {
         $this->rdpServerDefaultRecordSeries = '';
         $this->rdpSeriesSearch = '';
+        $this->rdpSeriesError = null;
     }
 
     /**
@@ -820,6 +962,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
      */
     public function updatedRdpSeriesSearch(string $value): void
     {
+        $this->rdpSeriesError = null;
         if ($this->rdpServerDefaultRecordSeries === '') return;
 
         $title = $this->rdpSeriesTitle((int) $this->rdpServerDefaultRecordSeries);
@@ -841,9 +984,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             return null;
         }
 
-        $title = \DB::table('rdp_record_series')->where('id', $id)->value('series_title');
+        $hier = $this->resolveSeriesHierarchy($id);
+        if (!$hier) return null;
 
-        return $title === null ? null : trim((string) $title);
+        return $hier['full_path'];
     }
 
     /**
@@ -1298,6 +1442,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         'updated_at' => now(),
                     ]
                 );
+
+                if ($this->rdpServerDefaultRecordSeries !== '') {
+                    $hasSub = \DB::table('rdp_record_series')
+                        ->where('parent_id', (int) $this->rdpServerDefaultRecordSeries)
+                        ->where('is_active', true)
+                        ->exists();
+                    if ($hasSub) {
+                        $this->rdpSeriesError = "The selected record series contains subsections. Please select a specific subsection.";
+                        $this->errorMessage = $this->rdpSeriesError;
+                        return;
+                    }
+                }
 
                 \DB::table($sysTable)->updateOrInsert(
                     ['key' => 'rdp_server_default_record_series_id'],
@@ -3164,7 +3320,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                                            placeholder="None (no server default record series)"
                                            wire:model.live="rdpSeriesSearch"
                                            @focus="open = true">
-                                    @if($rdpServerDefaultRecordSeries !== '')
+                                    @if($rdpServerDefaultRecordSeries !== '' || $rdpSeriesSearch !== '')
                                         <button type="button"
                                                 wire:click="clearRdpServerDefaultSeries"
                                                 title="Clear (no server default)"
@@ -3172,17 +3328,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                                     @endif
                                 </div>
 
-                                <div x-show="open" class="suggestions-dropdown" style="display: none;">
+                                <div x-show="open" class="suggestions-dropdown" style="display: none; max-height: 280px; overflow-y: auto;">
                                     @php
                                         $serverDefaultSeriesChoices = $this->rdpSeriesChoices($rdpSeriesSearch, $rdpSeriesTypeFilter);
                                     @endphp
                                     @forelse($serverDefaultSeriesChoices as $serverSeriesOption)
                                         <div class="suggestion-item"
-                                             @click="open = false"
-                                             wire:click="selectRdpServerDefaultSeries({{ $serverSeriesOption->id }})">
-                                            <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700;">{{ $serverSeriesOption->item_number ?? '—' }}</span>
-                                            <span style="font-weight: 500; color: #1e293b; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $serverSeriesOption->series_title }}</span>
-                                            <span style="color: #64748b; font-weight: 600; font-size: 11px; white-space: nowrap;">{{ $serverSeriesOption->shorted_type ?: '—' }}</span>
+                                             @if(!$serverSeriesOption->has_subsections) @click="open = false" @endif
+                                             wire:click="selectRdpServerDefaultSeries({{ $serverSeriesOption->id }})"
+                                             style="{{ $serverSeriesOption->has_subsections ? 'background: #fffbeb;' : '' }}; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                            <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700;">{{ $serverSeriesOption->item_number ? '#' . $serverSeriesOption->item_number : '—' }}</span>
+                                            <div style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; overflow: hidden; flex-wrap: wrap;">
+                                                @if(!empty($serverSeriesOption->parent_title))
+                                                    <span style="font-weight: 500; color: #64748b; font-size: 12px; white-space: nowrap;">{{ $serverSeriesOption->parent_title }}</span>
+                                                    <span style="color: #059669; font-weight: 800; font-size: 11px;">➔</span>
+                                                @endif
+                                                <span style="font-weight: 600; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $serverSeriesOption->series_title }}</span>
+                                                @if($serverSeriesOption->has_subsections)
+                                                    <span style="font-size: 9.5px; font-weight: 700; background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; white-space: nowrap;">Subsections</span>
+                                                @endif
+                                            </div>
+                                            <span style="color: #64748b; font-weight: 600; font-size: 11px; white-space: nowrap; flex-shrink: 0;">{{ $serverSeriesOption->shorted_type ?: '—' }}</span>
                                         </div>
                                     @empty
                                         <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No record series found</div>
@@ -3200,13 +3366,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             </select>
                         </div>
 
+                        @if($rdpSeriesError)
+                            <div style="background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-circle-exclamation" style="flex-shrink: 0;"></i>
+                                    <span>{{ $rdpSeriesError }}</span>
+                                </div>
+                                <button type="button" wire:click="$set('rdpSeriesError', null)" style="border: none; background: none; color: inherit; font-size: 16px; cursor: pointer; line-height: 1; padding: 0 4px;">&times;</button>
+                            </div>
+                        @endif
+
                         @if($rdpServerDefaultRecordSeries !== '')
-                            <span style="font-size: 11.5px; color: #059669;">
+                            <span style="font-size: 11.5px; color: #059669; margin-top: 8px; display: flex; align-items: center; gap: 6px;">
                                 <i class="fa-solid fa-circle-check"></i>
-                                Selected: {{ $this->rdpSelectedLabel() }} — applied when you click Save All Settings.
+                                <span>Selected: <strong>{{ $this->rdpSelectedLabel() }}</strong> — applied when you click Save All Settings.</span>
                             </span>
                         @else
-                            <span style="font-size: 11.5px; color: #64748b;">
+                            <span style="font-size: 11.5px; color: #64748b; margin-top: 8px; display: block;">
                                 <i class="fa-solid fa-ban"></i>
                                 None — flows at "Server default" will send no record series.
                             </span>
